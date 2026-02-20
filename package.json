@@ -1,6 +1,6 @@
 {
   "name": "supersurf",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "private": true,
   "description": "MCP browser automation for autonomous AI agents",
   "license": "Apache-2.0",

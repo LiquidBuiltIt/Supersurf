@@ -1,6 +1,6 @@
 {
   "name": "supersurf-extension",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "private": true,
   "description": "SuperSurf Chrome extension for browser automation",
   "license": "Apache-2.0",
