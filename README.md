@@ -1,104 +1,104 @@
+<div align="center">
+
 # SuperSurf
 
 **MCP-native browser automation. Any agent. Any model. Real browser. Undetectable.**
 
-Currently in beta.
+[![npm version](https://img.shields.io/npm/v/supersurf-mcp?style=flat-square&color=cb3837&label=npm)](https://www.npmjs.com/package/supersurf-mcp)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![MCP](https://img.shields.io/badge/MCP-compatible-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
+[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions)
+[![Tools](https://img.shields.io/badge/30%2B-browser%20tools-FF6F00?style=flat-square)](https://github.com/h8ngryDev4Hire/Supersurf#tools)
 
-SuperSurf is an open-source MCP server that gives any AI agent control of a real Chrome browser. It works with any LLM that supports the [Model Context Protocol](https://modelcontextprotocol.io) — Claude, GPT, Gemini, open-source models, or your own.
+<br />
+
+```mermaid
+graph LR
+    A["AI Agent"] -->|stdio| B["MCP Server"]
+    B -->|WebSocket| C["Chrome Extension"]
+    C -->|Content Scripts| D["Browser"]
+
+    style A fill:#8A2BE2,stroke:#6A1B9A,color:#fff
+    style B fill:#339933,stroke:#1B5E20,color:#fff
+    style C fill:#4285F4,stroke:#1565C0,color:#fff
+    style D fill:#FF6F00,stroke:#E65100,color:#fff
+```
+
+<br />
+
+SuperSurf is an open-source MCP server that gives any AI agent control of a real Chrome browser.<br />
+It works with any LLM that supports the [Model Context Protocol](https://modelcontextprotocol.io) — Claude, GPT, Gemini, open-source models, or your own.
 
 Unlike tools that spin up headless browsers or inject CDP scripts, SuperSurf uses a Chrome extension to interact with pages through content scripts. Your agent operates in a real browser profile with your cookies, history, and localStorage intact — and page JavaScript can't detect it.
 
-## Table of Contents
+</div>
 
-- [Features](#features)
-- [Why SuperSurf over Puppeteer/Selenium?](#why-supersurf-over-puppeteerselenium)
-- [How It Works](#how-it-works)
-- [Prerequisites](#prerequisites)
-- [Setup](#setup)
-  - [Load the Extension](#load-the-extension)
-  - [Register the MCP Server](#register-the-mcp-server)
-- [Usage](#usage)
-  - [Tools](#tools)
-  - [Experimental Features](#experimental-features)
-- [Server CLI Flags](#server-cli-flags)
-- [Why Extension-Based?](#why-extension-based)
-- [License](#license)
+---
 
-## Features
+## Why SuperSurf?
 
-- **Undetectable DOM interaction** — All page interaction runs through Chrome's content script context. No CDP fingerprints, no VM script artifacts, nothing for page JavaScript to observe.
-- **Real browser profile** — Your agent browses with your actual cookies, history, localStorage, and extensions. No sterile headless environment that screams "bot."
-- **Secure credential handling** — `secure_fill` injects passwords from environment variables directly in the extension. The agent sends an env var *name*, never the value. Characters are typed with randomized delays to mimic human input.
-- **30+ browser tools via MCP** — Full coverage: navigation, interaction, screenshots, network monitoring, console access, form filling, CSS inspection, PDF export, performance metrics, file downloads.
-- **Session multiplexing** (experimental) — Multiple MCP clients share one browser. A leader/follower architecture with tab ownership tracking and round-robin scheduling keeps sessions isolated.
-- **Framework detection** — Content script identifies 40+ frontend frameworks and libraries on any page, giving the agent context about what it's working with.
-- **CI-ready** — Sideload the extension with `--load-extension` and a throwaway profile. No manual setup needed for automation pipelines.
-- **Domain whitelist** — Optional navigation restriction using the Tranco top 100K list. When enabled, automated navigation is limited to known-legitimate domains. Fetched once, cached locally, refreshed daily. Disabled by default, toggled via popup settings.
-- **Zero extension dependencies** — The Chrome extension uses browser APIs only. No bundled libraries, no supply chain surface.
+<table>
+<tr>
+<td width="33%">
 
-## Why SuperSurf over Puppeteer/Selenium?
+### vs. Puppeteer
+CDP over pipe — detectable via `navigator.webdriver`, CDP leak, and `Runtime.evaluate` VM artifacts. Fresh profile by default. Credentials pass through your script in plaintext. One connection per browser.
 
-| | SuperSurf | Puppeteer | Selenium |
-|---|---|---|---|
-| **Detection surface** | Content scripts (isolated + invisible to webpage JS) | CDP over pipe — detectable via `navigator.webdriver`, CDP leak, `Runtime.evaluate` VM artifacts | WebDriver protocol — `navigator.webdriver` flag, predictable DOM mutation patterns |
-| **Browser profile** | Your real profile (cookies, history, extensions, localStorage) | Fresh profile by default. Can reuse a data dir, but launch flags (`--remote-debugging-*`) are detectable | Fresh profile. Can load a custom one, but WebDriver flags persist |
-| **Credential security** | Agent never sees raw values — env var resolved extension-side | Credentials pass through your script in plaintext | Credentials pass through your script in plaintext |
-| **Anti-bot posture** | Extension presence is a human signal. No suspicious launch flags | Headless Chrome is increasingly blocked. Stealth plugins are a cat-and-mouse game | Widely fingerprinted. Most commercial anti-bot systems flag it immediately |
-| **Multi-agent** | Built-in multiplexing — multiple MCP clients share one browser with tab isolation | One connection per browser. Sharing requires custom orchestration | Grid supports parallelism, but each session gets its own browser |
-| **Designed for** | AI agents via MCP | Scripted automation | Scripted testing |
+</td>
+<td width="33%">
 
-Puppeteer and Selenium are great tools for scripted automation and testing. SuperSurf solves a different problem: giving an AI agent a browser that looks and behaves like a human's, with an MCP interface designed for tool-calling LLMs rather than imperative scripts.
+### vs. Selenium
+WebDriver protocol — `navigator.webdriver` flag, predictable DOM mutation patterns. Fresh profile. Credentials in plaintext. Widely fingerprinted by commercial anti-bot systems.
 
-## How It Works
+</td>
+<td width="33%">
 
-```
-AI Agent  -->  MCP Server (stdio)  -->  WebSocket  -->  Chrome Extension  -->  Browser
-```
+### SuperSurf
+Content scripts in an isolated world — **invisible to page JS**. Your real browser profile. Credentials resolved extension-side from env vars — **agent never sees raw values**. Built-in multi-agent multiplexing.
 
-The MCP server runs locally and communicates with the Chrome extension over a WebSocket on `localhost:5555`. The extension handles all DOM interaction through content scripts (isolated world, invisible to page JS). CDP is only used for screenshots, network interception, and PDF export.
+</td>
+</tr>
+</table>
 
-### Project Structure
+> Puppeteer and Selenium are great tools for scripted automation and testing. SuperSurf solves a different problem: giving an AI agent a browser that looks and behaves like a human's.
 
-```
-supersurf/
-  server/
-    src/           # MCP server source (TypeScript)
-    dist/          # MCP server (Node.js)
-  extension/
-    src/           # Extension source (TypeScript)
-    dist/          # Chrome extension (Manifest V3)
-    manifest.json
-  scripts/
-    version.bump.ts  # Monorepo version bumping + git tag
-```
+---
 
-## Prerequisites
+## Why Extension-Based?
 
-- Node.js >= 18
-- Chrome or Chromium
-- An MCP client (Claude Code, Claude Desktop, etc.)
+> [!IMPORTANT]
+> CDP-injected scripts appear as VM instances in memory profiling. Content scripts run in an **isolated world** that page JavaScript cannot observe. SuperSurf never touches the page's JS context for DOM interaction.
 
-## Setup
+**Real browser profile.** No synthetic launch flags, no blank profile. Your agent browses with the same cookies, history, and extensions as a human user.
+
+**Extension presence is a human signal.** Anti-bot systems check for installed extensions as evidence of a real user. A browser with zero extensions is suspicious.
+
+> [!TIP]
+> SuperSurf is CI-compatible out of the box. Sideload without user interaction:
+> ```bash
+> chrome --load-extension=./extension --user-data-dir=/tmp/supersurf-profile
+> ```
+
+---
+
+## Quick Start
 
 ```bash
+# 1. Install dependencies
 npm install
+
+# 2. Load the Chrome extension
+#    chrome://extensions → Developer mode → Load unpacked → select extension/ directory
+
+# 3. Register with your MCP client
+claude mcp add supersurf -- npx supersurf-mcp@latest  # Claude Code
 ```
 
-### Load the Extension
+<details>
+<summary><strong>Claude Desktop config</strong></summary>
 
-1. Open `chrome://extensions` in Chrome
-2. Enable **Developer mode** (top right)
-3. Click **Load unpacked**
-4. Select the `extension/` directory (not `extension/dist/`)
-
-### Register the MCP Server
-
-**Claude Code:**
-```bash
-claude mcp add supersurf -- npx supersurf-mcp@latest
-```
-
-**Claude Desktop** — add to your MCP config:
 ```json
 {
   "mcpServers": {
@@ -122,23 +122,44 @@ CLI flags can be appended to the args array:
 }
 ```
 
-**From source** (for development):
+</details>
+
+<details>
+<summary><strong>From source (development)</strong></summary>
+
 ```bash
 npm run mcp
 # or manually:
 claude mcp add supersurf -- node server/dist/cli.js
 ```
 
-## Usage
+</details>
 
-Once the MCP server is registered, your agent has access to browser tools. The typical flow:
+---
 
-1. Agent calls `enable` to start the WebSocket server
-2. The extension auto-connects
-3. Agent uses `browser_tabs` to open/attach to a tab
-4. Agent interacts with the page using the tools below
+## Features
 
-### Tools
+| | |
+|---|---|
+| **Undetectable DOM interaction** | All page interaction runs through Chrome's content script context. No CDP fingerprints, no VM script artifacts, nothing for page JavaScript to observe. |
+| **Real browser profile** | Your agent browses with your actual cookies, history, localStorage, and extensions. No sterile headless environment. |
+| **Secure credential handling** | `secure_fill` injects passwords from environment variables directly in the extension. The agent sends an env var *name*, never the value. |
+| **30+ browser tools** | Full coverage: navigation, interaction, screenshots, network monitoring, console access, form filling, CSS inspection, PDF export, performance metrics, file downloads. |
+| **Session multiplexing** | Multiple MCP clients share one browser. Leader/follower architecture with tab ownership tracking and round-robin scheduling. |
+| **Framework detection** | Content script identifies 40+ frontend frameworks and libraries on any page. |
+| **CI-ready** | Sideload the extension with `--load-extension` and a throwaway profile. No manual setup needed. |
+| **Domain whitelist** | Optional navigation restriction using the Tranco top 100K list. Fetched once, cached locally, refreshed daily. |
+| **Zero extension deps** | The Chrome extension uses browser APIs only. No bundled libraries, no supply chain surface. |
+
+> [!NOTE]
+> **Credentials never reach the agent.** `secure_fill` resolves env var values extension-side and types characters with randomized delays (40-120ms) to mimic human input. Your agent sends `"GITHUB_PASSWORD"`, not the password itself.
+
+---
+
+## Tools
+
+<details>
+<summary><strong>Session Management</strong></summary>
 
 | Tool | Description |
 |------|-------------|
@@ -146,84 +167,129 @@ Once the MCP server is registered, your agent has access to browser tools. The t
 | `disable` | Stop browser automation session |
 | `status` | Show connection state |
 | `experimental_features` | Toggle experimental features |
+
+</details>
+
+<details>
+<summary><strong>Navigation & Tabs</strong></summary>
+
+| Tool | Description |
+|------|-------------|
 | `browser_tabs` | List, create, attach, or close tabs |
 | `browser_navigate` | Go to URL, back, forward, reload |
+| `browser_window` | Resize, close, minimize, maximize |
+
+</details>
+
+<details>
+<summary><strong>Page Interaction</strong></summary>
+
+| Tool | Description |
+|------|-------------|
 | `browser_interact` | Click, type, press keys, hover, scroll, wait, select, upload files |
+| `browser_fill_form` | Set values on multiple form fields at once |
+| `browser_drag` | Drag one element to another |
+| `browser_handle_dialog` | Accept or dismiss alerts/confirms/prompts |
+| `secure_fill` | Fill a field with a credential from an env var (agent never sees the value) |
+
+</details>
+
+<details>
+<summary><strong>Content & Inspection</strong></summary>
+
+| Tool | Description |
+|------|-------------|
 | `browser_snapshot` | Get the page's accessibility tree as structured DOM |
 | `browser_lookup` | Find elements by visible text, returns CSS selectors |
 | `browser_extract_content` | Pull page content as clean markdown |
 | `browser_get_element_styles` | Inspect computed CSS like DevTools Styles panel |
-| `browser_take_screenshot` | Capture viewport, full page, element, or region |
 | `browser_evaluate` | Run JavaScript in page context |
-| `browser_console_messages` | Read console output, filter by level/text/URL |
-| `browser_fill_form` | Set values on multiple form fields at once |
-| `browser_drag` | Drag one element to another |
-| `browser_window` | Resize, close, minimize, maximize |
 | `browser_verify_text_visible` | Assert text is visible on page |
 | `browser_verify_element_visible` | Assert element is visible on page |
-| `browser_network_requests` | Monitor/inspect/replay network traffic |
+
+</details>
+
+<details>
+<summary><strong>Capture & Monitoring</strong></summary>
+
+| Tool | Description |
+|------|-------------|
+| `browser_take_screenshot` | Capture viewport, full page, element, or region |
 | `browser_pdf_save` | Export page as PDF |
-| `browser_handle_dialog` | Accept or dismiss alerts/confirms/prompts |
-| `browser_list_extensions` | List installed Chrome extensions |
-| `browser_reload_extensions` | Reload unpacked extensions |
+| `browser_console_messages` | Read console output, filter by level/text/URL |
+| `browser_network_requests` | Monitor/inspect/replay network traffic |
 | `browser_performance_metrics` | Collect Web Vitals (FCP, LCP, CLS, TTFB) |
 | `browser_download` | Download a file via the browser |
-| `secure_fill` | Fill a field with a credential from an env var (agent never sees the value) |
-| `browser_storage` | Inspect and modify localStorage/sessionStorage (requires `storage_inspection` experiment) |
-| `reload_mcp` | Hot-reload the MCP server (debug mode only) |
 
-### Experimental Features
+</details>
 
-Experimental features can be enabled via the `SUPERSURF_EXPERIMENTS` environment variable:
+<details>
+<summary><strong>Extensions & Storage</strong></summary>
+
+| Tool | Description |
+|------|-------------|
+| `browser_list_extensions` | List installed Chrome extensions |
+| `browser_reload_extensions` | Reload unpacked extensions |
+| `browser_storage` | Inspect/modify localStorage & sessionStorage *(requires `storage_inspection` experiment)* |
+| `reload_mcp` | Hot-reload the MCP server *(debug mode only)* |
+
+</details>
+
+---
+
+## Experimental Features
+
+Toggle via the `experimental_features` tool or the `SUPERSURF_EXPERIMENTS` environment variable:
 
 ```bash
 SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization
 ```
 
-Session-based features can be toggled with the `experimental_features` tool:
+| Experiment | Description |
+|------------|-------------|
+| **page_diffing** | After interactions, returns only DOM changes instead of a full re-read. Includes a confidence score. |
+| **smart_waiting** | Replaces fixed delays with adaptive DOM stability + network idle detection. |
+| **storage_inspection** | Inspect and modify browser storage (localStorage, sessionStorage). |
+| **mouse_humanization** | Human-like Bezier trajectories, overshoot correction, and idle micro-movements. Hand-tuned from the Balabit Mouse Dynamics dataset. |
+| **secure_eval** | Two-layer code analysis for `browser_evaluate`. Server-side AST parsing + extension-side Proxy membrane that blocks dangerous API access before execution. |
+| **multiplexer** | Session multiplexing for concurrent MCP clients. Leader/follower architecture with tab ownership. *(env var only)* |
 
-- **page_diffing** — After interactions, returns only DOM changes instead of a full re-read. Includes a confidence score.
-- **smart_waiting** — Replaces fixed delays with adaptive DOM stability + network idle detection.
-- **storage_inspection** — Inspect and modify browser storage (localStorage, sessionStorage).
-- **mouse_humanization** — Replaces instant cursor teleportation with human-like Bezier trajectories, overshoot correction, and idle micro-movements. Uses hand-tuned constants from the Balabit Mouse Dynamics dataset.
-- **secure_eval** — Two-layer code analysis for `browser_evaluate`. Layer 1 (server): AST parsing via acorn to detect dangerous patterns (network calls, storage access, code injection, obfuscation). Layer 2 (extension): deep Proxy membrane that executes code against fake API surfaces — if blocked terminals (fetch, eval, localStorage, etc.) are reached, execution is stopped before it hits the real page.
-
-Infrastructure experiments (not session-toggleable, env var only):
-
-- **multiplexer** — Session multiplexing for concurrent MCP clients. One instance acts as the leader (owns the extension connection), others connect as followers and proxy commands through it. Includes tab ownership tracking and round-robin scheduling across sessions.
+---
 
 ## Server CLI Flags
 
 | Flag | Description |
 |------|-------------|
-| `--debug` | Verbose logging + hot reload. Logs truncated by default. |
-| `--debug=no_truncate` | Full-verbosity debug mode — no payload truncation. |
-| `--port <n>` | WebSocket port (default: 5555) |
+| `--debug` | Verbose logging + hot reload (payloads truncated by default) |
+| `--debug=no_truncate` | Full-verbosity debug — no payload truncation |
+| `--port <n>` | WebSocket port (default: `5555`) |
 | `--log-file <path>` | Custom server log file path |
 | `--script-mode` | JSON-RPC over stdio without MCP framing |
 
-### Debug Logging
+<details>
+<summary><strong>Debug log locations</strong></summary>
 
-When `--debug` is enabled, logs are written to:
+- **Server log:** `~/.supersurf/logs/server.log`
+- **Session logs:** `~/.supersurf/logs/sessions/supersurf-debug-{client_id}-{timestamp}.log`
 
-- **Server log:** `~/.supersurf/logs/server.log` — startup, connection lifecycle, all WS traffic
-- **Session logs:** `~/.supersurf/logs/sessions/supersurf-debug-{client_id}-{timestamp}.log` — created per `enable` call, closed on `disable`
+All WebSocket commands log params and responses. CDP passthrough unwraps to show inner methods. Base64 payloads (screenshots, PDFs) are auto-redacted in truncated mode.
 
-All outgoing/incoming WebSocket commands log their params and responses. CDP passthrough commands unwrap to show the inner method (e.g., `→ forwardCDPCommand: Input.dispatchMouseEvent { ... }`). Base64 payloads (screenshots, PDFs) are automatically redacted in truncated mode.
+</details>
 
-## Why Extension-Based?
+---
 
-**Content scripts are invisible.** CDP-injected scripts appear as VM instances in memory profiling. Content scripts run in an isolated world that page JavaScript cannot observe.
+## Prerequisites
 
-**Real browser profile.** No synthetic launch flags, no blank profile. Your agent browses with the same cookies, history, and extensions as a human user.
+- **Node.js** >= 18
+- **Chrome** or Chromium
+- An **MCP client** (Claude Code, Claude Desktop, etc.)
 
-**Extension presence is a human signal.** Anti-bot systems check for installed extensions as evidence of a real user. A browser with zero extensions is suspicious.
+---
 
-**CI-compatible.** The extension can be sideloaded without user interaction:
-```bash
-chrome --load-extension=./extension --user-data-dir=/tmp/supersurf-profile
-```
+<div align="center">
 
-## License
+**Apache-2.0 with Commons Clause** — free to use, modify, and redistribute, but not to sell.
 
-Apache-2.0 with Commons Clause — free to use, modify, and redistribute, but not to sell.
+Built by [The Media Masons](https://github.com/h8ngryDev4Hire)
+
+</div>
