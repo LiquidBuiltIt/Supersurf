@@ -43,6 +43,22 @@ export function buildMembrane(blocked = BLOCKED_TERMINALS) {
                 // Intermediate calls (e.g. querySelector()) return another proxy
                 return makeProxy(path);
             },
+            ownKeys(_target) {
+                // Only expose 'prototype' (required by Proxy invariant for function targets)
+                return ['prototype'];
+            },
+            getOwnPropertyDescriptor(_target, prop) {
+                if (typeof prop === 'symbol')
+                    return undefined;
+                // Delegate 'prototype' to real target (non-configurable — Proxy invariant)
+                if (prop === 'prototype')
+                    return Object.getOwnPropertyDescriptor(_target, prop);
+                const fullPath = path ? `${path}.${prop}` : prop;
+                if (blocked.has(prop)) {
+                    throw new Error(`[secure_eval:membrane] Blocked: ${fullPath}`);
+                }
+                return { configurable: true, enumerable: true, value: makeProxy(fullPath) };
+            },
         });
     }
     return makeProxy();

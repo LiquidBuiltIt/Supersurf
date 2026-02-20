@@ -97,26 +97,27 @@ const BLOCKED_PATTERNS: BlockedPattern[] = [
     reason: 'Blocked API call via this',
   },
 
-  // Object.getOwnPropertyDescriptor — descriptor extraction bypass
+  // Object.getOwnPropertyDescriptor(s) — descriptor extraction bypass
   {
     nodeType: 'CallExpression',
     matcher: (node) =>
-      isMemberCall(node.callee, 'Object', 'getOwnPropertyDescriptor'),
-    reason: 'Property descriptor extraction (Object.getOwnPropertyDescriptor)',
+      isMemberCall(node.callee, 'Object', 'getOwnPropertyDescriptor') ||
+      isMemberCall(node.callee, 'Object', 'getOwnPropertyDescriptors'),
+    reason: 'Property descriptor extraction (Object.getOwnPropertyDescriptor/s)',
   },
 
-  // Iframe creation — contentWindow escape hatch
+  // Iframe/script creation — contentWindow escape hatch / inline code execution
   {
     nodeType: 'CallExpression',
     matcher: (node) => {
       if (!isMemberCall(node.callee, 'document', 'createElement')) return false;
       const arg = node.arguments?.[0];
       if (arg?.type === 'Literal' && typeof arg.value === 'string') {
-        return arg.value.toLowerCase() === 'iframe';
+        return ['iframe', 'script'].includes(arg.value.toLowerCase());
       }
       return false;
     },
-    reason: 'Iframe creation blocked (contentWindow provides unproxied global access)',
+    reason: 'Blocked element creation (iframe/script — unproxied global access or inline code execution)',
   },
 
   // Obfuscation primitives
@@ -138,7 +139,8 @@ const BLOCKED_PATTERNS: BlockedPattern[] = [
         ['setTimeout', 'setInterval'].includes(callee.name)
       ) {
         const firstArg = node.arguments?.[0];
-        return firstArg?.type === 'Literal' && typeof firstArg.value === 'string';
+        return (firstArg?.type === 'Literal' && typeof firstArg.value === 'string') ||
+          firstArg?.type === 'TemplateLiteral';
       }
       return false;
     },
@@ -159,6 +161,15 @@ const BLOCKED_PATTERNS: BlockedPattern[] = [
     nodeType: 'CallExpression',
     matcher: (node) => isMemberCall(node.callee, 'navigator', 'sendBeacon'),
     reason: 'Network exfiltration via navigator.sendBeacon',
+  },
+
+  // Navigation hijack — location.assign() / location.replace()
+  {
+    nodeType: 'CallExpression',
+    matcher: (node) =>
+      isMemberCall(node.callee, 'location', 'assign') ||
+      isMemberCall(node.callee, 'location', 'replace'),
+    reason: 'Navigation hijack (location.assign / location.replace)',
   },
 
   // Storage access
@@ -260,13 +271,14 @@ const BLOCKED_PATTERNS: BlockedPattern[] = [
     nodeType: 'NewExpression',
     matcher: (node) => {
       if (node.callee?.type === 'Identifier') {
-        return ['Function', 'WebSocket', 'XMLHttpRequest', 'EventSource'].includes(
-          node.callee.name
-        );
+        return [
+          'Function', 'WebSocket', 'XMLHttpRequest', 'EventSource', 'Image',
+          'Worker', 'SharedWorker', 'RTCPeerConnection',
+        ].includes(node.callee.name);
       }
       return false;
     },
-    reason: 'Dangerous constructor (Function / WebSocket / XMLHttpRequest / EventSource)',
+    reason: 'Dangerous constructor (network/code execution escape)',
   },
 
   // Import expressions
@@ -281,6 +293,15 @@ const BLOCKED_PATTERNS: BlockedPattern[] = [
     nodeType: 'TaggedTemplateExpression',
     matcher: (node) => isMemberCall(node.tag, 'String', 'raw'),
     reason: 'String obfuscation primitive (String.fromCharCode / String.raw)',
+  },
+
+  // javascript: protocol in string literals — XSS vector
+  {
+    nodeType: 'Literal',
+    matcher: (node) =>
+      typeof node.value === 'string' &&
+      node.value.trimStart().toLowerCase().startsWith('javascript:'),
+    reason: 'javascript: protocol string literal (XSS vector)',
   },
 ];
 
@@ -352,6 +373,15 @@ export function analyzeCode(code: string): AnalysisResult {
         }
       }
     },
+    Literal(node: any, _state: any, ancestors: any[]) {
+      if (violation) return;
+      for (const pattern of BLOCKED_PATTERNS) {
+        if (pattern.nodeType === 'Literal' && pattern.matcher(node, ancestors)) {
+          violation = { safe: false, reason: pattern.reason };
+          return;
+        }
+      }
+    },
   });
 
   return violation ?? { safe: true };
@@ -361,15 +391,17 @@ export function analyzeCode(code: string): AnalysisResult {
 
 const PAGE_BLOCKED = [
   'fetch', 'eval', 'atob', 'btoa', 'Function',
-  'WebSocket', 'XMLHttpRequest', 'EventSource',
+  'WebSocket', 'XMLHttpRequest', 'EventSource', 'Image',
+  'Worker', 'SharedWorker', 'RTCPeerConnection',
   'importScripts', 'open',
   'localStorage', 'sessionStorage',
 ];
 
 // Properties blocked on sub-objects (document.cookie, navigator.sendBeacon, etc.)
 const SUB_OBJECT_RULES: Record<string, { blocked: string[]; aliases: Record<string, string> }> = {
-  document: { blocked: ['cookie'], aliases: { defaultView: '__proxy' } },
+  document: { blocked: ['cookie', 'write', 'writeln'], aliases: { defaultView: '__proxy' } },
   navigator: { blocked: ['sendBeacon'], aliases: {} },
+  location: { blocked: ['assign', 'replace'], aliases: {} },
 };
 
 /**
@@ -418,7 +450,21 @@ export function wrapWithPageProxy(code: string): string {
       }
       return v;
     },
-    has: function() { return true; }
+    has: function() { return true; },
+    getOwnPropertyDescriptor: function(t, p) {
+      if (typeof p === 'string' && __blocked.has(p)) {
+        return { configurable: true, enumerable: false, get: function() {
+          throw new Error('[secure_eval] Blocked: ' + p);
+        }};
+      }
+      if (typeof p === 'string' && __globalAliases.has(p)) {
+        return { configurable: true, enumerable: true, value: __proxy };
+      }
+      return Object.getOwnPropertyDescriptor(t, p);
+    },
+    ownKeys: function(t) {
+      return Reflect.ownKeys(t);
+    }
   });
   with(__proxy) {
     return (function() { "use strict";

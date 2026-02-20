@@ -7,8 +7,10 @@
 const BLOCKED_TERMINALS = new Set([
   'fetch', 'eval', 'atob', 'btoa',
   'localStorage', 'sessionStorage',
-  'Function', 'WebSocket', 'XMLHttpRequest', 'EventSource',
+  'Function', 'WebSocket', 'XMLHttpRequest', 'EventSource', 'Image',
+  'Worker', 'SharedWorker', 'RTCPeerConnection',
   'sendBeacon', 'cookie', 'importScripts', 'open', 'defaultView',
+  'write', 'writeln', 'assign', 'replace',
 ]);
 
 /**
@@ -42,6 +44,20 @@ export function buildMembrane(blocked: Set<string> = BLOCKED_TERMINALS): object 
       apply(_target, _thisArg, _args) {
         // Intermediate calls (e.g. querySelector()) return another proxy
         return makeProxy(path);
+      },
+      ownKeys(_target) {
+        // Only expose 'prototype' (required by Proxy invariant for function targets)
+        return ['prototype'];
+      },
+      getOwnPropertyDescriptor(_target, prop) {
+        if (typeof prop === 'symbol') return undefined;
+        // Delegate 'prototype' to real target (non-configurable — Proxy invariant)
+        if (prop === 'prototype') return Object.getOwnPropertyDescriptor(_target, prop);
+        const fullPath = path ? `${path}.${prop}` : prop;
+        if (blocked.has(prop)) {
+          throw new Error(`[secure_eval:membrane] Blocked: ${fullPath}`);
+        }
+        return { configurable: true, enumerable: true, value: makeProxy(fullPath) };
       },
     });
   }
