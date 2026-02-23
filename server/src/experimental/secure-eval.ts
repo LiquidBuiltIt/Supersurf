@@ -1,17 +1,39 @@
 /**
- * Secure Eval — AST-based analysis for browser_evaluate code.
- * Blocks dangerous patterns (network calls, storage access, code injection,
- * obfuscation) before code reaches the extension.
+ * Secure Eval — AST-based static analysis for browser_evaluate code safety.
+ *
+ * Two-layer defense:
+ * 1. **Server-side AST analysis** ({@link analyzeCode}): Parses code with acorn,
+ *    walks the AST, and matches against a blocklist of dangerous patterns
+ *    (network calls, storage access, code injection, obfuscation, prototype walking).
+ *    Blocks code before it ever reaches the extension.
+ *
+ * 2. **Page-context Proxy wrapper** ({@link wrapWithPageProxy}): Wraps user code
+ *    in a `with(proxy)` IIFE that intercepts blocked API access at runtime. Acts as
+ *    Layer 3 defense (Layer 2 is the extension-side membrane in secure-eval/).
+ *    Uses sloppy-mode outer for `with` statement, strict-mode inner for user code.
+ *
+ * @module experimental/secure-eval
+ *
+ * Key exports:
+ * - {@link analyzeCode} — static AST analysis, returns safe/blocked + reason
+ * - {@link wrapWithPageProxy} — runtime Proxy wrapper for page-context execution
+ * - {@link AnalysisResult} — analysis outcome type
  */
 
 import * as acorn from 'acorn';
 import * as walk from 'acorn-walk';
 
+/** Result of static code analysis — safe to execute or blocked with a reason. */
 export interface AnalysisResult {
   safe: boolean;
   reason?: string;
 }
 
+/**
+ * A single blocked pattern definition.
+ * Each pattern targets a specific AST node type and uses a matcher function
+ * to inspect the node (and its ancestor chain) for dangerous constructs.
+ */
 interface BlockedPattern {
   nodeType: string;
   matcher: (node: any, ancestors: any[]) => boolean;
@@ -20,10 +42,12 @@ interface BlockedPattern {
 
 // ── Helpers ──────────────────────────────────────────────────
 
+/** Check if a node is an Identifier with the given name. */
 function isIdentifier(node: any, name: string): boolean {
   return node?.type === 'Identifier' && node.name === name;
 }
 
+/** Check if a callee is a non-computed member expression like `obj.prop`. */
 function isMemberCall(callee: any, obj: string, prop: string): boolean {
   return (
     callee?.type === 'MemberExpression' &&
@@ -147,13 +171,16 @@ const BLOCKED_PATTERNS: BlockedPattern[] = [
     reason: 'setTimeout/setInterval with string argument (implicit eval)',
   },
 
-  // Reflection
+  // Reflection — block all Reflect.* usage
   {
     nodeType: 'CallExpression',
-    matcher: (node) =>
-      isMemberCall(node.callee, 'Reflect', 'get') ||
-      isMemberCall(node.callee, 'Reflect', 'apply'),
-    reason: 'Reflection API (Reflect.get / Reflect.apply)',
+    matcher: (node) => {
+      const c = node.callee;
+      return c?.type === 'MemberExpression' &&
+        c.object?.type === 'Identifier' &&
+        c.object.name === 'Reflect';
+    },
+    reason: 'Reflection API (Reflect.*)',
   },
 
   // Network beacon
@@ -307,6 +334,19 @@ const BLOCKED_PATTERNS: BlockedPattern[] = [
 
 // ── Analyzer ─────────────────────────────────────────────────
 
+/**
+ * Statically analyze JavaScript code for dangerous patterns.
+ *
+ * Parses with acorn in permissive mode (latest ECMAScript, module source type,
+ * allow top-level return/await). Walks the AST with acorn-walk's ancestor
+ * traversal to match against BLOCKED_PATTERNS. Returns on first violation.
+ *
+ * Unparseable code is considered safe — let Runtime.evaluate surface its own
+ * syntax errors rather than blocking potentially valid code.
+ *
+ * @param code - JavaScript source code to analyze
+ * @returns Analysis result: safe=true or safe=false with a reason string
+ */
 export function analyzeCode(code: string): AnalysisResult {
   if (!code || !code.trim()) {
     return { safe: true };
@@ -389,6 +429,7 @@ export function analyzeCode(code: string): AnalysisResult {
 
 // ── Page-context Proxy wrapper (Layer 3) ────────────────────
 
+/** Global APIs blocked from user code at runtime via the Proxy wrapper. */
 const PAGE_BLOCKED = [
   'fetch', 'eval', 'atob', 'btoa', 'Function',
   'WebSocket', 'XMLHttpRequest', 'EventSource', 'Image',
@@ -397,7 +438,11 @@ const PAGE_BLOCKED = [
   'localStorage', 'sessionStorage',
 ];
 
-// Properties blocked on sub-objects (document.cookie, navigator.sendBeacon, etc.)
+/**
+ * Per-object property rules for sub-objects of the global scope.
+ * `blocked` lists properties that throw on access.
+ * `aliases` maps property names to replacement values (e.g. document.defaultView -> proxy).
+ */
 const SUB_OBJECT_RULES: Record<string, { blocked: string[]; aliases: Record<string, string> }> = {
   document: { blocked: ['cookie', 'write', 'writeln'], aliases: { defaultView: '__proxy' } },
   navigator: { blocked: ['sendBeacon'], aliases: {} },
@@ -406,8 +451,20 @@ const SUB_OBJECT_RULES: Record<string, { blocked: string[]; aliases: Record<stri
 
 /**
  * Wrap user code in a page-context Proxy that intercepts blocked API access.
- * Sloppy-mode outer for `with`, strict-mode inner for the user code.
  * Returns a self-contained IIFE string ready for Runtime.evaluate.
+ *
+ * Architecture of the generated code:
+ * - Creates a Proxy around `window` that intercepts all property access
+ * - Global aliases (window, globalThis, self, etc.) redirect back to the proxy
+ * - Sub-objects (document, navigator, location) get their own Proxy wrappers
+ *   with per-object blocked properties and alias rules
+ * - `has()` always returns true so `with(proxy)` captures every name lookup
+ * - `getOwnPropertyDescriptor` returns throwing getters for blocked props
+ * - Outer function is sloppy-mode (required for `with` statement)
+ * - Inner function is strict-mode for the user code
+ *
+ * @param code - Raw JavaScript to wrap
+ * @returns Self-contained IIFE string for Runtime.evaluate
  */
 export function wrapWithPageProxy(code: string): string {
   const blockedJSON = JSON.stringify(PAGE_BLOCKED);

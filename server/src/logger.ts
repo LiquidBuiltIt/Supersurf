@@ -1,12 +1,23 @@
 /**
- * File Logger — multi-session debug logging with truncation.
+ * File Logger -- multi-session debug logging with truncation.
  *
  * Architecture:
- *   - Server log:  ~/.supersurf/logs/server.log  (always-on backbone)
- *   - Session logs: ~/.supersurf/logs/sessions/supersurf-debug-{clientId}-{timestamp}.log
+ *   - Server log:  `~/.supersurf/logs/server.log`  (always-on backbone)
+ *   - Session logs: `~/.supersurf/logs/sessions/supersurf-debug-{clientId}-{timestamp}.log`
  *
- * The logger stays dumb — it writes to whatever file path it's given.
+ * The logger stays dumb -- it writes to whatever file path it's given.
  * Session routing is handled by the connection lifecycle (enable/disable).
+ *
+ * Key classes:
+ *   - **FileLogger** -- writes timestamped lines to a single file, with optional truncation
+ *   - **LoggerRegistry** -- singleton managing server + per-session loggers, propagates debug mode
+ *
+ * Public API:
+ *   - `getLogger()` -- get server-level logger (backwards compat)
+ *   - `getRegistry()` -- get the global LoggerRegistry for session management
+ *   - `createLog(prefix)` -- factory for prefixed debug loggers (only outputs when DEBUG_MODE is true)
+ *
+ * @module logger
  */
 
 import fs from 'fs';
@@ -19,10 +30,15 @@ const DEFAULT_TRUNCATE_LEN = 120;
 
 // ─── Types ──────────────────────────────────────────────────
 
+/** Debug mode: false (off), 'truncate' (default debug), 'no_truncate' (full payloads). */
 export type DebugMode = false | 'truncate' | 'no_truncate';
 
 // ─── FileLogger ─────────────────────────────────────────────
 
+/**
+ * Synchronous, append-only file logger. Writes ISO-timestamped lines and
+ * also mirrors to stderr. Truncates the log file on construction to start fresh.
+ */
 export class FileLogger {
   logFilePath: string;
   enabled: boolean = false;
@@ -58,6 +74,7 @@ export class FileLogger {
     this.enabled = false;
   }
 
+  /** Append a timestamped log line. No-ops if logger is disabled. Also writes to stderr. */
   log(...args: unknown[]): void {
     if (!this.enabled) return;
 
@@ -71,6 +88,7 @@ export class FileLogger {
     console.error(message);
   }
 
+  /** Serialize an argument to a log-safe string, applying truncation if enabled. */
   private formatArg(arg: unknown): string {
     if (typeof arg === 'string') {
       return this._truncate ? truncateString(arg, DEFAULT_TRUNCATE_LEN) : arg;
@@ -89,6 +107,10 @@ export class FileLogger {
 
 // ─── Session-aware logger registry ──────────────────────────
 
+/**
+ * Singleton managing the server logger and per-session loggers.
+ * Propagates debug mode (and truncation setting) to all managed loggers.
+ */
 class LoggerRegistry {
   private serverLogger: FileLogger | null = null;
   private sessionLoggers = new Map<string, FileLogger>();

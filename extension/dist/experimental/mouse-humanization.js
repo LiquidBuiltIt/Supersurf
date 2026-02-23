@@ -1,7 +1,16 @@
 /**
- * Mouse humanization extension handlers.
- * Replays waypoint arrays via CDP Input.dispatchMouseEvent,
- * manages idle micro-movements, and provides viewport dimensions.
+ * @module experimental/mouse-humanization
+ *
+ * Extension-side handlers for the mouse humanization experiment.
+ * The server generates Bezier waypoint paths; this module replays them
+ * via CDP `Input.dispatchMouseEvent`, tracks cursor positions per tab,
+ * manages periodic idle drift via Chrome alarms, and provides viewport
+ * dimensions so the server can clamp paths to visible bounds.
+ *
+ * Key exports:
+ * - {@link registerMouseHandlers} — registers `humanizedMouseMove`,
+ *   `setHumanizationConfig`, and `getViewportDimensions` commands
+ * - {@link handleIdleDrift} — alarm callback for idle micro-movements
  */
 /**
  * Register mouse humanization command handlers on the WebSocket connection.
@@ -29,6 +38,7 @@ export function registerMouseHandlers(wsConnection, sessionContext, cdp) {
         // Update cursor position in session context
         const last = waypoints[waypoints.length - 1];
         sessionContext.cursorPositions.set(tabId, { x: last.x, y: last.y });
+        sessionContext.persistSession();
         return { success: true, waypointCount: waypoints.length };
     });
     // setHumanizationConfig — store config, start/stop idle drift alarms
@@ -88,6 +98,7 @@ export async function handleIdleDrift(sessionContext, cdp) {
             y: newY,
         });
         sessionContext.cursorPositions.set(tabId, { x: newX, y: newY });
+        sessionContext.persistSession();
     }
     catch {
         // Silently skip — tab may have been closed

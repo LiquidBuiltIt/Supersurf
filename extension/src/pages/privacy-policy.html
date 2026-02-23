@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperSurf — Privacy Policy</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+      color: #e0e0e0;
+      background: #1a1a1e;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #2a2a30;
+    }
+
+    header h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: #f0f0f0;
+    }
+
+    header .version {
+      font-size: 12px;
+      color: #666;
+      margin-left: 4px;
+    }
+
+    .effective-date {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 28px;
+    }
+
+    h2 {
+      font-size: 17px;
+      font-weight: 600;
+      color: #f0f0f0;
+      margin-top: 28px;
+      margin-bottom: 10px;
+    }
+
+    p { margin-bottom: 12px; color: #c0c0c0; }
+
+    ul {
+      margin: 8px 0 16px 24px;
+      color: #c0c0c0;
+    }
+
+    li { margin-bottom: 6px; }
+
+    strong { color: #e0e0e0; font-weight: 600; }
+
+    code {
+      background: #222228;
+      border: 1px solid #2a2a30;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-size: 13px;
+      color: #c0c0c0;
+    }
+
+    .summary-box {
+      background: #222228;
+      border: 1px solid #2a2a30;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 28px;
+    }
+
+    .summary-box p {
+      margin-bottom: 0;
+      font-size: 14px;
+    }
+
+    footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #2a2a30;
+      font-size: 13px;
+      color: #666;
+    }
+
+    a { color: #c0c0c0; }
+    a:hover { color: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>SuperSurf <span class="version">Privacy Policy</span></h1>
+    </header>
+
+    <p class="effective-date">Effective date: February 21, 2026</p>
+
+    <div class="summary-box">
+      <p><strong>Summary:</strong> SuperSurf does not collect, transmit, or store any personal data. All communication stays on your local machine. There is no telemetry, no analytics, and no remote servers.</p>
+    </div>
+
+    <h2>What SuperSurf Does</h2>
+    <p>SuperSurf is a browser automation extension that connects your Chrome browser to a locally-running MCP (Model Context Protocol) server. It enables AI coding assistants to interact with web pages for development and testing purposes.</p>
+
+    <h2>Data Collection</h2>
+    <p><strong>SuperSurf collects no data.</strong> Specifically:</p>
+    <ul>
+      <li>No personal information is collected</li>
+      <li>No browsing history is recorded or transmitted</li>
+      <li>No cookies, passwords, or form data are accessed by the extension itself</li>
+      <li>No analytics or telemetry of any kind is sent anywhere</li>
+      <li>No user behavior is tracked</li>
+    </ul>
+
+    <h2>Network Communication</h2>
+    <p>SuperSurf communicates exclusively over a <strong>localhost WebSocket connection</strong> (<code>ws://127.0.0.1</code>) to an MCP server running on your own machine. No data ever leaves your computer through the extension.</p>
+    <ul>
+      <li>The WebSocket connection is bound to <code>127.0.0.1</code> (loopback only)</li>
+      <li>No external servers, APIs, or cloud services are contacted</li>
+      <li>No data is transmitted over the internet</li>
+    </ul>
+
+    <h2>Local Storage</h2>
+    <p>SuperSurf uses Chrome's built-in storage APIs for operational state only:</p>
+    <ul>
+      <li><code>chrome.storage.local</code> — Stores extension preferences (enabled/disabled state, debug mode flag, WebSocket port, domain whitelist cache)</li>
+      <li><code>chrome.storage.session</code> — Stores ephemeral automation state (which tab is being controlled, cursor positions) that is automatically cleared when the browser closes</li>
+    </ul>
+    <p>No personal data, credentials, or browsing content is stored.</p>
+
+    <h2>Permissions</h2>
+    <p>SuperSurf requests browser permissions necessary for automation functionality. Each permission is used strictly for its documented purpose:</p>
+    <ul>
+      <li><strong>debugger</strong> — Attaches Chrome DevTools Protocol for screenshots, network inspection, and JavaScript evaluation on the active automation tab</li>
+      <li><strong>tabs</strong> — Creates, navigates, and manages browser tabs during automation</li>
+      <li><strong>activeTab</strong> — Accesses the currently active tab when the user interacts with the extension</li>
+      <li><strong>scripting</strong> — Injects content scripts for DOM interaction and page state capture</li>
+      <li><strong>storage</strong> — Persists extension preferences and ephemeral session state locally</li>
+      <li><strong>alarms</strong> — Maintains WebSocket connection keepalive and schedules reconnection attempts</li>
+      <li><strong>webRequest</strong> — Monitors network requests on the automation tab for debugging purposes</li>
+      <li><strong>webNavigation</strong> — Enforces optional domain whitelist restrictions on navigation</li>
+      <li><strong>tabGroups</strong> — Organizes automation tabs into visual groups for multi-session workflows</li>
+      <li><strong>downloads</strong> — Downloads files when requested by the automation agent</li>
+    </ul>
+
+    <h2>Credential Handling</h2>
+    <p>SuperSurf includes a secure credential fill feature. When used, credential values are resolved from local environment variables on your machine by the MCP server process. The AI agent never sees the raw credential values. Credentials are typed character-by-character into form fields and are not stored or logged by the extension.</p>
+
+    <h2>Third-Party Services</h2>
+    <p>SuperSurf does not integrate with any third-party services, advertising networks, or data brokers. The optional domain whitelist feature fetches the Tranco top-sites list from a public URL for safety enforcement, but no user data is sent in this request.</p>
+
+    <h2>Open Source</h2>
+    <p>SuperSurf is open source. The complete source code is available for inspection at <a href="https://github.com/h8ngrydev4hire/supersurf" target="_blank" rel="noopener">github.com/h8ngrydev4hire/supersurf</a>.</p>
+
+    <h2>Changes to This Policy</h2>
+    <p>If this privacy policy changes, the updated version will be published alongside the extension update. Material changes will be noted in the extension's changelog.</p>
+
+    <h2>Contact</h2>
+    <p>For questions about this privacy policy, open an issue on the <a href="https://github.com/h8ngrydev4hire/supersurf/issues" target="_blank" rel="noopener">GitHub repository</a>.</p>
+
+    <footer>
+      SuperSurf is licensed under Apache-2.0 with Commons Clause.
+    </footer>
+  </div>
+</body>
+</html>

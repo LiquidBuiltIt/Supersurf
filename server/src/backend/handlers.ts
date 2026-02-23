@@ -1,5 +1,16 @@
 /**
  * Connection-level tool handlers — enable, disable, status, experimental features, reload.
+ *
+ * Each handler receives the ConnectionManagerAPI (mutable state), the tool arguments,
+ * and an options object. Handlers return either MCP content responses (for MCP mode)
+ * or raw JSON objects (for script mode via `rawResult: true`).
+ *
+ * State transitions managed here:
+ *   - `onEnable`:  passive -> active (starts WebSocket, creates BrowserBridge)
+ *   - `onDisable`: active/connected -> passive (tears down everything)
+ *   - `onReloadMCP`: triggers exit code 42 for the debug wrapper to restart
+ *
+ * @module backend/handlers
  */
 
 import type { ConnectionManagerAPI } from './types';
@@ -10,7 +21,7 @@ import { initSession as initHumanization, destroySession as destroyHumanization 
 
 const log = createLog('[Conn]');
 
-// Forward-declare BrowserBridge import (lazy to avoid circular deps)
+// Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
 let BrowserBridge: any = null;
 
 async function getBrowserBridge(): Promise<any> {
@@ -23,6 +34,11 @@ async function getBrowserBridge(): Promise<any> {
 
 // ─── Enable ──────────────────────────────────────────────────
 
+/**
+ * Activate browser automation: validate client_id, start WebSocket server,
+ * create BrowserBridge, apply pre-enabled experiments from env.
+ * Transitions state from passive to active.
+ */
 export async function onEnable(
   mgr: ConnectionManagerAPI,
   args: Record<string, unknown> = {},
@@ -205,6 +221,10 @@ export async function onEnable(
 
 // ─── Disable ─────────────────────────────────────────────────
 
+/**
+ * Deactivate browser automation: tear down bridge, stop WebSocket, reset
+ * experiments and mouse humanization, transition back to passive.
+ */
 export async function onDisable(
   mgr: ConnectionManagerAPI,
   options: { rawResult?: boolean } = {}
@@ -270,6 +290,7 @@ export async function onDisable(
 
 // ─── Status ──────────────────────────────────────────────────
 
+/** Return current connection state, browser info, and attached tab details. */
 export async function onStatus(
   mgr: ConnectionManagerAPI,
   options: { rawResult?: boolean } = {}
@@ -324,6 +345,11 @@ export async function onStatus(
 
 // ─── Experimental Features ───────────────────────────────────
 
+/**
+ * Toggle experimental features. With no recognized keys, lists current states.
+ * For mouse_humanization, also initializes/destroys the humanization session
+ * and notifies the extension.
+ */
 export async function onExperimentalFeatures(
   mgr: ConnectionManagerAPI,
   args: Record<string, unknown> = {},
@@ -385,6 +411,7 @@ export async function onExperimentalFeatures(
 
 // ─── Reload (debug) ──────────────────────────────────────────
 
+/** Trigger hot reload by exiting with code 42. The debug wrapper catches this and respawns. */
 export function onReloadMCP(
   mgr: ConnectionManagerAPI,
   options: { rawResult?: boolean } = {}

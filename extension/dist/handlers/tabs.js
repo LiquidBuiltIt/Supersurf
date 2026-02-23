@@ -1,10 +1,26 @@
 /**
- * Tab management handler
+ * @module handlers/tabs
+ *
+ * Tab lifecycle management: create, select, close, and list browser tabs.
+ * Tracks per-tab metadata (stealth mode, tech stack) and enforces session
+ * isolation via Chrome tab groups in multi-client mode.
+ *
+ * Key exports:
+ * - {@link TabHandlers} — main class registered by background.ts
+ *
  * Adapted from Blueprint MCP (Apache 2.0)
  */
+/** Rotating palette for session tab groups — each session gets the next color. */
 const GROUP_COLORS = [
     'blue', 'red', 'green', 'yellow', 'purple', 'cyan', 'pink', 'orange', 'grey',
 ];
+/**
+ * Manages browser tab CRUD, attaching/detaching, stealth mode tracking,
+ * tech stack metadata, and per-session tab group isolation.
+ *
+ * Injectors for console capture and dialog overrides are set post-construction
+ * to avoid circular dependency with those handler classes.
+ */
 export class TabHandlers {
     browser;
     logger;
@@ -27,15 +43,19 @@ export class TabHandlers {
         // Clean up session→group maps if a group is removed externally
         this.browser.tabGroups.onRemoved.addListener((group) => this.handleGroupRemoved(group.id));
     }
+    /** Register a callback that injects console capture into newly attached tabs. */
     setConsoleInjector(fn) {
         this.consoleInjector = fn;
     }
+    /** Register a callback that injects dialog overrides into newly attached tabs. */
     setDialogInjector(fn) {
         this.dialogInjector = fn;
     }
+    /** Returns the currently attached tab ID, or null if no tab is attached. */
     getAttachedTabId() {
         return this.ctx.attachedTabId;
     }
+    /** Store framework/library detection results reported by the content script. */
     setTechStackInfo(tabId, techStack) {
         this.techStackInfo.set(tabId, techStack);
     }
@@ -113,6 +133,10 @@ export class TabHandlers {
         return { success: true, message: `Ungrouped tabs for session "${sessionId}"` };
     }
     // ─── Core Tab Operations ───────────────────────────────────────
+    /**
+     * List all visible tabs. In multi-session mode, filters out tabs belonging
+     * to other sessions' groups while showing own + ungrouped tabs.
+     */
     async getTabs(params) {
         const allTabs = await this.browser.tabs.query({});
         const sessionId = params?._sessionId;
@@ -142,6 +166,10 @@ export class TabHandlers {
         });
         return { tabs, attachedTabId: this.ctx.attachedTabId };
     }
+    /**
+     * Create a new tab, auto-attach it, assign to the session's tab group,
+     * and inject console/dialog handlers.
+     */
     async createTab(params) {
         const url = params.url || 'about:blank';
         const activate = params.activate !== false;
@@ -150,6 +178,7 @@ export class TabHandlers {
         this.ctx.attachedTabId = tab.id;
         this.ctx.stealthMode = stealth;
         this.ctx.stealthTabs.set(tab.id, stealth);
+        this.ctx.persistSession();
         this.iconManager.setAttachedTab(tab.id);
         this.iconManager.setStealthMode(stealth);
         // Assign to session's tab group
@@ -173,6 +202,11 @@ export class TabHandlers {
             stealthMode: stealth,
         };
     }
+    /**
+     * Attach to an existing tab by index or ID. Enforces session boundaries:
+     * tabs owned by another session cannot be selected. Ungrouped tabs are
+     * claimed by adding them to the requesting session's group.
+     */
     async selectTab(params) {
         let tab;
         if (params.tabId !== undefined) {
@@ -209,6 +243,7 @@ export class TabHandlers {
         this.ctx.attachedTabId = tab.id;
         this.ctx.stealthMode = stealth;
         this.ctx.stealthTabs.set(tab.id, stealth);
+        this.ctx.persistSession();
         this.iconManager.setAttachedTab(tab.id);
         this.iconManager.setStealthMode(stealth);
         if (params.activate !== false) {
@@ -231,6 +266,7 @@ export class TabHandlers {
             stealthMode: stealth,
         };
     }
+    /** Close a tab by index, or close the currently attached tab if no index given. */
     async closeTab(params) {
         const index = params?.index;
         let tabId;
@@ -259,12 +295,14 @@ export class TabHandlers {
         this.handleTabClosed(tabId);
         return { success: true, message: `Tab closed` };
     }
+    /** Clean up attachment state, stealth tracking, and tech stack info for a closed tab. */
     handleTabClosed(tabId) {
         if (tabId === this.ctx.attachedTabId) {
             this.ctx.attachedTabId = null;
             this.iconManager.setAttachedTab(null);
         }
         this.ctx.stealthTabs.delete(tabId);
+        this.ctx.persistSession();
         this.techStackInfo.delete(tabId);
     }
 }

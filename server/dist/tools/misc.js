@@ -1,6 +1,16 @@
 "use strict";
 /**
  * Miscellaneous tool handlers — window, dialog, evaluate, verify, extensions, performance.
+ *
+ * Groups smaller tools that don't warrant their own module:
+ * - `browser_window`: Resize, minimize, maximize, close
+ * - `browser_handle_dialog`: Accept/dismiss alerts, confirms, prompts
+ * - `browser_evaluate`: Run JS in page context (with optional secure_eval 3-layer protection)
+ * - `browser_verify_text_visible` / `browser_verify_element_visible`: Page assertions
+ * - `browser_list_extensions` / `browser_reload_extensions`: Extension management
+ * - `browser_performance_metrics`: Web Vitals + CDP performance data
+ *
+ * @module tools/misc
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onWindow = onWindow;
@@ -12,6 +22,7 @@ exports.onListExtensions = onListExtensions;
 exports.onReloadExtensions = onReloadExtensions;
 exports.onPerformanceMetrics = onPerformanceMetrics;
 const index_1 = require("../experimental/index");
+/** Resize, close, minimize, or maximize the browser window. */
 async function onWindow(ctx, args, options) {
     const result = await ctx.ext.sendCmd('window', {
         action: args.action,
@@ -20,6 +31,7 @@ async function onWindow(ctx, args, options) {
     });
     return ctx.formatResult('browser_window', result, options);
 }
+/** Accept or dismiss a browser dialog (alert, confirm, prompt). */
 async function onDialog(ctx, args, options) {
     if (args.accept !== undefined) {
         const result = await ctx.ext.sendCmd('dialog', {
@@ -31,6 +43,17 @@ async function onDialog(ctx, args, options) {
     const result = await ctx.ext.sendCmd('dialog', {});
     return ctx.formatResult('browser_handle_dialog', result, options);
 }
+/**
+ * Evaluate JavaScript in the page context.
+ *
+ * When the `secure_eval` experiment is enabled, code passes through three
+ * security layers before execution:
+ * 1. **Layer 1 — Static AST analysis** (~1ms): Blocks known dangerous patterns
+ * 2. **Layer 2 — Service Worker Proxy membrane** (~10-20ms): Extension-side validation
+ * 3. **Layer 3 — Page-context Proxy wrapper**: Runtime API access trapping
+ *
+ * @param args - `{ function?: string, expression?: string }`
+ */
 async function onEvaluate(ctx, args, options) {
     const code = args.function || args.expression;
     if (code && index_1.experimentRegistry.isEnabled('secure_eval')) {
@@ -92,6 +115,7 @@ async function onEvaluate(ctx, args, options) {
         content: [{ type: 'text', text }],
     };
 }
+/** Assert that specific text is visible in the page body. Returns isError=true when not found. */
 async function onVerifyTextVisible(ctx, args, options) {
     const text = args.text;
     const found = await ctx.eval(`document.body.innerText.includes(${JSON.stringify(text)})`);
@@ -105,6 +129,7 @@ async function onVerifyTextVisible(ctx, args, options) {
         isError: !found,
     };
 }
+/** Assert that an element matching the selector exists and is visible (not display:none, not zero-size). */
 async function onVerifyElementVisible(ctx, args, options) {
     const selector = args.selector;
     const result = await ctx.eval(`
@@ -129,16 +154,22 @@ async function onVerifyElementVisible(ctx, args, options) {
         isError: !visible,
     };
 }
+/** List all installed Chrome extensions. */
 async function onListExtensions(ctx, options) {
     const result = await ctx.ext.sendCmd('listExtensions', {});
     return ctx.formatResult('browser_list_extensions', result, options);
 }
+/** Reload an unpacked (developer) Chrome extension by name. */
 async function onReloadExtensions(ctx, args, options) {
     const result = await ctx.ext.sendCmd('reloadExtension', {
         extensionName: args.extensionName,
     });
     return ctx.formatResult('browser_reload_extensions', result, options);
 }
+/**
+ * Collect Web Vitals (TTFB, FCP, DOM Content Loaded, Load) from the
+ * Performance API and raw CDP metrics from the extension.
+ */
 async function onPerformanceMetrics(ctx, options) {
     const cdpResult = await ctx.ext.sendCmd('performanceMetrics', {});
     const metrics = cdpResult?.metrics || [];

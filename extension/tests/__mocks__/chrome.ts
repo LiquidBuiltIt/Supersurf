@@ -60,6 +60,13 @@ export function createMockChrome() {
           Object.assign(storage, items);
         }),
       },
+      session: {
+        get: vi.fn(async (key: string) => ({ [key]: storage[`__session_${key}`] })),
+        set: vi.fn(async (items: Record<string, any>) => {
+          for (const [k, v] of Object.entries(items)) storage[`__session_${k}`] = v;
+        }),
+        remove: vi.fn(async (key: string) => { delete storage[`__session_${key}`]; }),
+      },
       onChanged: makeEvent(),
       _data: storage,
     },

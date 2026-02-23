@@ -1,7 +1,19 @@
 "use strict";
 /**
  * MousePersonality — per-session behavioral fingerprint.
- * Seeded once per session to maintain consistent characteristics.
+ *
+ * Each session gets a unique personality generated once at init. These traits
+ * modulate the path generator's output so that different sessions produce
+ * distinct but consistently human-like movement patterns.
+ *
+ * Ranges are hand-tuned to fall within human-plausible bounds observed in
+ * the Balabit Mouse Dynamics dataset.
+ *
+ * @module experimental/mouse-humanization/personality
+ *
+ * Key exports:
+ * - {@link MousePersonality} — trait interface
+ * - {@link generatePersonality} — random personality factory
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generatePersonality = generatePersonality;

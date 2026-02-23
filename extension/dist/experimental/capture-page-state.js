@@ -1,6 +1,21 @@
 /**
- * Self-contained DOM capture function — injected via chrome.scripting.executeScript
- * No imports, no closures — required by executeScript({ func })
+ * @module experimental/capture-page-state
+ *
+ * Self-contained DOM snapshot function injected into the page via
+ * `chrome.scripting.executeScript({ func })`. Counts visible/hidden elements,
+ * shadow roots, iframes, and extracts truncated visible text for diffing.
+ *
+ * CONSTRAINT: No imports, no closures -- `executeScript({ func })` serializes
+ * the function body and runs it in a fresh page context.
+ *
+ * Key exports:
+ * - {@link capturePageState} — injectable function
+ * - {@link PageState} — return type
+ */
+/**
+ * Walk the DOM, classify elements as visible/hidden, and extract text.
+ * Skips BODY/HTML for innerText to avoid O(n^2) re-traversal.
+ * @returns Snapshot of element counts and visible text content
  */
 export function capturePageState() {
     const allElements = document.querySelectorAll('*');

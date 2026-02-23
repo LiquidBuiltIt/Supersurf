@@ -1,7 +1,21 @@
 "use strict";
 /**
  * WebSocket bridge to the Chrome extension.
- * Listens on localhost, speaks JSON-RPC 2.0.
+ *
+ * Runs an HTTP + WebSocket server on localhost (default port 5555).
+ * Communication uses JSON-RPC 2.0 with correlation IDs for request/response matching.
+ *
+ * Key behaviors:
+ *   - Single-connection model: rejects additional browsers while one is connected
+ *   - 10s keep-alive pings to detect stale connections
+ *   - 30s default timeout on `sendCmd` requests
+ *   - Handles three message types: responses (correlated by id), handshakes (browser info),
+ *     and notifications (tab info updates)
+ *   - `onRawConnection` hook for multiplexer to intercept connections before default handling
+ *
+ * @module bridge
+ * @exports IExtensionTransport - Interface for the transport layer
+ * @exports ExtensionServer - Concrete WebSocket implementation
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -13,6 +27,10 @@ const http_1 = __importDefault(require("http"));
 const ws_1 = require("ws");
 const logger_1 = require("./logger");
 const log = (0, logger_1.createLog)('[WS]');
+/**
+ * WebSocket server that bridges the MCP server to the Chrome extension.
+ * Manages a single active connection, with reconnection support.
+ */
 class ExtensionServer {
     port;
     host;
@@ -39,6 +57,7 @@ class ExtensionServer {
     get connected() {
         return !!this.socket && this.socket.readyState === ws_1.WebSocket.OPEN;
     }
+    /** Spin up the HTTP + WebSocket server and begin accepting connections. */
     async start() {
         return new Promise((resolve, reject) => {
             this.httpServer = http_1.default.createServer((_req, res) => {
@@ -104,6 +123,7 @@ class ExtensionServer {
                         clearInterval(this.pingInterval);
                         this.pingInterval = null;
                     }
+                    this.drainInflight();
                 });
                 ws.on('error', (error) => log('WebSocket error:', error));
             });
@@ -117,14 +137,16 @@ class ExtensionServer {
             });
         });
     }
+    /** Route incoming WebSocket messages: responses, handshakes, or notifications. */
     handleMessage(data) {
         try {
             const message = JSON.parse(data.toString());
-            // Response (has id, no method)
+            // JSON-RPC response — correlate with inflight request by id
             if (message.id !== undefined && !message.method) {
                 const pending = this.inflight.get(message.id);
                 if (pending) {
                     this.inflight.delete(message.id);
+                    // Piggyback: extract tab info from response if present
                     const result = message.result;
                     if (result && typeof result === 'object' && 'currentTab' in result && this.onTabInfoUpdate) {
                         this.onTabInfoUpdate(result.currentTab);
@@ -160,6 +182,13 @@ class ExtensionServer {
             log('Error handling message:', error);
         }
     }
+    /**
+     * Send a JSON-RPC 2.0 request to the extension and await the response.
+     * @param method - Command name (e.g., 'evaluateScript', 'forwardCDPCommand')
+     * @param params - Command parameters
+     * @param timeout - Max wait time in ms (default 30s)
+     * @throws If extension is disconnected or request times out
+     */
     async sendCmd(method, params = {}, timeout = 30000) {
         if (!this.socket || this.socket.readyState !== ws_1.WebSocket.OPEN) {
             throw new Error('Extension not connected. Open the extension popup and click "Enable".');
@@ -193,6 +222,7 @@ class ExtensionServer {
             this.socket.send(JSON.stringify(message));
         });
     }
+    /** Send an `authenticated` notification to the extension with the session's client ID. */
     notifyClientId(clientId) {
         log('Client ID set to:', clientId);
         if (this.connected) {
@@ -204,8 +234,20 @@ class ExtensionServer {
             this.socket.send(JSON.stringify(notification));
         }
     }
+    /** Reject all pending requests with a disconnect error and clear the inflight map. */
+    drainInflight() {
+        if (this.inflight.size === 0)
+            return;
+        log(`Draining ${this.inflight.size} inflight request(s)`);
+        for (const [_id, pending] of this.inflight) {
+            pending.reject(new Error('Extension disconnected'));
+        }
+        this.inflight.clear();
+    }
+    /** Gracefully shut down: clear ping interval, close socket, close servers. */
     async stop() {
         log('Stopping server');
+        this.drainInflight();
         if (this.pingInterval) {
             clearInterval(this.pingInterval);
             this.pingInterval = null;

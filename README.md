@@ -28,10 +28,12 @@ graph LR
 
 <br />
 
-SuperSurf is an open-source MCP server that gives any AI agent control of a real Chrome browser.<br />
+SuperSurf is a **free and open-source** MCP server that gives any AI agent control of a real Chrome browser.<br />
 It works with any LLM that supports the [Model Context Protocol](https://modelcontextprotocol.io) — Claude, GPT, Gemini, open-source models, or your own.
 
 Unlike tools that spin up headless browsers or inject CDP scripts, SuperSurf uses a Chrome extension to interact with pages through content scripts. Your agent operates in a real browser profile with your cookies, history, and localStorage intact — and page JavaScript can't detect it.
+
+**Every line of code — server and extension — is public.** No obfuscated binaries, no telemetry, no data collection. Read it, audit it, fork it.
 
 </div>
 
@@ -288,7 +290,7 @@ All WebSocket commands log params and responses. CDP passthrough unwraps to show
 
 <div align="center">
 
-**Apache-2.0 with Commons Clause** — free to use, modify, and redistribute, but not to sell.
+**100% Open Source** — Apache-2.0 with Commons Clause. Free to use, modify, and redistribute, but not to sell.
 
 Built by [The Media Masons](https://github.com/h8ngryDev4Hire)
 

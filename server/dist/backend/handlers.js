@@ -1,6 +1,17 @@
 "use strict";
 /**
  * Connection-level tool handlers — enable, disable, status, experimental features, reload.
+ *
+ * Each handler receives the ConnectionManagerAPI (mutable state), the tool arguments,
+ * and an options object. Handlers return either MCP content responses (for MCP mode)
+ * or raw JSON objects (for script mode via `rawResult: true`).
+ *
+ * State transitions managed here:
+ *   - `onEnable`:  passive -> active (starts WebSocket, creates BrowserBridge)
+ *   - `onDisable`: active/connected -> passive (tears down everything)
+ *   - `onReloadMCP`: triggers exit code 42 for the debug wrapper to restart
+ *
+ * @module backend/handlers
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -46,7 +57,7 @@ const logger_1 = require("../logger");
 const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const log = (0, logger_1.createLog)('[Conn]');
-// Forward-declare BrowserBridge import (lazy to avoid circular deps)
+// Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
 let BrowserBridge = null;
 async function getBrowserBridge() {
     if (!BrowserBridge) {
@@ -56,6 +67,11 @@ async function getBrowserBridge() {
     return BrowserBridge;
 }
 // ─── Enable ──────────────────────────────────────────────────
+/**
+ * Activate browser automation: validate client_id, start WebSocket server,
+ * create BrowserBridge, apply pre-enabled experiments from env.
+ * Transitions state from passive to active.
+ */
 async function onEnable(mgr, args = {}, options = {}) {
     if (!args.client_id ||
         typeof args.client_id !== 'string' ||
@@ -204,6 +220,10 @@ async function onEnable(mgr, args = {}, options = {}) {
     }
 }
 // ─── Disable ─────────────────────────────────────────────────
+/**
+ * Deactivate browser automation: tear down bridge, stop WebSocket, reset
+ * experiments and mouse humanization, transition back to passive.
+ */
 async function onDisable(mgr, options = {}) {
     if (mgr.state === 'passive') {
         if (options.rawResult) {
@@ -252,6 +272,7 @@ async function onDisable(mgr, options = {}) {
     };
 }
 // ─── Status ──────────────────────────────────────────────────
+/** Return current connection state, browser info, and attached tab details. */
 async function onStatus(mgr, options = {}) {
     const statusData = {
         state: mgr.state,
@@ -296,6 +317,11 @@ async function onStatus(mgr, options = {}) {
     };
 }
 // ─── Experimental Features ───────────────────────────────────
+/**
+ * Toggle experimental features. With no recognized keys, lists current states.
+ * For mouse_humanization, also initializes/destroys the humanization session
+ * and notifies the extension.
+ */
 async function onExperimentalFeatures(mgr, args = {}, options = {}) {
     const keys = Object.keys(args).filter(k => index_1.experimentRegistry.listAvailable().includes(k));
     if (keys.length === 0) {
@@ -348,6 +374,7 @@ async function onExperimentalFeatures(mgr, args = {}, options = {}) {
     };
 }
 // ─── Reload (debug) ──────────────────────────────────────────
+/** Trigger hot reload by exiting with code 42. The debug wrapper catches this and respawns. */
 function onReloadMCP(mgr, options = {}) {
     if (!mgr.debugMode) {
         return {

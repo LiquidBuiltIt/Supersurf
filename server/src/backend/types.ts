@@ -1,9 +1,16 @@
 /**
  * Shared types for the backend module.
+ *
+ * Defines the configuration, state, and interface contracts used across
+ * the ConnectionManager, handlers, and status builder. Kept in a separate
+ * file to avoid circular imports between backend.ts and handlers.ts.
+ *
+ * @module backend/types
  */
 
 import type { IExtensionTransport } from '../bridge';
 
+/** Server configuration resolved from CLI options and environment variables. */
 export interface BackendConfig {
   debug: boolean;
   port: number;
@@ -11,6 +18,7 @@ export interface BackendConfig {
   enabledExperiments?: string[];
 }
 
+/** Metadata for the currently attached browser tab. */
 export interface TabInfo {
   id?: number;
   index?: number;
@@ -19,8 +27,10 @@ export interface TabInfo {
   techStack?: any;
 }
 
+/** Connection lifecycle state: passive (idle), active (WS listening), connected (extension linked). */
 export type BackendState = 'passive' | 'active' | 'connected';
 
+/** MCP tool definition with name, description, JSON Schema input, and optional annotations. */
 export interface ToolSchema {
   name: string;
   description: string;

@@ -1,7 +1,16 @@
 "use strict";
 /**
- * Script Mode — JSON-RPC 2.0 over stdin/stdout.
- * No MCP overhead, no auth required.
+ * Script Mode -- JSON-RPC 2.0 over stdin/stdout.
+ *
+ * A lightweight alternative to full MCP for automation scripts. Reads newline-delimited
+ * JSON-RPC 2.0 requests from stdin, dispatches them through ConnectionManager with
+ * `rawResult: true` (plain JSON, no MCP content wrappers), and writes responses to stdout.
+ *
+ * Supports batch requests (JSON arrays) per the JSON-RPC 2.0 spec.
+ * Activated via `--script-mode` CLI flag.
+ *
+ * @module stdio
+ * @exports startScriptMode
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -10,6 +19,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.startScriptMode = startScriptMode;
 const readline_1 = __importDefault(require("readline"));
 const backend_1 = require("./backend");
+/** Initialize script mode: create backend, wire up readline for JSON-RPC, register signal handlers. */
 async function startScriptMode(config) {
     const backend = new backend_1.ConnectionManager(config);
     await backend.initialize(null, {});
@@ -58,6 +68,11 @@ async function startScriptMode(config) {
         process.exit(0);
     });
 }
+/**
+ * Process a single JSON-RPC 2.0 request.
+ * Validates protocol version and method, then delegates to ConnectionManager.callTool.
+ * @returns JSON-RPC 2.0 response object with result or error
+ */
 async function handleRequest(request, backend) {
     const { jsonrpc, id, method, params } = request;
     if (jsonrpc !== '2.0') {

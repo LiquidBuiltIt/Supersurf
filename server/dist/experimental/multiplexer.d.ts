@@ -19,6 +19,18 @@
  *   - On leader disconnect, attempt promotion (race with other followers)
  */
 import { type IExtensionTransport } from '../bridge';
+/**
+ * Session multiplexer for concurrent MCP clients sharing one Chrome extension.
+ *
+ * Implements IExtensionTransport so it can be used as a drop-in replacement
+ * for ExtensionServer. On start(), tries to bind the WebSocket port:
+ * - Success: becomes the **leader** — accepts extension + peer connections,
+ *   manages tab ownership, runs round-robin scheduler.
+ * - EADDRINUSE: becomes a **follower** — proxies commands through the leader.
+ *
+ * If the leader goes down, followers race to promote (with random jitter to
+ * avoid thundering herd).
+ */
 export declare class Multiplexer implements IExtensionTransport {
     private port;
     private host;
@@ -47,11 +59,20 @@ export declare class Multiplexer implements IExtensionTransport {
     get connected(): boolean;
     get browser(): string;
     get buildTime(): string | null;
+    /**
+     * Attempt to start as leader; fall back to follower if port is taken.
+     * This is the only public entry point for initialization.
+     */
     start(): Promise<void>;
+    /** Bind the port, start WebSocket server, and initialize leader state (queues, tab ownership). */
     private startAsLeader;
+    /** Register a new follower connection. Sets up message routing, ownership tracking, and cleanup on close. */
     private acceptPeer;
+    /** Parse incoming JSON-RPC from a peer and enqueue it in the round-robin scheduler. */
     private handlePeerMessage;
+    /** Add a request to the session's queue and trigger the drain loop. */
     private enqueueRequest;
+    /** Process queued requests in round-robin order until all queues are empty. Serialized — only one drain loop runs at a time. */
     private drainQueue;
     private hasQueuedRequests;
     /**
@@ -79,11 +100,23 @@ export declare class Multiplexer implements IExtensionTransport {
      * Defense-in-depth: extension already filters by group via _sessionId.
      */
     private filterTabsForSession;
+    /** Connect to an existing leader via WebSocket /peer endpoint. Resolves on peer_ack, rejects on timeout or rejection. */
     private startAsFollower;
+    /**
+     * Race to become leader after the current leader disconnects.
+     * Uses random jitter (50-200ms) to reduce collision likelihood.
+     * If another follower wins, backs off and reconnects as follower.
+     */
     private attemptPromotion;
+    /**
+     * Send a command to the extension. Leader enqueues through the scheduler for
+     * fair round-robin; follower proxies through the leader via JSON-RPC.
+     */
     sendCmd(method: string, params?: Record<string, unknown>, timeout?: number): Promise<any>;
+    /** Forward a command to the leader as a JSON-RPC request. Manages timeout and inflight tracking. */
     private sendCmdAsFollower;
     notifyClientId(clientId: string): void;
+    /** Tear down all state: drain queues, close peers, stop extension server, reject inflight requests. */
     stop(): Promise<void>;
 }
 //# sourceMappingURL=multiplexer.d.ts.map

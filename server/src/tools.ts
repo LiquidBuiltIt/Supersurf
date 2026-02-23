@@ -1,6 +1,14 @@
 /**
  * BrowserBridge — orchestrator for browser tool dispatch.
- * Owns CDP/eval helpers and delegates tool execution to modular handlers in tools/.
+ *
+ * Central class that AI agents interact with through the MCP protocol.
+ * Owns CDP/eval helpers, element resolution utilities, and a switch-based
+ * dispatcher that routes tool calls to modular handlers in `tools/`.
+ *
+ * Every tool handler receives a {@link ToolContext} built by this class,
+ * which exposes a controlled subset of bridge internals (CDP, eval, sleep, etc.).
+ *
+ * @module tools
  */
 
 import type { IExtensionTransport } from './bridge';
@@ -27,6 +35,13 @@ import {
 
 const log = createLog('[Bridge]');
 
+/**
+ * Orchestrates all browser tool execution.
+ *
+ * Lifecycle: construct with config + transport, then call {@link initialize}
+ * once the MCP server is ready. After that, {@link callTool} dispatches
+ * named tool calls to the appropriate handler module.
+ */
 export class BrowserBridge {
   private config: any;
   private ext: IExtensionTransport | null;
@@ -39,12 +54,17 @@ export class BrowserBridge {
     this.ext = ext;
   }
 
+  /**
+   * Bind the MCP server, client metadata, and connection manager.
+   * Must be called before any tool dispatch.
+   */
   async initialize(server: any, clientInfo: any, connectionManager?: any): Promise<void> {
     this.server = server;
     this.clientInfo = clientInfo;
     this.connectionManager = connectionManager;
   }
 
+  /** Cleanup hook called when the MCP server shuts down. */
   serverClosed(): void {
     log('Server closed');
   }
@@ -200,6 +220,7 @@ export class BrowserBridge {
 
   // ─── Tool Schemas ────────────────────────────────────────────
 
+  /** Return all registered tool schemas (core + experimental). */
   async listTools(): Promise<ToolSchema[]> {
     return [...getToolSchemas(), ...getExperimentalToolSchemas()];
   }
@@ -256,6 +277,14 @@ export class BrowserBridge {
 
   // ─── Tool Dispatch ───────────────────────────────────────────
 
+  /**
+   * Dispatch a named tool call to the appropriate handler.
+   *
+   * @param name - MCP tool name (e.g. `browser_tabs`, `browser_interact`)
+   * @param args - Tool arguments from the agent
+   * @param options - If `rawResult` is true, return raw data instead of MCP content blocks
+   * @returns MCP-formatted result with content blocks, or raw data
+   */
   async callTool(
     name: string,
     args: Record<string, unknown> = {},
@@ -332,6 +361,11 @@ export class BrowserBridge {
 
   // ─── Helpers ────────────────────────────────────────────────
 
+  /**
+   * Wrap a handler result into MCP content blocks, prepending the status header.
+   * In rawResult mode, passes through unchanged. Also syncs tab/browser metadata
+   * with the connection manager when present in the result.
+   */
   private formatResult(name: string, result: any, options: { rawResult?: boolean }): any {
     if (options.rawResult) return result;
 
@@ -361,6 +395,7 @@ export class BrowserBridge {
     return { content: [{ type: 'text', text: statusHeader + text }] };
   }
 
+  /** Format an error as an MCP error block, or as `{ success: false }` in rawResult mode. */
   private error(message: string, options: { rawResult?: boolean }): any {
     if (options.rawResult) return { success: false, error: message };
     return {

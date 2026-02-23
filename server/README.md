@@ -1,8 +1,8 @@
 # supersurf-mcp
 
-MCP server for browser automation — gives AI agents control of a real Chrome browser via a Chrome extension.
+Free and open-source MCP server for browser automation — gives AI agents control of a real Chrome browser via a Chrome extension.
 
-Works with any LLM that supports the [Model Context Protocol](https://modelcontextprotocol.io): Claude, GPT, Gemini, open-source models, or your own.
+Works with any LLM that supports the [Model Context Protocol](https://modelcontextprotocol.io): Claude, GPT, Gemini, open-source models, or your own. Every line of code is public on GitHub — no telemetry, no data collection.
 
 ## Quick Start
 
@@ -100,6 +100,6 @@ All DOM interaction goes through Chrome content scripts (isolated world, invisib
 
 ## License
 
-Apache-2.0 with Commons Clause — free to use, modify, and redistribute, but not to sell.
+Apache-2.0 with Commons Clause — free to use, modify, and redistribute, but not to sell. 100% open source.
 
 [Full documentation](https://github.com/h8ngryDev4Hire/Supersurf)

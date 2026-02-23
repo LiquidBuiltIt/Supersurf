@@ -1,18 +1,30 @@
 /**
- * Mouse humanization extension handlers.
- * Replays waypoint arrays via CDP Input.dispatchMouseEvent,
- * manages idle micro-movements, and provides viewport dimensions.
+ * @module experimental/mouse-humanization
+ *
+ * Extension-side handlers for the mouse humanization experiment.
+ * The server generates Bezier waypoint paths; this module replays them
+ * via CDP `Input.dispatchMouseEvent`, tracks cursor positions per tab,
+ * manages periodic idle drift via Chrome alarms, and provides viewport
+ * dimensions so the server can clamp paths to visible bounds.
+ *
+ * Key exports:
+ * - {@link registerMouseHandlers} — registers `humanizedMouseMove`,
+ *   `setHumanizationConfig`, and `getViewportDimensions` commands
+ * - {@link handleIdleDrift} — alarm callback for idle micro-movements
  */
 
 import type { WebSocketConnection } from '../connection/websocket.js';
 import type { SessionContext } from '../session-context.js';
 
+/** A single point along the humanized mouse path, with inter-waypoint delay. */
 interface Waypoint {
   x: number;
   y: number;
+  /** Milliseconds to wait before dispatching this waypoint's mouseMoved event. */
   delayMs: number;
 }
 
+/** Signature for the CDP command dispatcher provided by background.ts. */
 type CdpFn = (tabId: number, method: string, params?: any, timeout?: number) => Promise<any>;
 
 /**
@@ -48,6 +60,7 @@ export function registerMouseHandlers(
     // Update cursor position in session context
     const last = waypoints[waypoints.length - 1];
     sessionContext.cursorPositions.set(tabId, { x: last.x, y: last.y });
+    sessionContext.persistSession();
 
     return { success: true, waypointCount: waypoints.length };
   });
@@ -119,6 +132,7 @@ export async function handleIdleDrift(
       y: newY,
     });
     sessionContext.cursorPositions.set(tabId, { x: newX, y: newY });
+    sessionContext.persistSession();
   } catch {
     // Silently skip — tab may have been closed
   }

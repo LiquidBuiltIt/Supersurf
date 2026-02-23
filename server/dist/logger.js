@@ -1,13 +1,24 @@
 "use strict";
 /**
- * File Logger — multi-session debug logging with truncation.
+ * File Logger -- multi-session debug logging with truncation.
  *
  * Architecture:
- *   - Server log:  ~/.supersurf/logs/server.log  (always-on backbone)
- *   - Session logs: ~/.supersurf/logs/sessions/supersurf-debug-{clientId}-{timestamp}.log
+ *   - Server log:  `~/.supersurf/logs/server.log`  (always-on backbone)
+ *   - Session logs: `~/.supersurf/logs/sessions/supersurf-debug-{clientId}-{timestamp}.log`
  *
- * The logger stays dumb — it writes to whatever file path it's given.
+ * The logger stays dumb -- it writes to whatever file path it's given.
  * Session routing is handled by the connection lifecycle (enable/disable).
+ *
+ * Key classes:
+ *   - **FileLogger** -- writes timestamped lines to a single file, with optional truncation
+ *   - **LoggerRegistry** -- singleton managing server + per-session loggers, propagates debug mode
+ *
+ * Public API:
+ *   - `getLogger()` -- get server-level logger (backwards compat)
+ *   - `getRegistry()` -- get the global LoggerRegistry for session management
+ *   - `createLog(prefix)` -- factory for prefixed debug loggers (only outputs when DEBUG_MODE is true)
+ *
+ * @module logger
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -23,6 +34,10 @@ const LOG_ROOT = path_1.default.join(os_1.default.homedir(), '.supersurf', 'logs
 const SESSIONS_DIR = path_1.default.join(LOG_ROOT, 'sessions');
 const DEFAULT_TRUNCATE_LEN = 120;
 // ─── FileLogger ─────────────────────────────────────────────
+/**
+ * Synchronous, append-only file logger. Writes ISO-timestamped lines and
+ * also mirrors to stderr. Truncates the log file on construction to start fresh.
+ */
 class FileLogger {
     logFilePath;
     enabled = false;
@@ -50,6 +65,7 @@ class FileLogger {
     disable() {
         this.enabled = false;
     }
+    /** Append a timestamped log line. No-ops if logger is disabled. Also writes to stderr. */
     log(...args) {
         if (!this.enabled)
             return;
@@ -61,6 +77,7 @@ class FileLogger {
         fs_1.default.appendFileSync(this.logFilePath, logLine, 'utf8');
         console.error(message);
     }
+    /** Serialize an argument to a log-safe string, applying truncation if enabled. */
     formatArg(arg) {
         if (typeof arg === 'string') {
             return this._truncate ? truncateString(arg, DEFAULT_TRUNCATE_LEN) : arg;
@@ -79,6 +96,10 @@ class FileLogger {
 }
 exports.FileLogger = FileLogger;
 // ─── Session-aware logger registry ──────────────────────────
+/**
+ * Singleton managing the server logger and per-session loggers.
+ * Propagates debug mode (and truncation setting) to all managed loggers.
+ */
 class LoggerRegistry {
     serverLogger = null;
     sessionLoggers = new Map();

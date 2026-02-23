@@ -1,9 +1,21 @@
 /**
- * ConnectionManager — manages connection lifecycle.
- * States: passive → active → connected
+ * ConnectionManager — central state machine for the server's connection lifecycle.
  *
- * Delegates tool schemas to backend/schemas.ts, status formatting to
- * backend/status.ts, and handler logic to backend/handlers.ts.
+ * States:
+ *   - **passive** — server is idle, only connection tools (enable/disable/status) are available
+ *   - **active** — WebSocket server is listening, waiting for extension to connect
+ *   - **connected** — extension linked, all browser tools available
+ *
+ * This module owns state transitions and tool dispatch. It delegates:
+ *   - Tool schemas to `backend/schemas.ts`
+ *   - Status header formatting to `backend/status.ts`
+ *   - Handler implementations to `backend/handlers.ts`
+ *
+ * BrowserBridge is lazy-imported to break a circular dependency (tools.ts imports backend types).
+ *
+ * @module backend
+ * @exports ConnectionManager
+ * @exports BackendConfig, TabInfo, BackendState, ToolSchema (re-exported from backend/types)
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -20,9 +32,10 @@ import { onEnable, onDisable, onStatus, onExperimentalFeatures, onReloadMCP } fr
 
 const log = createLog('[Conn]');
 
-// Forward-declare BrowserBridge import (lazy to avoid circular deps)
+// Lazy-load BrowserBridge to avoid circular dependency: tools.ts imports types from backend
 let BrowserBridge: any = null;
 
+/** Lazy singleton loader for BrowserBridge class. */
 async function getBrowserBridge(): Promise<any> {
   if (!BrowserBridge) {
     const mod = await import('./tools');
@@ -31,6 +44,10 @@ async function getBrowserBridge(): Promise<any> {
   return BrowserBridge;
 }
 
+/**
+ * Core state machine for managing the extension connection lifecycle.
+ * Implements ConnectionManagerAPI so handler functions can read/write state.
+ */
 export class ConnectionManager implements ConnectionManagerAPI {
   config: BackendConfig;
   state: BackendState = 'passive';
@@ -50,6 +67,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
     this.debugMode = config.debug || false;
   }
 
+  /** Store server reference and client metadata. Does not start the WebSocket — that happens in `enable`. */
   async initialize(server: Server | null, clientInfo: Record<string, unknown>): Promise<void> {
     log('Initialize called — staying in passive mode');
     this.server = server;
@@ -58,6 +76,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
 
   // ─── Status header ─────────────────────────────────────────
 
+  /** Build a one-line status string prepended to every tool response. */
   statusHeader(): string {
     return buildStatusHeader({
       config: this.config,
@@ -72,6 +91,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
 
   // ─── Tool listing ──────────────────────────────────────────
 
+  /** Return all available tool schemas: connection tools + browser tools + debug tools (if enabled). */
   async listTools(): Promise<ToolSchema[]> {
     log(`listTools() — state: ${this.state}`);
 
@@ -92,6 +112,11 @@ export class ConnectionManager implements ConnectionManagerAPI {
 
   // ─── Tool dispatch ─────────────────────────────────────────
 
+  /**
+   * Dispatch a tool call. Connection tools are handled locally; browser tools
+   * forward to BrowserBridge. Returns MCP content response or raw JSON (script mode).
+   * @param rawResult - When true, return plain objects instead of MCP content wrappers
+   */
   async callTool(
     name: string,
     rawArguments: Record<string, unknown> = {},
@@ -137,6 +162,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
 
   // ─── Notify tools changed ──────────────────────────────────
 
+  /** Signal MCP client that the available tool list has changed (e.g., after enable/disable). */
   async notifyToolsListChanged(): Promise<void> {
     if (this.server) {
       try {
@@ -149,6 +175,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
 
   // ─── Logging notifications ───────────────────────────────
 
+  /** Send an MCP logging notification to the client (info, warn, error). Silently no-ops if unsupported. */
   async sendLogNotification(level: string, message: string, logger?: string): Promise<void> {
     if (this.server) {
       try {
@@ -196,6 +223,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
 
   // ─── Shutdown ──────────────────────────────────────────────
 
+  /** Tear down bridge, stop WebSocket server, reset to passive. Called on SIGINT or explicit shutdown. */
   async serverClosed(): Promise<void> {
     log('Server closed');
 

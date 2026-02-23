@@ -1,6 +1,12 @@
 /**
- * ExperimentalFeatures — registers all experimental command handlers on the WebSocket connection
- * Keeps experimental logic isolated from stable code
+ * @module experimental/index
+ *
+ * Entry point for the extension's experimental feature subsystem.
+ * Registers WebSocket command handlers for `capturePageState` and `waitForReady`
+ * (smart waiting), keeping experimental logic isolated from the stable handler set.
+ *
+ * Key exports:
+ * - {@link ExperimentalFeatures} — static registration class
  */
 
 import { capturePageState } from './capture-page-state.js';
@@ -10,7 +16,18 @@ import type { TabHandlers } from '../handlers/tabs.js';
 import type { NetworkTracker } from '../handlers/network.js';
 import type { SessionContext } from '../session-context.js';
 
+/**
+ * Registers experimental command handlers on the WebSocket connection.
+ * All methods are static — no instance state needed.
+ */
 export class ExperimentalFeatures {
+  /**
+   * Wire up `capturePageState` and `waitForReady` commands.
+   * @param wsConnection - WebSocket connection to register handlers on
+   * @param tabHandlers - Provides the currently attached tab ID
+   * @param networkTracker - Used by waitForReady to detect network idle
+   * @param sessionContext - Session state (unused directly but available for future experiments)
+   */
   static registerHandlers(
     wsConnection: WebSocketConnection,
     tabHandlers: TabHandlers,
@@ -35,7 +52,8 @@ export class ExperimentalFeatures {
       return results[0].result;
     });
 
-    // waitForReady — DOM stability + network idle race with overall timeout
+    // waitForReady — races DOM stability + network idle against an overall timeout.
+    // The 500ms initial delay gives the DOM time to start mutating after navigation.
     wsConnection.registerCommandHandler('waitForReady', async (params) => {
       const tabId = tabHandlers.getAttachedTabId();
       if (!tabId) throw new Error('No tab attached');

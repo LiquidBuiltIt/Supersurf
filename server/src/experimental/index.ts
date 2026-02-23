@@ -1,6 +1,21 @@
 /**
- * ExperimentRegistry — session-scoped feature flag registry for experimental features
- * Part of SuperSurf experimental features
+ * ExperimentRegistry — session-scoped feature flag registry for experimental features.
+ *
+ * Manages the lifecycle of toggleable experiments (page_diffing, smart_waiting,
+ * storage_inspection, mouse_humanization, secure_eval). Experiments are toggled
+ * per-session via the `experimental_features` MCP tool.
+ *
+ * Also serves as the dispatch layer for experimental tools — collects schemas
+ * and routes tool calls to their respective handlers.
+ *
+ * @module experimental/index
+ *
+ * Key exports:
+ * - {@link experimentRegistry} — singleton registry instance
+ * - {@link isInfraExperimentEnabled} — check env-var-gated infrastructure experiments
+ * - {@link applyInitialState} — pre-enable experiments from startup config
+ * - {@link getExperimentalToolSchemas} — collect MCP tool schemas from experimental modules
+ * - {@link callExperimentalTool} — route experimental tool calls to handlers
  */
 
 export { diffSnapshots, calculateConfidence, formatDiffSection } from './page-diffing';
@@ -11,12 +26,21 @@ export type { AnalysisResult } from './secure-eval';
 import type { ToolSchema, ToolContext } from '../tools/types';
 import { storageInspectionSchema, onBrowserStorage } from './storage-inspection';
 
+/** All recognized session-toggleable experiment names. */
 const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization', 'secure_eval'] as const;
 type ExperimentName = typeof AVAILABLE_EXPERIMENTS[number];
 
+/**
+ * Session-scoped feature flag registry.
+ *
+ * Tracks which experiments are currently enabled. Validation ensures only
+ * recognized experiment names can be toggled — unknown names throw immediately
+ * to surface typos at the call site.
+ */
 class ExperimentRegistry {
   private _enabled: Map<string, boolean> = new Map();
 
+  /** Enable an experiment. Throws if the name is not in AVAILABLE_EXPERIMENTS. */
   enable(feature: string): void {
     if (!this.isAvailable(feature)) {
       throw new Error(`Unknown experiment: "${feature}". Available: ${AVAILABLE_EXPERIMENTS.join(', ')}`);
@@ -24,6 +48,7 @@ class ExperimentRegistry {
     this._enabled.set(feature, true);
   }
 
+  /** Disable an experiment. Throws if the name is not in AVAILABLE_EXPERIMENTS. */
   disable(feature: string): void {
     if (!this.isAvailable(feature)) {
       throw new Error(`Unknown experiment: "${feature}". Available: ${AVAILABLE_EXPERIMENTS.join(', ')}`);
@@ -31,18 +56,22 @@ class ExperimentRegistry {
     this._enabled.set(feature, false);
   }
 
+  /** Returns true only if the experiment has been explicitly enabled. */
   isEnabled(feature: string): boolean {
     return this._enabled.get(feature) === true;
   }
 
+  /** Clear all experiment states (used in tests and session teardown). */
   reset(): void {
     this._enabled.clear();
   }
 
+  /** Return a copy of all recognized experiment names. */
   listAvailable(): string[] {
     return [...AVAILABLE_EXPERIMENTS];
   }
 
+  /** Return a snapshot of all experiments and their current enabled/disabled state. */
   getStates(): Record<string, boolean> {
     const states: Record<string, boolean> = {};
     for (const exp of AVAILABLE_EXPERIMENTS) {
@@ -51,6 +80,7 @@ class ExperimentRegistry {
     return states;
   }
 
+  /** Check if a feature name is recognized (exists in AVAILABLE_EXPERIMENTS). */
   isAvailable(feature: string): boolean {
     return (AVAILABLE_EXPERIMENTS as readonly string[]).includes(feature);
   }

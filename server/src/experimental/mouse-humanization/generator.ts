@@ -1,6 +1,25 @@
 /**
  * Path generator — cubic Bezier trajectories with overshoot correction.
- * Produces waypoint arrays for the extension to replay via CDP Input.dispatchMouseEvent.
+ *
+ * Produces waypoint arrays that the extension replays via CDP Input.dispatchMouseEvent.
+ * Each waypoint has an (x, y) position and a delay in ms before dispatch.
+ *
+ * Algorithm overview:
+ * 1. Compute travel distance; micro-corrections (<5px) get a single waypoint.
+ * 2. Derive duration from distance, velocity (with log-normal noise), and personality speed.
+ * 3. Decide overshoot: if distance > threshold and random < personality.overshootTendency,
+ *    generate a two-segment path (arc past target + correction arc back).
+ * 4. Each segment is a cubic Bezier with control points offset perpendicular to the
+ *    movement vector (same side for natural hand arc).
+ * 5. Sample at irregular intervals with jitter applied to each waypoint.
+ * 6. Clamp all coordinates to viewport bounds.
+ *
+ * @module experimental/mouse-humanization/generator
+ *
+ * Key exports:
+ * - {@link generatePath} — main entry point for path generation
+ * - {@link Waypoint} — position + delay for a single mouse event
+ * - {@link Viewport} — width/height bounds for coordinate clamping
  */
 
 import type { DistributionProfile } from './profile';
@@ -20,6 +39,15 @@ export interface Viewport {
 
 /**
  * Generate a human-like mouse path from (fromX, fromY) to (toX, toY).
+ *
+ * @param fromX - Starting X coordinate
+ * @param fromY - Starting Y coordinate
+ * @param toX - Target X coordinate
+ * @param toY - Target Y coordinate
+ * @param profile - Statistical distribution profile (velocity, overshoot thresholds, etc.)
+ * @param personality - Per-session behavioral traits (speed, curvature, jitter)
+ * @param viewport - Viewport dimensions for coordinate clamping
+ * @returns Array of waypoints to replay as mouse events
  */
 export function generatePath(
   fromX: number,
@@ -39,7 +67,8 @@ export function generatePath(
     return [{ x: clampX(toX, viewport), y: clampY(toY, viewport), delayMs: randomInterval(profile) }];
   }
 
-  // Calculate duration from distance and velocity with log-normal noise
+  // Duration = distance / velocity. Velocity varies per-move via log-normal noise
+  // to simulate natural speed inconsistency (Fitts's law deviations).
   const velocity = profile.medianVelocity * personality.speedMultiplier * logNormalNoise(profile.velocitySigma);
   const durationMs = Math.max(50, (distance / velocity) * 1000);
 
@@ -55,7 +84,8 @@ export function generatePath(
     const overshootFraction = profile.overshootRange[0] +
       Math.random() * (profile.overshootRange[1] - profile.overshootRange[0]);
 
-    // Overshoot point — extend past target along movement vector with perpendicular offset
+    // Overshoot point: extend past target along the movement vector,
+    // then add a small perpendicular offset so the overshoot isn't perfectly collinear.
     const overshootDist = distance * overshootFraction;
     const angle = Math.atan2(dy, dx);
     const perpAngle = angle + (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
@@ -98,8 +128,15 @@ export function generatePath(
 }
 
 /**
- * Sample points along a cubic Bezier curve with control points on the same side
- * of the movement vector (natural hand arc).
+ * Sample points along a cubic Bezier curve.
+ *
+ * Control points are placed perpendicular to the movement vector, both on the
+ * same randomly-chosen side, producing a natural hand-arc effect. The `spread`
+ * factor (profile.controlPointSpread * personality.curvatureBias) controls how
+ * much the path bows away from a straight line.
+ *
+ * Points are sampled at irregular time intervals (randomInterval) to avoid the
+ * unnaturally uniform spacing that bots typically produce.
  */
 function sampleBezier(
   x0: number, y0: number,
@@ -113,12 +150,14 @@ function sampleBezier(
   const dy = y1 - y0;
   const dist = Math.sqrt(dx * dx + dy * dy);
 
-  // Control points perpendicular to movement vector, same side
+  // Perpendicular direction to movement vector (rotate 90 degrees)
   const perpX = -dy;
   const perpY = dx;
   const spread = profile.controlPointSpread * personality.curvatureBias;
   const side = Math.random() < 0.5 ? 1 : -1;
 
+  // Place CP1 at ~33% and CP2 at ~66% along the line, offset perpendicular.
+  // The (0.5 + random * 0.5) factor adds asymmetry between the two control points.
   const cp1x = x0 + dx * 0.33 + perpX * spread * side * (0.5 + Math.random() * 0.5);
   const cp1y = y0 + dy * 0.33 + perpY * spread * side * (0.5 + Math.random() * 0.5);
   const cp2x = x0 + dx * 0.66 + perpX * spread * side * (0.5 + Math.random() * 0.5);
@@ -157,7 +196,7 @@ function sampleBezier(
   return waypoints;
 }
 
-/** Evaluate cubic Bezier at parameter t */
+/** Evaluate cubic Bezier B(t) = (1-t)^3*P0 + 3(1-t)^2*t*P1 + 3(1-t)*t^2*P2 + t^3*P3 */
 function cubicBezier(
   t: number,
   x0: number, y0: number,
@@ -183,19 +222,26 @@ function randomInterval(profile: DistributionProfile): number {
   return min + Math.random() * (max - min);
 }
 
-/** Log-normal noise around 1.0 with given sigma */
+/**
+ * Generate log-normal noise centered around 1.0 with the given sigma.
+ * Uses Box-Muller transform to produce a normally-distributed Z,
+ * then exponentiates to get the log-normal value: exp(Z * sigma).
+ * This models the natural variation in human movement speed.
+ */
 function logNormalNoise(sigma: number): number {
-  // Box-Muller transform for normal distribution
   const u1 = Math.random();
   const u2 = Math.random();
+  // Box-Muller: two uniform randoms -> one standard normal
   const z = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-10))) * Math.cos(2 * Math.PI * u2);
   return Math.exp(z * sigma);
 }
 
+/** Clamp and round X to [0, viewport.width-1]. */
 function clampX(x: number, viewport: Viewport): number {
   return Math.max(0, Math.min(Math.round(x), viewport.width - 1));
 }
 
+/** Clamp and round Y to [0, viewport.height-1]. */
 function clampY(y: number, viewport: Viewport): number {
   return Math.max(0, Math.min(Math.round(y), viewport.height - 1));
 }

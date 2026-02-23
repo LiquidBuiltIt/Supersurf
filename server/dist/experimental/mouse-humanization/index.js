@@ -1,7 +1,21 @@
 "use strict";
 /**
  * Mouse humanization session orchestrator.
- * Manages per-session personality and cursor position, delegates path generation.
+ *
+ * Each MCP session gets its own humanization session with a random personality
+ * (speed, overshoot tendency, curvature, jitter) and tracked cursor position.
+ * When a mouse movement is requested, this module delegates to the path generator
+ * and updates the session's cursor state.
+ *
+ * Lifecycle: initSession() on experiment enable -> generateMovement() per interaction -> destroySession() on disable.
+ *
+ * @module experimental/mouse-humanization/index
+ *
+ * Key exports:
+ * - {@link initSession} — create a session with a random personality
+ * - {@link getSession} — retrieve session state
+ * - {@link destroySession} — clean up on disconnect/disable
+ * - {@link generateMovement} — produce a waypoint path from current cursor to target
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generatePath = exports.generatePersonality = exports.BALABIT_PROFILE = void 0;
@@ -20,6 +34,7 @@ var personality_2 = require("./personality");
 Object.defineProperty(exports, "generatePersonality", { enumerable: true, get: function () { return personality_2.generatePersonality; } });
 var generator_2 = require("./generator");
 Object.defineProperty(exports, "generatePath", { enumerable: true, get: function () { return generator_2.generatePath; } });
+/** Active humanization sessions keyed by session ID. */
 const sessions = new Map();
 /** Initialize a new humanization session with a random personality. */
 function initSession(sessionId, profile) {

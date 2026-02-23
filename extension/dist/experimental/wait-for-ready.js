@@ -1,6 +1,20 @@
 /**
- * DOM stability detection — injected via chrome.scripting.executeScript
- * No imports, no closures — required by executeScript({ func })
+ * @module experimental/wait-for-ready
+ *
+ * Detects when the DOM has stabilized after navigation or dynamic content loads.
+ * Uses a MutationObserver with a debounce timer: resolves once no mutations
+ * occur within `stabilityMs` milliseconds.
+ *
+ * CONSTRAINT: No imports, no closures -- injected via `executeScript({ func })`.
+ *
+ * Key exports:
+ * - {@link waitForDOMStable} — injectable function
+ */
+/**
+ * Wait for the DOM to stop mutating. Each mutation resets the debounce timer.
+ * Resolves once `stabilityMs` elapses with no childList/subtree changes.
+ * @param stabilityMs - Quiet period required before declaring stability (default 300ms)
+ * @returns Always resolves `{ stable: true }` (never rejects)
  */
 export function waitForDOMStable(stabilityMs = 300) {
     return new Promise((resolve) => {

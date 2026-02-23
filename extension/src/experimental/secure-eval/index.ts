@@ -1,9 +1,17 @@
 /**
- * Secure eval Layer 2 — Service Worker membrane validation.
- * Registers the `validateEval` command handler on the WebSocket connection.
+ * @module experimental/secure-eval/index
  *
- * Executes agent code against a deep Proxy membrane (no real DOM/APIs).
- * If code reaches a blocked terminal, it's caught before page execution.
+ * Layer 2 of the secure_eval pipeline (runs in the Service Worker).
+ * The server's Layer 1 (AST analysis via acorn) catches statically
+ * detectable patterns. This layer catches dynamic/runtime access by
+ * executing the agent's code against a deep Proxy membrane that has
+ * no real DOM or browser APIs -- only traps that throw on blocked
+ * property access.
+ *
+ * Flow: server AST check -> extension membrane check -> page execution.
+ *
+ * Key exports:
+ * - {@link registerSecureEvalHandlers} — registers the `validateEval` command
  */
 
 import { buildMembrane } from './membrane.js';
@@ -11,6 +19,7 @@ import type { WebSocketConnection } from '../../connection/websocket.js';
 
 /**
  * Register the `validateEval` command handler.
+ * A single membrane instance is reused across all validations (stateless Proxy).
  */
 export function registerSecureEvalHandlers(wsConnection: WebSocketConnection): void {
   const membrane = buildMembrane();
@@ -22,8 +31,8 @@ export function registerSecureEvalHandlers(wsConnection: WebSocketConnection): v
     }
 
     try {
-      // Sloppy outer for `with`, strict inner for agent code.
-      // No `return` — we don't care about the value, just whether blocked APIs are reached.
+      // Sloppy-mode outer function enables `with(membrane)` to intercept all lookups.
+      // Strict-mode IIFE inside prevents the agent code from escaping via `arguments.callee` etc.
       const wrapper = new Function(
         'membrane',
         `with(membrane) { (function() { "use strict";\n${code}\n})(); }`

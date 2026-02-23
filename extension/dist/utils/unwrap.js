@@ -1,6 +1,21 @@
 /**
- * Bot detection bypass — temporarily restores native DOM methods
+ * @module utils/unwrap
+ *
+ * Counteracts bot-detection libraries that monkey-patch DOM query methods
+ * (querySelector, getComputedStyle, etc.) to detect automation frameworks.
+ * When agent code references these methods, the wrapper temporarily restores
+ * native implementations sourced from a hidden iframe, executes the code,
+ * then restores the page's patched versions.
+ *
+ * Key exports:
+ * - {@link shouldUnwrap} — check if code references any wrapped methods
+ * - {@link wrapWithUnwrap} — wrap user code with native-method restoration
+ *
  * Adapted from Blueprint MCP (Apache 2.0)
+ */
+/**
+ * DOM methods commonly monkey-patched by bot detection libraries
+ * (e.g. Akamai, PerimeterX, Cloudflare Turnstile).
  */
 const WRAPPED_METHODS = [
     'document.querySelector',
@@ -15,12 +30,25 @@ const WRAPPED_METHODS = [
     'Element.prototype.getBoundingClientRect',
     'window.getComputedStyle',
 ];
+/**
+ * Check whether the given code string references any commonly wrapped DOM methods.
+ * Uses simple substring matching on the method's short name (e.g. "querySelector").
+ */
 export function shouldUnwrap(code) {
     return WRAPPED_METHODS.some((method) => {
         const shortName = method.split('.').pop();
         return code.includes(shortName);
     });
 }
+/**
+ * Wrap user code in an IIFE that temporarily replaces monkey-patched DOM methods
+ * with native versions obtained from a hidden iframe's contentDocument/contentWindow.
+ * The iframe is created, methods are swapped, user code executes, then originals
+ * are restored in a finally block to leave the page's patches intact.
+ *
+ * @param userCode - Raw JavaScript string to execute in the page context
+ * @returns Wrapped code string, or the original if no wrapped methods are referenced
+ */
 export function wrapWithUnwrap(userCode) {
     if (!shouldUnwrap(userCode))
         return userCode;

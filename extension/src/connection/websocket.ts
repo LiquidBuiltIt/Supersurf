@@ -1,12 +1,29 @@
 /**
- * WebSocket connection manager — connects to local MCP server
- * Stripped of PRO/relay/OAuth logic (direct mode only)
- * Adapted from Blueprint MCP (Apache 2.0)
+ * WebSocket connection manager -- connects to the local MCP server.
+ *
+ * Implements JSON-RPC 2.0 over WebSocket for bidirectional communication between
+ * the Chrome extension and the Node.js MCP server running on localhost.
+ *
+ * Key design decisions:
+ * - Uses chrome.alarms for reconnection instead of setTimeout, because MV3 service
+ *   workers can be suspended at any time, killing pending timers. Alarms survive suspension.
+ * - 5-second reconnect backoff with deduplication (reconnectTimeout flag prevents stacking).
+ * - 30-second keepalive alarm (registered in background.ts) ensures connection health.
+ * - Handshake on connect sends browser name, extension version, and build timestamp
+ *   so the server can validate compatibility.
+ * - Command/notification handler maps allow background.ts to register handlers declaratively.
+ *
+ * Stripped of PRO/relay/OAuth logic (direct localhost mode only).
+ * Adapted from Blueprint MCP (Apache 2.0).
  */
 
 import { Logger } from '../utils/logger.js';
 import { IconManager } from '../utils/icons.js';
 
+/**
+ * Manages the WebSocket lifecycle and JSON-RPC message routing between the
+ * extension and the local MCP server.
+ */
 export class WebSocketConnection {
   browser: typeof chrome;
   logger: Logger;
@@ -15,12 +32,16 @@ export class WebSocketConnection {
 
   socket: WebSocket | null = null;
   isConnected: boolean = false;
+  /** Client ID / project name received from the server's `authenticated` notification. */
   projectName: string | null = null;
   connectionUrl: string | null = null;
+  /** Reconnect guard -- set to a truthy value while a reconnect alarm is pending. */
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay: number = 5000;
 
+  /** Registered handlers for JSON-RPC commands (requests with an `id`). */
   commandHandlers: Map<string, (params: any, message?: any) => Promise<any>> = new Map();
+  /** Registered handlers for JSON-RPC notifications (no `id`, fire-and-forget). */
   notificationHandlers: Map<string, (params: any) => Promise<void>> = new Map();
 
   constructor(browserAPI: typeof chrome, logger: Logger, iconManager: IconManager, buildTimestamp: string | null = null) {
@@ -30,19 +51,31 @@ export class WebSocketConnection {
     this.buildTimestamp = buildTimestamp;
   }
 
+  /**
+   * Register a handler for a JSON-RPC command method.
+   * @param method - The RPC method name (e.g., 'navigate', 'screenshot', 'evaluate')
+   * @param handler - Async function that receives params and returns the result
+   */
   registerCommandHandler(method: string, handler: (params: any, message?: any) => Promise<any>): void {
     this.commandHandlers.set(method, handler);
   }
 
+  /**
+   * Register a handler for a JSON-RPC notification (no response expected).
+   * @param method - The notification method name
+   * @param handler - Async function that processes the notification params
+   */
   registerNotificationHandler(method: string, handler: (params: any) => Promise<void>): void {
     this.notificationHandlers.set(method, handler);
   }
 
+  /** Check chrome.storage.local for the extension enabled flag (defaults to true if unset). */
   async isExtensionEnabled(): Promise<boolean> {
     const result = await this.browser.storage.local.get(['extensionEnabled']);
     return result.extensionEnabled !== false;
   }
 
+  /** Build the WebSocket URL from the configured port (default 5555). */
   async getConnectionUrl(): Promise<string> {
     const result = await this.browser.storage.local.get(['mcpPort']);
     const port = result.mcpPort || '5555';
@@ -51,6 +84,11 @@ export class WebSocketConnection {
     return url;
   }
 
+  /**
+   * Establish a WebSocket connection to the MCP server.
+   * Guards against duplicate connections, respects the enabled flag, and
+   * cleans up any lingering socket before creating a new one.
+   */
   async connect(): Promise<void> {
     try {
       // Don't create duplicate connections
@@ -92,6 +130,7 @@ export class WebSocketConnection {
     }
   }
 
+  /** Cleanly disconnect: cancel reconnect alarms, close socket, update UI. */
   disconnect(): void {
     // Cancel any pending reconnect alarm
     try { (this.browser.alarms as any).clear('ws-reconnect'); } catch {}
@@ -108,6 +147,7 @@ export class WebSocketConnection {
     try { this.browser.runtime.sendMessage({ type: 'statusChanged' }); } catch {}
   }
 
+  /** Send a JSON-serialized message over the WebSocket. Logs error if not connected. */
   send(message: any): void {
     if (this.socket && this.isConnected) {
       this.socket.send(JSON.stringify(message));
@@ -116,6 +156,7 @@ export class WebSocketConnection {
     }
   }
 
+  /** Send a JSON-RPC 2.0 notification (no `id`, no response expected). */
   sendNotification(method: string, params: any): void {
     if (!this.socket || !this.isConnected) return;
     this.send({ jsonrpc: '2.0', method, params });
@@ -123,6 +164,7 @@ export class WebSocketConnection {
 
   // ── Internal handlers ──
 
+  /** On successful connection: update state, send handshake with browser metadata. */
   private _handleOpen(): void {
     this.logger.logAlways(`Connected to ${this.connectionUrl}`);
     this.isConnected = true;
@@ -143,6 +185,11 @@ export class WebSocketConnection {
     });
   }
 
+  /**
+   * Route incoming WebSocket messages to the appropriate handler.
+   * Distinguishes between notifications (no id) and commands (has id + method).
+   * Commands get a JSON-RPC response sent back; errors include stack traces for debugging.
+   */
   private async _handleMessage(event: MessageEvent): Promise<void> {
     let message: any;
     try {
@@ -213,6 +260,11 @@ export class WebSocketConnection {
     this._scheduleReconnect();
   }
 
+  /**
+   * Schedule a reconnect attempt using chrome.alarms instead of setTimeout.
+   * MV3 service workers can be terminated at any time, killing setTimeout callbacks.
+   * Chrome alarms persist across suspensions and will wake the service worker.
+   */
   private _scheduleReconnect(): void {
     if (this.reconnectTimeout) return;
     this.logger.log(`[WebSocket] Scheduling reconnect in ${this.reconnectDelay}ms...`);
@@ -222,6 +274,7 @@ export class WebSocketConnection {
     this.browser.alarms.create('ws-reconnect', { when: Date.now() + this.reconnectDelay } as any);
   }
 
+  /** Called by background.ts when the 'ws-reconnect' alarm fires. */
   handleReconnectAlarm(): void {
     this.reconnectTimeout = null;
     if (!this.isConnected) {
@@ -229,6 +282,7 @@ export class WebSocketConnection {
     }
   }
 
+  /** Extract browser name from extension manifest for the handshake payload. */
   private _getBrowserName(): string {
     const manifest = this.browser.runtime.getManifest();
     const name = manifest.name || '';

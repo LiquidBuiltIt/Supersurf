@@ -1,9 +1,18 @@
 /**
- * SuperSurf popup UI — state management, event handling, lifecycle.
- * Templates live in popup.templates.ts.
+ * @module popup/popup
+ *
+ * Entry point for the SuperSurf extension popup. Manages a simple reactive
+ * state object ({@link PopupState}) and re-renders the DOM on every change
+ * by swapping innerHTML via template functions from `popup.templates.ts`.
+ *
+ * Communicates with the background service worker via `runtime.sendMessage`
+ * to fetch connection status, toggle the extension, and manage settings.
+ * Listens for `statusChanged` messages and `storage.onChanged` events
+ * to keep the UI in sync without polling.
  */
 import { renderMain, renderSettings } from './popup.templates.js';
 const browserAPI = chrome;
+/** Mutable singleton state — mutated in place, then `render()` is called. */
 const state = {
     enabled: true,
     anyConnected: false,
@@ -17,6 +26,7 @@ const state = {
     projectName: null,
     domainWhitelistEnabled: false,
 };
+/** Hydrate state from chrome.storage.local and the extension manifest. */
 async function loadState() {
     const result = await browserAPI.storage.local.get([
         'extensionEnabled', 'mcpPort', 'debugMode', 'domainWhitelistEnabled',
@@ -28,6 +38,7 @@ async function loadState() {
     const manifest = browserAPI.runtime.getManifest();
     state.version = manifest.version;
 }
+/** Fetch live connection status from the background service worker and re-render. */
 async function updateStatus() {
     try {
         const response = await browserAPI.runtime.sendMessage({ type: 'getStatus' });
@@ -43,6 +54,7 @@ async function updateStatus() {
     }
     render();
 }
+/** Toggle the extension on/off, persist to storage, and notify background. */
 async function toggleEnabled() {
     state.enabled = !state.enabled;
     await browserAPI.storage.local.set({ extensionEnabled: state.enabled });
@@ -51,6 +63,7 @@ async function toggleEnabled() {
         type: state.enabled ? 'enableExtension' : 'disableExtension',
     }).catch(() => { });
 }
+/** Persist settings to storage, notify background of whitelist change, close settings view. */
 async function saveSettings() {
     await browserAPI.storage.local.set({
         mcpPort: state.port,
@@ -68,6 +81,7 @@ function cancelSettings() {
     state.showSettings = false;
     render();
 }
+/** Re-render the popup by replacing root innerHTML and re-attaching event listeners. */
 function render() {
     const root = document.getElementById('root');
     if (!root)
@@ -75,6 +89,7 @@ function render() {
     root.innerHTML = state.showSettings ? renderSettings(state) : renderMain(state);
     attachEventListeners();
 }
+/** Bind click/input/change handlers to DOM elements created by the current template. */
 function attachEventListeners() {
     if (state.showSettings) {
         document.getElementById('saveButton')?.addEventListener('click', saveSettings);
@@ -94,6 +109,10 @@ function attachEventListeners() {
         document.getElementById('settingsButton')?.addEventListener('click', () => {
             state.showSettings = true;
             render();
+        });
+        document.getElementById('privacyLink')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            chrome.tabs.create({ url: chrome.runtime.getURL('src/pages/privacy-policy.html') });
         });
     }
 }

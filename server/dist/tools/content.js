@@ -1,11 +1,22 @@
 "use strict";
 /**
  * Content extraction tool handlers — snapshot, lookup, extract.
+ *
+ * Provides three read-only tools for inspecting page content:
+ * - `browser_snapshot`: Returns the accessibility tree as indented role/name pairs
+ * - `browser_lookup`: Finds elements by visible text, returning selectors and positions
+ * - `browser_extract_content`: Converts page content to clean markdown with pagination
+ *
+ * @module tools/content
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onSnapshot = onSnapshot;
 exports.onLookup = onLookup;
 exports.onExtractContent = onExtractContent;
+/**
+ * Return the page's accessibility tree as indented text.
+ * Filters out generic/none roles to keep output meaningful.
+ */
 async function onSnapshot(ctx, options) {
     const result = await ctx.ext.sendCmd('snapshot', {});
     if (options.rawResult)
@@ -25,6 +36,12 @@ async function onSnapshot(ctx, options) {
     }
     return { content: [{ type: 'text', text: output || 'No meaningful accessibility nodes' }] };
 }
+/**
+ * Find elements by visible text and return their selectors, positions, and visibility.
+ * Prioritizes visible matches over hidden ones.
+ *
+ * @param args - `{ text: string, limit?: number }`
+ */
 async function onLookup(ctx, args, options) {
     const searchText = args.text;
     const limit = args.limit || 10;
@@ -82,6 +99,16 @@ async function onLookup(ctx, args, options) {
     });
     return { content: [{ type: 'text', text: output }] };
 }
+/**
+ * Extract page content as clean markdown with pagination support.
+ *
+ * Modes:
+ * - `auto`: Tries common content selectors (article, main, .content), falls back to body
+ * - `full`: Uses document.body directly
+ * - `selector`: Targets a specific CSS selector
+ *
+ * @param args - `{ mode?: string, selector?: string, max_lines?: number, offset?: number }`
+ */
 async function onExtractContent(ctx, args, options) {
     const mode = args.mode || 'auto';
     const maxLines = args.max_lines || 500;

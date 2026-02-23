@@ -1,6 +1,20 @@
 /**
  * Mouse humanization session orchestrator.
- * Manages per-session personality and cursor position, delegates path generation.
+ *
+ * Each MCP session gets its own humanization session with a random personality
+ * (speed, overshoot tendency, curvature, jitter) and tracked cursor position.
+ * When a mouse movement is requested, this module delegates to the path generator
+ * and updates the session's cursor state.
+ *
+ * Lifecycle: initSession() on experiment enable -> generateMovement() per interaction -> destroySession() on disable.
+ *
+ * @module experimental/mouse-humanization/index
+ *
+ * Key exports:
+ * - {@link initSession} — create a session with a random personality
+ * - {@link getSession} — retrieve session state
+ * - {@link destroySession} — clean up on disconnect/disable
+ * - {@link generateMovement} — produce a waypoint path from current cursor to target
  */
 
 import { BALABIT_PROFILE, type DistributionProfile } from './profile';
@@ -17,6 +31,7 @@ export { BALABIT_PROFILE } from './profile';
 export { generatePersonality } from './personality';
 export { generatePath } from './generator';
 
+/** Per-session state: personality traits, current cursor position, and the distribution profile in use. */
 interface HumanizationSession {
   personality: MousePersonality;
   cursorX: number;
@@ -24,6 +39,7 @@ interface HumanizationSession {
   profile: DistributionProfile;
 }
 
+/** Active humanization sessions keyed by session ID. */
 const sessions = new Map<string, HumanizationSession>();
 
 /** Initialize a new humanization session with a random personality. */

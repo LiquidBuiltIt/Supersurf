@@ -36,6 +36,7 @@ declare namespace chrome {
       remove(keys: string | string[]): Promise<void>;
     }
     const local: StorageArea;
+    const session: StorageArea;
     const onChanged: {
       addListener(callback: (changes: Record<string, { oldValue?: any; newValue?: any }>, areaName: string) => void): void;
     };

@@ -9,7 +9,7 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "test.watch": "vitest",
-    "zip": "zip supersurf-extension.zip ./assets/ ./dist/ ./manifest.json"
+    "zip": "zip -r supersurf-extension.zip ./assets/ ./dist/ ./manifest.json"
   },
   "devDependencies": {
     "typescript": "~5.5.0",

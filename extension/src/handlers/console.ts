@@ -1,6 +1,13 @@
 /**
- * Console message capture handler
- * Injects console override into page context (MAIN world)
+ * @module handlers/console
+ *
+ * Captures `console.*` output from automated pages by injecting a MAIN-world
+ * script that monkey-patches console methods. Messages are relayed to the
+ * service worker via `window.postMessage` -> content script -> `runtime.sendMessage`.
+ *
+ * Key exports:
+ * - {@link ConsoleHandler} — message buffer + injection logic
+ *
  * Adapted from Blueprint MCP (Apache 2.0)
  */
 
@@ -13,8 +20,13 @@ interface ConsoleMessage {
   tabId?: number;
 }
 
+/** Maximum buffered messages before oldest are dropped (FIFO). */
 const MAX_MESSAGES = 1000;
 
+/**
+ * Buffers console messages captured from automated pages.
+ * Injection is idempotent per tab (guarded by `__supersurfConsoleInjected`).
+ */
 export class ConsoleHandler {
   private browser: typeof chrome;
   private logger: Logger;
@@ -25,6 +37,7 @@ export class ConsoleHandler {
     this.logger = logger;
   }
 
+  /** Listen for forwarded console messages from the content script relay. */
   setupMessageListener(): void {
     this.browser.runtime.onMessage.addListener((message, sender) => {
       if (message.type === 'console') {
@@ -38,6 +51,12 @@ export class ConsoleHandler {
     });
   }
 
+  /**
+   * Inject a MAIN-world script that wraps console.log/warn/error/info/debug.
+   * Each call serializes args and posts them via `window.postMessage`, which
+   * the content script forwards to the service worker.
+   * @param tabId - Tab to inject into
+   */
   async injectConsoleCapture(tabId: number): Promise<void> {
     try {
       await this.browser.scripting.executeScript({
@@ -86,6 +105,7 @@ export class ConsoleHandler {
     }
   }
 
+  /** Append a message, evicting the oldest if at capacity. */
   addMessage(msg: ConsoleMessage): void {
     if (this.messages.length >= MAX_MESSAGES) {
       this.messages.shift();
@@ -93,6 +113,7 @@ export class ConsoleHandler {
     this.messages.push(msg);
   }
 
+  /** Retrieve messages, optionally filtered to a specific tab. Returns a copy. */
   getMessages(tabId?: number): ConsoleMessage[] {
     if (tabId !== undefined) {
       return this.messages.filter((m) => m.tabId === tabId);

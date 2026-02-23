@@ -1,0 +1,1354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperSurf — Browser Automation for AI Agents</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #1a1a1e;
+      --bg-surface: #222228;
+      --bg-elevated: #2a2a30;
+      --border: #2a2a30;
+      --text-primary: #f0f0f0;
+      --text-secondary: #c0c0c0;
+      --text-muted: #888;
+      --accent: #a0a0a0;
+      --accent-bright: #ffffff;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text-secondary);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .slides-container {
+      height: 100vh;
+      transition: transform 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+
+    .slide {
+      height: 100vh;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 60px 40px;
+      position: relative;
+      overflow-y: auto;
+    }
+
+    /* ── Slide indicator ── */
+    .slide-indicator {
+      position: fixed;
+      right: 24px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 100;
+    }
+
+    .slide-indicator .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--bg-elevated);
+      border: 1px solid #444;
+      transition: all 0.3s ease;
+    }
+
+    .slide-indicator .dot.active {
+      background: var(--text-muted);
+      border-color: var(--text-muted);
+      transform: scale(1.4);
+    }
+
+    /* ── SPARKLES ── */
+    .sparkle {
+      position: absolute;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+    }
+
+    .sparkle::before,
+    .sparkle::after {
+      content: '';
+      position: absolute;
+      background: rgba(255,255,255,0.9);
+    }
+
+    .sparkle::before {
+      width: 2px;
+      height: 14px;
+      left: -1px;
+      top: -7px;
+      border-radius: 1px;
+    }
+
+    .sparkle::after {
+      width: 14px;
+      height: 2px;
+      left: -7px;
+      top: -1px;
+      border-radius: 1px;
+    }
+
+    .sparkle.sm::before { height: 8px; top: -4px; }
+    .sparkle.sm::after { width: 8px; left: -4px; }
+    .sparkle.lg::before { height: 20px; top: -10px; }
+    .sparkle.lg::after { width: 20px; left: -10px; }
+
+    @keyframes sparkle-in {
+      0% { opacity: 0; transform: scale(0) rotate(0deg); }
+      50% { opacity: 1; transform: scale(1) rotate(45deg); }
+      100% { opacity: 0; transform: scale(0) rotate(90deg); }
+    }
+
+    .sparkle { animation: sparkle-in 2s ease-in-out infinite; }
+    .sparkle:nth-child(2) { animation-delay: 0.4s; }
+    .sparkle:nth-child(3) { animation-delay: 0.8s; }
+    .sparkle:nth-child(4) { animation-delay: 1.2s; }
+    .sparkle:nth-child(5) { animation-delay: 1.6s; }
+    .sparkle:nth-child(6) { animation-delay: 0.6s; }
+    .sparkle:nth-child(7) { animation-delay: 1.0s; }
+
+    /* ── HERO ── */
+    .hero {
+      text-align: center;
+      position: relative;
+      overflow: visible;
+    }
+
+    .hero-logo-wrap {
+      position: relative;
+      display: inline-block;
+      margin-bottom: 32px;
+    }
+
+    .hero-logo {
+      width: 140px;
+      height: 140px;
+      border-radius: 28px;
+      filter: drop-shadow(0 0 40px rgba(255,255,255,0.08));
+      margin-bottom: 0;
+    }
+
+    .hero h1 {
+      font-size: 52px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -1.5px;
+      margin-bottom: 12px;
+      position: relative;
+    }
+
+    .hero .tagline {
+      font-size: 18px;
+      font-weight: 300;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      margin-bottom: 48px;
+    }
+
+    .hero-pills {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .pill {
+      padding: 8px 18px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      letter-spacing: 0.3px;
+      transition: border-color 0.3s ease, color 0.3s ease;
+    }
+
+    .pill:hover {
+      border-color: rgba(255,255,255,0.2);
+      color: var(--text-primary);
+    }
+
+    .hero-hint {
+      position: absolute;
+      bottom: 40px;
+      font-size: 12px;
+      color: #555;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.8; }
+    }
+
+    /* Ambient sparkles scattered on slides */
+    .slide-sparkles {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .slide-sparkles .sparkle {
+      opacity: 0.5;
+    }
+
+    /* ── FEATURES ── */
+    .features-slide {
+      max-width: 1100px;
+      width: 100%;
+      margin: 0 auto;
+      align-items: center;
+      padding-top: 40px;
+      padding-bottom: 40px;
+    }
+
+    .slide-title {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.8px;
+      margin-bottom: 8px;
+      text-align: center;
+      width: 100%;
+    }
+
+    .slide-subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+      margin-bottom: 36px;
+      text-align: center;
+      width: 100%;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      width: 100%;
+    }
+
+    .feature-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: border-color 0.2s ease;
+    }
+
+    .feature-card:hover {
+      border-color: #444;
+    }
+
+    .feature-card .card-icon {
+      font-size: 20px;
+      margin-bottom: 10px;
+      display: block;
+      filter: grayscale(1) brightness(0.85);
+    }
+
+    .feature-card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .feature-card p {
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: var(--text-muted);
+    }
+
+    .feature-card .tool-count {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #666;
+      background: var(--bg);
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+
+    /* ── EXPERIMENTAL ── */
+    .experimental-slide {
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .experiment-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      width: 100%;
+    }
+
+    .experiment-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+
+    .experiment-item .exp-icon {
+      font-size: 22px;
+      filter: grayscale(1) brightness(0.85);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .experiment-item h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .experiment-item .exp-flag {
+      font-size: 11px;
+      font-weight: 500;
+      color: #666;
+      background: var(--bg);
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-left: 8px;
+    }
+
+    .experiment-item p {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+
+    /* ── SECURITY ── */
+    .security-slide {
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .security-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      width: 100%;
+    }
+
+    .security-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+
+    .security-card h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .security-card h3 span {
+      filter: grayscale(1) brightness(0.85);
+    }
+
+    .security-card p {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+
+    /* ── COMPARISON ── */
+    .comparison-slide {
+      max-width: 960px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+      text-align: left;
+      padding: 14px 18px;
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .comparison-table thead th {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 14px;
+      padding-bottom: 16px;
+      border-bottom: 2px solid #333;
+    }
+
+    .comparison-table thead th:first-child {
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .comparison-table thead th.highlight {
+      color: var(--text-primary);
+    }
+
+    .comparison-table tbody td {
+      color: var(--text-muted);
+    }
+
+    .comparison-table tbody td:first-child {
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .comparison-table tbody td.highlight {
+      color: var(--text-secondary);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .comparison-table .check {
+      color: var(--text-secondary);
+    }
+
+    .comparison-table .cross {
+      color: #555;
+    }
+
+    /* ── TABLE OF CONTENTS ── */
+    .toc-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      width: 100%;
+      max-width: 800px;
+      margin-top: 36px;
+    }
+
+    .toc-item {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 12px;
+      cursor: pointer;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+      text-align: center;
+    }
+
+    .toc-item:hover {
+      border-color: #444;
+      transform: translateY(-2px);
+    }
+
+    .toc-item.featured {
+      border-color: #444;
+      background: linear-gradient(135deg, var(--bg-surface) 0%, rgba(255,255,255,0.03) 100%);
+    }
+
+    .toc-item .toc-num {
+      font-size: 10px;
+      font-weight: 500;
+      color: #444;
+      margin-bottom: 6px;
+      letter-spacing: 0.5px;
+    }
+
+    .toc-item h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+    }
+
+    .toc-item p {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.3;
+    }
+
+    /* ── ARCHITECTURE ── */
+    .arch-slide {
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .arch-pipeline {
+      display: flex;
+      align-items: stretch;
+      width: 100%;
+      margin: 40px 0 48px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .arch-stage {
+      flex: 1;
+      padding: 28px 16px;
+      text-align: center;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.3s ease;
+    }
+
+    .arch-stage:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 20%;
+      height: 60%;
+      width: 1px;
+      background: var(--border);
+    }
+
+    /* Flow glow animation — cascades left to right */
+    @keyframes stage-glow {
+      0%, 100% {
+        background: transparent;
+        box-shadow: none;
+      }
+      8%, 18% {
+        background: rgba(255,255,255,0.04);
+        box-shadow: inset 0 0 20px rgba(255,255,255,0.03);
+      }
+    }
+
+    /* 6 stages, each lights up for ~10% of the cycle then fades.
+       Total cycle: 4.5s. Stagger: stage-index * 0.5s / 4.5s ≈ 11% */
+    .arch-stage { animation: stage-glow 4.5s ease-in-out infinite; }
+    .arch-stage:nth-child(1) { animation-delay: 0s; }
+    .arch-stage:nth-child(2) { animation-delay: 0.5s; }
+    .arch-stage:nth-child(3) { animation-delay: 1.0s; }
+    .arch-stage:nth-child(4) { animation-delay: 1.5s; }
+    .arch-stage:nth-child(5) { animation-delay: 2.0s; }
+    .arch-stage:nth-child(6) { animation-delay: 2.5s; }
+
+    /* Text brightens in sync */
+    @keyframes text-glow {
+      0%, 100% { color: #555; }
+      8%, 18% { color: var(--text-muted); }
+    }
+
+    @keyframes name-glow {
+      0%, 100% { color: var(--text-primary); }
+      8%, 18% { color: #fff; text-shadow: 0 0 12px rgba(255,255,255,0.15); }
+    }
+
+    .arch-stage .stage-icon {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #555;
+      font-weight: 500;
+      animation: text-glow 4.5s ease-in-out infinite;
+    }
+
+    .arch-stage .stage-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.3px;
+      animation: name-glow 4.5s ease-in-out infinite;
+    }
+
+    .arch-stage .stage-detail {
+      font-size: 11px;
+      color: #555;
+      margin-top: 2px;
+      animation: text-glow 4.5s ease-in-out infinite;
+    }
+
+    /* Inherit delays from parent */
+    .arch-stage:nth-child(1) .stage-icon,
+    .arch-stage:nth-child(1) .stage-name,
+    .arch-stage:nth-child(1) .stage-detail { animation-delay: 0s; }
+    .arch-stage:nth-child(2) .stage-icon,
+    .arch-stage:nth-child(2) .stage-name,
+    .arch-stage:nth-child(2) .stage-detail { animation-delay: 0.5s; }
+    .arch-stage:nth-child(3) .stage-icon,
+    .arch-stage:nth-child(3) .stage-name,
+    .arch-stage:nth-child(3) .stage-detail { animation-delay: 1.0s; }
+    .arch-stage:nth-child(4) .stage-icon,
+    .arch-stage:nth-child(4) .stage-name,
+    .arch-stage:nth-child(4) .stage-detail { animation-delay: 1.5s; }
+    .arch-stage:nth-child(5) .stage-icon,
+    .arch-stage:nth-child(5) .stage-name,
+    .arch-stage:nth-child(5) .stage-detail { animation-delay: 2.0s; }
+    .arch-stage:nth-child(6) .stage-icon,
+    .arch-stage:nth-child(6) .stage-name,
+    .arch-stage:nth-child(6) .stage-detail { animation-delay: 2.5s; }
+
+    .arch-connector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      margin: -12px 0 28px;
+      gap: 0;
+    }
+
+    .arch-connector .conn-segment {
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, #333 20%, #333 80%, transparent 100%);
+    }
+
+    .arch-connector .conn-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #444;
+      padding: 0 12px;
+      white-space: nowrap;
+    }
+
+    .arch-details {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      text-align: left;
+      width: 100%;
+    }
+
+    .arch-detail {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+
+    .arch-detail h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .arch-detail p {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+
+    /* ── QUICK START ── */
+    .quickstart-slide {
+      max-width: 960px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .quickstart-methods {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+      width: 100%;
+    }
+
+    .quickstart-method {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .quickstart-method h3 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+      letter-spacing: -0.3px;
+    }
+
+    .quickstart-method .method-subtitle {
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .quickstart-step {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .quickstart-step:last-child {
+      margin-bottom: 0;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--bg);
+      border: 1px solid #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-content p {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .step-content .cmd {
+      display: block;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 13px;
+      color: var(--text-muted);
+      word-break: break-all;
+      margin-top: 4px;
+    }
+
+    /* ── CTA ── */
+    .cta-slide {
+      text-align: center;
+    }
+
+    .cta-slide h2 {
+      font-size: 38px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -1px;
+      margin-bottom: 16px;
+    }
+
+    .cta-slide p {
+      font-size: 16px;
+      color: var(--text-muted);
+      margin-bottom: 40px;
+      max-width: 480px;
+    }
+
+    .cta-links {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+    }
+
+    .cta-link {
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+
+    .cta-link.primary {
+      background: var(--text-primary);
+      color: var(--bg);
+    }
+
+    .cta-link.primary:hover {
+      background: #ddd;
+    }
+
+    .cta-link.secondary {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+
+    .cta-link.secondary:hover {
+      border-color: #444;
+      color: var(--text-primary);
+    }
+
+    .cta-meta {
+      margin-top: 48px;
+      font-size: 12px;
+      color: #555;
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .slide { padding: 40px 24px; }
+      .hero h1 { font-size: 36px; }
+      .hero .tagline { font-size: 15px; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .security-grid { grid-template-columns: 1fr; }
+      .arch-details { grid-template-columns: 1fr; }
+      .quickstart-methods { grid-template-columns: 1fr; }
+      .arch-pipeline { flex-direction: column; }
+      .arch-stage:not(:last-child)::after { display: none; }
+      .toc-grid { grid-template-columns: repeat(3, 1fr); max-width: 100%; }
+      .comparison-table { font-size: 12px; }
+      .comparison-table th, .comparison-table td { padding: 10px 12px; }
+      .slide-indicator { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Slide indicator dots -->
+  <div class="slide-indicator" id="indicator"></div>
+
+  <div class="slides-container" id="slides">
+
+    <!-- ═══ SLIDE 1: HERO ═══ -->
+    <div class="slide hero">
+      <div class="slide-sparkles">
+        <div class="sparkle sm" style="top:18%;left:12%;"></div>
+        <div class="sparkle" style="top:25%;right:15%;animation-delay:0.7s;"></div>
+        <div class="sparkle sm" style="bottom:30%;left:20%;animation-delay:1.3s;"></div>
+        <div class="sparkle lg" style="top:15%;right:10%;animation-delay:0.2s;"></div>
+        <div class="sparkle sm" style="bottom:22%;right:18%;animation-delay:1.8s;"></div>
+      </div>
+      <div class="hero-logo-wrap">
+        <img src="logo.png" alt="SuperSurf" class="hero-logo">
+        <div class="sparkle" style="top:-8px;right:-12px;animation-delay:0.3s;"></div>
+        <div class="sparkle sm" style="bottom:10px;left:-10px;animation-delay:1.1s;"></div>
+      </div>
+      <h1>SuperSurf</h1>
+      <p class="tagline">Open-source browser automation for AI agents. Any model. Real browser.</p>
+      <div class="toc-grid">
+        <div class="toc-item featured" onclick="goTo(6)">
+          <div class="toc-num">01</div>
+          <h3>Get Started</h3>
+          <p>Install and configure</p>
+        </div>
+        <div class="toc-item" onclick="goTo(1)">
+          <div class="toc-num">02</div>
+          <h3>Browser Tools</h3>
+          <p>30+ automation tools</p>
+        </div>
+        <div class="toc-item" onclick="goTo(2)">
+          <div class="toc-num">03</div>
+          <h3>Experiments</h3>
+          <p>5 toggleable features</p>
+        </div>
+        <div class="toc-item" onclick="goTo(3)">
+          <div class="toc-num">04</div>
+          <h3>Security</h3>
+          <p>Privacy-first design</p>
+        </div>
+        <div class="toc-item" onclick="goTo(4)">
+          <div class="toc-num">05</div>
+          <h3>Comparison</h3>
+          <p>vs. Puppeteer, Selenium, Playwright</p>
+        </div>
+      </div>
+      <div class="hero-hint">Press arrow keys to navigate</div>
+    </div>
+
+    <!-- ═══ SLIDE 2: FEATURES ═══ -->
+    <div class="slide features-slide">
+      <div class="slide-sparkles">
+        <div class="sparkle sm" style="top:8%;right:8%;animation-delay:0.3s;"></div>
+        <div class="sparkle" style="top:14%;left:5%;animation-delay:1.1s;"></div>
+        <div class="sparkle sm" style="bottom:12%;right:12%;animation-delay:0.7s;"></div>
+        <div class="sparkle sm" style="bottom:20%;left:8%;animation-delay:1.5s;"></div>
+      </div>
+      <h2 class="slide-title">30+ Browser Tools</h2>
+      <p class="slide-subtitle">Everything your AI agent needs to operate a real browser.</p>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <span class="card-icon">&#9654;</span>
+          <h3>Navigation & Tabs</h3>
+          <p>Create, close, and switch tabs. Navigate to URLs, go back/forward, reload. Stealth mode support for bot-sensitive sites.</p>
+          <span class="tool-count">3 tools</span>
+        </div>
+        <div class="feature-card">
+          <span class="card-icon">&#9995;</span>
+          <h3>Page Interaction</h3>
+          <p>Click, type, scroll, hover, drag, press keys, upload files, select dropdowns, and handle dialogs. Full input simulation.</p>
+          <span class="tool-count">5 tools</span>
+        </div>
+        <div class="feature-card">
+          <span class="card-icon">&#128065;</span>
+          <h3>DOM Inspection</h3>
+          <p>Accessibility tree snapshots, element lookup by text, content extraction as clean markdown, computed CSS inspection.</p>
+          <span class="tool-count">5 tools</span>
+        </div>
+        <div class="feature-card">
+          <span class="card-icon">&#128247;</span>
+          <h3>Capture & Export</h3>
+          <p>Screenshots (viewport, full page, element crop), PDF export, file downloads, clickable element highlighting.</p>
+          <span class="tool-count">3 tools</span>
+        </div>
+        <div class="feature-card">
+          <span class="card-icon">&#128225;</span>
+          <h3>Network & Console</h3>
+          <p>Monitor network traffic with JSONPath filtering, replay requests, read console output. Full Web Vitals and performance metrics.</p>
+          <span class="tool-count">3 tools</span>
+        </div>
+        <div class="feature-card">
+          <span class="card-icon">&#128203;</span>
+          <h3>Forms & Credentials</h3>
+          <p>Batch form filling, drag-and-drop, and secure credential injection from environment variables. Agent never sees raw passwords.</p>
+          <span class="tool-count">3 tools</span>
+        </div>
+        <div class="feature-card">
+          <span class="card-icon">&#9889;</span>
+          <h3>JavaScript Evaluation</h3>
+          <p>Execute JS in page context with optional AST-based security analysis. Blocks dangerous patterns before they run.</p>
+          <span class="tool-count">1 tool</span>
+        </div>
+        <div class="feature-card">
+          <span class="card-icon">&#9989;</span>
+          <h3>Assertions</h3>
+          <p>Verify text or elements are visible on the page. Built-in validation primitives for your agent's test workflows.</p>
+          <span class="tool-count">2 tools</span>
+        </div>
+        <div class="feature-card">
+          <span class="card-icon">&#128268;</span>
+          <h3>Extensions & Storage</h3>
+          <p>List installed extensions, hot-reload unpacked extensions, inspect and modify localStorage and sessionStorage.</p>
+          <span class="tool-count">3 tools</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SLIDE 3: EXPERIMENTAL ═══ -->
+    <div class="slide experimental-slide">
+      <div class="slide-sparkles">
+        <div class="sparkle" style="top:12%;right:14%;animation-delay:0.5s;"></div>
+        <div class="sparkle sm" style="top:20%;left:10%;animation-delay:1.4s;"></div>
+        <div class="sparkle lg" style="bottom:15%;right:8%;animation-delay:0.9s;"></div>
+        <div class="sparkle sm" style="bottom:25%;left:14%;animation-delay:1.7s;"></div>
+      </div>
+      <h2 class="slide-title">Experimental Features</h2>
+      <p class="slide-subtitle">Toggle cutting-edge capabilities per session.</p>
+      <div class="experiment-list">
+        <div class="experiment-item">
+          <span class="exp-icon">&#128065;</span>
+          <div>
+            <h3>Page Diffing <span class="exp-flag">page_diffing</span></h3>
+            <p>After interactions, returns only the DOM changes instead of requiring a full re-read. Includes a confidence score so your agent knows when to request a full snapshot.</p>
+          </div>
+        </div>
+        <div class="experiment-item">
+          <span class="exp-icon">&#9202;</span>
+          <div>
+            <h3>Smart Waiting <span class="exp-flag">smart_waiting</span></h3>
+            <p>Replaces fixed navigation delays with adaptive DOM stability detection and network idle monitoring. Your agent stops guessing when a page is ready.</p>
+          </div>
+        </div>
+        <div class="experiment-item">
+          <span class="exp-icon">&#128433;</span>
+          <div>
+            <h3>Mouse Humanization <span class="exp-flag">mouse_humanization</span></h3>
+            <p>Replaces instant cursor teleportation with human-like Bezier trajectories, overshoot correction, and idle micro-movements. Based on real mouse dynamics research.</p>
+          </div>
+        </div>
+        <div class="experiment-item">
+          <span class="exp-icon">&#128274;</span>
+          <div>
+            <h3>Secure Eval <span class="exp-flag">secure_eval</span></h3>
+            <p>Two-layer defense for browser_evaluate: server-side AST parsing blocks dangerous patterns, extension-side Proxy membrane traps blocked API access before execution.</p>
+          </div>
+        </div>
+        <div class="experiment-item">
+          <span class="exp-icon">&#128451;</span>
+          <div>
+            <h3>Storage Inspection <span class="exp-flag">storage_inspection</span></h3>
+            <p>Enables the browser_storage tool for reading, writing, and clearing localStorage and sessionStorage on any page.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SLIDE 4: SECURITY ═══ -->
+    <div class="slide security-slide">
+      <div class="slide-sparkles">
+        <div class="sparkle sm" style="top:10%;left:12%;animation-delay:0.2s;"></div>
+        <div class="sparkle" style="top:18%;right:10%;animation-delay:1.0s;"></div>
+        <div class="sparkle sm" style="bottom:18%;left:6%;animation-delay:0.6s;"></div>
+        <div class="sparkle lg" style="bottom:10%;right:15%;animation-delay:1.3s;"></div>
+        <div class="sparkle sm" style="top:40%;right:5%;animation-delay:1.8s;"></div>
+      </div>
+      <h2 class="slide-title">Security & Privacy First</h2>
+      <p class="slide-subtitle">Built for developers who don't compromise on trust.</p>
+      <div class="security-grid">
+        <div class="security-card">
+          <h3><span>&#128274;</span> Zero Data Collection</h3>
+          <p>No telemetry, no analytics, no tracking. SuperSurf doesn't collect, transmit, or store any personal data. Period.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#127968;</span> Localhost Only</h3>
+          <p>All communication happens over a WebSocket bound to 127.0.0.1. Nothing leaves your machine through the extension.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#128273;</span> Secure Credentials</h3>
+          <p>Passwords and secrets are resolved from local environment variables. The AI agent only sees variable names, never raw values. Typed char-by-char with random delays.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#128064;</span> Isolated Scripts</h3>
+          <p>Content scripts run in Chrome's isolated world. Page JavaScript cannot detect, observe, or interfere with automation activity.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#128230;</span> Zero Dependencies</h3>
+          <p>The extension has zero runtime dependencies. Browser APIs only. No supply chain risk from third-party packages.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#128209;</span> Fully Open Source</h3>
+          <p>Every line of code — server and extension — is public on GitHub. Apache 2.0 licensed. Read it, audit it, fork it. No obfuscation, no hidden binaries.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SLIDE 5: COMPARISON ═══ -->
+    <div class="slide comparison-slide">
+      <div class="slide-sparkles">
+        <div class="sparkle" style="top:15%;left:8%;animation-delay:0.8s;"></div>
+        <div class="sparkle sm" style="top:10%;right:12%;animation-delay:0.4s;"></div>
+        <div class="sparkle sm" style="bottom:14%;left:14%;animation-delay:1.6s;"></div>
+        <div class="sparkle sm" style="bottom:22%;right:6%;animation-delay:1.1s;"></div>
+      </div>
+      <h2 class="slide-title">How SuperSurf Compares</h2>
+      <p class="slide-subtitle">Extension-based automation vs. the alternatives.</p>
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th class="highlight">SuperSurf</th>
+            <th>Puppeteer</th>
+            <th>Selenium</th>
+            <th>Playwright</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Real browser profile</td>
+            <td class="highlight"><span class="check">Yes</span></td>
+            <td><span class="cross">No</span></td>
+            <td><span class="cross">No</span></td>
+            <td><span class="cross">No</span></td>
+          </tr>
+          <tr>
+            <td>Cookies & history intact</td>
+            <td class="highlight"><span class="check">Yes</span></td>
+            <td><span class="cross">Fresh profile</span></td>
+            <td><span class="cross">Fresh profile</span></td>
+            <td><span class="cross">Fresh profile</span></td>
+          </tr>
+          <tr>
+            <td>Undetectable by page JS</td>
+            <td class="highlight"><span class="check">Isolated world</span></td>
+            <td><span class="cross">CDP leaks</span></td>
+            <td><span class="cross">WebDriver flag</span></td>
+            <td><span class="cross">CDP leaks</span></td>
+          </tr>
+          <tr>
+            <td>navigator.webdriver</td>
+            <td class="highlight"><span class="check">Clean</span></td>
+            <td><span class="cross">Exposed</span></td>
+            <td><span class="cross">Exposed</span></td>
+            <td><span class="cross">Exposed</span></td>
+          </tr>
+          <tr>
+            <td>Secure credential fill</td>
+            <td class="highlight"><span class="check">Env var isolation</span></td>
+            <td><span class="cross">Plaintext</span></td>
+            <td><span class="cross">Plaintext</span></td>
+            <td><span class="cross">Plaintext</span></td>
+          </tr>
+          <tr>
+            <td>MCP native</td>
+            <td class="highlight"><span class="check">Yes</span></td>
+            <td><span class="cross">No</span></td>
+            <td><span class="cross">No</span></td>
+            <td><span class="cross">No</span></td>
+          </tr>
+          <tr>
+            <td>Extension as human signal</td>
+            <td class="highlight"><span class="check">Yes</span></td>
+            <td><span class="cross">No extensions</span></td>
+            <td><span class="cross">No extensions</span></td>
+            <td><span class="cross">No extensions</span></td>
+          </tr>
+          <tr>
+            <td>Multi-agent sessions</td>
+            <td class="highlight"><span class="check">Multiplexer</span></td>
+            <td><span class="cross">Single</span></td>
+            <td><span class="cross">Single</span></td>
+            <td><span class="cross">Single</span></td>
+          </tr>
+          <tr>
+            <td>Framework detection</td>
+            <td class="highlight"><span class="check">40+ frameworks</span></td>
+            <td><span class="cross">No</span></td>
+            <td><span class="cross">No</span></td>
+            <td><span class="cross">No</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ═══ SLIDE 6: ARCHITECTURE ═══ -->
+    <div class="slide arch-slide">
+      <div class="slide-sparkles">
+        <div class="sparkle sm" style="top:12%;right:10%;animation-delay:0.6s;"></div>
+        <div class="sparkle" style="top:22%;left:8%;animation-delay:1.2s;"></div>
+        <div class="sparkle sm" style="bottom:16%;right:14%;animation-delay:0.3s;"></div>
+        <div class="sparkle lg" style="bottom:24%;left:12%;animation-delay:1.5s;"></div>
+      </div>
+      <h2 class="slide-title">How It Works</h2>
+      <p class="slide-subtitle">Extension-based architecture. No headless browser. No synthetic profile.</p>
+      <div class="arch-pipeline">
+        <div class="arch-stage">
+          <span class="stage-icon">Agent</span>
+          <span class="stage-name">AI Model</span>
+          <span class="stage-detail">Claude, GPT, etc.</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Protocol</span>
+          <span class="stage-name">MCP</span>
+          <span class="stage-detail">stdio / JSON-RPC</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Server</span>
+          <span class="stage-name">Node.js</span>
+          <span class="stage-detail">Tool routing</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Transport</span>
+          <span class="stage-name">WebSocket</span>
+          <span class="stage-detail">localhost:5555</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Extension</span>
+          <span class="stage-name">SuperSurf</span>
+          <span class="stage-detail">Chrome APIs + CDP</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Target</span>
+          <span class="stage-name">Chrome</span>
+          <span class="stage-detail">Real browser</span>
+        </div>
+      </div>
+      <div class="arch-connector">
+        <div class="conn-segment"></div>
+        <span class="conn-label">Entire pipeline runs on localhost</span>
+        <div class="conn-segment"></div>
+      </div>
+      <div class="arch-details">
+        <div class="arch-detail">
+          <h3>Content Script First</h3>
+          <p>All DOM reads and writes go through content scripts in Chrome's isolated world. CDP is only used for screenshots, network, and PDF. Page JS never sees the automation.</p>
+        </div>
+        <div class="arch-detail">
+          <h3>Real Profile</h3>
+          <p>Your cookies, history, localStorage, and installed extensions are all present. No synthetic launch flags. The browser looks and behaves like a human's browser.</p>
+        </div>
+        <div class="arch-detail">
+          <h3>CI Ready</h3>
+          <p>Sideload without user interaction via Chrome's <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:12px;">--load-extension</code> flag. Automation-ready from the command line.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SLIDE 7: QUICK START ═══ -->
+    <div class="slide quickstart-slide">
+      <div class="slide-sparkles">
+        <div class="sparkle" style="top:10%;left:10%;animation-delay:0.4s;"></div>
+        <div class="sparkle sm" style="top:16%;right:8%;animation-delay:1.3s;"></div>
+        <div class="sparkle sm" style="bottom:12%;left:16%;animation-delay:0.9s;"></div>
+        <div class="sparkle sm" style="bottom:20%;right:10%;animation-delay:1.7s;"></div>
+        <div class="sparkle lg" style="top:35%;left:4%;animation-delay:0.1s;"></div>
+      </div>
+      <h2 class="slide-title">Quick Start</h2>
+      <p class="slide-subtitle">Two ways to get up and running.</p>
+      <div class="quickstart-methods">
+        <div class="quickstart-method">
+          <h3>Chrome Web Store</h3>
+          <p class="method-subtitle">Recommended for most users</p>
+          <div class="quickstart-step">
+            <span class="step-num">1</span>
+            <div class="step-content">
+              <p>Install SuperSurf from the Chrome Web Store</p>
+            </div>
+          </div>
+          <div class="quickstart-step">
+            <span class="step-num">2</span>
+            <div class="step-content">
+              <p>Install the MCP server</p>
+              <span class="cmd">npm install -g supersurf-mcp</span>
+            </div>
+          </div>
+          <div class="quickstart-step">
+            <span class="step-num">3</span>
+            <div class="step-content">
+              <p>Add SuperSurf to your MCP client config and start automating</p>
+            </div>
+          </div>
+        </div>
+        <div class="quickstart-method">
+          <h3>Manual / Unpacked</h3>
+          <p class="method-subtitle">For development or offline use</p>
+          <div class="quickstart-step">
+            <span class="step-num">1</span>
+            <div class="step-content">
+              <p>Download the latest release .zip from GitHub</p>
+            </div>
+          </div>
+          <div class="quickstart-step">
+            <span class="step-num">2</span>
+            <div class="step-content">
+              <p>Extract the zip and open chrome://extensions</p>
+            </div>
+          </div>
+          <div class="quickstart-step">
+            <span class="step-num">3</span>
+            <div class="step-content">
+              <p>Enable Developer mode, click Load unpacked, and select the extracted folder</p>
+            </div>
+          </div>
+          <div class="quickstart-step">
+            <span class="step-num">4</span>
+            <div class="step-content">
+              <p>Install the MCP server</p>
+              <span class="cmd">npm install -g supersurf-mcp</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SLIDE 8: CTA ═══ -->
+    <div class="slide cta-slide">
+      <div class="slide-sparkles">
+        <div class="sparkle sm" style="top:22%;left:18%;animation-delay:0.5s;"></div>
+        <div class="sparkle" style="top:30%;right:14%;animation-delay:1.2s;"></div>
+        <div class="sparkle sm" style="bottom:28%;right:22%;animation-delay:0.9s;"></div>
+      </div>
+      <div class="hero-logo-wrap" style="margin-bottom:24px;">
+        <img src="logo.png" alt="SuperSurf" class="hero-logo" style="width:100px;height:100px;border-radius:22px;margin-bottom:0;">
+        <div class="sparkle sm" style="top:-6px;right:-8px;animation-delay:0.4s;"></div>
+      </div>
+      <h2>Open Source. Free to Use.</h2>
+      <p>Install the extension, run the MCP server, and give your AI agent a real browser. Every line of code is on GitHub.</p>
+      <div class="cta-links">
+        <a href="https://github.com/h8ngrydev4hire/supersurf" class="cta-link primary" target="_blank" rel="noopener">View Source on GitHub</a>
+        <a href="https://www.npmjs.com/package/supersurf-mcp" class="cta-link secondary" target="_blank" rel="noopener">npm install supersurf-mcp</a>
+      </div>
+      <div class="cta-meta">
+        <span>v0.6.5</span>
+        <span>Apache 2.0 + Commons Clause</span>
+        <span>100% Open Source</span>
+        <span>Zero telemetry</span>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const container = document.getElementById('slides');
+    const slides = container.querySelectorAll('.slide');
+    const indicator = document.getElementById('indicator');
+    let current = 0;
+
+    // Build indicator dots
+    slides.forEach((_, i) => {
+      const dot = document.createElement('div');
+      dot.className = 'dot' + (i === 0 ? ' active' : '');
+      indicator.appendChild(dot);
+    });
+
+    function goTo(index) {
+      if (index < 0 || index >= slides.length) return;
+      current = index;
+      container.style.transform = `translateY(-${current * 100}vh)`;
+      indicator.querySelectorAll('.dot').forEach((d, i) => {
+        d.classList.toggle('active', i === current);
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        goTo(current + 1);
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goTo(current - 1);
+      }
+    });
+
+    // Mouse wheel support
+    let wheelCooldown = false;
+    document.addEventListener('wheel', (e) => {
+      if (wheelCooldown) return;
+      wheelCooldown = true;
+      setTimeout(() => wheelCooldown = false, 800);
+
+      if (e.deltaY > 0) goTo(current + 1);
+      else if (e.deltaY < 0) goTo(current - 1);
+    }, { passive: true });
+
+    // Touch support
+    let touchStart = 0;
+    document.addEventListener('touchstart', (e) => {
+      touchStart = e.touches[0].clientY;
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+      const diff = touchStart - e.changedTouches[0].clientY;
+      if (Math.abs(diff) > 50) {
+        goTo(current + (diff > 0 ? 1 : -1));
+      }
+    }, { passive: true });
+  </script>
+
+</body>
+</html>

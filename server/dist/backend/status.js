@@ -1,9 +1,20 @@
 "use strict";
 /**
  * Status header builder — pure function, no side effects.
+ *
+ * Generates a compact one-line status string prepended to every MCP tool response.
+ * Includes version, browser name, attached tab URL (truncated), tech stack summary,
+ * and stealth indicator. In debug mode, also shows the extension build timestamp.
+ *
+ * @module backend/status
+ * @exports buildStatusHeader
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildStatusHeader = buildStatusHeader;
+/**
+ * Build a pipe-delimited status header from current connection state.
+ * Returns a string ending with `\n---\n\n` for markdown separation.
+ */
 function buildStatusHeader(input) {
     const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer } = input;
     const version = config.server.version;

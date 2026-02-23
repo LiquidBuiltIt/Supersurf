@@ -1,5 +1,16 @@
 /**
  * Screenshot and PDF tool handlers.
+ *
+ * Implements `browser_take_screenshot` and `browser_pdf_save`.
+ *
+ * Screenshots are captured via the extension's CDP Page.captureScreenshot,
+ * then optionally downscaled using Sharp to prevent base64 token blowup
+ * when returned inline to the agent. File saves bypass downscaling.
+ *
+ * Supports: format selection, quality, full-page, element crop via selector,
+ * coordinate clipping, device scale, and clickable element highlighting.
+ *
+ * @module tools/screenshot
  */
 
 import type { ToolContext } from './types';
@@ -7,12 +18,23 @@ import fs from 'fs';
 import sharp from 'sharp';
 import sizeOf from 'image-size';
 import { createLog } from '../logger';
+import { sandboxPath } from './sandbox';
 
 const log = createLog('[Screenshot]');
 
 /** Max pixel dimension for screenshots returned as base64 to the agent. */
 const SCREENSHOT_MAX_DIMENSION = 2000;
 
+/**
+ * Capture a screenshot of the current page or a specific element/region.
+ *
+ * When saving to a file path, the original resolution is preserved.
+ * When returning as base64 (no path), images wider/taller than
+ * {@link SCREENSHOT_MAX_DIMENSION} are downscaled with Lanczos3 to
+ * keep MCP response sizes reasonable.
+ *
+ * @param args - Screenshot options (type, quality, fullPage, path, clip, selector, etc.)
+ */
 export async function onScreenshot(ctx: ToolContext, args: any, options: any): Promise<any> {
   const filePath = args.path as string | undefined;
 
@@ -65,10 +87,11 @@ export async function onScreenshot(ctx: ToolContext, args: any, options: any): P
 
   // Save to file (no downscaling — file saves keep original resolution)
   if (filePath) {
-    fs.writeFileSync(filePath, buffer);
-    if (options.rawResult) return { success: true, path: filePath, size: buffer.length };
+    const safePath = sandboxPath(filePath);
+    fs.writeFileSync(safePath, buffer);
+    if (options.rawResult) return { success: true, path: safePath, size: buffer.length };
     return {
-      content: [{ type: 'text', text: `Screenshot saved to ${filePath} (${buffer.length} bytes)` }],
+      content: [{ type: 'text', text: `Screenshot saved to ${safePath} (${buffer.length} bytes)` }],
     };
   }
 
@@ -109,17 +132,23 @@ export async function onScreenshot(ctx: ToolContext, args: any, options: any): P
   };
 }
 
+/**
+ * Export the current page as a PDF using CDP Page.printToPDF.
+ *
+ * @param args - `{ path?: string }` — file path for output
+ */
 export async function onPdfSave(ctx: ToolContext, args: any, options: any): Promise<any> {
   const filePath = args.path as string;
   const result: any = await ctx.cdp('Page.printToPDF', {});
 
   if (result?.data) {
     const buffer = Buffer.from(result.data, 'base64');
-    if (filePath) fs.writeFileSync(filePath, buffer);
+    const safePath = filePath ? sandboxPath(filePath) : undefined;
+    if (safePath) fs.writeFileSync(safePath, buffer);
 
-    if (options.rawResult) return { success: true, path: filePath, size: buffer.length };
+    if (options.rawResult) return { success: true, path: safePath, size: buffer.length };
     return {
-      content: [{ type: 'text', text: `PDF saved to ${filePath} (${buffer.length} bytes)` }],
+      content: [{ type: 'text', text: `PDF saved to ${safePath} (${buffer.length} bytes)` }],
     };
   }
 

@@ -367,6 +367,50 @@ describe('ExtensionServer (bridge)', () => {
       expect(reconnectSpy).toHaveBeenCalled();
     });
 
+    it('drains inflight requests on client disconnect', async () => {
+      await server.start();
+      const { ws, ready } = connectClient(port);
+      clients.push(ws);
+      await ready;
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Client ignores all messages (no response)
+      // Send a command that will be pending when we disconnect
+      const cmdPromise = server.sendCmd('pending_method', {}, 30000);
+
+      // Give time for the message to be sent
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Disconnect client — inflight should be drained immediately
+      ws.close();
+
+      // Should reject with disconnect error, not timeout
+      await expect(cmdPromise).rejects.toThrow('Extension disconnected');
+    });
+
+    it('drains multiple inflight requests on disconnect', async () => {
+      await server.start();
+      const { ws, ready } = connectClient(port);
+      clients.push(ws);
+      await ready;
+      await new Promise((r) => setTimeout(r, 50));
+
+      const cmd1 = server.sendCmd('method_a', {}, 30000);
+      const cmd2 = server.sendCmd('method_b', {}, 30000);
+      const cmd3 = server.sendCmd('method_c', {}, 30000);
+
+      await new Promise((r) => setTimeout(r, 50));
+      ws.close();
+
+      const results = await Promise.allSettled([cmd1, cmd2, cmd3]);
+      for (const result of results) {
+        expect(result.status).toBe('rejected');
+        if (result.status === 'rejected') {
+          expect(result.reason.message).toBe('Extension disconnected');
+        }
+      }
+    });
+
     it('rejects duplicate connections when one is already open', async () => {
       await server.start();
 

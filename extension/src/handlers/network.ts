@@ -1,14 +1,24 @@
 /**
- * Network request tracker using webRequest API
+ * @module handlers/network
+ *
+ * Tracks HTTP request/response lifecycle via Chrome's webRequest API.
+ * Captures request method, headers, body, response status, and errors
+ * into a capped ring buffer ({@link MAX_REQUESTS} entries).
+ *
+ * Key exports:
+ * - {@link NetworkTracker} — stateful tracker instantiated by background.ts
+ *
  * Adapted from Blueprint MCP (Apache 2.0)
  */
 
 import { Logger } from '../utils/logger.js';
 
+/** Accumulated metadata for a single HTTP request through its lifecycle. */
 interface NetworkRequest {
   requestId: string;
   url: string;
   method: string;
+  /** Resource type (e.g. "xmlhttprequest", "script", "image"). */
   type: string;
   timestamp: number;
   statusCode?: number;
@@ -16,14 +26,24 @@ interface NetworkRequest {
   requestHeaders?: Record<string, string>;
   responseHeaders?: Record<string, string>;
   requestBody?: any;
+  /** Set when webRequest.onErrorOccurred fires (e.g. net::ERR_CONNECTION_REFUSED). */
   error?: string;
 }
 
+/** Maximum tracked requests before oldest entries are evicted (FIFO). */
 const MAX_REQUESTS = 500;
 
+/**
+ * Captures network traffic across the four webRequest lifecycle events:
+ * onBeforeRequest -> onBeforeSendHeaders -> onCompleted / onErrorOccurred.
+ *
+ * Requests are keyed by Chrome's `requestId` and progressively enriched
+ * as each event fires. The server queries via {@link getRequests}.
+ */
 export class NetworkTracker {
   private browser: typeof chrome;
   private logger: Logger;
+  /** Ring buffer keyed by requestId. Insertion order = chronological order. */
   private requests: Map<string, NetworkRequest> = new Map();
 
   constructor(browserAPI: typeof chrome, logger: Logger) {
@@ -31,6 +51,7 @@ export class NetworkTracker {
     this.logger = logger;
   }
 
+  /** Register webRequest listeners for all URLs. Must be called once after construction. */
   init(): void {
     const filter = { urls: ['<all_urls>'] };
 
@@ -58,6 +79,7 @@ export class NetworkTracker {
     );
   }
 
+  /** Return all tracked requests as an array, ordered oldest-first. */
   getRequests(): NetworkRequest[] {
     return Array.from(this.requests.values());
   }
@@ -66,6 +88,7 @@ export class NetworkTracker {
     this.requests.clear();
   }
 
+  /** Create initial entry on request start, evicting oldest if at capacity. */
   private _handleBeforeRequest(details: chrome.webRequest.WebRequestBodyDetails): void {
     // Trim to max
     if (this.requests.size >= MAX_REQUESTS) {
@@ -83,6 +106,7 @@ export class NetworkTracker {
     });
   }
 
+  /** Attach request headers (flattened from Chrome's array format to a plain object). */
   private _handleBeforeSendHeaders(details: chrome.webRequest.WebRequestHeadersDetails): void {
     const req = this.requests.get(details.requestId);
     if (req && details.requestHeaders) {
@@ -95,6 +119,7 @@ export class NetworkTracker {
     }
   }
 
+  /** Record response status and headers on successful completion. */
   private _handleCompleted(details: chrome.webRequest.WebResponseCacheDetails): void {
     const req = this.requests.get(details.requestId);
     if (req) {
@@ -111,6 +136,7 @@ export class NetworkTracker {
     }
   }
 
+  /** Record the error string when a request fails (network error, abort, etc.). */
   private _handleError(details: chrome.webRequest.WebResponseErrorDetails): void {
     const req = this.requests.get(details.requestId);
     if (req) {

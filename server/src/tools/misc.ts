@@ -1,10 +1,21 @@
 /**
  * Miscellaneous tool handlers — window, dialog, evaluate, verify, extensions, performance.
+ *
+ * Groups smaller tools that don't warrant their own module:
+ * - `browser_window`: Resize, minimize, maximize, close
+ * - `browser_handle_dialog`: Accept/dismiss alerts, confirms, prompts
+ * - `browser_evaluate`: Run JS in page context (with optional secure_eval 3-layer protection)
+ * - `browser_verify_text_visible` / `browser_verify_element_visible`: Page assertions
+ * - `browser_list_extensions` / `browser_reload_extensions`: Extension management
+ * - `browser_performance_metrics`: Web Vitals + CDP performance data
+ *
+ * @module tools/misc
  */
 
 import type { ToolContext } from './types';
 import { experimentRegistry, analyzeCode, wrapWithPageProxy } from '../experimental/index';
 
+/** Resize, close, minimize, or maximize the browser window. */
 export async function onWindow(ctx: ToolContext, args: any, options: any): Promise<any> {
   const result = await ctx.ext.sendCmd('window', {
     action: args.action,
@@ -14,6 +25,7 @@ export async function onWindow(ctx: ToolContext, args: any, options: any): Promi
   return ctx.formatResult('browser_window', result, options);
 }
 
+/** Accept or dismiss a browser dialog (alert, confirm, prompt). */
 export async function onDialog(ctx: ToolContext, args: any, options: any): Promise<any> {
   if (args.accept !== undefined) {
     const result = await ctx.ext.sendCmd('dialog', {
@@ -27,6 +39,17 @@ export async function onDialog(ctx: ToolContext, args: any, options: any): Promi
   return ctx.formatResult('browser_handle_dialog', result, options);
 }
 
+/**
+ * Evaluate JavaScript in the page context.
+ *
+ * When the `secure_eval` experiment is enabled, code passes through three
+ * security layers before execution:
+ * 1. **Layer 1 — Static AST analysis** (~1ms): Blocks known dangerous patterns
+ * 2. **Layer 2 — Service Worker Proxy membrane** (~10-20ms): Extension-side validation
+ * 3. **Layer 3 — Page-context Proxy wrapper**: Runtime API access trapping
+ *
+ * @param args - `{ function?: string, expression?: string }`
+ */
 export async function onEvaluate(ctx: ToolContext, args: any, options: any): Promise<any> {
   const code = args.function || args.expression;
 
@@ -100,6 +123,7 @@ export async function onEvaluate(ctx: ToolContext, args: any, options: any): Pro
   };
 }
 
+/** Assert that specific text is visible in the page body. Returns isError=true when not found. */
 export async function onVerifyTextVisible(ctx: ToolContext, args: any, options: any): Promise<any> {
   const text = args.text as string;
   const found = await ctx.eval(`document.body.innerText.includes(${JSON.stringify(text)})`);
@@ -114,6 +138,7 @@ export async function onVerifyTextVisible(ctx: ToolContext, args: any, options: 
   };
 }
 
+/** Assert that an element matching the selector exists and is visible (not display:none, not zero-size). */
 export async function onVerifyElementVisible(ctx: ToolContext, args: any, options: any): Promise<any> {
   const selector = args.selector as string;
   const result = await ctx.eval(`
@@ -139,11 +164,13 @@ export async function onVerifyElementVisible(ctx: ToolContext, args: any, option
   };
 }
 
+/** List all installed Chrome extensions. */
 export async function onListExtensions(ctx: ToolContext, options: any): Promise<any> {
   const result = await ctx.ext.sendCmd('listExtensions', {});
   return ctx.formatResult('browser_list_extensions', result, options);
 }
 
+/** Reload an unpacked (developer) Chrome extension by name. */
 export async function onReloadExtensions(ctx: ToolContext, args: any, options: any): Promise<any> {
   const result = await ctx.ext.sendCmd('reloadExtension', {
     extensionName: args.extensionName,
@@ -151,6 +178,10 @@ export async function onReloadExtensions(ctx: ToolContext, args: any, options: a
   return ctx.formatResult('browser_reload_extensions', result, options);
 }
 
+/**
+ * Collect Web Vitals (TTFB, FCP, DOM Content Loaded, Load) from the
+ * Performance API and raw CDP metrics from the extension.
+ */
 export async function onPerformanceMetrics(ctx: ToolContext, options: any): Promise<any> {
   const cdpResult = await ctx.ext.sendCmd('performanceMetrics', {});
   const metrics = cdpResult?.metrics || [];

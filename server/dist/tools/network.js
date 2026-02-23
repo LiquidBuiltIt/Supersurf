@@ -1,10 +1,29 @@
 "use strict";
 /**
  * Network and console tool handlers.
+ *
+ * Implements `browser_network_requests` (list/details/replay/clear captured
+ * HTTP traffic) and `browser_console_messages` (read page console output).
+ *
+ * Network requests are captured by the extension's webRequest listener and
+ * stored in-memory. Filtering is applied server-side after retrieval.
+ *
+ * @module tools/network
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onNetworkRequests = onNetworkRequests;
 exports.onConsoleMessages = onConsoleMessages;
+/**
+ * List, inspect, replay, or clear captured network requests.
+ *
+ * Actions:
+ * - `list` (default): Paginated list with optional URL/method/status/type filters
+ * - `details`: Full details for a specific requestId
+ * - `replay`: Re-send a captured request via page-context fetch()
+ * - `clear`: Clear the captured request log
+ *
+ * @param args - `{ action?, urlPattern?, method?, status?, resourceType?, limit?, offset?, requestId?, jsonPath? }`
+ */
 async function onNetworkRequests(ctx, args, options) {
     const action = args.action || 'list';
     if (action === 'clear') {
@@ -67,6 +86,11 @@ async function onNetworkRequests(ctx, args, options) {
     });
     return { content: [{ type: 'text', text }] };
 }
+/**
+ * Read captured console messages from the page, with optional filtering.
+ *
+ * @param args - `{ level?, text?, url?, limit?, offset? }`
+ */
 async function onConsoleMessages(ctx, args, options) {
     const result = await ctx.ext.sendCmd('consoleMessages', {});
     let messages = result?.messages || [];

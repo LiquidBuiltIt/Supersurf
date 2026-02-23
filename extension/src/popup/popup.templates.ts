@@ -1,7 +1,17 @@
 /**
- * Popup HTML templates — separated from logic for clarity.
+ * @module popup/popup.templates
+ *
+ * Pure HTML template functions for the extension popup, separated from
+ * state management in `popup.ts`. Each function takes the current
+ * {@link PopupState} and returns an HTML string for innerHTML replacement.
+ *
+ * Key exports:
+ * - {@link renderMain} — connection status, stealth indicator, enable/disable toggle
+ * - {@link renderSettings} — port config, debug mode, domain whitelist toggles
+ * - {@link PopupState} — shared state interface consumed by both modules
  */
 
+/** Shared mutable state driving both the main and settings views. */
 export interface PopupState {
   enabled: boolean;
   anyConnected: boolean;
@@ -16,6 +26,7 @@ export interface PopupState {
   domainWhitelistEnabled: boolean;
 }
 
+/** Render the main popup view: status indicator, tab info, and enable/disable toggle. */
 export function renderMain(state: PopupState): string {
   const statusClass = state.connecting ? 'connecting' : state.anyConnected ? 'connected' : 'disconnected';
   const statusText = state.connecting ? 'Connecting' : state.anyConnected ? 'Connected' : 'Disconnected';
@@ -71,12 +82,16 @@ export function renderMain(state: PopupState): string {
           <button class="settings-link" id="settingsButton">
             Settings
           </button>
+          <a class="doc-link" id="privacyLink" href="#">
+            Privacy Policy
+          </a>
         </div>
       </div>
     </div>
   `;
 }
 
+/** Render the settings view: port input, debug mode checkbox, domain whitelist toggle. */
 export function renderSettings(state: PopupState): string {
   return `
     <div class="popup-container">

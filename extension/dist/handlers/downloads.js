@@ -1,5 +1,16 @@
 /**
- * Download handler using chrome.downloads API
+ * @module handlers/downloads
+ *
+ * Downloads files via Chrome's `chrome.downloads` API with completion monitoring.
+ * Tracks download state transitions (in_progress -> complete | interrupted) and
+ * returns final file path, size, and MIME type. Includes a 5-minute timeout.
+ *
+ * Key exports:
+ * - {@link DownloadHandler} — single-method download orchestrator
+ */
+/**
+ * Initiates browser downloads and monitors them to completion via
+ * `chrome.downloads.onChanged` delta events.
  */
 export class DownloadHandler {
     browser;
@@ -8,6 +19,12 @@ export class DownloadHandler {
         this.browser = browserAPI;
         this.logger = logger;
     }
+    /**
+     * Start a download and wait for it to complete, fail, or time out.
+     * @param params.url - URL to download
+     * @param params.filename - Optional filename override (saved under browser Downloads folder)
+     * @returns Result with file path, size, and MIME type on success
+     */
     async download(params) {
         const { url, filename } = params;
         if (!url) {

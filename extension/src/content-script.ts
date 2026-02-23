@@ -1,9 +1,24 @@
 /**
- * Content script — tech stack detection + console message relay
- * Adapted from Blueprint MCP (Apache 2.0) — stripped of OAuth token watching
+ * Content script — tech stack detection + console message relay.
+ *
+ * Injected at `document_start` on all pages (configured in manifest.json).
+ * Runs in an isolated world -- invisible to page JavaScript, which is a key
+ * anti-detection property (page-injected scripts show as VM instances in
+ * memory profiling; content scripts do not).
+ *
+ * Two responsibilities:
+ * 1. Relay console messages from the injected console-capture script (via window.postMessage)
+ *    back to the background service worker (via chrome.runtime.sendMessage).
+ * 2. Detect 40+ frontend frameworks, libraries, CSS frameworks, and dev tools by probing
+ *    window globals, DOM selectors, and stylesheet hrefs. Results are sent to background.ts
+ *    for the `techStack` tab metadata.
+ *
+ * Adapted from Blueprint MCP (Apache 2.0) -- stripped of OAuth token watching.
  */
 
-// Listen for console messages from injected script
+// Relay console messages captured by the injected MAIN-world script.
+// The injected script posts { __supersurfConsole: { level, text, timestamp } }
+// to window; we forward it to the service worker via chrome.runtime.sendMessage.
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
 
@@ -19,7 +34,19 @@ window.addEventListener('message', (event) => {
 });
 
 /**
- * Tech stack detection
+ * Detect frontend tech stack by probing window globals, DOM structure, and stylesheets.
+ *
+ * Detection strategy per category:
+ * - Frameworks: Check for well-known globals (__REACT_DEVTOOLS_GLOBAL_HOOK__, Vue, ng, etc.)
+ *   and fallback to DOM markers (root element IDs, Angular directives).
+ * - Libraries: Check globals (jQuery/$, _, d3, Alpine, htmx).
+ * - CSS: Match stylesheet hrefs and characteristic CSS class names.
+ * - Obfuscated CSS: Sample first 50 elements with classes; if >30% match the pattern
+ *   of short-prefix + hash (e.g., "ab_x9f2k"), flag as obfuscated (CSS Modules, Styled Components).
+ * - Dev tools: Check for bundler globals (__webpack_require__) and ES module script tags.
+ *
+ * @returns Object with arrays of detected frameworks, libraries, css frameworks, devTools,
+ *          plus boolean flags for spa, autoReload, and obfuscatedCSS.
  */
 function detectTechStack(): any {
   const stack: any = {
@@ -121,7 +148,10 @@ function detectTechStack(): any {
   return stack;
 }
 
-// Run tech stack detection after page loads
+// Run tech stack detection after page loads.
+// Uses a 1s delay to let SPAs hydrate and expose their globals.
+// Handles both pre-DOMContentLoaded (readyState === 'loading') and
+// already-loaded pages (e.g., when the content script runs late).
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {

@@ -1,16 +1,30 @@
 /**
  * Download tool handler.
- * Extension downloads the file to Chrome's Downloads folder,
- * then server moves it to the agent-specified destination.
+ *
+ * Implements `browser_download` — the extension downloads the file to Chrome's
+ * Downloads folder, then the server optionally moves it to an agent-specified
+ * destination. Handles cross-device moves (EXDEV) by falling back to copy+delete.
+ *
+ * @module tools/downloads
  */
 
 import type { ToolContext } from './types';
 import fs from 'fs';
 import path from 'path';
 import { createLog } from '../logger';
+import { sandboxPath } from './sandbox';
 
 const log = createLog('[Downloads]');
 
+/**
+ * Download a file from a URL via the browser, optionally moving it to a destination path.
+ *
+ * The extension handles the actual download (with a 5-minute timeout for large files).
+ * If `destination` is provided, the file is moved from Chrome's Downloads folder
+ * to the specified path (or appended to a directory).
+ *
+ * @param args - `{ url: string, filename?: string, destination?: string }`
+ */
 export async function onBrowserDownload(ctx: ToolContext, args: any, options: any): Promise<any> {
   const url = args.url as string;
   if (!url) return ctx.error('`url` is required', options);
@@ -95,7 +109,7 @@ export async function onBrowserDownload(ctx: ToolContext, args: any, options: an
  * If destination is a file path, use it directly.
  */
 function resolveDestination(destination: string, downloadPath: string): string {
-  const resolved = path.resolve(destination);
+  const resolved = sandboxPath(destination);
 
   // If destination exists and is a directory, or ends with separator, append filename
   if ((fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) ||
@@ -106,6 +120,7 @@ function resolveDestination(destination: string, downloadPath: string): string {
   return resolved;
 }
 
+/** Format a byte count as a human-readable string (B, KB, or MB). */
 function formatBytes(bytes?: number): string {
   if (!bytes) return 'unknown size';
   if (bytes < 1024) return `${bytes} B`;

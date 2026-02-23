@@ -1,5 +1,17 @@
 /**
  * CSS styles inspection tool handler.
+ *
+ * Implements `browser_get_element_styles` — a DevTools Styles panel equivalent
+ * for AI agents. Uses CDP's CSS domain to retrieve matched CSS rules,
+ * inline styles, and computed values for a given selector.
+ *
+ * Features:
+ * - Property filtering (inspect a single CSS property)
+ * - Pseudo-state forcing (hover, focus, active, etc.)
+ * - Source tracking with file:line references
+ * - Applied/overridden/computed markers for cascade visibility
+ *
+ * @module tools/styles
  */
 
 import type { ToolContext } from './types';
@@ -12,6 +24,15 @@ function cleanCSSFilename(href: string): string {
   return filename;
 }
 
+/**
+ * Inspect computed and matched CSS rules for an element.
+ *
+ * Resolves the element via CDP DOM.querySelector, optionally forces pseudo-states,
+ * then collects all matched rules and inline styles into a property map with
+ * source/selector/importance tracking. Cleans up forced pseudo-states on exit.
+ *
+ * @param args - `{ selector: string, property?: string, pseudoState?: string[] }`
+ */
 export async function onGetElementStyles(ctx: ToolContext, args: any, options: any): Promise<any> {
   const selector = args.selector as string;
   const propertyFilter = args.property ? (args.property as string).toLowerCase() : null;
@@ -106,7 +127,8 @@ export async function onGetElementStyles(ctx: ToolContext, args: any, options: a
     }
   }
 
-  // Mark computed duplicates
+  // Mark computed duplicates — when the same source/selector/importance combo
+  // produces different values, the last one is tagged as [computed] by the browser
   propMap.forEach((values) => {
     const sourceGroups = new Map<string, number[]>();
     values.forEach((decl: any, idx: number) => {

@@ -1,11 +1,30 @@
 "use strict";
 /**
  * Form filling, drag, and secure fill tool handlers.
+ *
+ * Implements three tools:
+ * - `browser_fill_form`: Batch-set values on multiple form fields
+ * - `browser_drag`: Simulate drag-and-drop between two elements via CDP mouse events
+ * - `secure_fill`: Fill a field from a server-side env var without exposing the value to the agent
+ *
+ * Form filling uses native property setters (bypassing framework getters)
+ * and dispatches input/change events for React/Vue/Angular compatibility.
+ *
+ * @module tools/forms
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onFillForm = onFillForm;
 exports.onDrag = onDrag;
 exports.onSecureFill = onSecureFill;
+/**
+ * Set values on multiple form fields at once.
+ *
+ * Handles input, textarea, select (single and multi), checkbox, and radio
+ * elements. Uses native prototype setters to bypass framework-managed
+ * value properties, then fires input + change events.
+ *
+ * @param args - `{ fields: Array<{ selector: string, value: string }> }`
+ */
 async function onFillForm(ctx, args, options) {
     const fields = args.fields;
     const results = [];
@@ -57,6 +76,12 @@ async function onFillForm(ctx, args, options) {
         return { success: true, fields: results };
     return { content: [{ type: 'text', text: results.join('\n') }] };
 }
+/**
+ * Drag one element to another using simulated CDP mouse events.
+ * Moves in 10 interpolated steps for realistic drag behavior.
+ *
+ * @param args - `{ fromSelector: string, toSelector: string }`
+ */
 async function onDrag(ctx, args, options) {
     const from = await ctx.getElementCenter(args.fromSelector);
     const to = await ctx.getElementCenter(args.toSelector);
@@ -89,6 +114,15 @@ async function onDrag(ctx, args, options) {
             }],
     };
 }
+/**
+ * Fill a form field with a credential from a server-side environment variable.
+ *
+ * The agent only provides the env var name — the actual value is resolved
+ * server-side and sent directly to the extension, which types it char-by-char
+ * with randomized delays. The credential value never appears in MCP responses.
+ *
+ * @param args - `{ selector: string, credential_env: string }`
+ */
 async function onSecureFill(ctx, args, options) {
     const selector = args.selector;
     const envName = args.credential_env;

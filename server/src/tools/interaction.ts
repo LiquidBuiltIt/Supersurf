@@ -1,5 +1,15 @@
 /**
  * Interaction tool handlers — click, type, scroll, hover, etc.
+ *
+ * Handles the `browser_interact` tool which accepts an ordered array of
+ * actions and executes them sequentially. Integrates with two experimental
+ * features: page_diffing (captures DOM before/after and returns a diff)
+ * and mouse_humanization (generates Bezier-curve mouse paths).
+ *
+ * All mouse interactions go through CDP `Input.dispatch*` events with
+ * realistic timing based on the Balabit Mouse Dynamics dataset.
+ *
+ * @module tools/interaction
  */
 
 import type { ToolContext } from './types';
@@ -9,6 +19,7 @@ import { createLog } from '../logger';
 
 const log = createLog('[Interact]');
 
+/** Maps friendly key names to CDP Input.dispatchKeyEvent parameters. */
 const KEY_MAP: Record<string, { key: string; code: string; keyCode: number; text: string }> = {
   Enter:      { key: 'Enter',      code: 'Enter',      keyCode: 13, text: '\r' },
   Tab:        { key: 'Tab',        code: 'Tab',        keyCode: 9,  text: '\t' },
@@ -26,6 +37,17 @@ const KEY_MAP: Record<string, { key: string; code: string; keyCode: number; text
   PageDown:   { key: 'PageDown',   code: 'PageDown',   keyCode: 34, text: '' },
 };
 
+/**
+ * Execute a sequence of page interactions (click, type, hover, scroll, etc.).
+ *
+ * Optionally captures DOM state before/after for page diffing, and returns
+ * per-action success/failure results. The `onError` arg controls whether
+ * the sequence stops on first failure or continues.
+ *
+ * @param ctx - Tool context with CDP/eval/extension access
+ * @param args - `{ actions: Action[], onError?: 'stop'|'ignore', screenshot?: boolean }`
+ * @param options - `{ rawResult?: boolean }`
+ */
 export async function onInteract(ctx: ToolContext, args: any, options: any): Promise<any> {
   const actions = args.actions as any[];
   const onError = (args.onError as string) || 'stop';
@@ -94,6 +116,10 @@ async function moveCursorTo(ctx: ToolContext, x: number, y: number, sessionId: s
   await ctx.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
 }
 
+/**
+ * Execute a single interaction action and return a human-readable result string.
+ * Throws on failure so the caller can format error messages.
+ */
 async function executeAction(ctx: ToolContext, action: any): Promise<string> {
   switch (action.type) {
     case 'click': {

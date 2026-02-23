@@ -1,7 +1,17 @@
 /**
- * DistributionProfile — statistical parameters for mouse movement generation.
- * Hand-tuned from Balabit Mouse Dynamics dataset characteristics.
- * Designed to be swapped for dataset-driven profiles when BeCAPTCHA access arrives.
+ * DistributionProfile — statistical parameters governing mouse movement generation.
+ *
+ * Defines the "physics" of cursor movement: velocity distribution, overshoot
+ * behavior, sampling rate, curve shape, and idle drift. The interface is designed
+ * to be swappable — the current BALABIT_PROFILE uses hand-tuned constants from
+ * the Balabit Mouse Dynamics dataset, but can be replaced with dataset-driven
+ * profiles (e.g. trained from BeCAPTCHA data) when available.
+ *
+ * @module experimental/mouse-humanization/profile
+ *
+ * Key exports:
+ * - {@link DistributionProfile} — the parameter interface
+ * - {@link BALABIT_PROFILE} — default hand-tuned profile
  */
 export interface DistributionProfile {
     /** Median cursor velocity in px/sec */

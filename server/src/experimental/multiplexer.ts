@@ -41,11 +41,13 @@ const TAB_SCOPED_METHODS = new Set([
   'listExtensions', 'reloadExtension', 'secure_fill',
 ]);
 
+/** Pending promise callbacks for a follower's in-flight request to the leader. */
 interface InflightRequest {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
 }
 
+/** State tracked per connected peer (follower) session on the leader. */
 interface PeerSession {
   ws: WebSocket;
   sessionId: string;
@@ -55,6 +57,7 @@ interface PeerSession {
   pingInterval: ReturnType<typeof setInterval>;
 }
 
+/** A request waiting in the round-robin scheduler queue. */
 interface QueuedRequest {
   sessionId: string;
   method: string;
@@ -66,6 +69,18 @@ interface QueuedRequest {
 
 type MultiplexerMode = 'leader' | 'follower';
 
+/**
+ * Session multiplexer for concurrent MCP clients sharing one Chrome extension.
+ *
+ * Implements IExtensionTransport so it can be used as a drop-in replacement
+ * for ExtensionServer. On start(), tries to bind the WebSocket port:
+ * - Success: becomes the **leader** — accepts extension + peer connections,
+ *   manages tab ownership, runs round-robin scheduler.
+ * - EADDRINUSE: becomes a **follower** — proxies commands through the leader.
+ *
+ * If the leader goes down, followers race to promote (with random jitter to
+ * avoid thundering herd).
+ */
 export class Multiplexer implements IExtensionTransport {
   private port: number;
   private host: string;
@@ -130,6 +145,10 @@ export class Multiplexer implements IExtensionTransport {
 
   // ─── Start ────────────────────────────────────────────────────
 
+  /**
+   * Attempt to start as leader; fall back to follower if port is taken.
+   * This is the only public entry point for initialization.
+   */
   async start(): Promise<void> {
     try {
       await this.startAsLeader();
@@ -147,6 +166,7 @@ export class Multiplexer implements IExtensionTransport {
 
   // ─── Leader Mode ──────────────────────────────────────────────
 
+  /** Bind the port, start WebSocket server, and initialize leader state (queues, tab ownership). */
   private async startAsLeader(): Promise<void> {
     this.extensionServer = new ExtensionServer(this.port, this.host);
 
@@ -171,6 +191,7 @@ export class Multiplexer implements IExtensionTransport {
     log(`Leader mode — listening on ${this.host}:${this.port}, session="${this.sessionId}"`);
   }
 
+  /** Register a new follower connection. Sets up message routing, ownership tracking, and cleanup on close. */
   private acceptPeer(ws: WebSocket, peerSessionId: string): void {
     // Session dedup
     if (this.peers.has(peerSessionId)) {
@@ -241,6 +262,7 @@ export class Multiplexer implements IExtensionTransport {
     });
   }
 
+  /** Parse incoming JSON-RPC from a peer and enqueue it in the round-robin scheduler. */
   private async handlePeerMessage(peer: PeerSession, data: any): Promise<void> {
     try {
       const msg = JSON.parse(data.toString());
@@ -275,6 +297,7 @@ export class Multiplexer implements IExtensionTransport {
 
   // ─── Request Queue & Round-Robin Scheduler ─────────────────────
 
+  /** Add a request to the session's queue and trigger the drain loop. */
   private enqueueRequest(
     sessionId: string,
     method: string,
@@ -293,6 +316,7 @@ export class Multiplexer implements IExtensionTransport {
     this.drainQueue();
   }
 
+  /** Process queued requests in round-robin order until all queues are empty. Serialized — only one drain loop runs at a time. */
   private async drainQueue(): Promise<void> {
     if (this.processingQueue) return;
     this.processingQueue = true;
@@ -522,6 +546,7 @@ export class Multiplexer implements IExtensionTransport {
 
   // ─── Follower Mode ────────────────────────────────────────────
 
+  /** Connect to an existing leader via WebSocket /peer endpoint. Resolves on peer_ack, rejects on timeout or rejection. */
   private async startAsFollower(): Promise<void> {
     return new Promise((resolve, reject) => {
       const url = `ws://${this.host}:${this.port}/peer?session=${encodeURIComponent(this.sessionId)}`;
@@ -617,6 +642,11 @@ export class Multiplexer implements IExtensionTransport {
 
   // ─── Leader Promotion ─────────────────────────────────────────
 
+  /**
+   * Race to become leader after the current leader disconnects.
+   * Uses random jitter (50-200ms) to reduce collision likelihood.
+   * If another follower wins, backs off and reconnects as follower.
+   */
   private async attemptPromotion(): Promise<void> {
     if (this.promotionInProgress) return;
     this.promotionInProgress = true;
@@ -675,6 +705,10 @@ export class Multiplexer implements IExtensionTransport {
 
   // ─── IExtensionTransport: sendCmd ─────────────────────────────
 
+  /**
+   * Send a command to the extension. Leader enqueues through the scheduler for
+   * fair round-robin; follower proxies through the leader via JSON-RPC.
+   */
   async sendCmd(method: string, params: Record<string, unknown> = {}, timeout: number = 30000): Promise<any> {
     if (this.mode === 'leader') {
       // Leader's own requests go through the same queue for fair scheduling
@@ -690,6 +724,7 @@ export class Multiplexer implements IExtensionTransport {
     throw new Error('Multiplexer not started');
   }
 
+  /** Forward a command to the leader as a JSON-RPC request. Manages timeout and inflight tracking. */
   private sendCmdAsFollower(method: string, params: Record<string, unknown>, timeout: number): Promise<any> {
     if (!this.leaderSocket || this.leaderSocket.readyState !== WebSocket.OPEN) {
       throw new Error('Not connected to leader. Extension may be restarting.');
@@ -730,6 +765,7 @@ export class Multiplexer implements IExtensionTransport {
 
   // ─── IExtensionTransport: stop ────────────────────────────────
 
+  /** Tear down all state: drain queues, close peers, stop extension server, reject inflight requests. */
   async stop(): Promise<void> {
     log(`Stopping (mode=${this.mode})`);
 

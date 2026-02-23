@@ -5,6 +5,18 @@
  * This is called by the background script when the server sends a secure_fill command.
  * The value comes from server-side env vars — the agent never sees it.
  */
+/**
+ * Fill a form field with a credential value, typing character-by-character with
+ * randomized delays (40-120ms per keystroke) to mimic human input cadence.
+ *
+ * Dispatches the full keyboard event sequence (keydown -> input -> keyup) for each
+ * character, which satisfies input validation in frameworks that listen for individual
+ * key events (React controlled inputs, Angular reactive forms, etc.).
+ *
+ * @param selector - CSS selector targeting the input element (e.g., '#password', 'input[name="pass"]')
+ * @param value - The credential value to type. Comes from a server-side env var -- never seen by the agent.
+ * @returns Success/error result object
+ */
 export async function secureFill(selector, value) {
     try {
         const el = document.querySelector(selector);

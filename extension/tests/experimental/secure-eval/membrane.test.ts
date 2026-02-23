@@ -149,6 +149,51 @@ describe('buildMembrane', () => {
     const membrane = buildMembrane();
     expect(() => (membrane as any).location.replace).toThrow('[secure_eval:membrane] Blocked: location.replace');
   });
+
+  // ── v4: prototype chain & reflection escape patches ──
+
+  it('blocks constructor access (prototype chain escape)', () => {
+    const membrane = buildMembrane();
+    expect(() => (membrane as any).constructor).toThrow('[secure_eval:membrane] Blocked: constructor');
+  });
+
+  it('blocks constructor chain walk on deep path', () => {
+    const membrane = buildMembrane();
+    const str = (membrane as any).someString;
+    expect(() => str.constructor).toThrow('[secure_eval:membrane] Blocked: someString.constructor');
+  });
+
+  it('blocks __proto__ access', () => {
+    const membrane = buildMembrane();
+    expect(() => (membrane as any).__proto__).toThrow('[secure_eval:membrane] Blocked: __proto__');
+  });
+
+  it('blocks globalThis access', () => {
+    const membrane = buildMembrane();
+    expect(() => (membrane as any).globalThis).toThrow('[secure_eval:membrane] Blocked: globalThis');
+  });
+
+  it('blocks Reflect access', () => {
+    const membrane = buildMembrane();
+    expect(() => (membrane as any).Reflect).toThrow('[secure_eval:membrane] Blocked: Reflect');
+  });
+
+  it('blocks Proxy access', () => {
+    const membrane = buildMembrane();
+    expect(() => (membrane as any).Proxy).toThrow('[secure_eval:membrane] Blocked: Proxy');
+  });
+
+  it('blocks getPrototypeOf access on any chain', () => {
+    const membrane = buildMembrane();
+    const obj = (membrane as any).Object;
+    expect(() => obj.getPrototypeOf).toThrow('[secure_eval:membrane] Blocked: Object.getPrototypeOf');
+  });
+
+  it('blocks defineProperty access on any chain', () => {
+    const membrane = buildMembrane();
+    const obj = (membrane as any).Object;
+    expect(() => obj.defineProperty).toThrow('[secure_eval:membrane] Blocked: Object.defineProperty');
+  });
 });
 
 // ── validateEval handler tests ──
@@ -240,5 +285,24 @@ describe('validateEval handler', () => {
     const result = await validateEval({ code: "Function('return fetch')()('/api')" });
     expect(result.safe).toBe(false);
     expect(result.reason).toContain('Function');
+  });
+
+  it('catches constructor via unqualified identifier', async () => {
+    // Direct constructor access through membrane (unqualified identifier)
+    const result = await validateEval({ code: "constructor" });
+    expect(result.safe).toBe(false);
+    expect(result.reason).toContain('constructor');
+  });
+
+  it('catches globalThis access', async () => {
+    const result = await validateEval({ code: 'globalThis' });
+    expect(result.safe).toBe(false);
+    expect(result.reason).toContain('globalThis');
+  });
+
+  it('catches Reflect.construct escape', async () => {
+    const result = await validateEval({ code: "Reflect.construct(Array, [])" });
+    expect(result.safe).toBe(false);
+    expect(result.reason).toContain('Reflect');
   });
 });

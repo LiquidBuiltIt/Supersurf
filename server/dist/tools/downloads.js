@@ -1,8 +1,12 @@
 "use strict";
 /**
  * Download tool handler.
- * Extension downloads the file to Chrome's Downloads folder,
- * then server moves it to the agent-specified destination.
+ *
+ * Implements `browser_download` — the extension downloads the file to Chrome's
+ * Downloads folder, then the server optionally moves it to an agent-specified
+ * destination. Handles cross-device moves (EXDEV) by falling back to copy+delete.
+ *
+ * @module tools/downloads
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -12,7 +16,17 @@ exports.onBrowserDownload = onBrowserDownload;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const logger_1 = require("../logger");
+const sandbox_1 = require("./sandbox");
 const log = (0, logger_1.createLog)('[Downloads]');
+/**
+ * Download a file from a URL via the browser, optionally moving it to a destination path.
+ *
+ * The extension handles the actual download (with a 5-minute timeout for large files).
+ * If `destination` is provided, the file is moved from Chrome's Downloads folder
+ * to the specified path (or appended to a directory).
+ *
+ * @param args - `{ url: string, filename?: string, destination?: string }`
+ */
 async function onBrowserDownload(ctx, args, options) {
     const url = args.url;
     if (!url)
@@ -88,7 +102,7 @@ async function onBrowserDownload(ctx, args, options) {
  * If destination is a file path, use it directly.
  */
 function resolveDestination(destination, downloadPath) {
-    const resolved = path_1.default.resolve(destination);
+    const resolved = (0, sandbox_1.sandboxPath)(destination);
     // If destination exists and is a directory, or ends with separator, append filename
     if ((fs_1.default.existsSync(resolved) && fs_1.default.statSync(resolved).isDirectory()) ||
         destination.endsWith('/') || destination.endsWith(path_1.default.sep)) {
@@ -96,6 +110,7 @@ function resolveDestination(destination, downloadPath) {
     }
     return resolved;
 }
+/** Format a byte count as a human-readable string (B, KB, or MB). */
 function formatBytes(bytes) {
     if (!bytes)
         return 'unknown size';

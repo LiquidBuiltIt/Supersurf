@@ -171,6 +171,30 @@ describe('analyzeCode', () => {
       // Reflect.apply contains a fetch() call too, but either reason is valid
       expect(result.safe).toBe(false);
     });
+
+    it('blocks Reflect.construct', () => {
+      const result = analyzeCode("Reflect.construct(Function, ['return 1'])");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Reflect');
+    });
+
+    it('blocks Reflect.getPrototypeOf', () => {
+      const result = analyzeCode('Reflect.getPrototypeOf({})');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Reflect');
+    });
+
+    it('blocks Reflect.defineProperty', () => {
+      const result = analyzeCode("Reflect.defineProperty({}, 'x', { value: 1 })");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Reflect');
+    });
+
+    it('blocks Reflect.setPrototypeOf', () => {
+      const result = analyzeCode('Reflect.setPrototypeOf({}, null)');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Reflect');
+    });
   });
 
   // ── Blocked: network beacon ──
@@ -248,6 +272,18 @@ describe('analyzeCode', () => {
 
     it('blocks constructor chaining', () => {
       const result = analyzeCode("('').constructor");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Prototype');
+    });
+
+    it('blocks __proto__ bracket notation', () => {
+      const result = analyzeCode("({})[\'__proto__\']");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Prototype');
+    });
+
+    it('blocks constructor bracket notation', () => {
+      const result = analyzeCode("({})[\'constructor\']");
       expect(result.safe).toBe(false);
       expect(result.reason).toContain('Prototype');
     });

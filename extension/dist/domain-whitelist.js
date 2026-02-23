@@ -15,6 +15,23 @@ const STORAGE_KEY_ENABLED = 'domainWhitelistEnabled';
 const STORAGE_KEY_DATA = 'domainWhitelistData';
 const STORAGE_KEY_LAST_FETCH = 'domainWhitelistLastFetch';
 const SPECIAL_SCHEMES = ['about:', 'chrome:', 'chrome-extension:', 'data:', 'blob:', 'javascript:'];
+/**
+ * Restricts automated navigation to the Tranco top 100K domains.
+ *
+ * Safety-first design: when disabled, when the domain list is empty, or when a URL
+ * uses a special scheme (about:, chrome:, data:, etc.), navigation is always allowed.
+ * This prevents the whitelist from ever locking the user out of the browser.
+ *
+ * Domain matching uses a suffix-walk algorithm: for a hostname like `mail.google.com`,
+ * it checks `mail.google.com`, then `google.com`, then `com` against the Set.
+ * This means whitelisting `google.com` automatically allows all subdomains.
+ *
+ * @example
+ * const wl = new DomainWhitelist();
+ * await wl.init();    // loads cached state from chrome.storage.local
+ * await wl.enable();  // fetches Tranco list if cache is stale
+ * wl.isDomainAllowed('https://docs.google.com/spreadsheets'); // true
+ */
 export class DomainWhitelist {
     _domains = new Set();
     _enabled = false;
@@ -87,7 +104,8 @@ export class DomainWhitelist {
         }
         if (!hostname)
             return true;
-        // Suffix-walk: mail.google.com → google.com → com
+        // Suffix-walk: mail.google.com -> google.com -> com
+        // Stops at length-1 to skip bare TLDs (e.g., "com" alone is never matched)
         const parts = hostname.split('.');
         for (let i = 0; i < parts.length - 1; i++) {
             const suffix = parts.slice(i).join('.');
@@ -144,11 +162,18 @@ export class DomainWhitelist {
     }
     /**
      * Extract first file from ZIP using DataView + DecompressionStream.
-     * ZIP local file header: signature 0x04034b50, then fixed fields, then filename, then data.
+     * Only reads the first local file header -- sufficient since Tranco ZIPs contain a single CSV.
+     *
+     * ZIP local file header layout (all little-endian):
+     *   Offset 0:  signature (4 bytes) = 0x04034b50
+     *   Offset 8:  compression method (2 bytes) — 0=stored, 8=deflate
+     *   Offset 18: compressed size (4 bytes)
+     *   Offset 26: filename length (2 bytes)
+     *   Offset 28: extra field length (2 bytes)
+     *   Offset 30: filename (variable) + extra field (variable) + compressed data
      */
     async _extractZip(buffer) {
         const view = new DataView(buffer);
-        // Verify ZIP signature
         const signature = view.getUint32(0, true);
         if (signature !== 0x04034b50)
             throw new Error('Invalid ZIP file');

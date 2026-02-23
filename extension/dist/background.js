@@ -1,6 +1,17 @@
 /**
- * SuperSurf extension background service worker
- * Connects to MCP server and handles browser automation commands via CDP + scripting API
+ * SuperSurf extension background service worker.
+ *
+ * Orchestrates the entire extension lifecycle:
+ * - Establishes and maintains a WebSocket connection to the local MCP server
+ * - Registers ~20 command handlers for browser automation (tabs, navigation, screenshots, etc.)
+ * - Manages CDP debugger attachment for network interception, screenshots, and JS evaluation
+ * - Integrates domain whitelist enforcement via chrome.webNavigation
+ * - Handles auto-reconnect via Chrome alarms (MV3-safe, survives service worker suspension)
+ * - Bridges popup UI messages for enable/disable/status queries
+ *
+ * MV3 constraint: All chrome.* event listeners MUST be registered at the top level
+ * (not inside async callbacks) to guarantee the service worker activates on browser events.
+ *
  * Adapted from Blueprint MCP (Apache 2.0)
  */
 import { Logger } from './utils/logger.js';
@@ -90,8 +101,9 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     await logger.init(chrome);
     const manifest = chrome.runtime.getManifest();
     logger.logAlways(`SuperSurf v${manifest.version}`);
-    // Centralized state
+    // Centralized state — rehydrate from chrome.storage.session to survive SW suspension
     const sessionContext = new SessionContext();
+    await sessionContext.init(chrome);
     const iconManager = new IconManager(chrome, logger, sessionContext);
     tabHandlers = new TabHandlers(chrome, logger, iconManager, sessionContext);
     const networkTracker = new NetworkTracker(chrome, logger);
@@ -138,7 +150,9 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
             }
         });
     }
-    // CDP debugger events for network tracking
+    // CDP debugger events for network tracking.
+    // Listens for Network.* and Runtime.* events on the attached tab to build
+    // a request log (capped at MAX_CDP_REQUESTS to bound memory).
     chromeDebugger.onEvent.addListener((source, method, params) => {
         if (!method.startsWith('Network.') && !method.startsWith('Runtime.'))
             return;
@@ -194,7 +208,12 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
             tabHandlers.setTechStackInfo(sender.tab.id, message.data);
         }
     });
-    // ── Helper: attach debugger ──
+    /**
+     * Attach the CDP debugger to a tab, enabling required domains.
+     * If already attached to a different tab, detaches first (single-debugger constraint).
+     * Enables Network, DOM, CSS, Runtime, and Page domains for full automation support.
+     * @param tabId - The Chrome tab ID to attach the debugger to
+     */
     async function ensureDebugger(tabId) {
         if (sessionContext.debuggerAttached && sessionContext.currentDebuggerTabId === tabId)
             return;
@@ -213,7 +232,15 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         await chromeDebugger.sendCommand({ tabId }, 'Runtime.enable', {});
         await chromeDebugger.sendCommand({ tabId }, 'Page.enable', {});
     }
-    // ── Helper: send CDP command with timeout ──
+    /**
+     * Send a CDP command to a tab with automatic debugger attachment and timeout.
+     * Races the CDP call against a timeout to prevent hung commands from blocking the pipeline.
+     * @param tabId - Target tab ID
+     * @param method - CDP method name (e.g., 'Page.captureScreenshot', 'Runtime.evaluate')
+     * @param params - CDP method parameters
+     * @param timeout - Max wait in ms before rejecting (default 25s)
+     * @returns CDP command result
+     */
     async function cdp(tabId, method, params = {}, timeout = 25000) {
         await ensureDebugger(tabId);
         return await Promise.race([
@@ -224,6 +251,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // ── WebSocket connection ──
     wsConnection = new WebSocketConnection(chrome, logger, iconManager);
     // ── Register command handlers ──
+    // Each handler corresponds to a JSON-RPC method the server can invoke.
+    // Handlers receive params from the server and return results or throw errors.
     // getTabs
     wsConnection.registerCommandHandler('getTabs', async (params) => {
         return await tabHandlers.getTabs(params);
@@ -244,7 +273,10 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     wsConnection.registerCommandHandler('sessionDisconnect', async (params) => {
         return await tabHandlers.handleSessionDisconnect(params.sessionId);
     });
-    // navigate
+    // navigate — URL navigation, back/forward history, and reload.
+    // When screenshot is requested with a URL navigation, waits for page load
+    // completion (via tabs.onUpdated) then optionally applies smart waiting
+    // (DOM stability detection) before capturing.
     wsConnection.registerCommandHandler('navigate', async (params) => {
         const tabId = tabHandlers.getAttachedTabId();
         if (!tabId)
@@ -314,14 +346,19 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         }
         return { success: false, error: `Unknown action: ${action}` };
     });
-    // forwardCDPCommand (generic CDP passthrough)
+    // forwardCDPCommand — Generic CDP passthrough for server-side tools
+    // that need direct CDP access (e.g., CSS inspection, accessibility tree).
     wsConnection.registerCommandHandler('forwardCDPCommand', async (params) => {
         const tabId = tabHandlers.getAttachedTabId();
         if (!tabId)
             throw new Error('No tab attached');
         return await cdp(tabId, params.method, params.params || {});
     });
-    // evaluate (JavaScript execution)
+    // evaluate — Execute JavaScript in the page via CDP Runtime.evaluate.
+    // Supports two code paths: pre-wrapped (from secure_eval Layer 3, which uses
+    // `with` statements requiring sloppy mode) and normal (prefixed with 'use strict').
+    // Bot-detection bypass: shouldUnwrap/wrapWithUnwrap temporarily restores native
+    // DOM methods that pages may have overridden to detect automation.
     wsConnection.registerCommandHandler('evaluate', async (params) => {
         const tabId = tabHandlers.getAttachedTabId();
         if (!tabId)
@@ -459,7 +496,9 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     wsConnection.registerCommandHandler('download', async (params) => {
         return await downloadHandler.download(params);
     });
-    // secure_fill
+    // secure_fill — Inject credentials into form fields without exposing values to the agent.
+    // Runs in MAIN world (not isolated) so it can interact with page-level input frameworks.
+    // Types character-by-character with randomized delays to mimic human input.
     wsConnection.registerCommandHandler('secure_fill', async (params) => {
         const tabId = tabHandlers.getAttachedTabId();
         if (!tabId)
@@ -506,6 +545,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     registerMouseHandlers(wsConnection, sessionContext, cdp);
     registerSecureEvalHandlers(wsConnection);
     // ── Popup message handler ──
+    // Handles messages from the extension popup UI (enable/disable, status queries,
+    // whitelist toggling). Each handler returns true to indicate async sendResponse.
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (message.type === 'getStatus') {
             const attachedTabId = tabHandlers.getAttachedTabId();
@@ -527,6 +568,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         if (message.type === 'disableExtension') {
             chrome.storage.local.set({ extensionEnabled: false });
             wsConnection.disconnect();
+            sessionContext.clearStorage();
             sendResponse({ ok: true });
             return true;
         }

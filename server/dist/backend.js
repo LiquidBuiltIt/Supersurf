@@ -1,10 +1,22 @@
 "use strict";
 /**
- * ConnectionManager — manages connection lifecycle.
- * States: passive → active → connected
+ * ConnectionManager — central state machine for the server's connection lifecycle.
  *
- * Delegates tool schemas to backend/schemas.ts, status formatting to
- * backend/status.ts, and handler logic to backend/handlers.ts.
+ * States:
+ *   - **passive** — server is idle, only connection tools (enable/disable/status) are available
+ *   - **active** — WebSocket server is listening, waiting for extension to connect
+ *   - **connected** — extension linked, all browser tools available
+ *
+ * This module owns state transitions and tool dispatch. It delegates:
+ *   - Tool schemas to `backend/schemas.ts`
+ *   - Status header formatting to `backend/status.ts`
+ *   - Handler implementations to `backend/handlers.ts`
+ *
+ * BrowserBridge is lazy-imported to break a circular dependency (tools.ts imports backend types).
+ *
+ * @module backend
+ * @exports ConnectionManager
+ * @exports BackendConfig, TabInfo, BackendState, ToolSchema (re-exported from backend/types)
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -46,8 +58,9 @@ const status_1 = require("./backend/status");
 const schemas_1 = require("./backend/schemas");
 const handlers_1 = require("./backend/handlers");
 const log = (0, logger_1.createLog)('[Conn]');
-// Forward-declare BrowserBridge import (lazy to avoid circular deps)
+// Lazy-load BrowserBridge to avoid circular dependency: tools.ts imports types from backend
 let BrowserBridge = null;
+/** Lazy singleton loader for BrowserBridge class. */
 async function getBrowserBridge() {
     if (!BrowserBridge) {
         const mod = await Promise.resolve().then(() => __importStar(require('./tools')));
@@ -55,6 +68,10 @@ async function getBrowserBridge() {
     }
     return BrowserBridge;
 }
+/**
+ * Core state machine for managing the extension connection lifecycle.
+ * Implements ConnectionManagerAPI so handler functions can read/write state.
+ */
 class ConnectionManager {
     config;
     state = 'passive';
@@ -72,12 +89,14 @@ class ConnectionManager {
         this.config = config;
         this.debugMode = config.debug || false;
     }
+    /** Store server reference and client metadata. Does not start the WebSocket — that happens in `enable`. */
     async initialize(server, clientInfo) {
         log('Initialize called — staying in passive mode');
         this.server = server;
         this.clientInfo = clientInfo;
     }
     // ─── Status header ─────────────────────────────────────────
+    /** Build a one-line status string prepended to every tool response. */
     statusHeader() {
         return (0, status_1.buildStatusHeader)({
             config: this.config,
@@ -90,6 +109,7 @@ class ConnectionManager {
         });
     }
     // ─── Tool listing ──────────────────────────────────────────
+    /** Return all available tool schemas: connection tools + browser tools + debug tools (if enabled). */
     async listTools() {
         log(`listTools() — state: ${this.state}`);
         const connectionTools = (0, schemas_1.getConnectionToolSchemas)();
@@ -104,6 +124,11 @@ class ConnectionManager {
         return [...connectionTools, ...browserTools, ...debugTools];
     }
     // ─── Tool dispatch ─────────────────────────────────────────
+    /**
+     * Dispatch a tool call. Connection tools are handled locally; browser tools
+     * forward to BrowserBridge. Returns MCP content response or raw JSON (script mode).
+     * @param rawResult - When true, return plain objects instead of MCP content wrappers
+     */
     async callTool(name, rawArguments = {}, options = {}) {
         log(`callTool(${name}) — state: ${this.state}`);
         switch (name) {
@@ -140,6 +165,7 @@ class ConnectionManager {
         return await this.bridge.callTool(name, rawArguments, options);
     }
     // ─── Notify tools changed ──────────────────────────────────
+    /** Signal MCP client that the available tool list has changed (e.g., after enable/disable). */
     async notifyToolsListChanged() {
         if (this.server) {
             try {
@@ -151,6 +177,7 @@ class ConnectionManager {
         }
     }
     // ─── Logging notifications ───────────────────────────────
+    /** Send an MCP logging notification to the client (info, warn, error). Silently no-ops if unsupported. */
     async sendLogNotification(level, message, logger) {
         if (this.server) {
             try {
@@ -193,6 +220,7 @@ class ConnectionManager {
         this.stealthMode = enabled;
     }
     // ─── Shutdown ──────────────────────────────────────────────
+    /** Tear down bridge, stop WebSocket server, reset to passive. Called on SIGINT or explicit shutdown. */
     async serverClosed() {
         log('Server closed');
         if (this.bridge) {

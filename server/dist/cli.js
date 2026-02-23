@@ -1,7 +1,19 @@
 #!/usr/bin/env node
 "use strict";
 /**
- * SuperSurf MCP Server — CLI entry point
+ * SuperSurf MCP Server — CLI entry point.
+ *
+ * Handles three execution modes:
+ *   1. **MCP mode** (default) — stdio transport, full MCP protocol
+ *   2. **Debug wrapper mode** — parent process that spawns a child and restarts
+ *      it on exit code 42 (hot reload), piping stdin/stdout through PassThrough streams
+ *   3. **Script mode** — lightweight JSON-RPC 2.0 over stdio, no MCP overhead
+ *
+ * In debug mode, the process forks: the wrapper owns stdio streams and the child
+ * runs `--child` to handle MCP requests. This keeps hot reload transparent to
+ * the MCP client.
+ *
+ * @module cli
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
@@ -22,6 +34,7 @@ function parseDebugMode(value) {
         return 'truncate';
     return false;
 }
+/** Build a BackendConfig from CLI options and environment variables. */
 function resolveConfig(options) {
     const envExperiments = process.env.SUPERSURF_EXPERIMENTS;
     const enabledExperiments = envExperiments
@@ -37,7 +50,12 @@ function resolveConfig(options) {
         enabledExperiments,
     };
 }
-// Wrapper mode — spawns child process and monitors for reload (exit code 42)
+/**
+ * Debug wrapper mode. Spawns the server as a child process and monitors its exit code.
+ * Exit code 42 triggers a restart (hot reload); any other code terminates the wrapper.
+ * stdin/stdout are piped through PassThrough streams so the MCP client sees a
+ * single continuous connection across reloads.
+ */
 function runAsWrapper() {
     console.error('[Wrapper] Starting in wrapper mode with auto-reload enabled');
     const inputBuffer = new stream_1.PassThrough();
@@ -46,6 +64,7 @@ function runAsWrapper() {
     outputBuffer.pipe(process.stdout);
     function spawnChild() {
         console.error('[Wrapper] Starting MCP server...');
+        // Strip --debug from child args (wrapper already set debug context) and add --child flag
         const args = process.argv.slice(2).filter((arg) => !arg.startsWith('--debug'));
         args.push('--child');
         const child = (0, child_process_1.spawn)(process.execPath, [__filename, ...args], {
@@ -81,6 +100,7 @@ function runAsWrapper() {
     }
     spawnChild();
 }
+/** Registers signal/close handlers with a 5s forced-exit timeout to prevent hangs. */
 function setupExitWatchdog() {
     let cleanupDone = false;
     const cleanup = () => {
@@ -101,6 +121,7 @@ function setupExitWatchdog() {
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
 }
+/** Boot the MCP server: init logging, create ConnectionManager, wire MCP handlers, start stdio transport. */
 async function main(options) {
     setupExitWatchdog();
     const debugMode = parseDebugMode(options.debug);
