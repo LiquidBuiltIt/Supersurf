@@ -8,11 +8,7 @@ Works with any LLM that supports the [Model Context Protocol](https://modelconte
 
 **1. Install the Chrome extension**
 
-Download from the [SuperSurf repo](https://github.com/h8ngryDev4Hire/Supersurf), then load it in Chrome:
-
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
-3. Click **Load unpacked** and select the `extension/` directory
+Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek).
 
 **2. Register the MCP server**
 
@@ -96,7 +92,7 @@ All DOM interaction goes through Chrome content scripts (isolated world, invisib
 
 - Node.js >= 18
 - Chrome or Chromium
-- [SuperSurf Chrome extension](https://github.com/h8ngryDev4Hire/Supersurf)
+- [SuperSurf Chrome extension](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek)
 
 ## License
 

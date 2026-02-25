@@ -87,6 +87,15 @@ class Multiplexer {
         this.host = host;
         this.sessionId = sessionId;
     }
+    /** Expose multiplexer status for the status tool. */
+    getStatus() {
+        return {
+            role: this.mode,
+            session: this.sessionId,
+            peers: this.mode === 'leader' ? this.peers.size : 0,
+            sessions: this.mode === 'leader' ? [...this.sessionOrder] : [],
+        };
+    }
     get connected() {
         if (this.mode === 'leader') {
             return this.extensionServer?.connected ?? false;

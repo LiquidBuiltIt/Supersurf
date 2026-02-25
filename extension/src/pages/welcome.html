@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperSurf — Welcome</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #1a1a1e;
+      --bg-surface: #222228;
+      --bg-elevated: #2a2a30;
+      --border: #2a2a30;
+      --text-primary: #f0f0f0;
+      --text-secondary: #c0c0c0;
+      --text-muted: #888;
+      --accent: #a0a0a0;
+      --accent-bright: #ffffff;
+    }
+
+    html, body {
+      min-height: 100%;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text-secondary);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Sparkles ── */
+    .sparkle {
+      position: absolute;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+    }
+
+    .sparkle::before,
+    .sparkle::after {
+      content: '';
+      position: absolute;
+      background: rgba(255,255,255,0.9);
+    }
+
+    .sparkle::before {
+      width: 2px;
+      height: 14px;
+      left: -1px;
+      top: -7px;
+      border-radius: 1px;
+    }
+
+    .sparkle::after {
+      width: 14px;
+      height: 2px;
+      left: -7px;
+      top: -1px;
+      border-radius: 1px;
+    }
+
+    .sparkle.sm::before { height: 8px; top: -4px; }
+    .sparkle.sm::after { width: 8px; left: -4px; }
+    .sparkle.lg::before { height: 20px; top: -10px; }
+    .sparkle.lg::after { width: 20px; left: -10px; }
+
+    @keyframes sparkle-in {
+      0% { opacity: 0; transform: scale(0) rotate(0deg); }
+      50% { opacity: 1; transform: scale(1) rotate(45deg); }
+      100% { opacity: 0; transform: scale(0) rotate(90deg); }
+    }
+
+    .sparkle { animation: sparkle-in 2s ease-in-out infinite; }
+
+    /* ── Layout ── */
+    .page {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 80px 32px 60px;
+      position: relative;
+    }
+
+    .page-sparkles {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+
+    .hero-logo-wrap {
+      position: relative;
+      display: inline-block;
+      margin-bottom: 24px;
+    }
+
+    .hero-logo {
+      width: 100px;
+      height: 100px;
+      border-radius: 22px;
+      filter: drop-shadow(0 0 40px rgba(255,255,255,0.08));
+    }
+
+    .hero h1 {
+      font-size: 40px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -1.5px;
+      margin-bottom: 12px;
+    }
+
+    .hero .tagline {
+      font-size: 17px;
+      font-weight: 300;
+      color: var(--text-muted);
+      letter-spacing: 0.3px;
+    }
+
+    /* ── Steps ── */
+    .section-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.3px;
+      margin-bottom: 8px;
+    }
+
+    .section-subtitle {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 28px;
+    }
+
+    .steps {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 40px;
+    }
+
+    .step {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .step:last-child { margin-bottom: 0; }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--bg);
+      border: 1px solid #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-content p {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .step-content .step-label {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .cmd {
+      display: block;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 13px;
+      color: var(--text-muted);
+      word-break: break-all;
+      margin-top: 4px;
+    }
+
+    .detail {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-top: 4px;
+    }
+
+    /* ── Config block ── */
+    .config-block {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-top: 8px;
+      overflow-x: auto;
+    }
+
+    .config-block pre {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    /* ── Divider ── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 40px 0;
+    }
+
+    /* ── Pill links ── */
+    .links {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 32px;
+    }
+
+    .link-pill {
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+
+    .link-pill.primary {
+      background: var(--text-primary);
+      color: var(--bg);
+    }
+
+    .link-pill.primary:hover { background: #ddd; }
+
+    .link-pill.secondary {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+
+    .link-pill.secondary:hover {
+      border-color: #444;
+      color: var(--text-primary);
+    }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: #555;
+    }
+
+    footer a {
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+
+    footer a:hover { color: var(--text-primary); }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .page { padding: 48px 20px 40px; }
+      .hero h1 { font-size: 30px; }
+      .steps { padding: 24px; }
+      .links { flex-direction: column; align-items: stretch; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-sparkles">
+    <div class="sparkle sm" style="top:8%;left:10%;animation-delay:0.3s;"></div>
+    <div class="sparkle" style="top:14%;right:12%;animation-delay:1.1s;"></div>
+    <div class="sparkle sm" style="top:40%;left:6%;animation-delay:0.7s;"></div>
+    <div class="sparkle sm" style="bottom:30%;right:8%;animation-delay:1.6s;"></div>
+    <div class="sparkle lg" style="bottom:15%;left:14%;animation-delay:0.2s;"></div>
+  </div>
+
+  <div class="page">
+
+    <!-- Hero -->
+    <div class="hero">
+      <div class="hero-logo-wrap">
+        <img src="../../assets/icons/icon-128.png" alt="SuperSurf" class="hero-logo">
+        <div class="sparkle sm" style="top:-6px;right:-8px;animation-delay:0.4s;"></div>
+      </div>
+      <h1>Welcome to SuperSurf</h1>
+      <p class="tagline">Thanks for installing. Let's get you set up.</p>
+    </div>
+
+    <!-- Server setup -->
+    <h2 class="section-title">Set Up the MCP Server</h2>
+    <p class="section-subtitle">The extension needs a local MCP server to receive commands from your AI agent.</p>
+
+    <div class="steps">
+      <div class="step">
+        <span class="step-num">1</span>
+        <div class="step-content">
+          <p><span class="step-label">Register with Claude Code</span></p>
+          <span class="cmd">claude mcp add supersurf -- npx supersurf-mcp@latest</span>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-num">2</span>
+        <div class="step-content">
+          <p><span class="step-label">Or add to Claude Desktop config</span></p>
+          <div class="config-block">
+<pre>{
+  "mcpServers": {
+    "supersurf": {
+      "command": "npx",
+      "args": ["supersurf-mcp@latest"]
+    }
+  }
+}</pre>
+          </div>
+          <p class="detail">Works with any MCP-compatible client — Claude, GPT, Gemini, or your own.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-num">3</span>
+        <div class="step-content">
+          <p><span class="step-label">Start automating</span></p>
+          <p>Your agent calls the <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:13px;color:var(--text-muted);">enable</code> tool to start a session. The extension auto-connects and 30+ browser tools become available.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- What you get -->
+    <h2 class="section-title">What You Get</h2>
+    <p class="section-subtitle">Everything your AI agent needs to operate a real browser.</p>
+
+    <div class="steps">
+      <div class="step">
+        <span class="step-num">&bull;</span>
+        <div class="step-content">
+          <p><span class="step-label">30+ browser tools</span> — navigation, clicks, typing, screenshots, network monitoring, form filling, CSS inspection, PDF export, and more.</p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">&bull;</span>
+        <div class="step-content">
+          <p><span class="step-label">Undetectable</span> — all DOM interaction runs through Chrome's content script isolated world. Page JavaScript can't observe it.</p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">&bull;</span>
+        <div class="step-content">
+          <p><span class="step-label">Real browser profile</span> — your cookies, history, localStorage, and extensions are all present. No sterile headless environment.</p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-num">&bull;</span>
+        <div class="step-content">
+          <p><span class="step-label">Secure credentials</span> — passwords are resolved from environment variables extension-side. Your agent never sees raw values.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Links -->
+    <div class="links">
+      <a href="https://github.com/h8ngrydev4hire/supersurf" class="link-pill primary" target="_blank" rel="noopener">View on GitHub</a>
+      <a href="https://www.npmjs.com/package/supersurf-mcp" class="link-pill secondary" target="_blank" rel="noopener">npm package</a>
+      <a href="https://h8ngrydev4hire.github.io/supersurf" class="link-pill secondary" target="_blank" rel="noopener">Documentation</a>
+    </div>
+
+    <footer>
+      <p>SuperSurf is 100% open source — <a href="https://github.com/h8ngryDev4Hire/supersurf" target="_blank" rel="noopener">every line of code is on GitHub</a>.</p>
+    </footer>
+
+  </div>
+
+</body>
+</html>

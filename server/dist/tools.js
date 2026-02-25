@@ -260,7 +260,8 @@ class BrowserBridge {
         log(`callTool(${name})`);
         if (!this.ext) {
             return this.error('Extension not connected.\n\n' +
-                '**Troubleshooting:**\n' +
+                '**The extension typically auto-connects within a few seconds after calling `enable`. Wait a moment and retry this tool call.**\n\n' +
+                '**If the issue persists:**\n' +
                 '1. Ensure the SuperSurf extension is loaded in Chrome (`chrome://extensions`)\n' +
                 '2. Call the `enable` tool to start the WebSocket server\n' +
                 '3. Open the extension popup and verify it shows "Connected"', options);

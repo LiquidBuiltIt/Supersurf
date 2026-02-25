@@ -9,7 +9,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
-[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek)
 [![Tools](https://img.shields.io/badge/30%2B-browser%20tools-FF6F00?style=flat-square)](https://github.com/h8ngryDev4Hire/Supersurf#tools)
 
 <br />
@@ -87,14 +87,11 @@ Content scripts in an isolated world — **invisible to page JS**. Your real bro
 
 ## Quick Start
 
+**1. [Install the Chrome extension from the Web Store](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek)**
+
+**2. Register with your MCP client**
+
 ```bash
-# 1. Install dependencies
-npm install
-
-# 2. Load the Chrome extension
-#    chrome://extensions → Developer mode → Load unpacked → select extension/ directory
-
-# 3. Register with your MCP client
 claude mcp add supersurf -- npx supersurf-mcp@latest  # Claude Code
 ```
 

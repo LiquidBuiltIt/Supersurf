@@ -38,8 +38,10 @@ let wsConnection;
 // These ensure the service worker activates on first install/sideload and on
 // every Chrome launch — without them, the SW may never wake up to establish
 // the WebSocket connection to the MCP server.
-chrome.runtime.onInstalled.addListener(() => {
-    // SW is now active — the IIFE below will run and call wsConnection.connect()
+chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === 'install') {
+        chrome.tabs.create({ url: chrome.runtime.getURL('dist/pages/welcome.html') });
+    }
 });
 chrome.runtime.onStartup.addListener(() => {
     // SW is now active on Chrome launch — same effect

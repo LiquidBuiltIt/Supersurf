@@ -28,7 +28,7 @@ export declare function onEnable(mgr: ConnectionManagerAPI, args?: Record<string
 export declare function onDisable(mgr: ConnectionManagerAPI, options?: {
     rawResult?: boolean;
 }): Promise<any>;
-/** Return current connection state, browser info, and attached tab details. */
+/** Return current connection state, browser info, attached tab details, and multiplexer status (if enabled). */
 export declare function onStatus(mgr: ConnectionManagerAPI, options?: {
     rawResult?: boolean;
 }): Promise<any>;

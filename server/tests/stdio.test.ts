@@ -34,6 +34,8 @@ vi.mock('../src/experimental/index', () => ({
     reset: vi.fn(),
     getStates: vi.fn().mockReturnValue({ page_diffing: false, smart_waiting: false }),
   },
+  isInfraExperimentEnabled: vi.fn().mockReturnValue(false),
+  applyInitialState: vi.fn(),
 }));
 
 // Mock tools

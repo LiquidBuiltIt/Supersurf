@@ -122,6 +122,16 @@ export class Multiplexer implements IExtensionTransport {
     this.sessionId = sessionId;
   }
 
+  /** Expose multiplexer status for the status tool. */
+  getStatus(): { role: string | null; session: string; peers: number; sessions: string[] } {
+    return {
+      role: this.mode,
+      session: this.sessionId,
+      peers: this.mode === 'leader' ? this.peers.size : 0,
+      sessions: this.mode === 'leader' ? [...this.sessionOrder] : [],
+    };
+  }
+
   get connected(): boolean {
     if (this.mode === 'leader') {
       return this.extensionServer?.connected ?? false;

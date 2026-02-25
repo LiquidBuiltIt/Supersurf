@@ -56,6 +56,13 @@ export declare class Multiplexer implements IExtensionTransport {
     onReconnect: (() => void) | null;
     onTabInfoUpdate: ((tabInfo: any) => void) | null;
     constructor(port: number | undefined, host: string | undefined, sessionId: string);
+    /** Expose multiplexer status for the status tool. */
+    getStatus(): {
+        role: string | null;
+        session: string;
+        peers: number;
+        sessions: string[];
+    };
     get connected(): boolean;
     get browser(): string;
     get buildTime(): string | null;

@@ -6,6 +6,7 @@
  *   npm run version.bump patch   # 0.6.2 -> 0.6.3
  *   npm run version.bump minor   # 0.6.2 -> 0.7.0
  *   npm run version.bump major   # 0.6.2 -> 1.0.0
+ *   npm run version.bump patch "fix port cleanup"  # commit: "v0.6.3 — fix port cleanup"
  *   npm run version.bump rollback # undo last bump (reset commit + delete tag)
  *
  * After running, review the commit then push manually:
@@ -28,9 +29,10 @@ const git = (cmd: string) => execSync(cmd, { cwd: root, stdio: 'inherit' });
 const gitCapture = (cmd: string) => execSync(cmd, { cwd: root, encoding: 'utf8' }).trim();
 
 const bumpType = process.argv[2] as 'patch' | 'minor' | 'major' | 'rollback';
+const commitMsg = process.argv.slice(3).join(' ').trim() || '';
 
 if (!bumpType || !['patch', 'minor', 'major', 'rollback'].includes(bumpType)) {
-  console.error('Usage: npm run version.bump <patch|minor|major|rollback>');
+  console.error('Usage: npm run version.bump <patch|minor|major|rollback> [message]');
   process.exit(1);
 }
 
@@ -45,7 +47,7 @@ const targets = [
 
 if (bumpType === 'rollback') {
   const lastMsg = gitCapture('git log --oneline -1 --format=%s');
-  const versionMatch = lastMsg.match(/^v(\d+\.\d+\.\d+)$/);
+  const versionMatch = lastMsg.match(/^v(\d+\.\d+\.\d+)/);
 
   if (!versionMatch) {
     console.error(`${red}Last commit is not a version bump: "${lastMsg}"${reset}`);
@@ -96,7 +98,8 @@ console.log(`\nBumped ${bumpType}: ${current} -> ${next}\n`);
 
 // Commit and tag — only stage version files, not everything
 git(`git add ${targets.join(' ')}`);
-git(`git commit -m "v${next}"`);
+const fullMsg = commitMsg ? `v${next} — ${commitMsg}` : `v${next}`;
+git(`git commit -m "${fullMsg}"`);
 git(`git tag v${next}`);
 
 console.log(`\n${green}Tagged v${next}${reset}`);

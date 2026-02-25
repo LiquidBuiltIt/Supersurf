@@ -870,20 +870,20 @@
         </div>
         <div class="toc-item" onclick="goTo(1)">
           <div class="toc-num">02</div>
-          <h3>Browser Tools</h3>
-          <p>30+ automation tools</p>
+          <h3>How It Works</h3>
+          <p>Architecture overview</p>
         </div>
         <div class="toc-item" onclick="goTo(2)">
           <div class="toc-num">03</div>
-          <h3>Experiments</h3>
-          <p>5 toggleable features</p>
+          <h3>Browser Tools</h3>
+          <p>30+ automation tools</p>
         </div>
         <div class="toc-item" onclick="goTo(3)">
           <div class="toc-num">04</div>
           <h3>Security</h3>
           <p>Privacy-first design</p>
         </div>
-        <div class="toc-item" onclick="goTo(4)">
+        <div class="toc-item" onclick="goTo(5)">
           <div class="toc-num">05</div>
           <h3>Comparison</h3>
           <p>vs. Puppeteer, Selenium, Playwright</p>
@@ -892,7 +892,70 @@
       <div class="hero-hint">Press arrow keys to navigate</div>
     </div>
 
-    <!-- ═══ SLIDE 2: FEATURES ═══ -->
+    <!-- ═══ SLIDE 2: ARCHITECTURE ═══ -->
+    <div class="slide arch-slide">
+      <div class="slide-sparkles">
+        <div class="sparkle sm" style="top:12%;right:10%;animation-delay:0.6s;"></div>
+        <div class="sparkle" style="top:22%;left:8%;animation-delay:1.2s;"></div>
+        <div class="sparkle sm" style="bottom:16%;right:14%;animation-delay:0.3s;"></div>
+        <div class="sparkle lg" style="bottom:24%;left:12%;animation-delay:1.5s;"></div>
+      </div>
+      <h2 class="slide-title">How It Works</h2>
+      <p class="slide-subtitle">Extension-based architecture. No headless browser. No synthetic profile.</p>
+      <div class="arch-pipeline">
+        <div class="arch-stage">
+          <span class="stage-icon">Agent</span>
+          <span class="stage-name">AI Model</span>
+          <span class="stage-detail">Claude, GPT, etc.</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Protocol</span>
+          <span class="stage-name">MCP</span>
+          <span class="stage-detail">stdio / JSON-RPC</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Server</span>
+          <span class="stage-name">Node.js</span>
+          <span class="stage-detail">Tool routing</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Transport</span>
+          <span class="stage-name">WebSocket</span>
+          <span class="stage-detail">localhost:5555</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Extension</span>
+          <span class="stage-name">SuperSurf</span>
+          <span class="stage-detail">Chrome APIs + CDP</span>
+        </div>
+        <div class="arch-stage">
+          <span class="stage-icon">Target</span>
+          <span class="stage-name">Chrome</span>
+          <span class="stage-detail">Real browser</span>
+        </div>
+      </div>
+      <div class="arch-connector">
+        <div class="conn-segment"></div>
+        <span class="conn-label">Entire pipeline runs on localhost</span>
+        <div class="conn-segment"></div>
+      </div>
+      <div class="arch-details">
+        <div class="arch-detail">
+          <h3>Content Script First</h3>
+          <p>All DOM reads and writes go through content scripts in Chrome's isolated world. CDP is only used for screenshots, network, and PDF. Page JS never sees the automation.</p>
+        </div>
+        <div class="arch-detail">
+          <h3>Real Profile</h3>
+          <p>Your cookies, history, localStorage, and installed extensions are all present. No synthetic launch flags. The browser looks and behaves like a human's browser.</p>
+        </div>
+        <div class="arch-detail">
+          <h3>CI Ready</h3>
+          <p>Sideload without user interaction via Chrome's <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:12px;">--load-extension</code> flag. Automation-ready from the command line.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SLIDE 3: FEATURES ═══ -->
     <div class="slide features-slide">
       <div class="slide-sparkles">
         <div class="sparkle sm" style="top:8%;right:8%;animation-delay:0.3s;"></div>
@@ -960,7 +1023,46 @@
       </div>
     </div>
 
-    <!-- ═══ SLIDE 3: EXPERIMENTAL ═══ -->
+    <!-- ═══ SLIDE 4: SECURITY ═══ -->
+    <div class="slide security-slide">
+      <div class="slide-sparkles">
+        <div class="sparkle sm" style="top:10%;left:12%;animation-delay:0.2s;"></div>
+        <div class="sparkle" style="top:18%;right:10%;animation-delay:1.0s;"></div>
+        <div class="sparkle sm" style="bottom:18%;left:6%;animation-delay:0.6s;"></div>
+        <div class="sparkle lg" style="bottom:10%;right:15%;animation-delay:1.3s;"></div>
+        <div class="sparkle sm" style="top:40%;right:5%;animation-delay:1.8s;"></div>
+      </div>
+      <h2 class="slide-title">Security & Privacy First</h2>
+      <p class="slide-subtitle">Built for developers who don't compromise on trust.</p>
+      <div class="security-grid">
+        <div class="security-card">
+          <h3><span>&#128274;</span> Zero Data Collection</h3>
+          <p>No telemetry, no analytics, no tracking. SuperSurf doesn't collect, transmit, or store any personal data. Period.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#127968;</span> Localhost Only</h3>
+          <p>All communication happens over a WebSocket bound to 127.0.0.1. Nothing leaves your machine through the extension.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#128273;</span> Secure Credentials</h3>
+          <p>Passwords and secrets are resolved from local environment variables. The AI agent only sees variable names, never raw values. Typed char-by-char with random delays.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#128064;</span> Isolated Scripts</h3>
+          <p>Content scripts run in Chrome's isolated world. Page JavaScript cannot detect, observe, or interfere with automation activity.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#128230;</span> Zero Dependencies</h3>
+          <p>The extension has zero runtime dependencies. Browser APIs only. No supply chain risk from third-party packages.</p>
+        </div>
+        <div class="security-card">
+          <h3><span>&#128209;</span> Fully Open Source</h3>
+          <p>Every line of code — server and extension — is public on GitHub. Apache 2.0 licensed. Read it, audit it, fork it. No obfuscation, no hidden binaries.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SLIDE 5: EXPERIMENTAL ═══ -->
     <div class="slide experimental-slide">
       <div class="slide-sparkles">
         <div class="sparkle" style="top:12%;right:14%;animation-delay:0.5s;"></div>
@@ -1009,46 +1111,7 @@
       </div>
     </div>
 
-    <!-- ═══ SLIDE 4: SECURITY ═══ -->
-    <div class="slide security-slide">
-      <div class="slide-sparkles">
-        <div class="sparkle sm" style="top:10%;left:12%;animation-delay:0.2s;"></div>
-        <div class="sparkle" style="top:18%;right:10%;animation-delay:1.0s;"></div>
-        <div class="sparkle sm" style="bottom:18%;left:6%;animation-delay:0.6s;"></div>
-        <div class="sparkle lg" style="bottom:10%;right:15%;animation-delay:1.3s;"></div>
-        <div class="sparkle sm" style="top:40%;right:5%;animation-delay:1.8s;"></div>
-      </div>
-      <h2 class="slide-title">Security & Privacy First</h2>
-      <p class="slide-subtitle">Built for developers who don't compromise on trust.</p>
-      <div class="security-grid">
-        <div class="security-card">
-          <h3><span>&#128274;</span> Zero Data Collection</h3>
-          <p>No telemetry, no analytics, no tracking. SuperSurf doesn't collect, transmit, or store any personal data. Period.</p>
-        </div>
-        <div class="security-card">
-          <h3><span>&#127968;</span> Localhost Only</h3>
-          <p>All communication happens over a WebSocket bound to 127.0.0.1. Nothing leaves your machine through the extension.</p>
-        </div>
-        <div class="security-card">
-          <h3><span>&#128273;</span> Secure Credentials</h3>
-          <p>Passwords and secrets are resolved from local environment variables. The AI agent only sees variable names, never raw values. Typed char-by-char with random delays.</p>
-        </div>
-        <div class="security-card">
-          <h3><span>&#128064;</span> Isolated Scripts</h3>
-          <p>Content scripts run in Chrome's isolated world. Page JavaScript cannot detect, observe, or interfere with automation activity.</p>
-        </div>
-        <div class="security-card">
-          <h3><span>&#128230;</span> Zero Dependencies</h3>
-          <p>The extension has zero runtime dependencies. Browser APIs only. No supply chain risk from third-party packages.</p>
-        </div>
-        <div class="security-card">
-          <h3><span>&#128209;</span> Fully Open Source</h3>
-          <p>Every line of code — server and extension — is public on GitHub. Apache 2.0 licensed. Read it, audit it, fork it. No obfuscation, no hidden binaries.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═══ SLIDE 5: COMPARISON ═══ -->
+    <!-- ═══ SLIDE 6: COMPARISON ═══ -->
     <div class="slide comparison-slide">
       <div class="slide-sparkles">
         <div class="sparkle" style="top:15%;left:8%;animation-delay:0.8s;"></div>
@@ -1136,70 +1199,8 @@
       </table>
     </div>
 
-    <!-- ═══ SLIDE 6: ARCHITECTURE ═══ -->
-    <div class="slide arch-slide">
-      <div class="slide-sparkles">
-        <div class="sparkle sm" style="top:12%;right:10%;animation-delay:0.6s;"></div>
-        <div class="sparkle" style="top:22%;left:8%;animation-delay:1.2s;"></div>
-        <div class="sparkle sm" style="bottom:16%;right:14%;animation-delay:0.3s;"></div>
-        <div class="sparkle lg" style="bottom:24%;left:12%;animation-delay:1.5s;"></div>
-      </div>
-      <h2 class="slide-title">How It Works</h2>
-      <p class="slide-subtitle">Extension-based architecture. No headless browser. No synthetic profile.</p>
-      <div class="arch-pipeline">
-        <div class="arch-stage">
-          <span class="stage-icon">Agent</span>
-          <span class="stage-name">AI Model</span>
-          <span class="stage-detail">Claude, GPT, etc.</span>
-        </div>
-        <div class="arch-stage">
-          <span class="stage-icon">Protocol</span>
-          <span class="stage-name">MCP</span>
-          <span class="stage-detail">stdio / JSON-RPC</span>
-        </div>
-        <div class="arch-stage">
-          <span class="stage-icon">Server</span>
-          <span class="stage-name">Node.js</span>
-          <span class="stage-detail">Tool routing</span>
-        </div>
-        <div class="arch-stage">
-          <span class="stage-icon">Transport</span>
-          <span class="stage-name">WebSocket</span>
-          <span class="stage-detail">localhost:5555</span>
-        </div>
-        <div class="arch-stage">
-          <span class="stage-icon">Extension</span>
-          <span class="stage-name">SuperSurf</span>
-          <span class="stage-detail">Chrome APIs + CDP</span>
-        </div>
-        <div class="arch-stage">
-          <span class="stage-icon">Target</span>
-          <span class="stage-name">Chrome</span>
-          <span class="stage-detail">Real browser</span>
-        </div>
-      </div>
-      <div class="arch-connector">
-        <div class="conn-segment"></div>
-        <span class="conn-label">Entire pipeline runs on localhost</span>
-        <div class="conn-segment"></div>
-      </div>
-      <div class="arch-details">
-        <div class="arch-detail">
-          <h3>Content Script First</h3>
-          <p>All DOM reads and writes go through content scripts in Chrome's isolated world. CDP is only used for screenshots, network, and PDF. Page JS never sees the automation.</p>
-        </div>
-        <div class="arch-detail">
-          <h3>Real Profile</h3>
-          <p>Your cookies, history, localStorage, and installed extensions are all present. No synthetic launch flags. The browser looks and behaves like a human's browser.</p>
-        </div>
-        <div class="arch-detail">
-          <h3>CI Ready</h3>
-          <p>Sideload without user interaction via Chrome's <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:12px;">--load-extension</code> flag. Automation-ready from the command line.</p>
-        </div>
-      </div>
-    </div>
-
     <!-- ═══ SLIDE 7: QUICK START ═══ -->
+
     <div class="slide quickstart-slide">
       <div class="slide-sparkles">
         <div class="sparkle" style="top:10%;left:10%;animation-delay:0.4s;"></div>
@@ -1217,7 +1218,7 @@
           <div class="quickstart-step">
             <span class="step-num">1</span>
             <div class="step-content">
-              <p>Install SuperSurf from the Chrome Web Store</p>
+              <p><a href="https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek" target="_blank" rel="noopener" style="color:var(--accent-bright);text-decoration:underline;">Install SuperSurf from the Chrome Web Store</a></p>
             </div>
           </div>
           <div class="quickstart-step">
@@ -1281,6 +1282,7 @@
       <p>Install the extension, run the MCP server, and give your AI agent a real browser. Every line of code is on GitHub.</p>
       <div class="cta-links">
         <a href="https://github.com/h8ngrydev4hire/supersurf" class="cta-link primary" target="_blank" rel="noopener">View Source on GitHub</a>
+        <a href="https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek" class="cta-link secondary" target="_blank" rel="noopener">Install Chrome Extension</a>
         <a href="https://www.npmjs.com/package/supersurf-mcp" class="cta-link secondary" target="_blank" rel="noopener">npm install supersurf-mcp</a>
       </div>
       <div class="cta-meta">

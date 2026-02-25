@@ -272,8 +272,16 @@ async function onDisable(mgr, options = {}) {
     };
 }
 // ─── Status ──────────────────────────────────────────────────
-/** Return current connection state, browser info, and attached tab details. */
+/** Return current connection state, browser info, attached tab details, and multiplexer status (if enabled). */
 async function onStatus(mgr, options = {}) {
+    // Build multiplexer status if experiment is enabled
+    let muxStatus = null;
+    if ((0, index_1.isInfraExperimentEnabled)('multiplexer', mgr.config) && mgr.extensionServer) {
+        const { Multiplexer } = await Promise.resolve().then(() => __importStar(require('../experimental/multiplexer')));
+        if (mgr.extensionServer instanceof Multiplexer) {
+            muxStatus = mgr.extensionServer.getStatus();
+        }
+    }
     const statusData = {
         state: mgr.state,
         browser: mgr.connectedBrowserName,
@@ -286,6 +294,9 @@ async function onStatus(mgr, options = {}) {
             }
             : null,
     };
+    if (muxStatus) {
+        statusData.multiplexer = muxStatus;
+    }
     if (options.rawResult) {
         return statusData;
     }
@@ -311,6 +322,13 @@ async function onStatus(mgr, options = {}) {
     }
     else {
         statusText += `\n⚠️ No tab attached. Use \`browser_tabs action='attach' index=N\`.`;
+    }
+    if (muxStatus) {
+        const roleLabel = muxStatus.role === 'leader' ? 'Leader' : 'Follower';
+        statusText += `\n\n**Multiplexer:** ${roleLabel} (session: \`${muxStatus.session}\`)`;
+        if (muxStatus.role === 'leader' && muxStatus.peers > 0) {
+            statusText += ` | ${muxStatus.peers} peer(s)`;
+        }
     }
     return {
         content: [{ type: 'text', text: mgr.statusHeader() + statusText }],

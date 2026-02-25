@@ -156,7 +156,7 @@ class ConnectionManager {
                 content: [
                     {
                         type: 'text',
-                        text: `### ⚠️ Browser Automation Not Active\n\n**Current State:** Passive (disabled)\n\n**You must call \`enable\` first to activate browser automation.**`,
+                        text: `### ⚠️ Browser Automation Not Active\n\n**Current State:** Passive (disabled)\n\n**You must call \`enable\` first to activate browser automation.** After calling \`enable\`, the extension auto-connects within a few seconds — then retry your tool call.`,
                     },
                 ],
                 isError: true,

@@ -116,24 +116,38 @@ function runAsWrapper(): void {
   spawnChild();
 }
 
-/** Registers signal/close handlers with a 5s forced-exit timeout to prevent hangs. */
-function setupExitWatchdog(): void {
+/**
+ * Registers signal/close handlers that properly tear down the WebSocket server
+ * before exiting. Force-exits after 5s if graceful shutdown hangs.
+ */
+function setupExitWatchdog(backend: ConnectionManager, server: Server): void {
   let cleanupDone = false;
 
-  const cleanup = (): void => {
+  const cleanup = async (): Promise<void> => {
     if (cleanupDone) return;
     cleanupDone = true;
 
     if ((global as any).DEBUG_MODE) {
-      console.error('[cli] Cleanup initiated');
+      console.error('[cli] Cleanup initiated — releasing port');
     }
 
-    setTimeout(() => {
+    // Force-exit after 5s if graceful shutdown hangs
+    const forceExit = setTimeout(() => {
       if ((global as any).DEBUG_MODE) {
         console.error('[cli] Forcing exit after timeout');
       }
       process.exit(0);
     }, 5000);
+    forceExit.unref();
+
+    try {
+      await backend.serverClosed();
+      await server.close();
+    } catch {
+      // Best-effort — force-exit timer will catch us
+    }
+
+    process.exit(0);
   };
 
   process.stdin.on('close', cleanup);
@@ -141,10 +155,41 @@ function setupExitWatchdog(): void {
   process.on('SIGTERM', cleanup);
 }
 
+/** Idle timeout — shuts down the server if no tool calls for 60s while active. */
+const IDLE_TIMEOUT_MS = 60_000;
+
+function setupIdleTimeout(backend: ConnectionManager): void {
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const resetIdle = (): void => {
+    if (idleTimer) clearTimeout(idleTimer);
+
+    // Only start idle timer when the server is actively holding the port
+    if (backend.state === 'passive') return;
+
+    idleTimer = setTimeout(async () => {
+      if (backend.state === 'passive') return;
+
+      if ((global as any).DEBUG_MODE) {
+        console.error(`[cli] Idle timeout (${IDLE_TIMEOUT_MS / 1000}s) — releasing port`);
+      }
+
+      await backend.serverClosed();
+    }, IDLE_TIMEOUT_MS);
+    idleTimer.unref();
+  };
+
+  // Hook into tool calls to reset the timer
+  const originalCallTool = backend.callTool.bind(backend);
+  backend.callTool = async (...args: Parameters<typeof backend.callTool>) => {
+    const result = await originalCallTool(...args);
+    resetIdle();
+    return result;
+  };
+}
+
 /** Boot the MCP server: init logging, create ConnectionManager, wire MCP handlers, start stdio transport. */
 async function main(options: any): Promise<void> {
-  setupExitWatchdog();
-
   const debugMode = parseDebugMode(options.debug);
   (global as any).DEBUG_MODE = !!debugMode;
 
@@ -187,6 +232,10 @@ async function main(options: any): Promise<void> {
 
   await backend.initialize(server, {});
 
+  // Wire up exit watchdog and idle timeout now that backend + server exist
+  setupExitWatchdog(backend, server);
+  setupIdleTimeout(backend);
+
   if ((global as any).DEBUG_MODE) {
     console.error('[cli] Starting stdio transport...');
   }
@@ -197,15 +246,6 @@ async function main(options: any): Promise<void> {
   if ((global as any).DEBUG_MODE) {
     console.error('[cli] MCP server ready (passive mode)');
   }
-
-  process.on('SIGINT', async () => {
-    if ((global as any).DEBUG_MODE) {
-      console.error('[cli] Shutting down...');
-    }
-    await backend.serverClosed();
-    await server.close();
-    process.exit(0);
-  });
 }
 
 // --- CLI setup ---
