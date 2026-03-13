@@ -16,6 +16,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.onFillForm = onFillForm;
 exports.onDrag = onDrag;
 exports.onSecureFill = onSecureFill;
+const dotenv_1 = require("../dotenv");
 /**
  * Set values on multiple form fields at once.
  *
@@ -115,23 +116,40 @@ async function onDrag(ctx, args, options) {
     };
 }
 /**
- * Fill a form field with a credential from a server-side environment variable.
+ * Secure credential management — list available credentials or fill a form field.
  *
- * The agent only provides the env var name — the actual value is resolved
- * server-side and sent directly to the extension, which types it char-by-char
- * with randomized delays. The credential value never appears in MCP responses.
- *
- * @param args - `{ selector: string, credential_env: string }`
+ * `list`: Returns env var names from .env (names only, never values).
+ * `fill`: Resolves the env var server-side and sends the value directly to the
+ *         extension, which types it char-by-char with randomized delays.
+ *         The credential value never appears in MCP responses.
  */
 async function onSecureFill(ctx, args, options) {
+    const action = args.action;
+    if (action === 'list') {
+        const keys = (0, dotenv_1.getDotenvKeys)();
+        if (options.rawResult) {
+            return { success: true, credentials: keys };
+        }
+        if (keys.length === 0) {
+            return {
+                content: [{ type: 'text', text: 'No credentials found. Add variables to a `.env` file in your working directory.' }],
+            };
+        }
+        return {
+            content: [{ type: 'text', text: `### Available Credentials\n\n${keys.map(k => `- \`${k}\``).join('\n')}` }],
+        };
+    }
+    // action === 'fill'
     const selector = args.selector;
     const envName = args.credential_env;
     if (!selector || !envName) {
-        return ctx.error('Both selector and credential_env are required.', options);
+        return ctx.error('Both `selector` and `credential_env` are required for the `fill` action.', options);
     }
     const value = process.env[envName];
     if (value === undefined) {
-        return ctx.error(`Environment variable "${envName}" is not set. Set it before starting the server.`, options);
+        const keys = (0, dotenv_1.getDotenvKeys)();
+        const available = keys.length > 0 ? ` Available credentials: ${keys.join(', ')}` : ' No credentials found in .env file.';
+        return ctx.error(`Environment variable "${envName}" is not set.${available}`, options);
     }
     await ctx.ext.sendCmd('secure_fill', { selector, value });
     if (options.rawResult) {

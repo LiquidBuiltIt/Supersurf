@@ -13,6 +13,7 @@
  */
 
 import type { ToolContext } from './types';
+import { getDotenvKeys } from '../dotenv';
 
 /**
  * Set values on multiple form fields at once.
@@ -119,26 +120,48 @@ export async function onDrag(ctx: ToolContext, args: any, options: any): Promise
 }
 
 /**
- * Fill a form field with a credential from a server-side environment variable.
+ * Secure credential management — list available credentials or fill a form field.
  *
- * The agent only provides the env var name — the actual value is resolved
- * server-side and sent directly to the extension, which types it char-by-char
- * with randomized delays. The credential value never appears in MCP responses.
- *
- * @param args - `{ selector: string, credential_env: string }`
+ * `list`: Returns env var names from .env (names only, never values).
+ * `fill`: Resolves the env var server-side and sends the value directly to the
+ *         extension, which types it char-by-char with randomized delays.
+ *         The credential value never appears in MCP responses.
  */
 export async function onSecureFill(ctx: ToolContext, args: any, options: any): Promise<any> {
+  const action = args.action as string;
+
+  if (action === 'list') {
+    const keys = getDotenvKeys();
+
+    if (options.rawResult) {
+      return { success: true, credentials: keys };
+    }
+
+    if (keys.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'No credentials found. Add variables to a `.env` file in your working directory.' }],
+      };
+    }
+
+    return {
+      content: [{ type: 'text', text: `### Available Credentials\n\n${keys.map(k => `- \`${k}\``).join('\n')}` }],
+    };
+  }
+
+  // action === 'fill'
   const selector = args.selector as string;
   const envName = args.credential_env as string;
 
   if (!selector || !envName) {
-    return ctx.error('Both selector and credential_env are required.', options);
+    return ctx.error('Both `selector` and `credential_env` are required for the `fill` action.', options);
   }
 
   const value = process.env[envName];
   if (value === undefined) {
+    const keys = getDotenvKeys();
+    const available = keys.length > 0 ? ` Available credentials: ${keys.join(', ')}` : ' No credentials found in .env file.';
     return ctx.error(
-      `Environment variable "${envName}" is not set. Set it before starting the server.`,
+      `Environment variable "${envName}" is not set.${available}`,
       options
     );
   }

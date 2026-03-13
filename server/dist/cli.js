@@ -25,6 +25,7 @@ const stream_1 = require("stream");
 const backend_1 = require("./backend");
 const logger_1 = require("./logger");
 const stdio_1 = require("./stdio");
+const dotenv_1 = require("./dotenv");
 const { version: VERSION } = require('../package.json');
 /** Parse --debug value into a DebugMode. */
 function parseDebugMode(value) {
@@ -134,36 +135,12 @@ function setupExitWatchdog(backend, server) {
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
 }
-/** Idle timeout — shuts down the server if no tool calls for 120s while active. */
-const IDLE_TIMEOUT_MS = 120_000;
-function setupIdleTimeout(backend) {
-    let idleTimer = null;
-    const resetIdle = () => {
-        if (idleTimer)
-            clearTimeout(idleTimer);
-        // Only start idle timer when the server is actively holding the port
-        if (backend.state === 'passive')
-            return;
-        idleTimer = setTimeout(async () => {
-            if (backend.state === 'passive')
-                return;
-            if (global.DEBUG_MODE) {
-                console.error(`[cli] Idle timeout (${IDLE_TIMEOUT_MS / 1000}s) — releasing port`);
-            }
-            await backend.serverClosed();
-        }, IDLE_TIMEOUT_MS);
-        idleTimer.unref();
-    };
-    // Hook into tool calls to reset the timer
-    const originalCallTool = backend.callTool.bind(backend);
-    backend.callTool = async (...args) => {
-        const result = await originalCallTool(...args);
-        resetIdle();
-        return result;
-    };
-}
+// No server-side idle timeout — connection stays alive until the agent
+// disconnects or the daemon shuts itself down (10-min idle after all sessions gone).
 /** Boot the MCP server: init logging, create ConnectionManager, wire MCP handlers, start stdio transport. */
 async function main(options) {
+    // Load .env from cwd before anything reads process.env
+    (0, dotenv_1.loadDotenv)(process.cwd());
     const debugMode = parseDebugMode(options.debug);
     global.DEBUG_MODE = !!debugMode;
     const reg = (0, logger_1.getRegistry)();
@@ -194,9 +171,8 @@ async function main(options) {
         return await backend.callTool(name, args ?? {});
     });
     await backend.initialize(server, {});
-    // Wire up exit watchdog and idle timeout now that backend + server exist
+    // Wire up exit watchdog now that backend + server exist
     setupExitWatchdog(backend, server);
-    setupIdleTimeout(backend);
     if (global.DEBUG_MODE) {
         console.error('[cli] Starting stdio transport...');
     }
@@ -219,6 +195,7 @@ program
     .option('--script-mode', 'JSON-RPC over stdio for automation scripts')
     .action(async (options) => {
     if (options.scriptMode) {
+        (0, dotenv_1.loadDotenv)(process.cwd());
         const config = resolveConfig(options);
         await (0, stdio_1.startScriptMode)(config);
         return;

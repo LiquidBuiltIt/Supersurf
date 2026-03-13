@@ -98,6 +98,7 @@ describe('onSecureFill()', () => {
   it('fills credential from environment variable', async () => {
     process.env.TEST_SECRET = 'mypassword';
     const result = await onSecureFill(ctx, {
+      action: 'fill',
       selector: '#password',
       credential_env: 'TEST_SECRET',
     }, {});
@@ -116,6 +117,7 @@ describe('onSecureFill()', () => {
   it('returns error when env var is not set', async () => {
     delete process.env.NONEXISTENT_VAR;
     await onSecureFill(ctx, {
+      action: 'fill',
       selector: '#password',
       credential_env: 'NONEXISTENT_VAR',
     }, {});
@@ -123,18 +125,19 @@ describe('onSecureFill()', () => {
   });
 
   it('returns error when selector is missing', async () => {
-    await onSecureFill(ctx, { credential_env: 'SOME_VAR' }, {});
+    await onSecureFill(ctx, { action: 'fill', credential_env: 'SOME_VAR' }, {});
     expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('required'), expect.anything());
   });
 
   it('returns error when credential_env is missing', async () => {
-    await onSecureFill(ctx, { selector: '#pw' }, {});
+    await onSecureFill(ctx, { action: 'fill', selector: '#pw' }, {});
     expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('required'), expect.anything());
   });
 
   it('returns raw result', async () => {
     process.env.TEST_RAW = 'secret';
     const result = await onSecureFill(ctx, {
+      action: 'fill',
       selector: '#input',
       credential_env: 'TEST_RAW',
     }, { rawResult: true });
@@ -142,5 +145,16 @@ describe('onSecureFill()', () => {
     expect(result.success).toBe(true);
     expect(result.credential_env).toBe('TEST_RAW');
     delete process.env.TEST_RAW;
+  });
+
+  it('lists available credentials', async () => {
+    const result = await onSecureFill(ctx, { action: 'list' }, {});
+    expect(result.content[0].text).toBeDefined();
+  });
+
+  it('lists available credentials in raw mode', async () => {
+    const result = await onSecureFill(ctx, { action: 'list' }, { rawResult: true });
+    expect(result.success).toBe(true);
+    expect(Array.isArray(result.credentials)).toBe(true);
   });
 });

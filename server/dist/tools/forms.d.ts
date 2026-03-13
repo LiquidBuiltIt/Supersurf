@@ -30,13 +30,12 @@ export declare function onFillForm(ctx: ToolContext, args: any, options: any): P
  */
 export declare function onDrag(ctx: ToolContext, args: any, options: any): Promise<any>;
 /**
- * Fill a form field with a credential from a server-side environment variable.
+ * Secure credential management — list available credentials or fill a form field.
  *
- * The agent only provides the env var name — the actual value is resolved
- * server-side and sent directly to the extension, which types it char-by-char
- * with randomized delays. The credential value never appears in MCP responses.
- *
- * @param args - `{ selector: string, credential_env: string }`
+ * `list`: Returns env var names from .env (names only, never values).
+ * `fill`: Resolves the env var server-side and sends the value directly to the
+ *         extension, which types it char-by-char with randomized delays.
+ *         The credential value never appears in MCP responses.
  */
 export declare function onSecureFill(ctx: ToolContext, args: any, options: any): Promise<any>;
 //# sourceMappingURL=forms.d.ts.map

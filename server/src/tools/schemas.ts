@@ -436,17 +436,22 @@ export function getToolSchemas(): ToolSchema[] {
     {
       name: 'secure_fill',
       description:
-        'Fill a form field with a server-side credential from an environment variable. The value never reaches the agent. Types char-by-char with randomized delays.',
+        'Manage and fill credentials from server-side environment variables. Values never reach the agent. Use `list` to discover available credentials, `fill` to type one into a form field char-by-char with randomized delays.',
       inputSchema: {
         type: 'object',
         properties: {
-          selector: { type: 'string', description: 'CSS selector of the input field' },
+          action: {
+            type: 'string',
+            enum: ['fill', 'list'],
+            description: '`fill` — type a credential into a form field. `list` — return available credential env var names (names only, not values).',
+          },
+          selector: { type: 'string', description: 'CSS selector of the input field (required for `fill`)' },
           credential_env: {
             type: 'string',
-            description: 'Name of the environment variable holding the credential (e.g., "MY_PASSWORD")',
+            description: 'Name of the environment variable holding the credential (required for `fill`, e.g., "MY_PASSWORD")',
           },
         },
-        required: ['selector', 'credential_env'],
+        required: ['action'],
       },
       annotations: { title: 'Secure credential fill', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
