@@ -38,11 +38,20 @@ class RequestScheduler {
     sessionOrder = [];
     currentSessionIdx = 0;
     processingQueue = false;
-    currentExtensionTabId = null;
+    /** Current extension tab per profile (null key = unmanaged). */
+    currentExtensionTabIds = new Map();
     sessionGroupIds = new Map();
     constructor(bridge, sessions) {
         this.bridge = bridge;
         this.sessions = sessions;
+    }
+    /** Get the current extension tab ID for a given profile context. */
+    getCurrentTabId(profileId) {
+        return this.currentExtensionTabIds.get(profileId) ?? null;
+    }
+    /** Set the current extension tab ID for a given profile context. */
+    setCurrentTabId(profileId, tabId) {
+        this.currentExtensionTabIds.set(profileId, tabId);
     }
     /** Register a session in the scheduler. */
     addSession(sessionId) {
@@ -148,14 +157,20 @@ class RequestScheduler {
                     }
                 }
             }
+            // Determine profile context for this session
+            const profileId = this.sessions.getProfileId(sessionId);
+            const currentTabId = this.getCurrentTabId(profileId);
             // Auto context-switch
             if (TAB_SCOPED_METHODS.has(method) || (!TAB_CLAIM_METHODS.has(method) && !TAB_RELEASE_METHODS.has(method) && method !== 'getTabs')) {
                 const sessionTabId = this.sessions.getAttachedTabId(sessionId);
-                if (sessionTabId !== null && sessionTabId !== this.currentExtensionTabId) {
-                    debugLog(`Context-switch: tab ${this.currentExtensionTabId} -> ${sessionTabId} (session="${sessionId}")`);
+                if (sessionTabId !== null && sessionTabId !== currentTabId) {
+                    debugLog(`Context-switch: tab ${currentTabId} -> ${sessionTabId} (session="${sessionId}", profile=${profileId || 'unmanaged'})`);
                     try {
-                        await this.bridge.sendCmd('selectTab', { tabId: sessionTabId, _sessionId: sessionId }, 5000);
-                        this.currentExtensionTabId = sessionTabId;
+                        const switchCmd = profileId
+                            ? this.bridge.sendCmdToProfile(profileId, 'selectTab', { tabId: sessionTabId, _sessionId: sessionId }, 5000)
+                            : this.bridge.sendCmd('selectTab', { tabId: sessionTabId, _sessionId: sessionId }, 5000);
+                        await switchCmd;
+                        this.setCurrentTabId(profileId, sessionTabId);
                     }
                     catch (err) {
                         debugLog(`Context-switch failed: ${err.message}`);
@@ -164,8 +179,10 @@ class RequestScheduler {
             }
             // Inject _sessionId for extension-side group isolation
             const enrichedParams = { ...params, _sessionId: sessionId };
-            // Execute the actual command
-            const result = await this.bridge.sendCmd(method, enrichedParams, timeout);
+            // Execute the actual command — route to profile connection or unmanaged
+            const result = profileId
+                ? await this.bridge.sendCmdToProfile(profileId, method, enrichedParams, timeout)
+                : await this.bridge.sendCmd(method, enrichedParams, timeout);
             // Track ownership changes
             if (method === 'createTab' || method === 'selectTab') {
                 const tabId = result?.attachedTab?.id ?? result?.id;
@@ -173,7 +190,7 @@ class RequestScheduler {
                 if (tabId) {
                     this.sessions.addOwnedTab(sessionId, tabId);
                     this.sessions.setAttachedTabId(sessionId, tabId);
-                    this.currentExtensionTabId = tabId;
+                    this.setCurrentTabId(profileId, tabId);
                 }
                 if (groupId !== undefined && groupId !== -1) {
                     this.sessionGroupIds.set(sessionId, groupId);

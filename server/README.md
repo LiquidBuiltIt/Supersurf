@@ -37,7 +37,8 @@ Your agent calls `connect` to start the session, a daemon auto-starts, the exten
 
 | Tool | Description |
 |------|-------------|
-| `connect` / `disconnect` / `status` | Session lifecycle |
+| `connect` / `disconnect` / `status` | Session lifecycle (`connect` accepts optional `profile` for isolated Chromium) |
+| `profile_create` / `profile_list` / `profile_delete` | Manage isolated Chromium profiles *(requires `profiles` experiment)* |
 | `browser_tabs` | List, create, attach, or close tabs |
 | `browser_navigate` | Go to URL, back, forward, reload |
 | `browser_interact` | Click, type, press keys, hover, scroll, wait, select, upload files |
@@ -87,6 +88,19 @@ AI Agent  -->  MCP Server (stdio)  -->  Daemon (Unix socket)  -->  WebSocket  --
 ```
 
 A standalone daemon multiplexes multiple MCP sessions through a single Chrome extension connection. All DOM interaction goes through Chrome content scripts (isolated world, invisible to page JS). CDP is only used for screenshots, network interception, and PDF export. Your agent browses with your real browser profile — cookies, history, localStorage, extensions.
+
+## Experimental Features
+
+Toggle via the `experimental_features` tool or `SUPERSURF_EXPERIMENTS` env var:
+
+| Experiment | Description |
+|------------|-------------|
+| `page_diffing` | Returns only DOM changes after interactions |
+| `smart_waiting` | Adaptive DOM stability + network idle detection |
+| `storage_inspection` | Inspect/modify localStorage and sessionStorage |
+| `mouse_humanization` | Human-like Bezier mouse trajectories |
+| `secure_eval` | AST-based code analysis for `browser_evaluate` |
+| `profiles` | Isolated Chromium instances per agent session with managed lifecycle |
 
 ## Requirements
 

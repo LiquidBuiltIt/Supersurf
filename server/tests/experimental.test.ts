@@ -239,8 +239,10 @@ describe('diffSnapshots()', () => {
       textContent: ['Hello', 'World'],
       shadowRootCount: 0,
       iframeCount: 0,
+      visibleIframeCount: 0,
       hiddenElementCount: 0,
       pageElementCount: 1000,
+      formValues: {},
       ...overrides,
     };
   }
@@ -274,6 +276,47 @@ describe('diffSnapshots()', () => {
     expect(diff.added).toEqual([]);
     expect(diff.removed).toEqual([]);
     expect(diff.countDelta).toBe(0);
+    expect(diff.formChanges).toEqual([]);
+  });
+
+  it('detects form field changes (empty to filled)', () => {
+    const before = makeState({ formValues: { first_name: '' } });
+    const after = makeState({ formValues: { first_name: 'Aidan' } });
+    const diff = diffSnapshots(before, after);
+    expect(diff.formChanges).toEqual([{ field: 'first_name', from: '', to: 'Aidan' }]);
+  });
+
+  it('detects form field changes (filled to different)', () => {
+    const before = makeState({ formValues: { email: 'old@test.com' } });
+    const after = makeState({ formValues: { email: 'new@test.com' } });
+    const diff = diffSnapshots(before, after);
+    expect(diff.formChanges).toEqual([{ field: 'email', from: 'old@test.com', to: 'new@test.com' }]);
+  });
+
+  it('detects form field changes (filled to empty)', () => {
+    const before = makeState({ formValues: { name: 'John' } });
+    const after = makeState({ formValues: {} });
+    const diff = diffSnapshots(before, after);
+    expect(diff.formChanges).toEqual([{ field: 'name', from: 'John', to: '' }]);
+  });
+
+  it('handles missing formValues gracefully (backward compat)', () => {
+    const before = makeState();
+    const after = makeState();
+    // Simulate old extension that doesn't send formValues
+    delete (before as any).formValues;
+    delete (after as any).formValues;
+    const diff = diffSnapshots(before, after);
+    expect(diff.formChanges).toEqual([]);
+  });
+
+  it('detects new fields appearing', () => {
+    const before = makeState({ formValues: {} });
+    const after = makeState({ formValues: { first_name: 'Aidan', last_name: 'Rodriguez' } });
+    const diff = diffSnapshots(before, after);
+    expect(diff.formChanges).toHaveLength(2);
+    expect(diff.formChanges.map(c => c.field)).toContain('first_name');
+    expect(diff.formChanges.map(c => c.field)).toContain('last_name');
   });
 });
 
@@ -284,8 +327,10 @@ describe('calculateConfidence()', () => {
       textContent: [],
       shadowRootCount: 0,
       iframeCount: 0,
+      visibleIframeCount: 0,
       hiddenElementCount: 0,
       pageElementCount: 1000,
+      formValues: {},
       ...overrides,
     };
   }
@@ -302,12 +347,16 @@ describe('calculateConfidence()', () => {
     expect(calculateConfidence(makeState({ shadowRootCount: 15 }))).toBe(0.95);
   });
 
-  it('deducts flat -0.05 for any iframes', () => {
-    expect(calculateConfidence(makeState({ iframeCount: 3 }))).toBe(0.95);
+  it('deducts flat -0.05 for visible iframes', () => {
+    expect(calculateConfidence(makeState({ visibleIframeCount: 3 }))).toBe(0.95);
   });
 
-  it('deducts flat -0.05 for many iframes (same penalty)', () => {
-    expect(calculateConfidence(makeState({ iframeCount: 10 }))).toBe(0.95);
+  it('deducts flat -0.05 for many visible iframes (same penalty)', () => {
+    expect(calculateConfidence(makeState({ visibleIframeCount: 10 }))).toBe(0.95);
+  });
+
+  it('no penalty for hidden-only iframes (tracking pixels, analytics)', () => {
+    expect(calculateConfidence(makeState({ iframeCount: 5, visibleIframeCount: 0 }))).toBe(1.0);
   });
 
   it('deducts for large page (>5000 elements)', () => {
@@ -321,43 +370,43 @@ describe('calculateConfidence()', () => {
   it('stacks flat penalties but stays high', () => {
     const worstCase = makeState({
       shadowRootCount: 20,
-      iframeCount: 10,
+      visibleIframeCount: 10,
       pageElementCount: 10000,
       hiddenElementCount: 100,
     });
-    // -0.05 shadow + -0.05 iframe + -0.05 large = 0.85
+    // -0.05 shadow + -0.05 visible iframe + -0.05 large = 0.85
     expect(calculateConfidence(worstCase)).toBeCloseTo(0.85);
   });
 });
 
 describe('formatDiffSection()', () => {
   it('includes confidence percentage', () => {
-    const diff: DiffResult = { added: [], removed: [], countDelta: 0 };
+    const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges: [] };
     const output = formatDiffSection(diff, 0.85);
     expect(output).toContain('85%');
   });
 
   it('shows element count delta', () => {
-    const diff: DiffResult = { added: [], removed: [], countDelta: 15 };
+    const diff: DiffResult = { added: [], removed: [], countDelta: 15, formChanges: [] };
     const output = formatDiffSection(diff, 1.0);
     expect(output).toContain('+15');
   });
 
   it('shows negative element count delta', () => {
-    const diff: DiffResult = { added: [], removed: [], countDelta: -5 };
+    const diff: DiffResult = { added: [], removed: [], countDelta: -5, formChanges: [] };
     const output = formatDiffSection(diff, 1.0);
     expect(output).toContain('-5');
   });
 
   it('shows added text', () => {
-    const diff: DiffResult = { added: ['New content'], removed: [], countDelta: 0 };
+    const diff: DiffResult = { added: ['New content'], removed: [], countDelta: 0, formChanges: [] };
     const output = formatDiffSection(diff, 1.0);
     expect(output).toContain('Added text');
     expect(output).toContain('New content');
   });
 
   it('shows removed text', () => {
-    const diff: DiffResult = { added: [], removed: ['Old content'], countDelta: 0 };
+    const diff: DiffResult = { added: [], removed: ['Old content'], countDelta: 0, formChanges: [] };
     const output = formatDiffSection(diff, 1.0);
     expect(output).toContain('Removed text');
     expect(output).toContain('Old content');
@@ -365,7 +414,7 @@ describe('formatDiffSection()', () => {
 
   it('truncates long text entries', () => {
     const longText = 'A'.repeat(80);
-    const diff: DiffResult = { added: [longText], removed: [], countDelta: 0 };
+    const diff: DiffResult = { added: [longText], removed: [], countDelta: 0, formChanges: [] };
     const output = formatDiffSection(diff, 1.0);
     expect(output).toContain('...');
   });
@@ -375,14 +424,109 @@ describe('formatDiffSection()', () => {
       added: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
       removed: [],
       countDelta: 0,
+      formChanges: [],
     };
     const output = formatDiffSection(diff, 1.0);
     expect(output).toContain('+2 more');
   });
 
   it('shows "No visible changes" for empty diff', () => {
-    const diff: DiffResult = { added: [], removed: [], countDelta: 0 };
+    const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges: [] };
     const output = formatDiffSection(diff, 1.0);
     expect(output).toContain('No visible changes');
+  });
+
+  it('shows shadow DOM annotation only when shadow roots present', () => {
+    const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges: [] };
+    const state: PageState = { elementCount: 10, textContent: [], shadowRootCount: 2, iframeCount: 0, visibleIframeCount: 0, hiddenElementCount: 0, pageElementCount: 50, formValues: {} };
+    const output = formatDiffSection(diff, 0.95, state);
+    expect(output).toContain('partial — shadow DOM present');
+    expect(output).not.toContain('iframes');
+  });
+
+  it('shows visible iframe annotation with count', () => {
+    const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges: [] };
+    const state: PageState = { elementCount: 10, textContent: [], shadowRootCount: 0, iframeCount: 5, visibleIframeCount: 2, hiddenElementCount: 0, pageElementCount: 50, formValues: {} };
+    const output = formatDiffSection(diff, 0.95, state);
+    expect(output).toContain('iframes (2 visible)');
+    expect(output).not.toContain('shadow DOM');
+  });
+
+  it('shows combined annotation for shadow DOM + visible iframes', () => {
+    const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges: [] };
+    const state: PageState = { elementCount: 10, textContent: [], shadowRootCount: 1, iframeCount: 3, visibleIframeCount: 1, hiddenElementCount: 0, pageElementCount: 50, formValues: {} };
+    const output = formatDiffSection(diff, 0.9, state);
+    expect(output).toContain('shadow DOM + iframes (1 visible)');
+  });
+
+  it('no annotation when iframes exist but none visible', () => {
+    const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges: [] };
+    const state: PageState = { elementCount: 10, textContent: [], shadowRootCount: 0, iframeCount: 5, visibleIframeCount: 0, hiddenElementCount: 0, pageElementCount: 50, formValues: {} };
+    const output = formatDiffSection(diff, 1.0, state);
+    expect(output).not.toContain('partial');
+    expect(output).not.toContain('iframes');
+  });
+
+  it('renders form changes', () => {
+    const diff: DiffResult = {
+      added: [], removed: [], countDelta: 0,
+      formChanges: [
+        { field: 'first_name', from: '', to: 'Aidan' },
+        { field: 'email', from: '', to: 'test@example.com' },
+      ],
+    };
+    const output = formatDiffSection(diff, 1.0);
+    expect(output).toContain('Form changes:');
+    expect(output).toContain('first_name');
+    expect(output).toContain('(empty)');
+    expect(output).toContain('"Aidan"');
+    expect(output).toContain('\u2192');
+  });
+
+  it('does not show "No visible changes" when only form changes present', () => {
+    const diff: DiffResult = {
+      added: [], removed: [], countDelta: 0,
+      formChanges: [{ field: 'name', from: '', to: 'John' }],
+    };
+    const output = formatDiffSection(diff, 1.0);
+    expect(output).not.toContain('No visible changes');
+    expect(output).toContain('Form changes:');
+  });
+
+  it('truncates long form values at 40 chars', () => {
+    const longValue = 'A'.repeat(50);
+    const diff: DiffResult = {
+      added: [], removed: [], countDelta: 0,
+      formChanges: [{ field: 'bio', from: '', to: longValue }],
+    };
+    const output = formatDiffSection(diff, 1.0);
+    expect(output).toContain('...');
+  });
+
+  it('caps form changes display at 8 fields', () => {
+    const formChanges = Array.from({ length: 12 }, (_, i) => ({
+      field: `field_${i}`, from: '', to: `val_${i}`,
+    }));
+    const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges };
+    const output = formatDiffSection(diff, 1.0);
+    expect(output).toContain('+4 more');
+    // Should show first 8
+    expect(output).toContain('field_0');
+    expect(output).toContain('field_7');
+    // Should not show 9th
+    expect(output).not.toContain('field_8');
+  });
+
+  it('shows "(viewport only)" label when mode is viewport', () => {
+    const diff: DiffResult = { added: ['New content'], removed: [], countDelta: 5, formChanges: [] };
+    const output = formatDiffSection(diff, 1.0, undefined, 'viewport');
+    expect(output).toContain('(viewport only)');
+    expect(output).toContain('100%');
+  });
+
+  it('does not show "(viewport only)" for document mode', () => {
+    const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges: [] };
+    const output = formatDiffSection(diff, 1.0, undefined, 'document');
+    expect(output).not.toContain('viewport only');
   });
 });

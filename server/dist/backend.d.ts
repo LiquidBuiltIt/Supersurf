@@ -35,6 +35,9 @@ export declare class ConnectionManager implements ConnectionManagerAPI {
     connectedBrowserName: string | null;
     attachedTab: TabInfo | null;
     stealthMode: boolean;
+    daemonCapabilities: {
+        profiles: boolean;
+    } | null;
     server: Server | null;
     clientInfo: Record<string, unknown>;
     constructor(config: BackendConfig);

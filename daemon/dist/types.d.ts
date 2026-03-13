@@ -11,6 +11,7 @@ export interface DaemonSession {
     ownedTabs: Set<number>;
     attachedTabId: number | null;
     groupId: number | null;
+    profileId: string | null;
 }
 /** A request waiting in the round-robin scheduler queue. */
 export interface QueuedRequest {

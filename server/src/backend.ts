@@ -27,8 +27,8 @@ export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend
 import type { BackendConfig, TabInfo, BackendState, ToolSchema, ConnectionManagerAPI } from './backend/types';
 
 import { buildStatusHeader } from './backend/status';
-import { getConnectionToolSchemas, getDebugToolSchema } from './backend/schemas';
-import { onConnect, onDisconnect, onStatus, onExperimentalFeatures, onReloadMCP } from './backend/handlers';
+import { getConnectionToolSchemas, getDebugToolSchema, getProfileToolSchemas } from './backend/schemas';
+import { onConnect, onDisconnect, onStatus, onExperimentalFeatures, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete } from './backend/handlers';
 
 const log = createLog('[Conn]');
 
@@ -58,6 +58,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
   connectedBrowserName: string | null = null;
   attachedTab: TabInfo | null = null;
   stealthMode: boolean = false;
+  daemonCapabilities: { profiles: boolean } | null = null;
   server: Server | null = null;
   clientInfo: Record<string, unknown> = {};
 
@@ -107,7 +108,9 @@ export class ConnectionManager implements ConnectionManagerAPI {
       debugTools.push(getDebugToolSchema());
     }
 
-    return [...connectionTools, ...browserTools, ...debugTools];
+    const profileTools = getProfileToolSchemas();
+
+    return [...connectionTools, ...browserTools, ...profileTools, ...debugTools];
   }
 
   // ─── Tool dispatch ─────────────────────────────────────────
@@ -135,6 +138,18 @@ export class ConnectionManager implements ConnectionManagerAPI {
         return await onExperimentalFeatures(this, rawArguments, options);
       case 'reload_mcp':
         return onReloadMCP(this, options);
+      case 'profile_create':
+      case 'profile_list':
+      case 'profile_delete': {
+        if (!this.daemonCapabilities?.profiles) {
+          const msg = 'Profile management is not available. Start the daemon with `SUPERSURF_EXPERIMENTS=profiles` to enable it.';
+          if (options.rawResult) return { success: false, error: 'profiles_not_enabled', message: msg };
+          return { content: [{ type: 'text', text: msg }], isError: true };
+        }
+        if (name === 'profile_create') return await onProfileCreate(this, rawArguments, options);
+        if (name === 'profile_list') return await onProfileList(this, options);
+        return await onProfileDelete(this, rawArguments, options);
+      }
     }
 
     // Forward to active bridge

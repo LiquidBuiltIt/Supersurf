@@ -166,12 +166,24 @@ export class WebSocketConnection {
             this.browser.runtime.sendMessage({ type: 'statusChanged' });
         }
         catch { }
-        // Send handshake (free/direct mode only)
-        this.send({
-            type: 'handshake',
-            browser: this._getBrowserName(),
-            version: this.browser.runtime.getManifest().version,
-            buildTimestamp: this.buildTimestamp,
+        // Read stored profile name, then send handshake
+        this.browser.storage.local.get(['supersurf_profile']).then((result) => {
+            const profile = result?.supersurf_profile || null;
+            this.send({
+                type: 'handshake',
+                browser: this._getBrowserName(),
+                version: this.browser.runtime.getManifest().version,
+                buildTimestamp: this.buildTimestamp,
+                ...(profile ? { profile } : {}),
+            });
+        }).catch(() => {
+            // Fallback: send handshake without profile
+            this.send({
+                type: 'handshake',
+                browser: this._getBrowserName(),
+                version: this.browser.runtime.getManifest().version,
+                buildTimestamp: this.buildTimestamp,
+            });
         });
     }
     /**

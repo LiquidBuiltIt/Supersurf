@@ -394,6 +394,54 @@ describe('WebSocketConnection', () => {
     });
   });
 
+  describe('_handleOpen() profile handshake', () => {
+    beforeEach(() => {
+      // Simulate connection state
+      ws.isConnected = true;
+      ws.socket = {
+        readyState: 1,
+        send: vi.fn(),
+        close: vi.fn(),
+      } as any;
+    });
+
+    it('includes profile in handshake when storage has supersurf_profile', async () => {
+      mockChrome.storage.local.get.mockResolvedValueOnce({ supersurf_profile: 'scraper' });
+
+      // Call _handleOpen
+      await (ws as any)._handleOpen();
+
+      // Wait for the .then() chain
+      await new Promise(r => setTimeout(r, 10));
+
+      const sent = JSON.parse((ws.socket!.send as any).mock.calls[0][0]);
+      expect(sent.type).toBe('handshake');
+      expect(sent.profile).toBe('scraper');
+    });
+
+    it('omits profile in handshake when storage is empty', async () => {
+      mockChrome.storage.local.get.mockResolvedValueOnce({});
+
+      await (ws as any)._handleOpen();
+      await new Promise(r => setTimeout(r, 10));
+
+      const sent = JSON.parse((ws.socket!.send as any).mock.calls[0][0]);
+      expect(sent.type).toBe('handshake');
+      expect(sent.profile).toBeUndefined();
+    });
+
+    it('sends handshake without profile on storage read failure', async () => {
+      mockChrome.storage.local.get.mockRejectedValueOnce(new Error('storage error'));
+
+      await (ws as any)._handleOpen();
+      await new Promise(r => setTimeout(r, 10));
+
+      const sent = JSON.parse((ws.socket!.send as any).mock.calls[0][0]);
+      expect(sent.type).toBe('handshake');
+      expect(sent.profile).toBeUndefined();
+    });
+  });
+
   describe('constructor', () => {
     it('stores the buildTimestamp', () => {
       const conn = new WebSocketConnection(

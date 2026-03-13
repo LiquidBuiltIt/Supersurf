@@ -36,7 +36,18 @@ function diffSnapshots(before, after) {
     const added = after.textContent.filter(t => !beforeSet.has(t));
     const removed = before.textContent.filter(t => !afterSet.has(t));
     const countDelta = after.elementCount - before.elementCount;
-    return { added, removed, countDelta };
+    // Form value diff (|| {} for backward compat with old extension versions)
+    const formChanges = [];
+    const beforeForms = before.formValues || {};
+    const afterForms = after.formValues || {};
+    const allKeys = new Set([...Object.keys(beforeForms), ...Object.keys(afterForms)]);
+    for (const key of allKeys) {
+        const from = beforeForms[key] || '';
+        const to = afterForms[key] || '';
+        if (from !== to)
+            formChanges.push({ field: key, from, to });
+    }
+    return { added, removed, countDelta, formChanges };
 }
 /**
  * Score how reliable the diff is based on page complexity.
@@ -53,7 +64,7 @@ function calculateConfidence(state) {
     // Flat penalties — shadow DOM and iframes reduce visibility but don't invalidate the diff
     if (state.shadowRootCount > 0)
         confidence -= 0.05;
-    if (state.iframeCount > 0)
+    if (state.visibleIframeCount > 0)
         confidence -= 0.05;
     if (state.pageElementCount > 5000)
         confidence -= 0.05;
@@ -69,10 +80,18 @@ function calculateConfidence(state) {
  * @param state - Optional post-state for shadow DOM/iframe annotations
  * @returns Markdown-formatted diff section string
  */
-function formatDiffSection(diff, confidence, state) {
+function formatDiffSection(diff, confidence, state, mode) {
     let label = `**Page diff** (confidence: ${Math.round(confidence * 100)}%)`;
-    if (state && (state.shadowRootCount > 0 || state.iframeCount > 0)) {
-        label += ' (partial — shadow DOM/iframes present)';
+    if (mode === 'viewport')
+        label += ' (viewport only)';
+    if (state) {
+        const reasons = [];
+        if (state.shadowRootCount > 0)
+            reasons.push('shadow DOM');
+        if (state.visibleIframeCount > 0)
+            reasons.push(`iframes (${state.visibleIframeCount} visible)`);
+        if (reasons.length > 0)
+            label += ` (partial — ${reasons.join(' + ')} present)`;
     }
     const parts = ['\n\n---', label];
     if (diff.countDelta !== 0) {
@@ -86,7 +105,16 @@ function formatDiffSection(diff, confidence, state) {
         const shown = diff.removed.slice(0, 5);
         parts.push(`Removed text: ${shown.map(t => `"${t.length > 60 ? t.slice(0, 57) + '...' : t}"`).join(', ')}${diff.removed.length > 5 ? ` (+${diff.removed.length - 5} more)` : ''}`);
     }
-    if (diff.added.length === 0 && diff.removed.length === 0 && diff.countDelta === 0) {
+    if (diff.formChanges && diff.formChanges.length > 0) {
+        const shown = diff.formChanges.slice(0, 8);
+        const lines = shown.map(c => {
+            const from = c.from ? `"${c.from.length > 40 ? c.from.slice(0, 37) + '...' : c.from}"` : '(empty)';
+            const to = c.to ? `"${c.to.length > 40 ? c.to.slice(0, 37) + '...' : c.to}"` : '(empty)';
+            return `  ${c.field}: ${from} \u2192 ${to}`;
+        });
+        parts.push(`Form changes:\n${lines.join('\n')}${diff.formChanges.length > 8 ? `\n  (+${diff.formChanges.length - 8} more)` : ''}`);
+    }
+    if (diff.added.length === 0 && diff.removed.length === 0 && diff.countDelta === 0 && (!diff.formChanges || diff.formChanges.length === 0)) {
         parts.push('No visible changes detected.');
     }
     return parts.join('\n');

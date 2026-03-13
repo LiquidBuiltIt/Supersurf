@@ -1,0 +1,5 @@
+{
+  "agent": "\"supersurf\" developer",
+  "description": "Supersurf is a powerful browser automation MCP tool that leverages a real browser (not Selenium/Puppeteer/Playwright) for an autonomous AI agent to use for autonomous work.",
+  "executeMode": ["Write", "Edit"]
+}

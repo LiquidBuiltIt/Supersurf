@@ -31,6 +31,26 @@ window.addEventListener('message', (event) => {
             timestamp: message.timestamp,
         });
     }
+    // Profile registration from daemon's registration page.
+    // On fresh installs the service worker may not be ready yet, so retry with backoff.
+    if (event.data?.__supersurf === true && event.data?.action === 'register-profile' && event.data?.profile) {
+        const msg = { type: 'profileRegister', profile: event.data.profile };
+        let attempts = 0;
+        const trySend = () => {
+            try {
+                chrome.runtime.sendMessage(msg, () => {
+                    if (chrome.runtime.lastError && ++attempts < 10) {
+                        setTimeout(trySend, 500);
+                    }
+                });
+            }
+            catch {
+                if (++attempts < 10)
+                    setTimeout(trySend, 500);
+            }
+        };
+        trySend();
+    }
 });
 /**
  * Detect frontend tech stack by probing window globals, DOM structure, and stylesheets.

@@ -1,12 +1,12 @@
 /**
- * WebSocket bridge to the Chrome extension.
+ * WebSocket bridge to Chrome extension(s).
  *
  * Runs an HTTP + WebSocket server on localhost (default port 5555).
  * Communication uses JSON-RPC 2.0 with correlation IDs for request/response matching.
  *
- * Stripped-down copy of server/src/bridge.ts for daemon use:
- *   - No onRawConnection hook (daemon handles all routing)
- *   - No logger import (uses console.error for debug)
+ * When profiles are enabled, supports multiple concurrent extension connections via
+ * the Matchmaker connection pool. When profiles are disabled, operates in single-
+ * connection mode (rejects additional connections, same as v1).
  *
  * @module extension-bridge
  */
@@ -15,6 +15,8 @@ import crypto from 'crypto';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { FileLogger } from 'shared';
+import { Matchmaker } from './profiles/matchmaker';
+import type { PooledConnection } from './profiles/types';
 
 const debugLog = (...args: unknown[]) => {
   const logger = (global as any).DAEMON_LOGGER as FileLogger | undefined;
@@ -22,51 +24,79 @@ const debugLog = (...args: unknown[]) => {
   else if ((global as any).DAEMON_DEBUG) console.error('[WS]', ...args);
 };
 
-/** Pending request awaiting a JSON-RPC response from the extension. */
-interface InflightRequest {
-  resolve: (value: unknown) => void;
-  reject: (reason: Error) => void;
+/** Registration HTML template served at /register/:name. */
+function registrationHtml(profileName: string): string {
+  return `<html>
+<head><title>Registering Profile...</title></head>
+<body>
+<p>Registering profile "${profileName}"... This tab will close automatically.</p>
+<script>
+  window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${profileName}' }, '*');
+</script>
+</body>
+</html>`;
 }
 
 /**
- * WebSocket server that bridges the daemon to the Chrome extension.
- * Manages a single active connection, with reconnection support.
+ * WebSocket server that bridges the daemon to Chrome extension(s).
+ * Supports both single-connection (v1) and pooled connection (profiles) modes.
  */
 export class ExtensionBridge {
   private port: number;
   private host: string;
   private httpServer: http.Server | null = null;
   private wss: WebSocketServer | null = null;
-  private socket: WebSocket | null = null;
-  private inflight: Map<string, InflightRequest> = new Map();
-  private browserType: string = 'chrome';
-  private buildTimestamp: string | null = null;
-  private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private profilesEnabled: boolean;
+
+  /** Connection pool and profile-based routing. */
+  matchmaker: Matchmaker;
 
   onReconnect: (() => void) | null = null;
   onTabInfoUpdate: ((tabInfo: any) => void) | null = null;
 
-  constructor(port: number = 5555, host: string = '127.0.0.1') {
+  constructor(port: number = 5555, host: string = '127.0.0.1', profilesEnabled: boolean = false) {
     this.port = port;
     this.host = host;
+    this.profilesEnabled = profilesEnabled;
+    this.matchmaker = new Matchmaker();
   }
 
+  /** Browser name from the first available connection (backwards compat). */
   get browser(): string {
-    return this.browserType;
+    for (const conn of this.matchmaker['pool'].values()) {
+      if (conn.ws.readyState === WebSocket.OPEN) return conn.browser;
+    }
+    return 'chrome';
   }
 
+  /** Build timestamp from the first available connection (backwards compat). */
   get buildTime(): string | null {
-    return this.buildTimestamp;
+    for (const conn of this.matchmaker['pool'].values()) {
+      if (conn.ws.readyState === WebSocket.OPEN) return conn.buildTimestamp;
+    }
+    return null;
   }
 
+  /** True if at least one extension is connected. */
   get connected(): boolean {
-    return !!this.socket && this.socket.readyState === WebSocket.OPEN;
+    return this.matchmaker.hasConnections;
   }
 
   /** Spin up the HTTP + WebSocket server and begin accepting connections. */
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.httpServer = http.createServer((_req, res) => {
+      this.httpServer = http.createServer((req, res) => {
+        // Profile registration endpoint
+        if (this.profilesEnabled && req.url) {
+          const match = req.url.match(/^\/register\/([a-z0-9][a-z0-9-]*)$/);
+          if (match) {
+            const profileName = match[1];
+            debugLog(`Serving registration page for profile: ${profileName}`);
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(registrationHtml(profileName));
+            return;
+          }
+        }
         res.writeHead(200);
         res.end('SuperSurf Daemon');
       });
@@ -81,60 +111,50 @@ export class ExtensionBridge {
       this.wss.on('connection', (ws) => {
         debugLog('Extension connection attempt');
 
-        // Reject if already connected
-        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-          debugLog('Rejecting new connection — browser already connected');
-          const errorMsg = {
-            jsonrpc: '2.0',
-            error: {
-              code: -32001,
-              message: 'Another browser is already connected. Only one browser at a time.',
-            },
-          };
-          ws.send(JSON.stringify(errorMsg));
-          setTimeout(() => ws.close(1008, 'Already connected'), 100);
-          return;
+        if (!this.profilesEnabled) {
+          // Single-connection mode: reject if already connected
+          if (this.matchmaker.hasConnections) {
+            debugLog('Rejecting new connection — browser already connected (profiles disabled)');
+            const errorMsg = {
+              jsonrpc: '2.0',
+              error: {
+                code: -32001,
+                message: 'Another browser is already connected. Only one browser at a time.',
+              },
+            };
+            ws.send(JSON.stringify(errorMsg));
+            setTimeout(() => ws.close(1008, 'Already connected'), 100);
+            return;
+          }
         }
 
-        debugLog('Extension connected');
-        const isReconnection = !!this.socket;
-
-        if (this.socket) {
-          debugLog('Closing previous connection — reconnection detected');
-          this.socket.close();
-        }
-
-        this.socket = ws;
-
-        // Clear old ping interval
-        if (this.pingInterval) {
-          clearInterval(this.pingInterval);
-          this.pingInterval = null;
-        }
+        // Create pooled connection entry
+        const conn: PooledConnection = {
+          ws,
+          profile: null,
+          browser: 'chrome',
+          buildTimestamp: null,
+          pingInterval: null,
+          inflight: new Map(),
+        };
 
         // Keep-alive ping every 10s
-        this.pingInterval = setInterval(() => {
+        conn.pingInterval = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.ping();
           }
         }, 10000);
 
-        if (isReconnection && this.onReconnect) {
-          this.onReconnect();
-        }
+        // Add to pool
+        this.matchmaker.addConnection(ws, conn);
 
-        ws.on('message', (data) => this.handleMessage(data));
+        debugLog('Extension connected');
+
+        ws.on('message', (data) => this.handleMessage(ws, conn, data));
         ws.on('pong', () => debugLog('Pong received'));
         ws.on('close', () => {
           debugLog('Extension disconnected');
-          if (this.socket === ws) {
-            this.socket = null;
-          }
-          if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-            this.pingInterval = null;
-          }
-          this.drainInflight();
+          this.matchmaker.removeConnection(ws);
         });
         ws.on('error', (error) => debugLog('WebSocket error:', error));
       });
@@ -151,16 +171,16 @@ export class ExtensionBridge {
     });
   }
 
-  /** Route incoming WebSocket messages: responses, handshakes, or notifications. */
-  private handleMessage(data: any): void {
+  /** Route incoming WebSocket messages for a specific connection. */
+  private handleMessage(ws: WebSocket, conn: PooledConnection, data: any): void {
     try {
       const message = JSON.parse(data.toString());
 
-      // JSON-RPC response — correlate with inflight request by id
+      // JSON-RPC response — correlate with connection's inflight map
       if (message.id !== undefined && !message.method) {
-        const pending = this.inflight.get(message.id);
+        const pending = conn.inflight.get(message.id);
         if (pending) {
-          this.inflight.delete(message.id);
+          conn.inflight.delete(message.id);
 
           // Piggyback: extract tab info from response if present
           const result = message.result;
@@ -180,12 +200,29 @@ export class ExtensionBridge {
       // Handshake
       if (message.type === 'handshake') {
         debugLog('Handshake received:', message);
-        this.browserType = message.browser || 'chrome';
-        this.buildTimestamp = message.buildTimestamp || null;
+        conn.browser = message.browser || 'chrome';
+        conn.buildTimestamp = message.buildTimestamp || null;
+
+        // Profile field in handshake (subsequent launches)
+        if (message.profile) {
+          this.matchmaker.updateProfile(ws, message.profile);
+        }
+
+        // Notify about reconnection (backwards compat for unmanaged)
+        if (!this.profilesEnabled && this.onReconnect) {
+          this.onReconnect();
+        }
         return;
       }
 
-      // Notification (has method, no id)
+      // Profile announcement notification (first launch, after registration)
+      if (message.method === 'profile_announce' && message.params?.profile) {
+        debugLog('Profile announcement:', message.params.profile);
+        this.matchmaker.updateProfile(ws, message.params.profile);
+        return;
+      }
+
+      // Tab info notification
       if (message.method && message.id === undefined) {
         debugLog('Notification:', message.method);
         if (
@@ -203,82 +240,48 @@ export class ExtensionBridge {
   }
 
   /**
-   * Send a JSON-RPC 2.0 request to the extension and await the response.
-   * @param method - Command name
-   * @param params - Command parameters
-   * @param timeout - Max wait time in ms (default 30s)
+   * Send a JSON-RPC 2.0 request to the unmanaged extension connection.
+   * Backwards-compatible with v1 — delegates to matchmaker for the unmanaged connection.
    */
   async sendCmd(method: string, params: Record<string, unknown> = {}, timeout: number = 30000): Promise<any> {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+    const conn = this.matchmaker.getConnectionForProfile(null);
+    if (!conn) {
       throw new Error('Extension not connected');
     }
+    return this.matchmaker.sendCmd(conn, method, params, timeout);
+  }
 
-    const id = crypto.randomUUID().slice(0, 8);
-
-    debugLog(`-> ${method}`, params);
-
-    return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        this.inflight.delete(id);
-        reject(new Error(`Request timeout: ${method}`));
-      }, timeout);
-
-      this.inflight.set(id, {
-        resolve: (result) => {
-          clearTimeout(timeoutId);
-          debugLog(`<- ${method}`, result);
-          resolve(result);
-        },
-        reject: (error) => {
-          clearTimeout(timeoutId);
-          debugLog(`x ${method}:`, error.message);
-          reject(error);
-        },
-      });
-
-      const message = { jsonrpc: '2.0', id, method, params };
-      this.socket!.send(JSON.stringify(message));
-    });
+  /**
+   * Send a JSON-RPC 2.0 request to a specific profile's extension connection.
+   */
+  async sendCmdToProfile(profile: string, method: string, params: Record<string, unknown> = {}, timeout: number = 30000): Promise<any> {
+    const conn = this.matchmaker.getConnectionForProfile(profile);
+    if (!conn) {
+      throw new Error(`No extension connected for profile "${profile}"`);
+    }
+    return this.matchmaker.sendCmd(conn, method, params, timeout);
   }
 
   /** Send an `authenticated` notification to the extension with a session's client ID. */
   notifyClientId(clientId: string): void {
     debugLog('Client ID set to:', clientId);
-    if (this.connected) {
+    // Send to unmanaged connection (backwards compat)
+    const conn = this.matchmaker.getConnectionForProfile(null);
+    if (conn && conn.ws.readyState === WebSocket.OPEN) {
       const notification = {
         jsonrpc: '2.0',
         method: 'authenticated',
         params: { client_id: clientId },
       };
-      this.socket!.send(JSON.stringify(notification));
+      conn.ws.send(JSON.stringify(notification));
     }
   }
 
-  /** Reject all pending requests with a disconnect error. */
-  private drainInflight(): void {
-    if (this.inflight.size === 0) return;
-    debugLog(`Draining ${this.inflight.size} inflight request(s)`);
-    for (const [_id, pending] of this.inflight) {
-      pending.reject(new Error('Extension disconnected'));
-    }
-    this.inflight.clear();
-  }
-
-  /** Gracefully shut down: clear ping interval, close socket, close servers. */
+  /** Gracefully shut down: close all connections, close servers. */
   async stop(): Promise<void> {
     debugLog('Stopping server');
 
-    this.drainInflight();
-
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
-    }
-
-    if (this.socket) {
-      this.socket.close();
-      this.socket = null;
-    }
+    this.matchmaker.shutdown();
 
     if (this.wss) {
       this.wss.close();

@@ -19,9 +19,14 @@ export declare class RequestScheduler {
     private sessionOrder;
     private currentSessionIdx;
     private processingQueue;
-    private currentExtensionTabId;
+    /** Current extension tab per profile (null key = unmanaged). */
+    private currentExtensionTabIds;
     private sessionGroupIds;
     constructor(bridge: ExtensionBridge, sessions: SessionRegistry);
+    /** Get the current extension tab ID for a given profile context. */
+    private getCurrentTabId;
+    /** Set the current extension tab ID for a given profile context. */
+    private setCurrentTabId;
     /** Register a session in the scheduler. */
     addSession(sessionId: string): void;
     /** Remove a session from the scheduler. Rejects queued requests. */

@@ -17,20 +17,30 @@
  * - {@link calculateConfidence} — score how complete the snapshot is (0.0 to 1.0)
  * - {@link formatDiffSection} — render diff + confidence as a markdown section
  */
-/** Snapshot of observable page state at a point in time. */
+/** Snapshot of observable page state at a point in time.
+ *  SYNC: mirrored in extension/src/experimental/capture-page-state.ts */
 export interface PageState {
     elementCount: number;
     textContent: string[];
     shadowRootCount: number;
     iframeCount: number;
+    /** Iframes that pass visibility + dimension checks (excludes tracking pixels). */
+    visibleIframeCount: number;
     hiddenElementCount: number;
     pageElementCount: number;
+    /** Form field values keyed by name, id, or positional fallback. */
+    formValues: Record<string, string>;
 }
 /** Result of comparing two PageState snapshots. */
 export interface DiffResult {
     added: string[];
     removed: string[];
     countDelta: number;
+    formChanges: Array<{
+        field: string;
+        from: string;
+        to: string;
+    }>;
 }
 /**
  * Compute the diff between two page snapshots.
@@ -61,5 +71,5 @@ export declare function calculateConfidence(state: PageState): number;
  * @param state - Optional post-state for shadow DOM/iframe annotations
  * @returns Markdown-formatted diff section string
  */
-export declare function formatDiffSection(diff: DiffResult, confidence: number, state?: PageState): string;
+export declare function formatDiffSection(diff: DiffResult, confidence: number, state?: PageState, mode?: string): string;
 //# sourceMappingURL=page-diffing.d.ts.map

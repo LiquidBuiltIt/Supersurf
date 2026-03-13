@@ -30,6 +30,7 @@ class DaemonClient {
     _connected = false;
     _browser = 'chrome';
     _buildTime = null;
+    _capabilities = null;
     onReconnect = null;
     onTabInfoUpdate = null;
     constructor(sockPath, sessionId) {
@@ -44,6 +45,9 @@ class DaemonClient {
     }
     get buildTime() {
         return this._buildTime;
+    }
+    get capabilities() {
+        return this._capabilities;
     }
     /**
      * Connect to the daemon, send session_register handshake, await session_ack.
@@ -80,6 +84,7 @@ class DaemonClient {
                             clearTimeout(connectTimeout);
                             this._browser = msg.browser || 'chrome';
                             this._buildTime = msg.buildTimestamp || null;
+                            this._capabilities = msg.capabilities || null;
                             this._connected = true;
                             log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
                             resolve();

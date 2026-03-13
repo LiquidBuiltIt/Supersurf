@@ -37,6 +37,12 @@ export declare class SessionRegistry {
     removeOwnedTab(sessionId: string, tabId: number): void;
     /** Find which session owns a tab by its ID. Returns null if unowned. */
     findTabOwner(tabId: number): string | null;
+    /** Set the profile ID for a session. */
+    setProfileId(sessionId: string, profileId: string | null): void;
+    /** Get the profile ID for a session. */
+    getProfileId(sessionId: string): string | null;
+    /** Get all sessions connected to a specific profile. */
+    getSessionsForProfile(profileId: string): DaemonSession[];
     /** Get all tab IDs owned by sessions other than the given one. */
     getOtherOwnedTabIds(sessionId: string): Set<number>;
 }

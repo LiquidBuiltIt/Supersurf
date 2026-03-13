@@ -41,6 +41,18 @@ export declare function onStatus(mgr: ConnectionManagerAPI, options?: {
 export declare function onExperimentalFeatures(mgr: ConnectionManagerAPI, args?: Record<string, unknown>, options?: {
     rawResult?: boolean;
 }): Promise<any>;
+/** Create a new managed Chromium profile. */
+export declare function onProfileCreate(mgr: ConnectionManagerAPI, args?: Record<string, unknown>, options?: {
+    rawResult?: boolean;
+}): Promise<any>;
+/** List all managed Chromium profiles. */
+export declare function onProfileList(mgr: ConnectionManagerAPI, options?: {
+    rawResult?: boolean;
+}): Promise<any>;
+/** Delete a managed Chromium profile. */
+export declare function onProfileDelete(mgr: ConnectionManagerAPI, args?: Record<string, unknown>, options?: {
+    rawResult?: boolean;
+}): Promise<any>;
 /** Trigger hot reload by exiting with code 42. The debug wrapper catches this and respawns. */
 export declare function onReloadMCP(mgr: ConnectionManagerAPI, options?: {
     rawResult?: boolean;

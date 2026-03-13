@@ -14,6 +14,7 @@ import type { ExtensionBridge } from './extension-bridge';
 import type { SessionRegistry } from './session';
 import type { RequestScheduler } from './scheduler';
 import type { DaemonExperimentRegistry } from './experiments/index';
+import type { ProfileRegistry } from './profiles/registry';
 /** Callback invoked when the number of sessions changes (for idle timeout management). */
 export type SessionCountCallback = (count: number) => void;
 /** Metadata passed from main to IPCServer for status queries. */
@@ -32,10 +33,11 @@ export declare class IPCServer {
     private sessions;
     private scheduler;
     private experiments;
+    private profileRegistry;
     private onSessionCountChange;
     private startedAt;
     private meta;
-    constructor(socketPath: string, bridge: ExtensionBridge, sessions: SessionRegistry, scheduler: RequestScheduler, experiments: DaemonExperimentRegistry, meta?: IPCServerMeta);
+    constructor(socketPath: string, bridge: ExtensionBridge, sessions: SessionRegistry, scheduler: RequestScheduler, experiments: DaemonExperimentRegistry, meta?: IPCServerMeta, profileRegistry?: ProfileRegistry | null);
     /** Set a callback for session count changes (used by idle timeout). */
     setSessionCountCallback(cb: SessionCountCallback): void;
     /** Start listening on the Unix socket. */
@@ -46,6 +48,8 @@ export declare class IPCServer {
     private handleRequest;
     /** Handle an experiment IPC request directly (no scheduler round-trip). */
     private handleExperimentRequest;
+    /** Handle a profile IPC request directly (no scheduler round-trip). */
+    private handleProfileRequest;
     /** Build a status response from live daemon state. */
     private buildStatusResponse;
     /** Write an NDJSON line to a socket. */

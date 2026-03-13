@@ -28,6 +28,9 @@ import { SessionRegistry } from './session';
 import { RequestScheduler } from './scheduler';
 import { IPCServer } from './ipc';
 import { DaemonExperimentRegistry } from './experiments/index';
+import { ProfileRegistry } from './profiles/registry';
+import { ensureExtension } from './profiles/extension-source';
+import { replayPidLog, findOrphanPids, killOrphanPids, truncatePidLog, appendPidLog } from './profiles/chrome';
 
 const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
 const PID_FILE = path.join(SUPERSURF_DIR, 'daemon.pid');
@@ -300,22 +303,55 @@ async function main(): Promise<void> {
   // Write PID file
   writePidFile();
 
+  // Pre-enable experiments from env var (e.g. SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting)
+  const envExperiments = process.env.SUPERSURF_EXPERIMENTS;
+  const envExpNames = envExperiments
+    ? envExperiments.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+  const profilesEnabled = envExpNames.includes('profiles');
+
   // Initialize components
-  const bridge = new ExtensionBridge(port, '127.0.0.1');
+  const bridge = new ExtensionBridge(port, '127.0.0.1', profilesEnabled);
   const sessions = new SessionRegistry();
   const scheduler = new RequestScheduler(bridge, sessions);
   const experiments = new DaemonExperimentRegistry();
 
-  // Pre-enable experiments from env var (e.g. SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting)
-  const envExperiments = process.env.SUPERSURF_EXPERIMENTS;
-  if (envExperiments) {
-    const names = envExperiments.split(',').map(s => s.trim()).filter(Boolean);
-    experiments.applyDefaults(names);
-    logger.log(`[Daemon] Experiment defaults: ${names.join(', ')}`);
+  if (envExpNames.length > 0) {
+    experiments.applyDefaults(envExpNames);
+    logger.log(`[Daemon] Experiment defaults: ${envExpNames.join(', ')}`);
+  }
+
+  // Profile management setup
+  let profileRegistry: ProfileRegistry | null = null;
+
+  if (profilesEnabled) {
+    logger.log('[Daemon] Profile management enabled');
+
+    // Ensure ~/.supersurf/daemon/ exists
+    fs.mkdirSync(path.join(SUPERSURF_DIR, 'daemon'), { recursive: true });
+
+    // Pull extension from GitHub if not cached
+    try {
+      await ensureExtension();
+    } catch (err: any) {
+      logger.log(`[Daemon] Warning: Failed to pull extension: ${err.message}`);
+    }
+
+    // Initialize profile registry
+    profileRegistry = new ProfileRegistry(path.join(SUPERSURF_DIR, 'profiles'));
+
+    // Kill orphan Chromium processes from previous crash
+    const entries = replayPidLog();
+    const orphans = findOrphanPids(entries);
+    if (orphans.length > 0) {
+      logger.log(`[Daemon] Cleaning up ${orphans.length} orphan Chromium process(es)`);
+      killOrphanPids(orphans);
+    }
+    truncatePidLog();
   }
 
   const version = getVersion();
-  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, { port, version });
+  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, { port, version }, profileRegistry);
 
   // Idle timeout: exit after 10 minutes with no sessions
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -353,6 +389,23 @@ async function main(): Promise<void> {
 
     logger.log('[Daemon] Shutting down...');
     resetIdleTimer();
+
+    // Kill all managed Chromium processes
+    if (profileRegistry) {
+      const profiles = profileRegistry.list();
+      for (const p of profiles) {
+        const pid = profileRegistry.getRunningPid(p.name);
+        if (pid !== null) {
+          try {
+            process.kill(pid, 'SIGTERM');
+            logger.log(`[Daemon] Killed Chromium for profile "${p.name}" (pid ${pid})`);
+            appendPidLog({ action: 'kill', profile: p.name, pid, ts: new Date().toISOString() });
+          } catch {}
+          profileRegistry.clearRunningPid(p.name);
+        }
+      }
+    }
+
     scheduler.drainAll();
     await ipc.stop();
     await bridge.stop();

@@ -144,6 +144,15 @@ export async function onConnect(
     mgr.state = 'active';
     mgr.connectedBrowserName = client.browser;
 
+    // Store daemon capabilities
+    mgr.daemonCapabilities = client.capabilities;
+
+    // Connect to a managed profile if requested
+    if (args.profile && typeof args.profile === 'string') {
+      log('Connecting to profile:', args.profile);
+      await client.sendCmd('profiles.connect', { profile: args.profile }, 90000);
+    }
+
     // Pre-enable session features from env var (fire-and-forget IPC to daemon)
     applyInitialState(mgr.config);
 
@@ -176,7 +185,7 @@ export async function onConnect(
           type: 'text',
           text:
             mgr.statusHeader() +
-            `### Connected to SuperSurf Daemon\n\n` +
+            `### Connected to Service\n\n` +
             `**State:** Active\n` +
             `**Browser:** ${mgr.connectedBrowserName}\n\n` +
             `**Next Steps:**\n` +
@@ -230,7 +239,7 @@ export async function onDisconnect(
           type: 'text',
           text:
             mgr.statusHeader() +
-            `### Already Disconnected\n\nCall \`connect\` to activate.`,
+            `### Already Disconnected\n\nNot connected to service. Call \`connect\` to activate.`,
         },
       ],
     };
@@ -273,7 +282,7 @@ export async function onDisconnect(
         type: 'text',
         text:
           mgr.statusHeader() +
-          `### Disconnected\n\nSession closed. Daemon stays alive for other sessions. Call \`connect\` to reconnect.`,
+          `### Disconnected from Service\n\nSession closed. Call \`connect\` to reconnect.`,
       },
     ],
   };
@@ -310,13 +319,13 @@ export async function onStatus(
           type: 'text',
           text:
             mgr.statusHeader() +
-            `### Disconnected\n\nBrowser automation is not active. Call \`connect\` to activate.`,
+            `### Disconnected\n\nNot connected to service. Call \`connect\` to activate.`,
         },
       ],
     };
   }
 
-  let statusText = `### Connected\n\n`;
+  let statusText = `### Connected to Service\n\n`;
   if (mgr.connectedBrowserName) {
     statusText += `**Browser:** ${mgr.connectedBrowserName}\n`;
   }
@@ -397,6 +406,116 @@ export async function onExperimentalFeatures(
         Object.entries(states).map(([k, v]) => `- **${k}**: ${v ? 'enabled' : 'disabled'}`).join('\n'),
     }],
   };
+}
+
+// ─── Profile Management ──────────────────────────────────────
+
+/** Create a new managed Chromium profile. */
+export async function onProfileCreate(
+  mgr: ConnectionManagerAPI,
+  args: Record<string, unknown> = {},
+  options: { rawResult?: boolean } = {}
+): Promise<any> {
+  if (!mgr.extensionServer) {
+    const msg = 'Not connected. Call connect first.';
+    return options.rawResult
+      ? { success: false, error: 'not_connected', message: msg }
+      : { content: [{ type: 'text', text: msg }], isError: true };
+  }
+
+  try {
+    const result = await mgr.extensionServer.sendCmd('profiles.create', {
+      name: args.name,
+      experiments: args.experiments,
+    }, 10000);
+
+    if (options.rawResult) return result;
+    return {
+      content: [{
+        type: 'text',
+        text: mgr.statusHeader() +
+          `### Profile Created\n\n` +
+          `**Name:** ${(result as any).profile?.name}\n` +
+          `**Created:** ${(result as any).profile?.created}\n\n` +
+          `Use \`connect client_id='...' profile='${(result as any).profile?.name}'\` to connect.`,
+      }],
+    };
+  } catch (error: any) {
+    if (options.rawResult) return { success: false, error: 'create_failed', message: error.message };
+    return { content: [{ type: 'text', text: `### Profile Creation Failed\n\n${error.message}` }], isError: true };
+  }
+}
+
+/** List all managed Chromium profiles. */
+export async function onProfileList(
+  mgr: ConnectionManagerAPI,
+  options: { rawResult?: boolean } = {}
+): Promise<any> {
+  if (!mgr.extensionServer) {
+    const msg = 'Not connected. Call connect first.';
+    return options.rawResult
+      ? { success: false, error: 'not_connected', message: msg }
+      : { content: [{ type: 'text', text: msg }], isError: true };
+  }
+
+  try {
+    const result = await mgr.extensionServer.sendCmd('profiles.list', {}, 10000);
+    if (options.rawResult) return result;
+
+    const profiles = (result as any).profiles || [];
+    if (profiles.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: mgr.statusHeader() + '### No Profiles\n\nUse `profile_create` to create one.',
+        }],
+      };
+    }
+
+    const lines = profiles.map((p: any) =>
+      `- **${p.name}** — created ${p.created}${p.running ? ' (running)' : ''}`
+    );
+    return {
+      content: [{
+        type: 'text',
+        text: mgr.statusHeader() + `### Profiles (${profiles.length})\n\n${lines.join('\n')}`,
+      }],
+    };
+  } catch (error: any) {
+    if (options.rawResult) return { success: false, error: 'list_failed', message: error.message };
+    return { content: [{ type: 'text', text: `### Profile List Failed\n\n${error.message}` }], isError: true };
+  }
+}
+
+/** Delete a managed Chromium profile. */
+export async function onProfileDelete(
+  mgr: ConnectionManagerAPI,
+  args: Record<string, unknown> = {},
+  options: { rawResult?: boolean } = {}
+): Promise<any> {
+  if (!mgr.extensionServer) {
+    const msg = 'Not connected. Call connect first.';
+    return options.rawResult
+      ? { success: false, error: 'not_connected', message: msg }
+      : { content: [{ type: 'text', text: msg }], isError: true };
+  }
+
+  try {
+    const result = await mgr.extensionServer.sendCmd('profiles.delete', {
+      name: args.name,
+    }, 10000);
+
+    if (options.rawResult) return result;
+    return {
+      content: [{
+        type: 'text',
+        text: mgr.statusHeader() + `### Profile Deleted\n\nProfile "${args.name}" has been removed.`,
+      }],
+    };
+  } catch (error: any) {
+    if (options.rawResult) return { success: false, error: 'delete_failed', message: error.message };
+    return { content: [{ type: 'text', text: `### Profile Deletion Failed\n\n${error.message}` }], isError: true };
+  }
 }
 
 // ─── Reload (debug) ──────────────────────────────────────────

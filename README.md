@@ -164,10 +164,13 @@ claude mcp add supersurf -- node server/dist/cli.js
 
 | Tool | Description |
 |------|-------------|
-| `connect` | Connect to the browser daemon |
+| `connect` | Connect to the browser daemon. Pass `profile` for an isolated Chromium instance. |
 | `disconnect` | Disconnect from the browser daemon |
 | `status` | Show connection state |
 | `experimental_features` | Toggle experimental features |
+| `profile_create` | Create an isolated Chromium profile *(requires `profiles` experiment)* |
+| `profile_list` | List all managed profiles *(requires `profiles` experiment)* |
+| `profile_delete` | Delete a managed profile *(requires `profiles` experiment)* |
 
 </details>
 
@@ -243,7 +246,7 @@ claude mcp add supersurf -- node server/dist/cli.js
 Toggle via the `experimental_features` tool or the `SUPERSURF_EXPERIMENTS` environment variable:
 
 ```bash
-SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization
+SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization,profiles
 ```
 
 | Experiment | Description |
@@ -253,6 +256,7 @@ SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization
 | **storage_inspection** | Inspect and modify browser storage (localStorage, sessionStorage). |
 | **mouse_humanization** | Human-like Bezier trajectories, overshoot correction, and idle micro-movements. Hand-tuned from the Balabit Mouse Dynamics dataset. |
 | **secure_eval** | Two-layer code analysis for `browser_evaluate`. Server-side AST parsing + extension-side Proxy membrane that blocks dangerous API access before execution. |
+| **profiles** | Isolated Chromium instances per agent session. Each profile gets its own cookies, storage, and browser state. Daemon spawns and manages Chromium processes, with matchmaker-based connection routing. |
 
 ---
 

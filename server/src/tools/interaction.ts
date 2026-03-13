@@ -73,8 +73,12 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
 
   // === EXPERIMENTAL: page diffing — capture before state ===
   let beforeState: any = null;
+  const isOnlyScrollActions = actions.every((a: any) =>
+    ['scroll_to', 'scroll_by', 'scroll_into_view'].includes(a.type)
+  );
+  const captureMode = isOnlyScrollActions ? 'viewport' : 'document';
   if (experimentRegistry.isEnabled('page_diffing')) {
-    try { beforeState = await ctx.ext.sendCmd('capturePageState', {}); }
+    try { beforeState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode }); }
     catch { /* silently skip — extension may not support it yet */ }
   }
 
@@ -92,10 +96,12 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
   let diffSection = '';
   if (beforeState) {
     try {
-      const afterState = await ctx.ext.sendCmd('capturePageState', {});
+      // Let smooth scroll animations settle before capturing viewport
+      if (isOnlyScrollActions) await ctx.sleep(350);
+      const afterState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode });
       const confidence = calculateConfidence(afterState);
       if (confidence >= 0.5) {
-        diffSection = formatDiffSection(diffSnapshots(beforeState, afterState), confidence, afterState);
+        diffSection = formatDiffSection(diffSnapshots(beforeState, afterState), confidence, afterState, captureMode);
       } else {
         diffSection = `\n\n---\n**Page diff:** confidence below threshold (${Math.round(confidence * 100)}%) — full re-read recommended`;
       }

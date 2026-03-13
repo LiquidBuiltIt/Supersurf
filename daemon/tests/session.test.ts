@@ -111,6 +111,34 @@ describe('SessionRegistry', () => {
     });
   });
 
+  describe('profile tracking', () => {
+    beforeEach(() => {
+      registry.add('s1', mockSocket());
+      registry.add('s2', mockSocket());
+    });
+
+    it('defaults profileId to null', () => {
+      expect(registry.getProfileId('s1')).toBeNull();
+    });
+
+    it('sets and gets profileId', () => {
+      registry.setProfileId('s1', 'scraper');
+      expect(registry.getProfileId('s1')).toBe('scraper');
+    });
+
+    it('gets sessions for a profile', () => {
+      registry.setProfileId('s1', 'scraper');
+      registry.setProfileId('s2', 'scraper');
+      const sessions = registry.getSessionsForProfile('scraper');
+      expect(sessions).toHaveLength(2);
+      expect(sessions.map(s => s.sessionId).sort()).toEqual(['s1', 's2']);
+    });
+
+    it('returns empty array for unmatched profile', () => {
+      expect(registry.getSessionsForProfile('unknown')).toEqual([]);
+    });
+  });
+
   describe('no-ops on missing sessions', () => {
     it('setAttachedTabId on missing session does nothing', () => {
       registry.setAttachedTabId('nope', 1);

@@ -13,13 +13,14 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getConnectionToolSchemas = getConnectionToolSchemas;
+exports.getProfileToolSchemas = getProfileToolSchemas;
 exports.getDebugToolSchema = getDebugToolSchema;
 /** Return MCP tool schemas for connect, disconnect, status, and experimental_features. */
 function getConnectionToolSchemas() {
     return [
         {
             name: 'connect',
-            description: 'Connect to the SuperSurf daemon and start browser automation. The daemon coordinates multiple sessions sharing one Chrome extension. Pass a client_id to identify this session.',
+            description: 'Connect to the SuperSurf service and start browser automation. Pass a client_id to identify this session.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -27,11 +28,15 @@ function getConnectionToolSchemas() {
                         type: 'string',
                         description: 'Human-readable identifier for this MCP client (e.g., "my-project").',
                     },
+                    profile: {
+                        type: 'string',
+                        description: 'Profile name for isolated Chromium instance, or omit for unmanaged connection to user\'s own browser.',
+                    },
                 },
                 required: ['client_id'],
             },
             annotations: {
-                title: 'Connect to browser',
+                title: 'Connect to service',
                 readOnlyHint: false,
                 destructiveHint: false,
                 openWorldHint: false,
@@ -39,10 +44,10 @@ function getConnectionToolSchemas() {
         },
         {
             name: 'disconnect',
-            description: 'Disconnect this session from the SuperSurf daemon. The daemon stays alive for other sessions.',
+            description: 'Disconnect this session from the SuperSurf service.',
             inputSchema: { type: 'object', properties: {}, required: [] },
             annotations: {
-                title: 'Disconnect from browser',
+                title: 'Disconnect from service',
                 readOnlyHint: false,
                 destructiveHint: false,
                 openWorldHint: false,
@@ -81,6 +86,66 @@ function getConnectionToolSchemas() {
                 title: 'Experimental features',
                 readOnlyHint: false,
                 destructiveHint: false,
+                openWorldHint: false,
+            },
+        },
+    ];
+}
+/** Return MCP tool schemas for profile management (create, list, delete). */
+function getProfileToolSchemas() {
+    return [
+        {
+            name: 'profile_create',
+            description: 'Create a new isolated Chromium profile for browser automation. Each profile gets its own cookies, sessions, and state. Requires the `profiles` experiment enabled on the daemon (`SUPERSURF_EXPERIMENTS=profiles`).',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    name: {
+                        type: 'string',
+                        description: 'Profile name. Lowercase alphanumeric + hyphens, max 32 chars (e.g., "scraper", "test-account").',
+                    },
+                    experiments: {
+                        type: 'object',
+                        description: 'Optional experiment defaults to pre-enable when connecting to this profile (e.g., { "mouse_humanization": true }).',
+                    },
+                },
+                required: ['name'],
+            },
+            annotations: {
+                title: 'Create profile',
+                readOnlyHint: false,
+                destructiveHint: false,
+                openWorldHint: false,
+            },
+        },
+        {
+            name: 'profile_list',
+            description: 'List all managed Chromium profiles with their running state. Requires the `profiles` experiment enabled on the daemon.',
+            inputSchema: { type: 'object', properties: {}, required: [] },
+            annotations: {
+                title: 'List profiles',
+                readOnlyHint: true,
+                destructiveHint: false,
+                openWorldHint: false,
+            },
+        },
+        {
+            name: 'profile_delete',
+            description: 'Delete a managed Chromium profile and all its data. Cannot delete profiles with active sessions. Requires the `profiles` experiment enabled on the daemon.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    name: {
+                        type: 'string',
+                        description: 'Name of the profile to delete.',
+                    },
+                },
+                required: ['name'],
+            },
+            annotations: {
+                title: 'Delete profile',
+                readOnlyHint: false,
+                destructiveHint: true,
                 openWorldHint: false,
             },
         },

@@ -50,6 +50,9 @@ export interface ConnectionManagerAPI {
     clientId: string | null;
     connectedBrowserName: string | null;
     attachedTab: TabInfo | null;
+    daemonCapabilities: {
+        profiles: boolean;
+    } | null;
     statusHeader(): string;
     notifyToolsListChanged(): Promise<void>;
     sendLogNotification(level: string, message: string, logger?: string): Promise<void>;

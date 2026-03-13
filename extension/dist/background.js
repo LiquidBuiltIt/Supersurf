@@ -215,11 +215,29 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
             logger.log('[Background] Debugger detached');
         }
     });
-    // Listen for tech stack info from content script
+    // Listen for tech stack info and profile registration from content script
     chrome.runtime.onMessage.addListener((message, sender) => {
         if (message.type === 'techStack' && sender.tab?.id) {
             techStackInfo[sender.tab.id] = message.data;
             tabHandlers.setTechStackInfo(sender.tab.id, message.data);
+        }
+        // Profile registration from daemon's registration page
+        if (message.type === 'profileRegister' && message.profile) {
+            chrome.storage.local.set({ supersurf_profile: message.profile });
+            // Close the registration tab
+            if (sender.tab?.id)
+                chrome.tabs.remove(sender.tab.id);
+        }
+    });
+    // When a profile is registered in storage, reconnect to the daemon.
+    // getConnectionUrl() reads the (now-updated) mcpPort, _handleOpen() includes the profile in the handshake.
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== 'local')
+            return;
+        if (changes.supersurf_profile?.newValue && typeof changes.supersurf_profile.newValue === 'string') {
+            logger.log('[Background] Profile set:', changes.supersurf_profile.newValue, '— reconnecting');
+            wsConnection.disconnect();
+            wsConnection.connect();
         }
     });
     /**

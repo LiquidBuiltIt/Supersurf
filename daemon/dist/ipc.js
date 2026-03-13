@@ -18,6 +18,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.IPCServer = void 0;
 const net_1 = __importDefault(require("net"));
 const types_1 = require("./experiments/types");
+const types_2 = require("./profiles/types");
+const chrome_1 = require("./profiles/chrome");
+const extension_source_1 = require("./profiles/extension-source");
 const debugLog = (...args) => {
     const logger = global.DAEMON_LOGGER;
     if (logger)
@@ -36,16 +39,18 @@ class IPCServer {
     sessions;
     scheduler;
     experiments;
+    profileRegistry;
     onSessionCountChange = null;
     startedAt = Date.now();
     meta;
-    constructor(socketPath, bridge, sessions, scheduler, experiments, meta = { port: 5555, version: 'unknown' }) {
+    constructor(socketPath, bridge, sessions, scheduler, experiments, meta = { port: 5555, version: 'unknown' }, profileRegistry = null) {
         this.socketPath = socketPath;
         this.bridge = bridge;
         this.sessions = sessions;
         this.scheduler = scheduler;
         this.experiments = experiments;
         this.meta = meta;
+        this.profileRegistry = profileRegistry;
     }
     /** Set a callback for session count changes (used by idle timeout). */
     setSessionCountCallback(cb) {
@@ -106,6 +111,7 @@ class IPCServer {
                                 type: 'session_ack',
                                 browser: this.bridge.browser,
                                 buildTimestamp: this.bridge.buildTime,
+                                capabilities: { profiles: !!this.profileRegistry },
                             });
                             handshakeComplete = true;
                             debugLog(`Session registered: "${sessionId}"`);
@@ -141,11 +147,35 @@ class IPCServer {
         socket.on('close', () => {
             if (sessionId) {
                 debugLog(`Session disconnected: "${sessionId}"`);
+                // Unbind profile if set
+                const profileId = this.sessions.getProfileId(sessionId);
+                if (profileId) {
+                    this.sessions.setProfileId(sessionId, null);
+                }
                 this.scheduler.removeSession(sessionId);
                 this.sessions.remove(sessionId);
                 this.experiments.deleteSession(sessionId);
                 // Notify extension to ungroup the session's tabs
-                this.bridge.sendCmd('sessionDisconnect', { sessionId }, 5000).catch(() => { });
+                if (profileId) {
+                    this.bridge.sendCmdToProfile(profileId, 'sessionDisconnect', { sessionId }, 5000).catch(() => { });
+                    // Kill Chromium if no other sessions are using this profile
+                    const remaining = this.sessions.getSessionsForProfile(profileId);
+                    if (remaining.length === 0 && this.profileRegistry) {
+                        const pid = this.profileRegistry.getRunningPid(profileId);
+                        if (pid) {
+                            debugLog(`Last session for profile "${profileId}" disconnected — killing Chromium (pid ${pid})`);
+                            try {
+                                process.kill(pid, 'SIGTERM');
+                                (0, chrome_1.appendPidLog)({ action: 'kill', profile: profileId, pid, ts: new Date().toISOString() });
+                            }
+                            catch { }
+                            this.profileRegistry.clearRunningPid(profileId);
+                        }
+                    }
+                }
+                else {
+                    this.bridge.sendCmd('sessionDisconnect', { sessionId }, 5000).catch(() => { });
+                }
                 if (this.onSessionCountChange) {
                     this.onSessionCountChange(this.sessions.count);
                 }
@@ -163,6 +193,21 @@ class IPCServer {
                 id: msg.id ?? null,
                 error: { code: -32600, message: 'Invalid JSON-RPC 2.0 request' },
             });
+            return;
+        }
+        // Profile IPC — handle directly, skip scheduler
+        if ((0, types_2.isProfileMethod)(msg.method)) {
+            try {
+                const result = await this.handleProfileRequest(sessionId, msg.method, msg.params || {});
+                this.sendLine(socket, { jsonrpc: '2.0', id: msg.id, result });
+            }
+            catch (error) {
+                this.sendLine(socket, {
+                    jsonrpc: '2.0',
+                    id: msg.id,
+                    error: { code: -32000, message: error.message || String(error) },
+                });
+            }
             return;
         }
         // Experiment IPC — handle directly, skip scheduler
@@ -212,6 +257,92 @@ class IPCServer {
                 throw new Error(`Unknown experiment method: ${method}`);
         }
     }
+    /** Handle a profile IPC request directly (no scheduler round-trip). */
+    async handleProfileRequest(sessionId, method, params) {
+        if (!this.profileRegistry) {
+            throw new Error('Profile management is not enabled. Set SUPERSURF_EXPERIMENTS=profiles');
+        }
+        switch (method) {
+            case 'profiles.create': {
+                const name = params.name;
+                const experiments = params.experiments;
+                const config = this.profileRegistry.create(name, experiments);
+                return { success: true, profile: config };
+            }
+            case 'profiles.list': {
+                const profiles = this.profileRegistry.list();
+                return { profiles };
+            }
+            case 'profiles.delete': {
+                const name = params.name;
+                this.profileRegistry.delete(name, this.sessions);
+                return { success: true };
+            }
+            case 'profiles.connect': {
+                const profile = params.profile;
+                if (!profile)
+                    throw new Error('Profile name is required');
+                if (!this.profileRegistry.exists(profile)) {
+                    throw new Error(`Profile '${profile}' not found. Use profile_create first.`);
+                }
+                const matchmaker = this.bridge.matchmaker;
+                const registry = this.profileRegistry;
+                // Spawn Chromium if not running
+                if (!registry.isRunning(profile)) {
+                    await matchmaker.enqueueBootstrap(async () => {
+                        if (registry.isRunning(profile))
+                            return; // double-check after queue
+                        matchmaker.pendingSpawns.add(profile);
+                        try {
+                            const isFirstLaunch = !registry.isInitialized(profile);
+                            const child = (0, chrome_1.spawnChromium)(profile, (0, extension_source_1.getExtensionDir)(), this.meta.port, isFirstLaunch);
+                            const pid = child.pid;
+                            registry.setRunningPid(profile, pid);
+                            (0, chrome_1.appendPidLog)({ action: 'spawn', profile, pid, ts: new Date().toISOString() });
+                            // Listen for crash
+                            child.on('exit', (code) => {
+                                debugLog(`Chromium exited for profile "${profile}" (code=${code})`);
+                                registry.clearRunningPid(profile);
+                                (0, chrome_1.appendPidLog)({ action: 'kill', profile, pid, ts: new Date().toISOString() });
+                            });
+                        }
+                        finally {
+                            matchmaker.pendingSpawns.delete(profile);
+                        }
+                    });
+                }
+                // Wait for matching extension connection
+                debugLog(`Waiting for extension match for profile "${profile}"...`);
+                const conn = await matchmaker.requestMatch(profile, 90000);
+                // Mark initialized if first launch succeeded
+                if (!registry.isInitialized(profile)) {
+                    registry.markInitialized(profile);
+                }
+                // Bind session to profile
+                this.sessions.setProfileId(sessionId, profile);
+                // Apply experiment defaults from profile config
+                const config = registry.get(profile);
+                if (config?.experiments) {
+                    const expNames = Object.entries(config.experiments)
+                        .filter(([, v]) => v)
+                        .map(([k]) => k);
+                    if (expNames.length > 0) {
+                        for (const name of expNames) {
+                            this.experiments.toggle(sessionId, name, true);
+                        }
+                    }
+                }
+                return {
+                    success: true,
+                    profile,
+                    browser: conn.browser,
+                    buildTimestamp: conn.buildTimestamp,
+                };
+            }
+            default:
+                throw new Error(`Unknown profile method: ${method}`);
+        }
+    }
     /** Build a status response from live daemon state. */
     buildStatusResponse() {
         const sessions = [];
@@ -220,6 +351,7 @@ class IPCServer {
                 sessionId: session.sessionId,
                 attachedTabId: session.attachedTabId,
                 ownedTabCount: session.ownedTabs.size,
+                profileId: session.profileId,
             });
         }
         return {
@@ -231,6 +363,7 @@ class IPCServer {
             extensionBrowser: this.bridge.browser,
             sessions,
             schedulerQueueDepth: this.scheduler.getQueueDepth(),
+            profilesEnabled: !!this.profileRegistry,
         };
     }
     /** Write an NDJSON line to a socket. */

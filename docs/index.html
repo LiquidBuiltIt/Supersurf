@@ -1113,6 +1113,13 @@
             <p>Enables the browser_storage tool for reading, writing, and clearing localStorage and sessionStorage on any page.</p>
           </div>
         </div>
+        <div class="experiment-item">
+          <span class="exp-icon">&#128100;</span>
+          <div>
+            <h3>Profile Management <span class="exp-flag">profiles</span></h3>
+            <p>Isolated Chromium instances per agent session. Each profile gets its own cookies, storage, and browser state. The daemon spawns and manages Chromium processes with matchmaker-based connection routing and automatic crash recovery.</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1188,7 +1195,7 @@
           </tr>
           <tr>
             <td>Multi-agent sessions</td>
-            <td class="highlight"><span class="check">Daemon</span></td>
+            <td class="highlight"><span class="check">Daemon + profiles</span></td>
             <td><span class="cross">Single</span></td>
             <td><span class="cross">Single</span></td>
             <td><span class="cross">Single</span></td>

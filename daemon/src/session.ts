@@ -23,6 +23,7 @@ export class SessionRegistry {
       ownedTabs: new Set(),
       attachedTabId: null,
       groupId: null,
+      profileId: null,
     });
     return true;
   }
@@ -96,6 +97,26 @@ export class SessionRegistry {
       if (session.ownedTabs.has(tabId)) return session.sessionId;
     }
     return null;
+  }
+
+  /** Set the profile ID for a session. */
+  setProfileId(sessionId: string, profileId: string | null): void {
+    const session = this.sessions.get(sessionId);
+    if (session) session.profileId = profileId;
+  }
+
+  /** Get the profile ID for a session. */
+  getProfileId(sessionId: string): string | null {
+    return this.sessions.get(sessionId)?.profileId ?? null;
+  }
+
+  /** Get all sessions connected to a specific profile. */
+  getSessionsForProfile(profileId: string): DaemonSession[] {
+    const result: DaemonSession[] = [];
+    for (const session of this.sessions.values()) {
+      if (session.profileId === profileId) result.push(session);
+    }
+    return result;
   }
 
   /** Get all tab IDs owned by sessions other than the given one. */

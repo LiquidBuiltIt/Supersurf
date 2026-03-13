@@ -286,4 +286,44 @@ describe('onInteract()', () => {
     expect(result.content[0].text).toContain('New tab(s) opened');
     expect(result.content[0].text).toContain('https://new.tab');
   });
+
+  // ── Scroll-aware page diffing ──
+
+  it('uses viewport capture mode for scroll-only batches', async () => {
+    const { experimentRegistry } = await import('../src/experimental/index');
+    (experimentRegistry.isEnabled as any).mockReturnValue(true);
+
+    await onInteract(ctx, {
+      actions: [{ type: 'scroll_by', x: 0, y: 500 }],
+    }, {});
+
+    // Both before and after captures should use viewport mode
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('capturePageState', { mode: 'viewport' });
+  });
+
+  it('uses document capture mode for mixed action batches', async () => {
+    const { experimentRegistry } = await import('../src/experimental/index');
+    (experimentRegistry.isEnabled as any).mockReturnValue(true);
+
+    await onInteract(ctx, {
+      actions: [
+        { type: 'click', x: 10, y: 10 },
+        { type: 'scroll_by', x: 0, y: 500 },
+      ],
+    }, {});
+
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('capturePageState', { mode: 'document' });
+  });
+
+  it('sleeps 350ms before after-capture for scroll-only batches', async () => {
+    const { experimentRegistry } = await import('../src/experimental/index');
+    (experimentRegistry.isEnabled as any).mockReturnValue(true);
+
+    await onInteract(ctx, {
+      actions: [{ type: 'scroll_to', x: 0, y: 1000 }],
+    }, {});
+
+    // sleep(350) should be called for scroll settlement
+    expect(ctx.sleep).toHaveBeenCalledWith(350);
+  });
 });

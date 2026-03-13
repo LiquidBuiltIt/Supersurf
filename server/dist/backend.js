@@ -82,6 +82,7 @@ class ConnectionManager {
     connectedBrowserName = null;
     attachedTab = null;
     stealthMode = false;
+    daemonCapabilities = null;
     server = null;
     clientInfo = {};
     constructor(config) {
@@ -121,7 +122,8 @@ class ConnectionManager {
         if (this.debugMode) {
             debugTools.push((0, schemas_1.getDebugToolSchema)());
         }
-        return [...connectionTools, ...browserTools, ...debugTools];
+        const profileTools = (0, schemas_1.getProfileToolSchemas)();
+        return [...connectionTools, ...browserTools, ...profileTools, ...debugTools];
     }
     // ─── Tool dispatch ─────────────────────────────────────────
     /**
@@ -142,6 +144,21 @@ class ConnectionManager {
                 return await (0, handlers_1.onExperimentalFeatures)(this, rawArguments, options);
             case 'reload_mcp':
                 return (0, handlers_1.onReloadMCP)(this, options);
+            case 'profile_create':
+            case 'profile_list':
+            case 'profile_delete': {
+                if (!this.daemonCapabilities?.profiles) {
+                    const msg = 'Profile management is not available. Start the daemon with `SUPERSURF_EXPERIMENTS=profiles` to enable it.';
+                    if (options.rawResult)
+                        return { success: false, error: 'profiles_not_enabled', message: msg };
+                    return { content: [{ type: 'text', text: msg }], isError: true };
+                }
+                if (name === 'profile_create')
+                    return await (0, handlers_1.onProfileCreate)(this, rawArguments, options);
+                if (name === 'profile_list')
+                    return await (0, handlers_1.onProfileList)(this, options);
+                return await (0, handlers_1.onProfileDelete)(this, rawArguments, options);
+            }
         }
         // Forward to active bridge
         if (!this.bridge) {

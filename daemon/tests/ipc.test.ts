@@ -7,6 +7,7 @@ import { IPCServer } from '../src/ipc';
 import { SessionRegistry } from '../src/session';
 import { RequestScheduler } from '../src/scheduler';
 import { DaemonExperimentRegistry } from '../src/experiments/index';
+import { ProfileRegistry } from '../src/profiles/registry';
 import type { ExtensionBridge } from '../src/extension-bridge';
 
 function mockBridge(): ExtensionBridge {
@@ -57,10 +58,10 @@ describe('IPCServer', () => {
   let experiments: DaemonExperimentRegistry;
   let ipc: IPCServer;
   let sockPath: string;
+  const baseDir = path.join(__dirname, '..', '.tmp-test');
 
   beforeEach(() => {
     // Use project-local tmp dir to avoid sandbox restrictions on Unix sockets
-    const baseDir = path.join(__dirname, '..', '.tmp-test');
     if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
     const tmpDir = fs.mkdtempSync(path.join(baseDir, 'ipc-'));
     sockPath = path.join(tmpDir, 'test.sock');
@@ -87,6 +88,7 @@ describe('IPCServer', () => {
     expect(response.type).toBe('session_ack');
     expect(response.browser).toBe('chrome');
     expect(response.buildTimestamp).toBe('2026-01-01T00:00:00Z');
+    expect(response.capabilities).toEqual({ profiles: false });
 
     client.end();
   });
@@ -373,6 +375,136 @@ describe('IPCServer', () => {
 
     session.end();
     query.end();
+  });
+
+  // ── Profile IPC ──────────────────────────────────────────────
+
+  it('returns error for profile methods when profiles not enabled', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'no-profiles' });
+    await readLine(client);
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'p-1',
+      method: 'profiles.list',
+      params: {},
+    });
+
+    const response = await readLine(client);
+    expect(response.error).toBeDefined();
+    expect(response.error.message).toContain('not enabled');
+
+    client.end();
+  });
+
+  it('includes capabilities.profiles in session_ack when registry provided', async () => {
+    const profileTmpDir = fs.mkdtempSync(path.join(baseDir, 'profiles-'));
+    const profileRegistry = new ProfileRegistry(profileTmpDir);
+    const ipcWithProfiles = new IPCServer(
+      sockPath, bridge, sessions, scheduler, experiments,
+      { port: 5555, version: 'test' },
+      profileRegistry,
+    );
+
+    await ipcWithProfiles.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'cap-test' });
+    const response = await readLine(client);
+
+    expect(response.capabilities).toEqual({ profiles: true });
+
+    client.end();
+    await ipcWithProfiles.stop();
+    fs.rmSync(profileTmpDir, { recursive: true, force: true });
+  });
+
+  it('handles profiles.create and profiles.list', async () => {
+    const profileTmpDir = fs.mkdtempSync(path.join(baseDir, 'profiles-'));
+    const profileRegistry = new ProfileRegistry(profileTmpDir);
+    const ipcWithProfiles = new IPCServer(
+      sockPath, bridge, sessions, scheduler, experiments,
+      { port: 5555, version: 'test' },
+      profileRegistry,
+    );
+
+    await ipcWithProfiles.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'create-test' });
+    await readLine(client);
+
+    // Create
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'create-1',
+      method: 'profiles.create',
+      params: { name: 'test-profile' },
+    });
+
+    const createResponse = await readLine(client);
+    expect(createResponse.result.success).toBe(true);
+    expect(createResponse.result.profile.name).toBe('test-profile');
+
+    // List
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'list-1',
+      method: 'profiles.list',
+      params: {},
+    });
+
+    const listResponse = await readLine(client);
+    expect(listResponse.result.profiles).toHaveLength(1);
+    expect(listResponse.result.profiles[0].name).toBe('test-profile');
+
+    client.end();
+    await ipcWithProfiles.stop();
+    fs.rmSync(profileTmpDir, { recursive: true, force: true });
+  });
+
+  it('handles profiles.delete', async () => {
+    const profileTmpDir = fs.mkdtempSync(path.join(baseDir, 'profiles-'));
+    const profileRegistry = new ProfileRegistry(profileTmpDir);
+    const ipcWithProfiles = new IPCServer(
+      sockPath, bridge, sessions, scheduler, experiments,
+      { port: 5555, version: 'test' },
+      profileRegistry,
+    );
+
+    await ipcWithProfiles.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'delete-test' });
+    await readLine(client);
+
+    // Create first
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'd-1',
+      method: 'profiles.create',
+      params: { name: 'to-delete' },
+    });
+    await readLine(client);
+
+    // Delete
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'd-2',
+      method: 'profiles.delete',
+      params: { name: 'to-delete' },
+    });
+
+    const response = await readLine(client);
+    expect(response.result.success).toBe(true);
+    expect(profileRegistry.exists('to-delete')).toBe(false);
+
+    client.end();
+    await ipcWithProfiles.stop();
+    fs.rmSync(profileTmpDir, { recursive: true, force: true });
   });
 
   it('isolates experiment state between sessions', async () => {

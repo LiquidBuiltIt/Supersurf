@@ -24,13 +24,15 @@ export class ExperimentalFeatures {
      */
     static registerHandlers(wsConnection, tabHandlers, networkTracker, sessionContext) {
         // capturePageState — injects DOM capture into the page, returns PageState
-        wsConnection.registerCommandHandler('capturePageState', async () => {
+        wsConnection.registerCommandHandler('capturePageState', async (params) => {
             const tabId = tabHandlers.getAttachedTabId();
             if (!tabId)
                 throw new Error('No tab attached');
+            const mode = params?.mode || 'document';
             const results = await chrome.scripting.executeScript({
                 target: { tabId },
                 func: capturePageState,
+                args: [mode],
             });
             if (!results?.[0]?.result) {
                 throw new Error('Failed to capture page state');
