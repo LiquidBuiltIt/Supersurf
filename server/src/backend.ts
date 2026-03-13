@@ -141,8 +141,13 @@ export class ConnectionManager implements ConnectionManagerAPI {
       case 'profile_create':
       case 'profile_list':
       case 'profile_delete': {
+        if (!this.extensionServer) {
+          const msg = 'Not connected to service. Call `connect` first, then use profile tools.';
+          if (options.rawResult) return { success: false, error: 'not_connected', message: msg };
+          return { content: [{ type: 'text', text: msg }], isError: true };
+        }
         if (!this.daemonCapabilities?.profiles) {
-          const msg = 'Profile management is not available. Start the daemon with `SUPERSURF_EXPERIMENTS=profiles` to enable it.';
+          const msg = 'Profile management is not enabled on the daemon. Set `SUPERSURF_EXPERIMENTS=profiles` in your environment and restart the session.';
           if (options.rawResult) return { success: false, error: 'profiles_not_enabled', message: msg };
           return { content: [{ type: 'text', text: msg }], isError: true };
         }

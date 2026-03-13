@@ -98,8 +98,8 @@ for (const rel of targets) {
 
 console.log(`\nBumped ${bumpType}: ${current} -> ${next}\n`);
 
-// Commit and tag — only stage version files, not everything
-git(`git add ${targets.join(' ')}`);
+// Commit and tag — stage everything for the release
+git(`git add .`);
 const fullMsg = commitMsg ? `v${next} — ${commitMsg}` : `v${next}`;
 git(`git commit -m "${fullMsg}"`);
 git(`git tag v${next}`);

@@ -3,6 +3,7 @@ CLAUDE.md
 knowledge/
 .claude/
 research/
+.dialup.config.json
 
 # Dependencies
 node_modules/

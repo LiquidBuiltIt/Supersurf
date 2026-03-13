@@ -67,7 +67,7 @@ function isDaemonRunning() {
  * @param debug - Enable daemon debug logging
  * @throws If daemon fails to start within 10 seconds
  */
-async function ensureDaemon(port = 5555, debug = false) {
+async function ensureDaemon(port = 5555, debug = false, experiments = []) {
     if (isDaemonRunning() && fs_1.default.existsSync(SOCK_FILE)) {
         log('Daemon already running');
         return;
@@ -105,9 +105,16 @@ async function ensureDaemon(port = 5555, debug = false) {
     }
     if (debug)
         args.push('--debug');
+    // Explicitly forward experiments to the daemon env so it doesn't depend
+    // on env var inheritance from the MCP client (which is unreliable).
+    const env = { ...process.env };
+    if (experiments.length > 0) {
+        env.SUPERSURF_EXPERIMENTS = experiments.join(',');
+    }
     const child = (0, child_process_1.spawn)(command, args, {
         detached: true,
         stdio: 'ignore',
+        env,
     });
     child.unref();
     log(`Spawned daemon (pid=${child.pid})`);

@@ -125,7 +125,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         const port = mgr.config.port || 5555;
         // Spawn daemon if not running
         log('Ensuring daemon is running...');
-        await (0, daemon_spawn_1.ensureDaemon)(port, mgr.debugMode);
+        await (0, daemon_spawn_1.ensureDaemon)(port, mgr.debugMode, mgr.config.enabledExperiments || []);
         // Connect to daemon via Unix socket
         const sockPath = (0, daemon_spawn_1.getSockPath)();
         const client = new daemon_client_1.DaemonClient(sockPath, mgr.clientId);

@@ -400,24 +400,17 @@ describe('ConnectionManager', () => {
       await backend.initialize(makeMockServer(), {});
     });
 
-    it('returns error when profiles experiment is not enabled', async () => {
+    it('returns not_connected when not connected (before checking experiments)', async () => {
       const result = await backend.callTool('profile_list', {}, { rawResult: true });
       expect(result.success).toBe(false);
-      expect(result.error).toBe('profiles_not_enabled');
+      expect(result.error).toBe('not_connected');
     });
 
-    it('returns error when connected but profiles experiment is not enabled', async () => {
+    it('returns profiles_not_enabled when connected but experiment is off', async () => {
       await backend.callTool('connect', { client_id: 'test' });
       const result = await backend.callTool('profile_list', {}, { rawResult: true });
       expect(result.success).toBe(false);
       expect(result.error).toBe('profiles_not_enabled');
-    });
-
-    it('returns not_connected when profiles enabled but not connected', async () => {
-      backend.daemonCapabilities = { profiles: true };
-      const result = await backend.callTool('profile_list', {}, { rawResult: true });
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('not_connected');
     });
 
     it('forwards profile_create to daemon', async () => {

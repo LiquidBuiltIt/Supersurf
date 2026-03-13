@@ -23,5 +23,5 @@ export declare function isDaemonRunning(): boolean;
  * @param debug - Enable daemon debug logging
  * @throws If daemon fails to start within 10 seconds
  */
-export declare function ensureDaemon(port?: number, debug?: boolean): Promise<void>;
+export declare function ensureDaemon(port?: number, debug?: boolean, experiments?: string[]): Promise<void>;
 //# sourceMappingURL=daemon-spawn.d.ts.map

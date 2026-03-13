@@ -63,7 +63,7 @@ export function isDaemonRunning(): boolean {
  * @param debug - Enable daemon debug logging
  * @throws If daemon fails to start within 10 seconds
  */
-export async function ensureDaemon(port: number = 5555, debug: boolean = false): Promise<void> {
+export async function ensureDaemon(port: number = 5555, debug: boolean = false, experiments: string[] = []): Promise<void> {
   if (isDaemonRunning() && fs.existsSync(SOCK_FILE)) {
     log('Daemon already running');
     return;
@@ -98,9 +98,17 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false):
 
   if (debug) args.push('--debug');
 
+  // Explicitly forward experiments to the daemon env so it doesn't depend
+  // on env var inheritance from the MCP client (which is unreliable).
+  const env = { ...process.env };
+  if (experiments.length > 0) {
+    env.SUPERSURF_EXPERIMENTS = experiments.join(',');
+  }
+
   const child = spawn(command, args, {
     detached: true,
     stdio: 'ignore',
+    env,
   });
 
   child.unref();
