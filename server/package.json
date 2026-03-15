@@ -1,6 +1,6 @@
 {
   "name": "supersurf-mcp",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Open-source MCP server for browser automation — gives AI agents control of a real Chrome browser via extension",
   "main": "dist/cli.js",
   "types": "dist/cli.d.ts",
@@ -60,12 +60,12 @@
     "jsonpath-plus": "^10.3.0",
     "sharp": "^0.34.4",
     "supersurf-daemon": "*",
-    "shared": "*",
     "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.10",
+    "shared": "*",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0",
     "vitest": "^4.0.18"

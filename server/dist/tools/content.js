@@ -77,6 +77,8 @@ async function onLookup(ctx, args, options) {
           tag: el.tagName.toLowerCase(),
           x: Math.round(rect.left + rect.width / 2),
           y: Math.round(rect.top + rect.height / 2),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
         });
       }
 
@@ -95,7 +97,7 @@ async function onLookup(ctx, args, options) {
     matches.forEach((m, i) => {
         const vis = m.visible ? '✓' : '✗ hidden';
         output += `${i + 1}. **${m.selector}** [${m.tag}] ${vis}\n`;
-        output += `   Text: "${m.text}"\n   Position: (${m.x}, ${m.y})\n\n`;
+        output += `   Text: "${m.text}"\n   Position: (${m.x}, ${m.y}) | Size: ${m.width}×${m.height}px\n\n`;
     });
     return { content: [{ type: 'text', text: output }] };
 }

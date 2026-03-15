@@ -91,10 +91,17 @@ async function onScreenshot(ctx, args, options) {
             content: [{ type: 'text', text: `Screenshot saved to ${safePath} (${buffer.length} bytes)` }],
         };
     }
+    // Track original dimensions for scale metadata
+    let originalWidth;
+    let originalHeight;
+    let returnedWidth;
+    let returnedHeight;
     // Auto-downscale for base64 returns to prevent API token blowup
     if (SCREENSHOT_MAX_DIMENSION > 0) {
         try {
             const dims = (0, image_size_1.default)(buffer);
+            originalWidth = dims.width;
+            originalHeight = dims.height;
             if (dims.width && dims.height &&
                 (dims.width > SCREENSHOT_MAX_DIMENSION || dims.height > SCREENSHOT_MAX_DIMENSION)) {
                 const scale = Math.min(SCREENSHOT_MAX_DIMENSION / dims.width, SCREENSHOT_MAX_DIMENSION / dims.height);
@@ -106,19 +113,31 @@ async function onScreenshot(ctx, args, options) {
                     quality: format === 'jpeg' ? (args.quality || 80) : undefined,
                 })
                     .toBuffer());
+                returnedWidth = targetW;
+                returnedHeight = targetH;
                 log(`Screenshot downscaled from ${dims.width}x${dims.height} to ${targetW}x${targetH}`);
+            }
+            else {
+                returnedWidth = dims.width;
+                returnedHeight = dims.height;
             }
         }
         catch (e) {
             log('Screenshot downscale failed, returning original:', e.message);
         }
     }
+    const scaleMeta = originalWidth && originalHeight && returnedWidth && returnedHeight
+        ? { originalWidth, originalHeight, returnedWidth, returnedHeight }
+        : undefined;
     const b64 = buffer.toString('base64');
     if (options.rawResult)
-        return { data: b64, mimeType: result.mimeType || `image/${format}` };
+        return { data: b64, mimeType: result.mimeType || `image/${format}`, ...scaleMeta };
+    const scaleNote = scaleMeta && (scaleMeta.originalWidth !== scaleMeta.returnedWidth)
+        ? `\n\n**Viewport mapping:** Original ${scaleMeta.originalWidth}×${scaleMeta.originalHeight} → Returned ${scaleMeta.returnedWidth}×${scaleMeta.returnedHeight}. Multiply screenshot coordinates by ${(scaleMeta.originalWidth / scaleMeta.returnedWidth).toFixed(4)} to get viewport coordinates.`
+        : '';
     return {
         content: [
-            { type: 'text', text: 'Screenshot captured' },
+            { type: 'text', text: `Screenshot captured${scaleNote}` },
             { type: 'image', data: b64, mimeType: result.mimeType || `image/${format}` },
         ],
     };

@@ -3,10 +3,9 @@
  * Release prep script. Bumps version across the monorepo, commits, and tags.
  *
  * Usage:
- *   npm run version.bump patch   # 0.6.2 -> 0.6.3
- *   npm run version.bump minor   # 0.6.2 -> 0.7.0
- *   npm run version.bump major   # 0.6.2 -> 1.0.0
- *   npm run version.bump patch "fix port cleanup"  # commit: "v0.6.3 — fix port cleanup"
+ *   npm run version.bump patch "fix port cleanup"  # v0.6.3 — fix port cleanup
+ *   npm run version.bump minor "add profiles"      # v0.7.0 — add profiles
+ *   npm run version.bump major "breaking changes"   # v1.0.0 — breaking changes
  *   npm run version.bump rollback # undo last bump (reset commit + delete tag)
  *
  * After running, review the commit then push manually:
@@ -32,7 +31,13 @@ const bumpType = process.argv[2] as 'patch' | 'minor' | 'major' | 'rollback';
 const commitMsg = process.argv.slice(3).join(' ').trim() || '';
 
 if (!bumpType || !['patch', 'minor', 'major', 'rollback'].includes(bumpType)) {
-  console.error('Usage: npm run version.bump <patch|minor|major|rollback> [message]');
+  console.error('Usage: npm run version.bump <patch|minor|major|rollback> <message>');
+  process.exit(1);
+}
+
+if (bumpType !== 'rollback' && !commitMsg) {
+  console.error(`${red}Commit message is required.${reset}`);
+  console.error(`Usage: npm run version.bump ${bumpType} "your message here"`);
   process.exit(1);
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "supersurf-daemon",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Daemon process for SuperSurf — coordinates multiple MCP sessions sharing one Chrome extension",
   "main": "dist/main.js",
   "types": "dist/main.d.ts",
@@ -37,12 +37,12 @@
     "test.watch": "vitest"
   },
   "dependencies": {
-    "shared": "*",
     "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.10",
+    "shared": "*",
     "typescript": "^5.5.0",
     "vitest": "^4.0.18"
   }
