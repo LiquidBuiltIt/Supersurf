@@ -389,7 +389,7 @@ class BrowserBridge {
             return this.error(msg, options);
         }
         finally {
-            const url = await this._getCurrentUrl().catch(() => undefined);
+            const url = this._getCurrentUrl();
             this.auditLogger?.write({
                 session_id: this.connectionManager?.clientId ?? 'unknown',
                 tool: name,
@@ -402,12 +402,9 @@ class BrowserBridge {
         }
     }
     // ─── URL Helper ─────────────────────────────────────────────
-    /** Get the current attached tab URL for audit logging. */
-    async _getCurrentUrl() {
-        if (!this.ext)
-            return undefined;
-        const result = await this.ext.sendCmd('getTabs', {});
-        return result?.tabs?.find((t) => t.attached)?.url;
+    /** Get the current attached tab URL from cached connection state. */
+    _getCurrentUrl() {
+        return this.connectionManager?.getAttachedTab()?.url;
     }
     // ─── Helpers ────────────────────────────────────────────────
     /**

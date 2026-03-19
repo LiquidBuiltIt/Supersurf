@@ -32,6 +32,7 @@ function getToolSchemas() {
                     },
                     url: { type: 'string', description: 'URL to navigate to (for new action)' },
                     index: { type: 'number', description: 'Tab index (for attach/close actions)' },
+                    tabId: { type: 'number', description: 'Tab ID (alternative to index for attach action — more stable than index ordering)' },
                     activate: {
                         type: 'boolean',
                         description: 'Bring tab to foreground (default: true for new, false for attach)',

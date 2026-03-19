@@ -93,31 +93,33 @@ async function ensureDaemon(port = 5555, debug = false, experiments = []) {
     let args;
     try {
         const daemonPath = require.resolve('supersurf-daemon/dist/main.js');
-        log('Daemon path (local):', daemonPath);
+        log('Daemon resolved locally:', daemonPath);
         command = process.execPath;
         args = [daemonPath, '--port', String(port)];
     }
     catch {
-        // Not installed locally — use npx to fetch/run it
-        log('Daemon not found locally, using npx');
+        log('Daemon not found locally, falling back to npx (will fetch from npm)');
         command = 'npx';
         args = ['supersurf-daemon@latest', '--port', String(port)];
     }
     if (debug)
         args.push('--debug');
-    // Explicitly forward experiments to the daemon env so it doesn't depend
-    // on env var inheritance from the MCP client (which is unreliable).
+    // Spawn via login shell so the daemon inherits the user's env vars
+    // (e.g. SUPERSURF_EXPERIMENTS from .zshrc/.bashrc). MCP clients like
+    // IDEs don't source shell profiles, so process.env is incomplete.
+    const shell = process.env.SHELL || '/bin/zsh';
+    const fullCmd = [command, ...args].map(a => `'${a}'`).join(' ');
     const env = { ...process.env };
     if (experiments.length > 0) {
         env.SUPERSURF_EXPERIMENTS = experiments.join(',');
     }
-    const child = (0, child_process_1.spawn)(command, args, {
+    const child = (0, child_process_1.spawn)(shell, ['-ilc', fullCmd], {
         detached: true,
         stdio: 'ignore',
         env,
     });
     child.unref();
-    log(`Spawned daemon (pid=${child.pid})`);
+    log(`Spawned daemon (pid=${child.pid}) via: ${fullCmd}`);
     // Poll for socket file (100ms interval, 10s timeout)
     const pollInterval = 100;
     const maxWait = 10000;

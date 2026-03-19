@@ -19,7 +19,7 @@ export interface AuditEntry {
 }
 export declare class AuditLogger {
     private _path;
-    constructor(sessionId: string);
+    constructor(sessionId: string, auditDir?: string);
     write(entry: Omit<AuditEntry, 'ts'>): void;
     getPath(): string;
 }

@@ -68,7 +68,7 @@ export declare class BrowserBridge {
     callTool(name: string, args?: Record<string, unknown>, options?: {
         rawResult?: boolean;
     }): Promise<any>;
-    /** Get the current attached tab URL for audit logging. */
+    /** Get the current attached tab URL from cached connection state. */
     private _getCurrentUrl;
     /**
      * Wrap a handler result into MCP content blocks, prepending the status header.

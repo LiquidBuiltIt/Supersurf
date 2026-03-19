@@ -105,10 +105,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(8085, () => {
   console.log(`Listening on ${REDIRECT_URI} for OAuth callback...\n`);
-  // Open browser
-  try {
-    execSync(`open "${authUrl}"`);
-  } catch {
-    console.log(`${cyan}Open this URL in your browser:${reset}\n${authUrl}\n`);
-  }
+  console.log(`${cyan}Open this URL in your browser:${reset}\n\n${authUrl}\n`);
+  // Try to open automatically as well
+  try { execSync(`open "${authUrl}"`); } catch {}
 });

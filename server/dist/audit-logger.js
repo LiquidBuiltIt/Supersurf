@@ -32,11 +32,12 @@ function redactParams(params) {
 }
 class AuditLogger {
     _path;
-    constructor(sessionId) {
+    constructor(sessionId, auditDir) {
+        const dir = auditDir ?? AUDIT_DIR;
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
-        this._path = path_1.default.join(AUDIT_DIR, `audit-${safe}-${ts}.ndjson`);
-        fs_1.default.mkdirSync(AUDIT_DIR, { recursive: true });
+        this._path = path_1.default.join(dir, `audit-${safe}-${ts}.ndjson`);
+        fs_1.default.mkdirSync(dir, { recursive: true });
     }
     write(entry) {
         const line = JSON.stringify({

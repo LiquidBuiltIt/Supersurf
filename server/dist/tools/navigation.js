@@ -36,6 +36,7 @@ async function onBrowserTabs(ctx, args, options) {
         case 'attach':
             result = await ctx.ext.sendCmd('selectTab', {
                 index: args.index,
+                tabId: args.tabId,
                 stealth: args.stealth,
             });
             break;
