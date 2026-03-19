@@ -18,6 +18,10 @@ logs/
 .env.*
 !.env.example
 
+# Chrome Web Store
+.cws-token
+client_secret_*.json
+
 # TypeScript
 *.tsbuildinfo
 

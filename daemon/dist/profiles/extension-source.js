@@ -153,13 +153,32 @@ async function pullExtension(tag) {
         catch { }
     }
 }
-/** Ensure the extension is cached locally. Pulls from GitHub if not present. */
+/** Read the version from the cached extension's manifest.json, or null if not present. */
+function getCachedVersion() {
+    try {
+        const manifest = JSON.parse(fs_1.default.readFileSync(path_1.default.join(EXTENSION_DIR, 'manifest.json'), 'utf8'));
+        return manifest.version ?? null;
+    }
+    catch {
+        return null;
+    }
+}
+/** Ensure the extension is cached locally and up to date. Pulls from GitHub if missing or stale. */
 async function ensureExtension() {
-    if (isExtensionCached()) {
-        debugLog('Extension already cached at', EXTENSION_DIR);
+    if (!isExtensionCached()) {
+        debugLog('Extension not cached, pulling from GitHub...');
+        await pullExtension();
         return;
     }
-    debugLog('Extension not cached, pulling from GitHub...');
-    await pullExtension();
+    const latestTag = await getLatestTag();
+    const latestVersion = latestTag.replace(/^v/, '');
+    const cachedVersion = getCachedVersion();
+    if (cachedVersion !== latestVersion) {
+        debugLog(`Extension stale (cached: ${cachedVersion}, latest: ${latestVersion}), re-pulling...`);
+        await pullExtension(latestTag);
+    }
+    else {
+        debugLog(`Extension up to date (${cachedVersion}) at`, EXTENSION_DIR);
+    }
 }
 //# sourceMappingURL=extension-source.js.map
