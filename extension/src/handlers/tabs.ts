@@ -153,7 +153,7 @@ export class TabHandlers {
 
     // Find all tabs in this group and ungroup them
     try {
-      const allTabs = await this.browser.tabs.query({});
+      const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
       const groupTabIds = allTabs
         .filter(t => (t.groupId ?? -1) === groupId)
         .map(t => t.id!)
@@ -180,7 +180,7 @@ export class TabHandlers {
    * to other sessions' groups while showing own + ungrouped tabs.
    */
   async getTabs(params?: { _sessionId?: string }): Promise<{ tabs: TabInfo[]; attachedTabId: number | null }> {
-    const allTabs = await this.browser.tabs.query({});
+    const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
     const sessionId = params?._sessionId;
 
     const tabs: TabInfo[] = allTabs
@@ -265,7 +265,7 @@ export class TabHandlers {
       tab = await this.browser.tabs.get(params.tabId);
     } else if (params.index !== undefined) {
       // Index-based selection (backwards-compat for single-client)
-      const allTabs = await this.browser.tabs.query({});
+      const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
       if (params.index < 0 || params.index >= allTabs.length) {
         throw new Error(`Tab index ${params.index} out of range (0-${allTabs.length - 1})`);
       }
@@ -329,7 +329,7 @@ export class TabHandlers {
     let tabId: number;
 
     if (index !== undefined) {
-      const allTabs = await this.browser.tabs.query({});
+      const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
       if (index < 0 || index >= allTabs.length) {
         throw new Error(`Tab index ${index} out of range`);
       }

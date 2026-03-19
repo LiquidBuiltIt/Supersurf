@@ -14,6 +14,7 @@
 import type { IExtensionTransport } from './bridge';
 import type { ToolSchema, ToolContext } from './tools/types';
 import { createLog } from './logger';
+import { AuditLogger } from './audit-logger';
 import { getExperimentalToolSchemas, callExperimentalTool } from './experimental/index';
 
 // Tool modules
@@ -48,6 +49,7 @@ export class BrowserBridge {
   private server: any = null;
   private clientInfo: any = {};
   private connectionManager: any = null;
+  private auditLogger: AuditLogger | null = null;
 
   constructor(config: any, ext: IExtensionTransport | null) {
     this.config = config;
@@ -62,6 +64,7 @@ export class BrowserBridge {
     this.server = server;
     this.clientInfo = clientInfo;
     this.connectionManager = connectionManager;
+    this.auditLogger = new AuditLogger(connectionManager?.clientId ?? 'unknown');
   }
 
   /** Cleanup hook called when the MCP server shuts down. */
@@ -292,8 +295,14 @@ export class BrowserBridge {
   ): Promise<any> {
     log(`callTool(${name})`);
 
+    const start = Date.now();
+    let callResult: 'ok' | 'error' = 'ok';
+    let callError: string | undefined;
+
     if (!this.ext) {
-      return this.error(
+      callResult = 'error';
+      callError = 'Extension not connected';
+      const response = this.error(
         'Extension not connected.\n\n' +
         '**The extension typically auto-connects within a few seconds after calling `connect`. Wait a moment and retry this tool call.**\n\n' +
         '**If the issue persists:**\n' +
@@ -302,6 +311,15 @@ export class BrowserBridge {
         '3. Open the extension popup and verify it shows "Connected"',
         options
       );
+      this.auditLogger?.write({
+        session_id: this.connectionManager?.clientId ?? 'unknown',
+        tool: name,
+        params: args,
+        result: callResult,
+        error: callError,
+        duration_ms: Date.now() - start,
+      });
+      return response;
     }
 
     const ctx = this.ctx;
@@ -335,14 +353,23 @@ export class BrowserBridge {
         default: {
           const experimentalResult = await callExperimentalTool(name, ctx, args, options);
           if (experimentalResult !== null) { result = experimentalResult; break; }
-          return this.error(`Unknown tool: ${name}`, options);
+          callResult = 'error';
+          callError = `Unknown tool: ${name}`;
+          return this.error(callError, options);
         }
+      }
+
+      if (result?.isError) {
+        callResult = 'error';
+        callError = result?.content?.[0]?.text ?? 'unknown error';
       }
 
       return await this.maybeAppendScreenshot(name, args, options, result);
     } catch (error: any) {
       log(`Tool error (${name}):`, error.message);
       const msg = error.message || String(error);
+      callResult = 'error';
+      callError = msg;
 
       // Detect CDP/debugger attachment failures that indicate extension conflicts
       if (/debugger|attach|detach|target closed|session/i.test(msg) &&
@@ -357,7 +384,25 @@ export class BrowserBridge {
       }
 
       return this.error(msg, options);
+    } finally {
+      const url = this._getCurrentUrl();
+      this.auditLogger?.write({
+        session_id: this.connectionManager?.clientId ?? 'unknown',
+        tool: name,
+        params: args,
+        result: callResult,
+        error: callError,
+        url,
+        duration_ms: Date.now() - start,
+      });
     }
+  }
+
+  // ─── URL Helper ─────────────────────────────────────────────
+
+  /** Get the current attached tab URL from cached connection state. */
+  private _getCurrentUrl(): string | undefined {
+    return this.connectionManager?.getAttachedTab()?.url;
   }
 
   // ─── Helpers ────────────────────────────────────────────────

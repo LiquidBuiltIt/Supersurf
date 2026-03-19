@@ -14,6 +14,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BrowserBridge = void 0;
 const logger_1 = require("./logger");
+const audit_logger_1 = require("./audit-logger");
 const index_1 = require("./experimental/index");
 // Tool modules
 const schemas_1 = require("./tools/schemas");
@@ -40,6 +41,7 @@ class BrowserBridge {
     server = null;
     clientInfo = {};
     connectionManager = null;
+    auditLogger = null;
     constructor(config, ext) {
         this.config = config;
         this.ext = ext;
@@ -52,6 +54,7 @@ class BrowserBridge {
         this.server = server;
         this.clientInfo = clientInfo;
         this.connectionManager = connectionManager;
+        this.auditLogger = new audit_logger_1.AuditLogger(connectionManager?.clientId ?? 'unknown');
     }
     /** Cleanup hook called when the MCP server shuts down. */
     serverClosed() {
@@ -258,13 +261,27 @@ class BrowserBridge {
      */
     async callTool(name, args = {}, options = {}) {
         log(`callTool(${name})`);
+        const start = Date.now();
+        let callResult = 'ok';
+        let callError;
         if (!this.ext) {
-            return this.error('Extension not connected.\n\n' +
+            callResult = 'error';
+            callError = 'Extension not connected';
+            const response = this.error('Extension not connected.\n\n' +
                 '**The extension typically auto-connects within a few seconds after calling `connect`. Wait a moment and retry this tool call.**\n\n' +
                 '**If the issue persists:**\n' +
                 '1. Run `npx supersurf-daemon status` to check if the daemon is running\n' +
                 '2. Ensure the SuperSurf extension is loaded in Chrome (`chrome://extensions`)\n' +
                 '3. Open the extension popup and verify it shows "Connected"', options);
+            this.auditLogger?.write({
+                session_id: this.connectionManager?.clientId ?? 'unknown',
+                tool: name,
+                params: args,
+                result: callResult,
+                error: callError,
+                duration_ms: Date.now() - start,
+            });
+            return response;
         }
         const ctx = this.ctx;
         let result;
@@ -345,14 +362,22 @@ class BrowserBridge {
                         result = experimentalResult;
                         break;
                     }
-                    return this.error(`Unknown tool: ${name}`, options);
+                    callResult = 'error';
+                    callError = `Unknown tool: ${name}`;
+                    return this.error(callError, options);
                 }
+            }
+            if (result?.isError) {
+                callResult = 'error';
+                callError = result?.content?.[0]?.text ?? 'unknown error';
             }
             return await this.maybeAppendScreenshot(name, args, options, result);
         }
         catch (error) {
             log(`Tool error (${name}):`, error.message);
             const msg = error.message || String(error);
+            callResult = 'error';
+            callError = msg;
             // Detect CDP/debugger attachment failures that indicate extension conflicts
             if (/debugger|attach|detach|target closed|session/i.test(msg) &&
                 /another|conflict|denied|cannot|failed/i.test(msg)) {
@@ -363,6 +388,26 @@ class BrowserBridge {
             }
             return this.error(msg, options);
         }
+        finally {
+            const url = await this._getCurrentUrl().catch(() => undefined);
+            this.auditLogger?.write({
+                session_id: this.connectionManager?.clientId ?? 'unknown',
+                tool: name,
+                params: args,
+                result: callResult,
+                error: callError,
+                url,
+                duration_ms: Date.now() - start,
+            });
+        }
+    }
+    // ─── URL Helper ─────────────────────────────────────────────
+    /** Get the current attached tab URL for audit logging. */
+    async _getCurrentUrl() {
+        if (!this.ext)
+            return undefined;
+        const result = await this.ext.sendCmd('getTabs', {});
+        return result?.tabs?.find((t) => t.attached)?.url;
     }
     // ─── Helpers ────────────────────────────────────────────────
     /**

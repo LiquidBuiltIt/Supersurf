@@ -25,6 +25,7 @@ export declare class BrowserBridge {
     private server;
     private clientInfo;
     private connectionManager;
+    private auditLogger;
     constructor(config: any, ext: IExtensionTransport | null);
     /**
      * Bind the MCP server, client metadata, and connection manager.
@@ -67,6 +68,8 @@ export declare class BrowserBridge {
     callTool(name: string, args?: Record<string, unknown>, options?: {
         rawResult?: boolean;
     }): Promise<any>;
+    /** Get the current attached tab URL for audit logging. */
+    private _getCurrentUrl;
     /**
      * Wrap a handler result into MCP content blocks, prepending the status header.
      * In rawResult mode, passes through unchanged. Also syncs tab/browser metadata

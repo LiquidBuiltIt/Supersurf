@@ -12,6 +12,14 @@ vi.mock('../src/logger', () => ({
   createLog: () => (..._args: unknown[]) => {},
 }));
 
+// Mock audit logger to avoid filesystem writes during tests
+vi.mock('../src/audit-logger', () => ({
+  AuditLogger: class {
+    write = vi.fn();
+    getPath = vi.fn().mockReturnValue('/tmp/audit-test.ndjson');
+  },
+}));
+
 // ── Mock extension transport ──
 
 function createMockExt() {
@@ -31,6 +39,7 @@ function createMockExt() {
 function createMockConnectionManager() {
   return {
     setAttachedTab: vi.fn(),
+    getAttachedTab: vi.fn().mockReturnValue(null),
     setConnectedBrowserName: vi.fn(),
     setStealthMode: vi.fn(),
     clearAttachedTab: vi.fn(),
