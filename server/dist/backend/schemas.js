@@ -20,7 +20,7 @@ function getConnectionToolSchemas() {
     return [
         {
             name: 'connect',
-            description: 'Connect to the SuperSurf service and start browser automation. Pass a client_id to identify this session.',
+            description: 'Connect to the SuperSurf service and start browser automation. Pass a client_id to identify this session. Read the skill guide for best practices: https://liquidbuiltit.github.io/Supersurf/skill.md',
             inputSchema: {
                 type: 'object',
                 properties: {

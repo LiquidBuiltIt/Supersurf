@@ -26,6 +26,8 @@ interface TabInfo {
   attached?: boolean;
   groupId?: number;
   stealthMode?: boolean | null;
+  /** Window type — 'normal', 'popup', 'panel', 'devtools'. */
+  windowType?: string;
   /** Framework/library detection results from the content script. */
   techStack?: any;
 }
@@ -180,8 +182,21 @@ export class TabHandlers {
    * to other sessions' groups while showing own + ungrouped tabs.
    */
   async getTabs(params?: { _sessionId?: string }): Promise<{ tabs: TabInfo[]; attachedTabId: number | null }> {
-    const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
+    const allTabs = await this.browser.tabs.query({});
     const sessionId = params?._sessionId;
+
+    // Resolve window types for all tabs
+    const windowCache = new Map<number, string>();
+    for (const tab of allTabs) {
+      if (tab.windowId && !windowCache.has(tab.windowId)) {
+        try {
+          const win = await (this.browser as any).windows.get(tab.windowId);
+          windowCache.set(tab.windowId, win.type || 'normal');
+        } catch {
+          windowCache.set(tab.windowId, 'normal');
+        }
+      }
+    }
 
     const tabs: TabInfo[] = allTabs
       .filter((tab) => {
@@ -194,16 +209,18 @@ export class TabHandlers {
       .map((tab, idx) => {
         const url = tab.url || '';
         const automatable = !url.startsWith('chrome://') && !url.startsWith('chrome-extension://') && !url.startsWith('about:');
+        const windowType = windowCache.get(tab.windowId!) || 'normal';
 
         return {
           id: tab.id!,
-          index: tab.index, // Chrome's real index, not filtered position
+          index: tab.index,
           title: tab.title || 'Untitled',
           url,
           automatable,
           attached: tab.id === this.ctx.attachedTabId,
           groupId: tab.groupId ?? -1,
           stealthMode: this.ctx.stealthTabs.get(tab.id!) ?? null,
+          windowType,
           techStack: this.techStackInfo.get(tab.id!) || null,
         };
       });
@@ -265,7 +282,7 @@ export class TabHandlers {
       tab = await this.browser.tabs.get(params.tabId);
     } else if (params.index !== undefined) {
       // Index-based selection (backwards-compat for single-client)
-      const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
+      const allTabs = await this.browser.tabs.query({});
       if (params.index < 0 || params.index >= allTabs.length) {
         throw new Error(`Tab index ${params.index} out of range (0-${allTabs.length - 1})`);
       }
@@ -280,8 +297,15 @@ export class TabHandlers {
       throw new Error(`Cannot automate ${url} — Chrome internal pages are not accessible.`);
     }
 
-    // Session boundary enforcement
-    if (params._sessionId) {
+    // Determine if this tab is in a normal window (grouping only works on normal windows)
+    let isNormalWindow = true;
+    try {
+      const win = await (this.browser as any).windows.get(tab.windowId!);
+      isNormalWindow = win.type === 'normal';
+    } catch {}
+
+    // Session boundary enforcement — skip grouping for popup windows
+    if (params._sessionId && isNormalWindow) {
       const ownership = this.getTabOwnership(tab, params._sessionId);
       if (ownership === 'other') {
         throw new Error(`Tab belongs to another session's group. Cannot attach.`);
@@ -329,17 +353,25 @@ export class TabHandlers {
     let tabId: number;
 
     if (index !== undefined) {
-      const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
+      const allTabs = await this.browser.tabs.query({});
       if (index < 0 || index >= allTabs.length) {
         throw new Error(`Tab index ${index} out of range`);
       }
       const tab = allTabs[index];
 
-      // Session boundary enforcement
+      // Session boundary enforcement — only for normal windows (popups can't be grouped)
       if (params?._sessionId) {
-        const ownership = this.getTabOwnership(tab, params._sessionId);
-        if (ownership === 'other') {
-          throw new Error(`Tab belongs to another session's group. Cannot close.`);
+        let isNormalWindow = true;
+        try {
+          const win = await (this.browser as any).windows.get(tab.windowId!);
+          isNormalWindow = win.type === 'normal';
+        } catch {}
+
+        if (isNormalWindow) {
+          const ownership = this.getTabOwnership(tab, params._sessionId);
+          if (ownership === 'other') {
+            throw new Error(`Tab belongs to another session's group. Cannot close.`);
+          }
         }
       }
 

@@ -41,6 +41,18 @@ Unlike tools that spin up headless browsers or inject CDP scripts, SuperSurf use
 
 ---
 
+## Teach Your AI Agent SuperSurf 🦀
+
+> Send this to your agent:
+>
+> `Read https://liquidbuiltit.github.io/Supersurf/skill.md and follow the instructions to automate your browser`
+
+1. Send the prompt above to your AI agent
+2. Your agent reads the skill guide and learns SuperSurf's tools
+3. They connect and start automating your browser
+
+---
+
 ## Why SuperSurf?
 
 <table>

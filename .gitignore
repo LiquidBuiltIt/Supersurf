@@ -28,6 +28,12 @@ client_secret_*.json
 # Zip files
 *.zip
 
+# Video source files
+*.mov
+
+# Local files (not pushed)
+local/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -194,7 +194,8 @@ async function onConnect(mgr, args = {}, options = {}) {
                         `**Browser:** ${mgr.connectedBrowserName}\n\n` +
                         `**Next Steps:**\n` +
                         `1. Call \`browser_tabs action='list'\` to see tabs\n` +
-                        `2. Call \`browser_tabs action='attach' index=N\` to attach`,
+                        `2. Call \`browser_tabs action='attach' index=N\` to attach\n\n` +
+                        `**Skill guide:** https://liquidbuiltit.github.io/Supersurf/skill.md`,
                 },
             ],
         };
