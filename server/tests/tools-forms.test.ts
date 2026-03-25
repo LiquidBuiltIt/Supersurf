@@ -45,6 +45,42 @@ describe('onFillForm()', () => {
     expect(result.success).toBe(true);
     expect(result.fields).toHaveLength(1);
   });
+
+  it('dispatches focus, InputEvent, change, and blur events', async () => {
+    let evalCode = '';
+    (ctx.eval as any).mockImplementation((code: string) => {
+      evalCode = code;
+      return Promise.resolve(undefined);
+    });
+
+    await onFillForm(ctx, {
+      fields: [{ selector: '#name', value: 'John' }],
+    }, {});
+
+    // Should dispatch focus before setting value
+    expect(evalCode).toContain("dispatchEvent(new Event('focus'");
+    // Should use InputEvent for input event (React 17+ compatibility)
+    expect(evalCode).toContain("new InputEvent('input'");
+    // Should dispatch blur after change
+    expect(evalCode).toContain("dispatchEvent(new Event('blur'");
+    // Should have microtask yield before change
+    expect(evalCode).toContain('Promise.resolve()');
+  });
+
+  it('uses native prototype setter for input elements', async () => {
+    let evalCode = '';
+    (ctx.eval as any).mockImplementation((code: string) => {
+      evalCode = code;
+      return Promise.resolve(undefined);
+    });
+
+    await onFillForm(ctx, {
+      fields: [{ selector: '#email', value: 'test@test.com' }],
+    }, {});
+
+    // Should still use the native setter pattern
+    expect(evalCode).toContain('Object.getOwnPropertyDescriptor(HTMLInputElement.prototype');
+  });
 });
 
 describe('onDrag()', () => {
