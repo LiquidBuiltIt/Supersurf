@@ -279,7 +279,17 @@ describe('TabHandlers', () => {
     });
 
     it('throws when no tab specified and none attached', async () => {
+      mockChrome.tabs.query.mockResolvedValue([]);
       await expect(tabs.closeTab()).rejects.toThrow('No tab specified and no tab attached');
+    });
+
+    it('includes available tab count in error message', async () => {
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 10, title: 'Tab 0', url: 'https://a.com' },
+        { id: 20, title: 'Tab 1', url: 'https://b.com' },
+      ]);
+
+      await expect(tabs.closeTab()).rejects.toThrow(/2 tabs available/);
     });
 
     it('throws for out-of-range index', async () => {
@@ -290,16 +300,20 @@ describe('TabHandlers', () => {
       await expect(tabs.closeTab({ index: 5 })).rejects.toThrow('out of range');
     });
 
-    it('clears attached tab if the closed tab was attached', async () => {
+    it('clears attached tab if the closed tab was attached and no others exist', async () => {
       const createdTab = { id: 60, index: 0, title: 'Tab', url: 'about:blank' };
       mockChrome.tabs.create.mockResolvedValue(createdTab);
       await tabs.createTab({});
 
-      mockChrome.tabs.query.mockResolvedValue([
-        { id: 60, title: 'Tab', url: 'about:blank' },
-      ]);
+      // First query for closeTab's index lookup, then empty for auto-reattach
+      mockChrome.tabs.query
+        .mockResolvedValueOnce([{ id: 60, title: 'Tab', url: 'about:blank' }])
+        .mockResolvedValueOnce([]);
 
       await tabs.closeTab({ index: 0 });
+
+      // Wait for async auto-reattach to resolve (finds no candidates)
+      await new Promise(r => setTimeout(r, 10));
 
       expect(tabs.getAttachedTabId()).toBeNull();
       expect(mockIconManager.setAttachedTab).toHaveBeenCalledWith(null);
@@ -359,6 +373,42 @@ describe('TabHandlers', () => {
 
       // Fire the onRemoved event
       mockChrome.tabs.onRemoved._fire(95, { windowId: 1, isWindowClosing: false });
+
+      expect(tabs.getAttachedTabId()).toBeNull();
+    });
+
+    it('auto-reattaches to another tab when attached tab is closed externally', async () => {
+      const tab1 = { id: 50, index: 0, title: 'Tab 1', url: 'https://a.com', windowId: 1 };
+      const tab2 = { id: 60, index: 1, title: 'Tab 2', url: 'https://b.com', windowId: 1, active: true };
+      mockChrome.tabs.create.mockResolvedValue(tab1);
+      await tabs.createTab({ url: 'https://a.com' });
+
+      // Attach to tab1
+      mockChrome.tabs.query.mockResolvedValue([tab1, tab2]);
+      await tabs.selectTab({ index: 0 });
+      expect(tabs.getAttachedTabId()).toBe(50);
+
+      // Simulate tab1 closing externally — query returns remaining tabs
+      mockChrome.tabs.query.mockResolvedValue([tab2]);
+
+      tabs.handleTabClosed(50);
+
+      // Wait for async auto-reattach
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(tabs.getAttachedTabId()).toBe(60);
+    });
+
+    it('sets attachedTabId to null when no other tabs available after close', async () => {
+      const tab1 = { id: 50, index: 0, title: 'Tab 1', url: 'https://a.com', windowId: 1 };
+      mockChrome.tabs.create.mockResolvedValue(tab1);
+      await tabs.createTab({ url: 'https://a.com' });
+
+      // No other tabs available
+      mockChrome.tabs.query.mockResolvedValue([]);
+
+      tabs.handleTabClosed(50);
+      await new Promise(r => setTimeout(r, 10));
 
       expect(tabs.getAttachedTabId()).toBeNull();
     });
