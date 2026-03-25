@@ -69,7 +69,7 @@ export function getToolSchemas(): ToolSchema[] {
     {
       name: 'browser_interact',
       description:
-        'Run a sequence of page interactions: click, type, press keys, hover, scroll, wait, select, upload files, or force pseudo-states.',
+        'Run a sequence of page interactions: click, type, press keys, hover, scroll, wait, select (native or custom dropdowns), upload files, or force pseudo-states.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -84,7 +84,7 @@ export function getToolSchemas(): ToolSchema[] {
                   enum: [
                     'click', 'type', 'clear', 'press_key', 'hover', 'wait',
                     'mouse_move', 'mouse_click', 'scroll_to', 'scroll_by',
-                    'scroll_into_view', 'select_option', 'file_upload', 'force_pseudo_state',
+                    'scroll_into_view', 'select_option', 'select_custom', 'file_upload', 'force_pseudo_state',
                   ],
                   description:
                     'Type of interaction. ' +
@@ -94,7 +94,7 @@ export function getToolSchemas(): ToolSchema[] {
                 selector: { type: 'string', description: 'CSS selector for the target element. For wait: element to poll for existence.' },
                 text: { type: 'string', description: 'Text to type (for type action)' },
                 key: { type: 'string', description: 'Key to press (for press_key action)' },
-                value: { type: 'string', description: 'Option value or text (for select_option)' },
+                value: { type: 'string', description: 'Option value or text (for select_option and select_custom)' },
                 pseudoStates: {
                   type: 'array',
                   items: { type: 'string', enum: ['hover', 'active', 'focus', 'visited', 'focus-within'] },

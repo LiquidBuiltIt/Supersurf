@@ -160,6 +160,48 @@ describe('onInteract()', () => {
     expect(result.content[0].text).toContain('Scrolled');
   });
 
+  // ── Select custom dropdown ──
+
+  it('handles select_custom by clicking trigger, waiting, then clicking option', async () => {
+    // Mock eval to return the detected option text
+    (ctx.eval as any)
+      .mockResolvedValueOnce({ found: true, triggerSelector: '.my-select', triggerText: 'Choose...' }) // detect
+      .mockResolvedValueOnce(undefined) // click trigger (DOM click)
+      .mockResolvedValueOnce({ found: true, optionText: 'Engineering' }); // find & click option
+
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'select_custom', selector: '.my-select', value: 'Engineering' }],
+    }, {});
+
+    expect(result.content[0].text).toContain('✓ select_custom');
+    expect(result.content[0].text).toContain('Engineering');
+    expect(ctx.eval).toHaveBeenCalled();
+  });
+
+  it('select_custom fails when no dropdown trigger found', async () => {
+    (ctx.eval as any).mockResolvedValueOnce({ found: false });
+
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'select_custom', selector: '.nonexistent', value: 'Foo' }],
+    }, {});
+
+    expect(result.content[0].text).toContain('✗ select_custom');
+  });
+
+  it('select_custom fails when option not found in listbox', async () => {
+    (ctx.eval as any)
+      .mockResolvedValueOnce({ found: true, triggerSelector: '.my-select', triggerText: 'Choose...' })
+      .mockResolvedValueOnce(undefined) // click trigger (DOM click)
+      .mockResolvedValueOnce({ found: false, available: ['Design', 'Marketing'] }); // option not found
+
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'select_custom', selector: '.my-select', value: 'Engineering' }],
+    }, {});
+
+    expect(result.content[0].text).toContain('✗ select_custom');
+    expect(result.content[0].text).toContain('not found');
+  });
+
   // ── Unknown action ──
 
   it('fails on unknown action type', async () => {

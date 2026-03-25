@@ -367,6 +367,125 @@ async function executeAction(ctx: ToolContext, action: any): Promise<string> {
       return `Selected "${result}" in ${action.selector}`;
     }
 
+    case 'select_custom': {
+      const triggerSelector = action.selector;
+      const targetValue = action.value as string;
+      if (!triggerSelector) throw new Error('select_custom requires a selector');
+      if (!targetValue) throw new Error('select_custom requires a value');
+
+      const expr = ctx.getSelectorExpression(triggerSelector);
+
+      // Step 1: Detect the dropdown trigger element
+      const detection = await ctx.eval(`
+        (() => {
+          const el = ${expr};
+          if (!el) return { found: false };
+
+          // Check common custom dropdown patterns
+          const isCustomSelect =
+            el.getAttribute('role') === 'combobox' ||
+            el.getAttribute('role') === 'listbox' ||
+            el.getAttribute('aria-haspopup') === 'listbox' ||
+            el.getAttribute('aria-haspopup') === 'true' ||
+            el.classList.contains('css-1s2u09g-control') || // React Select
+            el.querySelector('[class*="indicatorContainer"]') || // React Select
+            el.getAttribute('data-headlessui-state') !== null ||
+            el.getAttribute('data-radix-select-trigger') !== null ||
+            el.getAttribute('data-state') !== null;
+
+          if (!isCustomSelect) {
+            // Fallback: check if any ancestor/sibling looks like a custom select
+            const parent = el.closest('[role="combobox"], [role="listbox"], [aria-haspopup="listbox"], [data-headlessui-state], [data-radix-select-trigger]');
+            if (!parent) return { found: false };
+          }
+
+          return {
+            found: true,
+            triggerSelector: ${JSON.stringify(triggerSelector)},
+            triggerText: el.textContent?.trim().substring(0, 100) || '',
+          };
+        })()
+      `);
+
+      if (!detection?.found) {
+        throw new Error(`No custom dropdown trigger found at ${triggerSelector}. Use select_option for native <select> elements.`);
+      }
+
+      // Step 2: Click the trigger to open the dropdown
+      const { x, y } = await ctx.getElementCenter(triggerSelector);
+      await moveCursorTo(ctx, x, y, '_default');
+      await ctx.cdp('Input.dispatchMouseEvent', {
+        type: 'mousePressed', x, y, button: 'left', clickCount: 1, buttons: 1,
+      });
+      await ctx.sleep(78 + Math.floor(Math.random() * 64));
+      await ctx.cdp('Input.dispatchMouseEvent', {
+        type: 'mouseReleased', x, y, button: 'left', clickCount: 1,
+      });
+      await ctx.eval(`(() => {
+        const el = document.elementFromPoint(${x}, ${y});
+        if (el) el.click();
+      })()`).catch(() => {});
+
+      // Wait for dropdown to render
+      await ctx.sleep(300);
+
+      // Step 3: Find and click the target option
+      const optionResult = await ctx.eval(`
+        (() => {
+          const target = ${JSON.stringify(targetValue)};
+          const targetLower = target.toLowerCase();
+
+          // Search for options in open listbox/menu
+          const optionSelectors = [
+            '[role="option"]',
+            '[role="menuitem"]',
+            '[data-headlessui-state] li',
+            '[class*="option"]',
+            '[class*="menu"] [class*="option"]',
+            '[id*="listbox"] [role="option"]',
+            '[id*="react-select"] [id*="option"]',
+          ];
+
+          for (const sel of optionSelectors) {
+            const options = document.querySelectorAll(sel);
+            for (const opt of options) {
+              const text = opt.textContent?.trim() || '';
+              const value = opt.getAttribute('data-value') || opt.getAttribute('value') || '';
+              if (text.toLowerCase() === targetLower || value.toLowerCase() === targetLower) {
+                opt.scrollIntoView({ block: 'nearest' });
+                opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                opt.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                opt.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                return { found: true, optionText: text || value };
+              }
+            }
+          }
+
+          // Collect available options for error message
+          const available = [];
+          for (const sel of optionSelectors) {
+            for (const opt of document.querySelectorAll(sel)) {
+              const t = opt.textContent?.trim();
+              if (t && !available.includes(t)) available.push(t);
+            }
+          }
+          return { found: false, available: available.slice(0, 20) };
+        })()
+      `);
+
+      if (!optionResult?.found) {
+        const availableMsg = optionResult?.available?.length
+          ? ` Available: ${optionResult.available.join(', ')}`
+          : '';
+        throw new Error(`Option "${targetValue}" not found in dropdown.${availableMsg}`);
+      }
+
+      // Brief wait for selection to register
+      await ctx.sleep(150);
+
+      return `Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector}`;
+    }
+
     case 'file_upload': {
       const evalResult = await ctx.cdp('Runtime.evaluate', {
         expression: `document.querySelector(${JSON.stringify(action.selector)})`,
