@@ -758,6 +758,41 @@ describe('wrapWithPageProxy', () => {
     expect(wrapped).toContain('"write"');
     expect(wrapped).toContain('"writeln"');
   });
+
+  it('wraps expression code with direct return', () => {
+    const wrapped = wrapWithPageProxy('document.title');
+    expect(wrapped).toContain('return (\ndocument.title\n);');
+  });
+
+  it('wraps statement code with nested IIFE', () => {
+    const wrapped = wrapWithPageProxy('const x = 1; return x;');
+    expect(wrapped).toContain('return (() => { const x = 1; return x; })();');
+  });
+
+  it('wraps var declarations with nested IIFE', () => {
+    const wrapped = wrapWithPageProxy('var items = document.querySelectorAll("a"); return items.length;');
+    expect(wrapped).toContain('return (() => {');
+    expect(wrapped).toContain('})();');
+  });
+
+  it('wraps multiline statement code with nested IIFE', () => {
+    const code = `const el = document.querySelector('.btn');\nel.click();\nreturn true;`;
+    const wrapped = wrapWithPageProxy(code);
+    expect(wrapped).toContain('return (() => {');
+    expect(wrapped).toContain(code);
+  });
+
+  it('keeps single expression without nested IIFE', () => {
+    const wrapped = wrapWithPageProxy("document.querySelector('h1').textContent");
+    expect(wrapped).not.toContain('(() => {');
+  });
+
+  it('treats IIFE expressions as expressions', () => {
+    const code = "(() => { const x = 1; return x; })()";
+    const wrapped = wrapWithPageProxy(code);
+    expect(wrapped).toContain('return (\n');
+    expect(wrapped).not.toContain('return (() => {');
+  });
 });
 
 // ── Three-layer integration tests ────────────────────────────
