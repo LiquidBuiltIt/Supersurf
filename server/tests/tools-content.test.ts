@@ -61,7 +61,50 @@ describe('onSnapshot()', () => {
     const mockData = { nodes: [{ role: { value: 'button' } }] };
     (ctx.ext.sendCmd as any).mockResolvedValue(mockData);
     const result = await onSnapshot(ctx, { rawResult: true });
-    expect(result).toEqual(mockData);
+    expect(result).toMatchObject({ nodes: mockData.nodes });
+  });
+
+  it('includes form fields section when forms are present', async () => {
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [
+        { role: { value: 'textbox' }, name: { value: 'Email' }, depth: 1 },
+      ],
+      formFields: [
+        { selector: 'input#email', tag: 'input', type: 'email', name: 'email', value: '', required: true, label: 'Email' },
+        { selector: 'select#role', tag: 'select', type: null, name: 'role', value: 'engineer', required: false, label: 'Role', options: ['designer', 'engineer', 'pm'] },
+      ],
+    });
+
+    const result = await onSnapshot(ctx, {});
+    expect(result.content[0].text).toContain('Form Fields');
+    expect(result.content[0].text).toContain('input#email');
+    expect(result.content[0].text).toContain('email');
+    expect(result.content[0].text).toContain('required');
+    expect(result.content[0].text).toContain('select#role');
+    expect(result.content[0].text).toContain('engineer');
+    expect(result.content[0].text).toContain('designer');
+  });
+
+  it('omits form fields section when no forms present', async () => {
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [
+        { role: { value: 'heading' }, name: { value: 'Welcome' }, depth: 0 },
+      ],
+    });
+
+    const result = await onSnapshot(ctx, {});
+    expect(result.content[0].text).not.toContain('Form Fields');
+  });
+
+  it('includes form fields in raw result', async () => {
+    const mockData = {
+      nodes: [{ role: { value: 'button' } }],
+      formFields: [{ selector: 'input#name', tag: 'input', type: 'text', name: 'name', value: 'John' }],
+    };
+    (ctx.ext.sendCmd as any).mockResolvedValue(mockData);
+    const result = await onSnapshot(ctx, { rawResult: true });
+    expect(result.formFields).toBeDefined();
+    expect(result.formFields[0].selector).toBe('input#name');
   });
 });
 
@@ -96,6 +139,51 @@ describe('onLookup()', () => {
     (ctx.eval as any).mockResolvedValue(mockData);
     const result = await onLookup(ctx, { text: 'test' }, { rawResult: true });
     expect(result).toEqual(mockData);
+  });
+
+  it('includes form field metadata for input elements', async () => {
+    (ctx.eval as any).mockResolvedValue({
+      matches: [
+        {
+          selector: 'input#email',
+          visible: true,
+          text: '',
+          tag: 'input',
+          x: 100, y: 200,
+          width: 300, height: 40,
+          formField: { type: 'email', name: 'email', value: 'test@x.com', required: true, label: 'Email Address' },
+        },
+      ],
+      total: 1,
+    });
+
+    const result = await onLookup(ctx, { text: 'Email' }, {});
+    expect(result.content[0].text).toContain('type=email');
+    expect(result.content[0].text).toContain('value="test@x.com"');
+    expect(result.content[0].text).toContain('required');
+    expect(result.content[0].text).toContain('Email Address');
+  });
+
+  it('includes select options in lookup form field metadata', async () => {
+    (ctx.eval as any).mockResolvedValue({
+      matches: [
+        {
+          selector: 'select#dept',
+          visible: true,
+          text: 'Engineering',
+          tag: 'select',
+          x: 100, y: 200,
+          width: 200, height: 40,
+          formField: { type: null, name: 'department', value: 'eng', required: false, label: 'Department', options: ['Design', 'Engineering', 'PM'] },
+        },
+      ],
+      total: 1,
+    });
+
+    const result = await onLookup(ctx, { text: 'Engineering' }, {});
+    expect(result.content[0].text).toContain('options:');
+    expect(result.content[0].text).toContain('Design');
+    expect(result.content[0].text).toContain('Engineering');
   });
 });
 
