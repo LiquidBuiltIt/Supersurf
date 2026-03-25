@@ -442,9 +442,30 @@ const SUB_OBJECT_RULES = {
  * @param code - Raw JavaScript to wrap
  * @returns Self-contained IIFE string for Runtime.evaluate
  */
+/**
+ * Detect whether code is a single JS expression (vs statement block).
+ * Uses acorn's expression parser — if it successfully parses the entire
+ * string as an expression, it's expression code. Otherwise, statement code.
+ */
+function isExpression(code) {
+    try {
+        const trimmed = code.trim();
+        if (!trimmed)
+            return true;
+        const ast = acorn.parseExpressionAt(trimmed, 0, {
+            ecmaVersion: 'latest',
+        });
+        // Ensure the expression consumed all the input (no trailing statements)
+        return ast.end >= trimmed.length;
+    }
+    catch {
+        return false;
+    }
+}
 function wrapWithPageProxy(code) {
     const blockedJSON = JSON.stringify(PAGE_BLOCKED);
     const subRulesJSON = JSON.stringify(SUB_OBJECT_RULES);
+    const inner = isExpression(code) ? `return (\n${code}\n);` : `return (() => { ${code} })();`;
     return `(function() {
   var __blocked = new Set(${blockedJSON});
   var __globalAliases = new Set(['window', 'globalThis', 'self', 'top', 'frames', 'parent']);
@@ -501,9 +522,7 @@ function wrapWithPageProxy(code) {
   });
   with(__proxy) {
     return (function() { "use strict";
-return (
-${code}
-);
+${inner}
     })();
   }
 })()`;

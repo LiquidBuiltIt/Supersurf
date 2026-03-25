@@ -25,9 +25,9 @@ exports.LoggerRegistry = exports.createLog = exports.FileLogger = void 0;
 exports.getLogger = getLogger;
 exports.getRegistry = getRegistry;
 const path_1 = __importDefault(require("path"));
-const shared_1 = require("./shared");
+const shared_1 = require("shared");
 // Re-export core types for existing consumers
-var shared_2 = require("./shared");
+var shared_2 = require("shared");
 Object.defineProperty(exports, "FileLogger", { enumerable: true, get: function () { return shared_2.FileLogger; } });
 const SESSIONS_DIR = path_1.default.join(shared_1.LOG_ROOT, 'sessions');
 // ─── Session-aware logger registry ──────────────────────────

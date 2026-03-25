@@ -32,11 +32,15 @@ async function onFillForm(ctx, args, options) {
     for (const field of fields) {
         const expr = ctx.getSelectorExpression(field.selector);
         await ctx.eval(`
-      (() => {
+      (async () => {
         const el = ${expr};
         if (!el) throw new Error('Element not found: ${field.selector}');
         const tag = el.tagName;
         const type = el.type;
+
+        // Focus the element first (triggers onFocus handlers)
+        el.dispatchEvent(new Event('focus', { bubbles: true }));
+        el.focus();
 
         if (type === 'checkbox' || type === 'radio') {
           el.checked = ${JSON.stringify(field.value)} === 'true' || ${JSON.stringify(field.value)} === true;
@@ -44,7 +48,6 @@ async function onFillForm(ctx, args, options) {
           const options = Array.from(el.options);
           const target = ${JSON.stringify(field.value)};
           if (el.multiple) {
-            // Multi-select: value can be comma-separated
             const targets = target.split(',').map(t => t.trim());
             for (const opt of options) {
               opt.selected = targets.includes(opt.value) || targets.includes(opt.textContent?.trim());
@@ -67,8 +70,13 @@ async function onFillForm(ctx, args, options) {
           else el.value = ${JSON.stringify(field.value)};
         }
 
-        el.dispatchEvent(new Event('input', { bubbles: true }));
+        // InputEvent for React 17+ synthetic event detection
+        el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+        // Microtask yield — let React reconcile before change fires
+        await Promise.resolve();
         el.dispatchEvent(new Event('change', { bubbles: true }));
+        // Blur triggers onBlur validation handlers
+        el.dispatchEvent(new Event('blur', { bubbles: true }));
       })()
     `);
         results.push(`✓ ${field.selector} = "${field.value}"`);

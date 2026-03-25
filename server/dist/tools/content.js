@@ -19,10 +19,63 @@ exports.onExtractContent = onExtractContent;
  */
 async function onSnapshot(ctx, options) {
     const result = await ctx.ext.sendCmd('snapshot', {});
-    if (options.rawResult)
-        return result;
+    // Use form fields from extension if available, otherwise collect via eval
+    let formFields = result?.formFields;
+    if (!formFields) {
+        formFields = await ctx.eval(`
+      (() => {
+        const fields = [];
+        const inputs = document.querySelectorAll('input, textarea, select');
+        for (const el of inputs) {
+          if (el.type === 'hidden') continue;
+          let sel = el.tagName.toLowerCase();
+          if (el.id) sel += '#' + el.id;
+          else if (el.name) sel += '[name="' + el.name + '"]';
+          else if (el.className && typeof el.className === 'string') {
+            const cls = el.className.trim().split(/\\s+/).filter(Boolean).slice(0, 2);
+            if (cls.length) sel += '.' + cls.join('.');
+          }
+
+          const field = {
+            selector: sel,
+            tag: el.tagName.toLowerCase(),
+            type: el.type || null,
+            name: el.name || null,
+            value: el.tagName === 'SELECT' ? el.value : (el.value || ''),
+            required: el.required || false,
+            label: null,
+          };
+
+          if (el.id) {
+            const label = document.querySelector('label[for="' + el.id + '"]');
+            if (label) field.label = label.textContent?.trim() || null;
+          }
+          if (!field.label && el.closest('label')) {
+            field.label = el.closest('label').textContent?.trim() || null;
+          }
+          if (!field.label) {
+            field.label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || null;
+          }
+
+          if (el.tagName === 'SELECT') {
+            field.options = Array.from(el.options).map(o => o.textContent?.trim() || o.value);
+          }
+
+          if (el.type === 'checkbox' || el.type === 'radio') {
+            field.checked = el.checked;
+          }
+
+          fields.push(field);
+        }
+        return fields;
+      })()
+    `).catch(() => []);
+    }
+    if (options.rawResult) {
+        return { ...result, formFields: formFields || [] };
+    }
     const nodes = result?.nodes || [];
-    if (nodes.length === 0) {
+    if (nodes.length === 0 && (!formFields || formFields.length === 0)) {
         return { content: [{ type: 'text', text: 'Empty accessibility tree' }] };
     }
     let output = '';
@@ -34,7 +87,28 @@ async function onSnapshot(ctx, options) {
         const indent = '  '.repeat(node.depth || 0);
         output += `${indent}[${role}] ${name}\n`;
     }
-    return { content: [{ type: 'text', text: output || 'No meaningful accessibility nodes' }] };
+    if (!output)
+        output = 'No meaningful accessibility nodes\n';
+    if (formFields && formFields.length > 0) {
+        output += '\n---\n### Form Fields\n\n';
+        for (const f of formFields) {
+            const parts = [`\`${f.selector}\``];
+            if (f.label)
+                parts.push(`label="${f.label}"`);
+            if (f.type)
+                parts.push(`type=${f.type}`);
+            if (f.required)
+                parts.push('required');
+            if (f.checked !== undefined)
+                parts.push(f.checked ? 'checked' : 'unchecked');
+            if (f.value)
+                parts.push(`value="${f.value}"`);
+            if (f.options)
+                parts.push(`options=[${f.options.join(', ')}]`);
+            output += `- ${parts.join(' | ')}\n`;
+        }
+    }
+    return { content: [{ type: 'text', text: output }] };
 }
 /**
  * Find elements by visible text and return their selectors, positions, and visibility.
@@ -79,6 +153,28 @@ async function onLookup(ctx, args, options) {
           y: Math.round(rect.top + rect.height / 2),
           width: Math.round(rect.width),
           height: Math.round(rect.height),
+          formField: (() => {
+            const t = el.tagName;
+            if (t !== 'INPUT' && t !== 'TEXTAREA' && t !== 'SELECT') return undefined;
+            const ff = {
+              type: el.type || null,
+              name: el.name || null,
+              value: t === 'SELECT' ? el.value : (el.value || ''),
+              required: el.required || false,
+              label: null,
+            };
+            if (el.id) {
+              const lbl = document.querySelector('label[for="' + el.id + '"]');
+              if (lbl) ff.label = lbl.textContent?.trim() || null;
+            }
+            if (!ff.label && el.closest('label')) ff.label = el.closest('label').textContent?.trim() || null;
+            if (!ff.label) ff.label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || null;
+            if (t === 'SELECT') {
+              ff.options = Array.from(el.options).map(o => o.textContent?.trim() || o.value);
+            }
+            if (el.type === 'checkbox' || el.type === 'radio') ff.checked = el.checked;
+            return ff;
+          })(),
         });
       }
 
@@ -97,7 +193,25 @@ async function onLookup(ctx, args, options) {
     matches.forEach((m, i) => {
         const vis = m.visible ? '✓' : '✗ hidden';
         output += `${i + 1}. **${m.selector}** [${m.tag}] ${vis}\n`;
-        output += `   Text: "${m.text}"\n   Position: (${m.x}, ${m.y}) | Size: ${m.width}×${m.height}px\n\n`;
+        output += `   Text: "${m.text}"\n   Position: (${m.x}, ${m.y}) | Size: ${m.width}×${m.height}px\n`;
+        if (m.formField) {
+            const f = m.formField;
+            const parts = [];
+            if (f.label)
+                parts.push(`label="${f.label}"`);
+            if (f.type)
+                parts.push(`type=${f.type}`);
+            if (f.required)
+                parts.push('required');
+            if (f.checked !== undefined)
+                parts.push(f.checked ? 'checked' : 'unchecked');
+            if (f.value)
+                parts.push(`value="${f.value}"`);
+            if (f.options)
+                parts.push(`options: [${f.options.join(', ')}]`);
+            output += `   Form: ${parts.join(' | ')}\n`;
+        }
+        output += '\n';
     });
     return { content: [{ type: 'text', text: output }] };
 }

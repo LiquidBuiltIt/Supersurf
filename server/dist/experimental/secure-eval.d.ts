@@ -38,22 +38,5 @@ export interface AnalysisResult {
  * @returns Analysis result: safe=true or safe=false with a reason string
  */
 export declare function analyzeCode(code: string): AnalysisResult;
-/**
- * Wrap user code in a page-context Proxy that intercepts blocked API access.
- * Returns a self-contained IIFE string ready for Runtime.evaluate.
- *
- * Architecture of the generated code:
- * - Creates a Proxy around `window` that intercepts all property access
- * - Global aliases (window, globalThis, self, etc.) redirect back to the proxy
- * - Sub-objects (document, navigator, location) get their own Proxy wrappers
- *   with per-object blocked properties and alias rules
- * - `has()` always returns true so `with(proxy)` captures every name lookup
- * - `getOwnPropertyDescriptor` returns throwing getters for blocked props
- * - Outer function is sloppy-mode (required for `with` statement)
- * - Inner function is strict-mode for the user code
- *
- * @param code - Raw JavaScript to wrap
- * @returns Self-contained IIFE string for Runtime.evaluate
- */
 export declare function wrapWithPageProxy(code: string): string;
 //# sourceMappingURL=secure-eval.d.ts.map
