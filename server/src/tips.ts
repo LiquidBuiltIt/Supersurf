@@ -24,7 +24,8 @@ function hasMutation(code: string): boolean {
   return c.includes('.click()') || (c.includes('.value') && /\.value\s*=/.test(code)) ||
     c.includes('scrollinto') || c.includes('scrollby') || c.includes('scrollto') ||
     c.includes('.focus()') || c.includes('.select()') || c.includes('dispatchevent') ||
-    c.includes('window.location') || c.includes('document.location');
+    c.includes('window.location') || c.includes('document.location') ||
+    c.includes('getboundingclientrect');
 }
 
 const TIPS: TipRule[] = [
@@ -124,6 +125,54 @@ const TIPS: TipRule[] = [
       'Tip: Element not found by CSS selector. Use browser_lookup to find elements by visible text — it returns ' +
       'selectors you can pass to browser_interact. You can also use :has-text("...") in selectors, e.g. button:has-text("Next").',
   },
+
+  // ── screenshot tip ──
+
+  {
+    priority: 10,
+    tool: 'browser_take_screenshot',
+    match: () => true,
+    message:
+      'Tip: browser_interact, browser_navigate, and browser_fill_form support screenshot: true to capture ' +
+      'a screenshot inline with the action — saves a separate tool call.',
+  },
+
+  // ── additional evaluate tips ──
+
+  {
+    priority: 22,
+    tool: 'browser_evaluate',
+    match: (params) => {
+      const code = getEvalCode(params).toLowerCase();
+      return code.includes('innerhtml') || code.includes('outerhtml');
+    },
+    message:
+      'Tip: browser_extract_content returns clean markdown from the page. Use mode=\'selector\' to target ' +
+      'a specific element. No JS needed for content extraction.',
+  },
+  {
+    priority: 18,
+    tool: 'browser_evaluate',
+    match: (params) => {
+      const code = getEvalCode(params).toLowerCase();
+      return code.includes('getboundingclientrect') && !code.includes('.click()');
+    },
+    message:
+      'Tip: browser_lookup returns element coordinates (x, y, width, height) along with selectors. ' +
+      'No JS needed for position data.',
+  },
+  {
+    priority: 32,
+    tool: 'browser_evaluate',
+    match: (params) => {
+      const code = getEvalCode(params).toLowerCase();
+      return code.includes('getcomputedstyle');
+    },
+    message:
+      'Tip: browser_get_element_styles returns computed + matched CSS rules like the DevTools Styles panel. ' +
+      'Supports pseudo-state forcing and property filtering.',
+  },
+
 ];
 
 export function getTip(

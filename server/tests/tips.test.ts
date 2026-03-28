@@ -120,6 +120,54 @@ describe('getTip', () => {
     expect(tip).toBeNull();
   });
 
+  // Tip 11: screenshot tool suggests inline screenshot
+  it('returns inline screenshot tip on browser_take_screenshot', () => {
+    const tip = getTip('browser_take_screenshot', {}, 'ok');
+    expect(tip).toContain('screenshot: true');
+    expect(tip).toContain('browser_interact');
+  });
+
+  // Tip 12: evaluate reading innerHTML/outerHTML
+  it('returns extract_content tip when evaluate reads innerHTML', () => {
+    const tip = getTip('browser_evaluate', {
+      expression: `document.querySelector('.article').innerHTML`
+    }, 'ok');
+    expect(tip).toContain('browser_extract_content');
+  });
+
+  it('returns extract_content tip when evaluate reads outerHTML', () => {
+    const tip = getTip('browser_evaluate', {
+      expression: `document.querySelector('table').outerHTML`
+    }, 'ok');
+    expect(tip).toContain('browser_extract_content');
+  });
+
+  // Tip 13: evaluate doing getBoundingClientRect for position
+  it('returns lookup tip when evaluate does getBoundingClientRect', () => {
+    const tip = getTip('browser_evaluate', {
+      expression: `document.querySelector('button').getBoundingClientRect()`
+    }, 'ok');
+    expect(tip).toContain('browser_lookup');
+    expect(tip).toContain('coordinates');
+  });
+
+  it('does not return position tip when getBoundingClientRect is part of click', () => {
+    const tip = getTip('browser_evaluate', {
+      expression: `const el = document.querySelector('button'); const r = el.getBoundingClientRect(); el.click();`
+    }, 'ok');
+    // Should get the click tip, not the position tip
+    expect(tip).toContain('browser_interact');
+    expect(tip).not.toContain('coordinates');
+  });
+
+  // Tip 14: evaluate reading getComputedStyle
+  it('returns styles tip when evaluate does getComputedStyle', () => {
+    const tip = getTip('browser_evaluate', {
+      expression: `window.getComputedStyle(document.querySelector('.btn')).color`
+    }, 'ok');
+    expect(tip).toContain('browser_get_element_styles');
+  });
+
   // Only one tip per call (highest priority wins)
   it('returns highest priority tip when multiple match', () => {
     const tip = getTip('browser_evaluate', {
