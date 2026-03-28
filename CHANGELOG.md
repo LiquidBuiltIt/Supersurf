@@ -4,6 +4,18 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
+## 1.6.0 — 2026-03-28
+
+- feat: targeted tool tips — 14 contextual hints appended to tool responses when agents use `browser_evaluate` for things purpose-built tools already handle (clicks, scrolls, value setting, DOM reads, position lookups, style inspection, innerHTML extraction)
+- feat: `:has-text()` pseudo-selector documented in `browser_interact` schema description
+- feat: `version` and `tip` fields in audit log entries for version correlation and tip effectiveness analysis
+- fix: `select_custom` scopes option search to newly-opened dropdown via before/after diffing — fixes 87.5% error rate on pages with multiple custom dropdowns (e.g. Greenhouse job boards)
+
+## 1.5.1 — 2026-03-28
+
+- feat: daemon `stop` and `restart` commands
+- feat: version stamp in audit log entries
+
 ## 1.5.0 — 2026-03-25
 
 - feat: `select_custom` action for JS-driven dropdowns (non-native `<select>`)
