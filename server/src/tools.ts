@@ -16,6 +16,7 @@ import type { ToolSchema, ToolContext } from './tools/types';
 import { createLog } from './logger';
 import { AuditLogger } from './audit-logger';
 import { getExperimentalToolSchemas, callExperimentalTool } from './experimental/index';
+import { getTip } from './tips';
 
 // Tool modules
 import { getToolSchemas } from './tools/schemas';
@@ -386,6 +387,10 @@ export class BrowserBridge {
       return this.error(msg, options);
     } finally {
       const url = this._getCurrentUrl();
+
+      // Compute tip once — used in both response and audit log
+      const tip = !options.rawResult ? getTip(name, args, callResult, callError) : null;
+
       this.auditLogger?.write({
         session_id: this.connectionManager?.clientId ?? 'unknown',
         tool: name,
@@ -394,7 +399,13 @@ export class BrowserBridge {
         error: callError,
         url,
         duration_ms: Date.now() - start,
+        ...(tip ? { tip } : {}),
       });
+
+      // Append contextual tip to response
+      if (tip && result?.content?.[0]?.type === 'text') {
+        result.content[0].text += `\n\n---\n${tip}`;
+      }
     }
   }
 

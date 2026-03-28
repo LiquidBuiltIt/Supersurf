@@ -265,3 +265,49 @@ describe('BrowserBridge', () => {
     });
   });
 });
+
+describe('tool tips integration', () => {
+  it('appends tip when evaluate does a JS click', async () => {
+    const ext = createMockExt();
+    ext.sendCmd.mockResolvedValue('clicked');
+    const bridge = new BrowserBridge({}, ext);
+    await bridge.initialize({}, {}, createMockConnectionManager());
+
+    const result = await bridge.callTool('browser_evaluate', {
+      expression: `document.querySelector('button').click()`,
+    });
+
+    const text = result.content[0].text;
+    expect(text).toContain('Tip:');
+    expect(text).toContain('browser_interact');
+  });
+
+  it('does not append tip when evaluate does safe read', async () => {
+    const ext = createMockExt();
+    ext.sendCmd.mockResolvedValue('42');
+    const bridge = new BrowserBridge({}, ext);
+    await bridge.initialize({}, {}, createMockConnectionManager());
+
+    const result = await bridge.callTool('browser_evaluate', {
+      expression: `document.title`,
+    });
+
+    const text = result.content[0].text;
+    expect(text).not.toContain('Tip:');
+  });
+
+  it('appends tip on interact element-not-found error', async () => {
+    const ext = createMockExt();
+    ext.sendCmd.mockRejectedValue(new Error('Element not found: `button.missing`'));
+    const bridge = new BrowserBridge({}, ext);
+    await bridge.initialize({}, {}, createMockConnectionManager());
+
+    const result = await bridge.callTool('browser_interact', {
+      actions: [{ type: 'click', selector: 'button.missing' }],
+    });
+
+    const text = result.content[0].text;
+    expect(text).toContain('Tip:');
+    expect(text).toContain('browser_lookup');
+  });
+});
