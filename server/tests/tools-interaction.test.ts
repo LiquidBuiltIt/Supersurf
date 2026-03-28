@@ -166,6 +166,7 @@ describe('onInteract()', () => {
     // Mock eval to return the detected option text
     (ctx.eval as any)
       .mockResolvedValueOnce({ found: true, triggerSelector: '.my-select', triggerText: 'Choose...' }) // detect
+      .mockResolvedValueOnce([]) // before-snapshot (no pre-existing options)
       .mockResolvedValueOnce(undefined) // click trigger (DOM click)
       .mockResolvedValueOnce({ found: true, optionText: 'Engineering' }); // find & click option
 
@@ -191,6 +192,7 @@ describe('onInteract()', () => {
   it('select_custom fails when option not found in listbox', async () => {
     (ctx.eval as any)
       .mockResolvedValueOnce({ found: true, triggerSelector: '.my-select', triggerText: 'Choose...' })
+      .mockResolvedValueOnce([]) // before-snapshot
       .mockResolvedValueOnce(undefined) // click trigger (DOM click)
       .mockResolvedValueOnce({ found: false, available: ['Design', 'Marketing'] }); // option not found
 

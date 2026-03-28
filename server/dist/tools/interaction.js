@@ -386,7 +386,25 @@ async function executeAction(ctx, action) {
             if (!detection?.found) {
                 throw new Error(`No custom dropdown trigger found at ${triggerSelector}. Use select_option for native <select> elements.`);
             }
-            // Step 2: Click the trigger to open the dropdown
+            // Step 2: Snapshot existing options before opening, then click the trigger
+            const beforeSnapshot = await ctx.eval(`
+        (() => {
+          const sels = [
+            '[role="option"]', '[role="menuitem"]',
+            '[data-headlessui-state] li',
+            '[class*="option"]', '[class*="menu"] [class*="option"]',
+            '[id*="listbox"] [role="option"]',
+            '[id*="react-select"] [id*="option"]',
+          ];
+          const ids = new Set();
+          for (const sel of sels) {
+            for (const el of document.querySelectorAll(sel)) {
+              ids.add(el.getAttribute('id') || el.textContent?.trim()?.substring(0, 80) || '');
+            }
+          }
+          return [...ids];
+        })()
+      `) || [];
             const { x, y } = await ctx.getElementCenter(triggerSelector);
             await moveCursorTo(ctx, x, y, '_default');
             await ctx.cdp('Input.dispatchMouseEvent', {
@@ -402,13 +420,14 @@ async function executeAction(ctx, action) {
       })()`).catch(() => { });
             // Wait for dropdown to render
             await ctx.sleep(300);
-            // Step 3: Find and click the target option
+            // Step 3: Find and click the target option — only consider options
+            // that appeared AFTER the click (scopes to this dropdown, not others)
             const optionResult = await ctx.eval(`
         (() => {
           const target = ${JSON.stringify(targetValue)};
           const targetLower = target.toLowerCase();
+          const beforeIds = new Set(${JSON.stringify(beforeSnapshot)});
 
-          // Search for options in open listbox/menu
           const optionSelectors = [
             '[role="option"]',
             '[role="menuitem"]',
@@ -419,28 +438,44 @@ async function executeAction(ctx, action) {
             '[id*="react-select"] [id*="option"]',
           ];
 
+          // Collect only NEW options (appeared after click)
+          const newOptions = [];
           for (const sel of optionSelectors) {
-            const options = document.querySelectorAll(sel);
-            for (const opt of options) {
-              const text = opt.textContent?.trim() || '';
-              const value = opt.getAttribute('data-value') || opt.getAttribute('value') || '';
-              if (text.toLowerCase() === targetLower || value.toLowerCase() === targetLower) {
-                opt.scrollIntoView({ block: 'nearest' });
-                opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                opt.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                opt.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                return { found: true, optionText: text || value };
+            for (const opt of document.querySelectorAll(sel)) {
+              const optId = opt.getAttribute('id') || opt.textContent?.trim()?.substring(0, 80) || '';
+              if (!beforeIds.has(optId)) {
+                newOptions.push(opt);
               }
+            }
+          }
+
+          // If no new options appeared, fall back to all options (single dropdown case)
+          const candidates = newOptions.length > 0 ? newOptions : (() => {
+            const all = [];
+            for (const sel of optionSelectors) {
+              for (const opt of document.querySelectorAll(sel)) all.push(opt);
+            }
+            return all;
+          })();
+
+          // Search candidates for matching option
+          for (const opt of candidates) {
+            const text = opt.textContent?.trim() || '';
+            const value = opt.getAttribute('data-value') || opt.getAttribute('value') || '';
+            if (text.toLowerCase() === targetLower || value.toLowerCase() === targetLower) {
+              opt.scrollIntoView({ block: 'nearest' });
+              opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              opt.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              opt.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              return { found: true, optionText: text || value };
             }
           }
 
           // Collect available options for error message
           const available = [];
-          for (const sel of optionSelectors) {
-            for (const opt of document.querySelectorAll(sel)) {
-              const t = opt.textContent?.trim();
-              if (t && !available.includes(t)) available.push(t);
-            }
+          for (const opt of candidates) {
+            const t = opt.textContent?.trim();
+            if (t && !available.includes(t)) available.push(t);
           }
           return { found: false, available: available.slice(0, 20) };
         })()
