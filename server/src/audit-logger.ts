@@ -11,6 +11,15 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+const PKG_VERSION: string = (() => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    return pkg.version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
+
 const AUDIT_DIR = path.join(os.homedir(), '.supersurf', 'logs', 'sessions');
 
 const SENSITIVE_KEYS = new Set(['value', 'password', 'token', 'secret', 'credential']);
@@ -30,6 +39,7 @@ export function redactParams(params: Record<string, unknown>): Record<string, un
 
 export interface AuditEntry {
   ts: string;
+  version: string;
   session_id: string;
   tool: string;
   params: Record<string, unknown>;
@@ -50,9 +60,10 @@ export class AuditLogger {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  write(entry: Omit<AuditEntry, 'ts'>): void {
+  write(entry: Omit<AuditEntry, 'ts' | 'version'>): void {
     const line = JSON.stringify({
       ts: new Date().toISOString(),
+      version: PKG_VERSION,
       ...entry,
       params: redactParams(entry.params),
     });

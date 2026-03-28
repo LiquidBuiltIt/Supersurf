@@ -6,7 +6,9 @@
  * tool calls from multiple MCP servers (Unix domain socket).
  *
  * Usage:
- *   supersurf-daemon [--port <n>] [--debug]
+ *   supersurf-daemon [start] [--port <n>] [--debug]
+ *   supersurf-daemon stop
+ *   supersurf-daemon restart [--port <n>] [--debug]
  *   supersurf-daemon status
  *
  * Files:
@@ -32,9 +34,11 @@ declare function formatUptime(seconds: number): string;
 declare function getVersion(): string;
 declare function printStatus(verbose: boolean): Promise<void>;
 declare function observe(): void;
+/** Stop the running daemon by sending SIGTERM to the PID in the PID file. */
+declare function stopDaemon(): boolean;
 /** Check if a process with the given PID is alive. */
 declare function isProcessAlive(pid: number): boolean;
 /** Clean stale PID/socket files if the referenced process is dead. */
 declare function cleanStaleFiles(): void;
-export { parseArgs, isProcessAlive, cleanStaleFiles, printStatus, observe, formatUptime, getVersion, SUPERSURF_DIR, PID_FILE, SOCK_FILE, IDLE_TIMEOUT_MS };
+export { parseArgs, isProcessAlive, cleanStaleFiles, stopDaemon, printStatus, observe, formatUptime, getVersion, SUPERSURF_DIR, PID_FILE, SOCK_FILE, IDLE_TIMEOUT_MS };
 //# sourceMappingURL=main.d.ts.map

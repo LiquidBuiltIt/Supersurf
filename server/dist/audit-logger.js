@@ -16,6 +16,15 @@ exports.redactParams = redactParams;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
+const PKG_VERSION = (() => {
+    try {
+        const pkg = JSON.parse(fs_1.default.readFileSync(path_1.default.join(__dirname, '..', 'package.json'), 'utf8'));
+        return pkg.version ?? 'unknown';
+    }
+    catch {
+        return 'unknown';
+    }
+})();
 const AUDIT_DIR = path_1.default.join(os_1.default.homedir(), '.supersurf', 'logs', 'sessions');
 const SENSITIVE_KEYS = new Set(['value', 'password', 'token', 'secret', 'credential']);
 /** Keys whose values are too large to log (base64 blobs, etc.) */
@@ -42,6 +51,7 @@ class AuditLogger {
     write(entry) {
         const line = JSON.stringify({
             ts: new Date().toISOString(),
+            version: PKG_VERSION,
             ...entry,
             params: redactParams(entry.params),
         });

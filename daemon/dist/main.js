@@ -7,7 +7,9 @@
  * tool calls from multiple MCP servers (Unix domain socket).
  *
  * Usage:
- *   supersurf-daemon [--port <n>] [--debug]
+ *   supersurf-daemon [start] [--port <n>] [--debug]
+ *   supersurf-daemon stop
+ *   supersurf-daemon restart [--port <n>] [--debug]
  *   supersurf-daemon status
  *
  * Files:
@@ -25,6 +27,7 @@ exports.IDLE_TIMEOUT_MS = exports.SOCK_FILE = exports.PID_FILE = exports.SUPERSU
 exports.parseArgs = parseArgs;
 exports.isProcessAlive = isProcessAlive;
 exports.cleanStaleFiles = cleanStaleFiles;
+exports.stopDaemon = stopDaemon;
 exports.printStatus = printStatus;
 exports.observe = observe;
 exports.formatUptime = formatUptime;
@@ -72,6 +75,15 @@ function parseArgs(argv) {
         }
         else if (argv[i] === '--verbose') {
             verbose = true;
+        }
+        else if (argv[i] === 'start') {
+            command = 'start';
+        }
+        else if (argv[i] === 'stop') {
+            command = 'stop';
+        }
+        else if (argv[i] === 'restart') {
+            command = 'restart';
         }
         else if (argv[i] === 'status') {
             command = 'status';
@@ -219,6 +231,73 @@ function observe() {
     tail.on('exit', (code) => process.exit(code ?? 0));
     process.on('SIGINT', () => { tail.kill(); process.exit(0); });
 }
+// ─── Stop Command ───────────────────────────────────────────
+/** Stop the running daemon by sending SIGTERM to the PID in the PID file. */
+function stopDaemon() {
+    if (!fs_1.default.existsSync(PID_FILE)) {
+        console.log('Daemon not running (no PID file)');
+        return false;
+    }
+    let pid;
+    try {
+        pid = parseInt(fs_1.default.readFileSync(PID_FILE, 'utf8').trim(), 10);
+        if (isNaN(pid)) {
+            console.log('Daemon not running (invalid PID file)');
+            return false;
+        }
+    }
+    catch {
+        console.log('Daemon not running (cannot read PID file)');
+        return false;
+    }
+    if (!isProcessAlive(pid)) {
+        console.log(`Daemon not running (stale PID ${pid})`);
+        // Clean up stale files
+        try {
+            fs_1.default.unlinkSync(PID_FILE);
+        }
+        catch { }
+        try {
+            fs_1.default.unlinkSync(SOCK_FILE);
+        }
+        catch { }
+        return false;
+    }
+    try {
+        process.kill(pid, 'SIGTERM');
+    }
+    catch (err) {
+        console.error(`Failed to stop daemon (pid ${pid}): ${err.message}`);
+        return false;
+    }
+    // Wait up to 5s for the process to exit
+    const start = Date.now();
+    while (Date.now() - start < 5000) {
+        if (!isProcessAlive(pid)) {
+            console.log(`Daemon stopped (pid ${pid})`);
+            return true;
+        }
+        // Busy-wait in small increments (sync — this is a CLI command, not the server)
+        const waitUntil = Date.now() + 100;
+        while (Date.now() < waitUntil) { /* spin */ }
+    }
+    // Still alive after 5s — escalate to SIGKILL
+    try {
+        process.kill(pid, 'SIGKILL');
+        console.log(`Daemon killed (pid ${pid}) — did not exit gracefully`);
+    }
+    catch { }
+    // Clean up files the hard way
+    try {
+        fs_1.default.unlinkSync(PID_FILE);
+    }
+    catch { }
+    try {
+        fs_1.default.unlinkSync(SOCK_FILE);
+    }
+    catch { }
+    return true;
+}
 // ─── PID File Management ──────────────────────────────────────
 /** Check if a process with the given PID is alive. */
 function isProcessAlive(pid) {
@@ -283,6 +362,14 @@ async function main() {
     if (command === 'status') {
         await printStatus(verbose);
         return;
+    }
+    if (command === 'stop') {
+        stopDaemon();
+        return;
+    }
+    if (command === 'restart') {
+        stopDaemon();
+        // Fall through to start the daemon fresh
     }
     if (command === 'observe') {
         observe();

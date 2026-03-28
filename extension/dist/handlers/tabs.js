@@ -319,7 +319,9 @@ export class TabHandlers {
             tabId = this.ctx.attachedTabId;
         }
         else {
-            throw new Error('No tab specified and no tab attached');
+            const available = await this.browser.tabs.query({ windowType: 'normal' });
+            const count = available.length;
+            throw new Error(`No tab specified and no tab attached. ${count} tab${count !== 1 ? 's' : ''} available — use selectTab first or pass an index.`);
         }
         await this.browser.tabs.remove(tabId);
         this.handleTabClosed(tabId);
@@ -327,12 +329,40 @@ export class TabHandlers {
     }
     /** Clean up attachment state, stealth tracking, and tech stack info for a closed tab. */
     handleTabClosed(tabId) {
-        if (tabId === this.ctx.attachedTabId) {
+        const wasAttached = tabId === this.ctx.attachedTabId;
+        if (wasAttached) {
             this.ctx.attachedTabId = null;
             this.iconManager.setAttachedTab(null);
         }
         this.ctx.stealthTabs.delete(tabId);
         this.ctx.persistSession();
         this.techStackInfo.delete(tabId);
+        // Auto-reattach to another tab if the attached tab was closed
+        if (wasAttached) {
+            this.autoReattach().catch(() => { });
+        }
+    }
+    /**
+     * Attempt to reattach to the most recent normal-window tab after the
+     * attached tab is closed. Silently does nothing if no candidates exist.
+     */
+    async autoReattach() {
+        try {
+            const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
+            // Filter to automatable tabs (not chrome://, not chrome-extension://)
+            const candidates = allTabs.filter(t => t.id && t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('chrome-extension://'));
+            if (candidates.length === 0)
+                return;
+            // Prefer the currently active tab, otherwise take the last one
+            const active = candidates.find(t => t.active);
+            const target = active || candidates[candidates.length - 1];
+            this.ctx.attachedTabId = target.id;
+            this.ctx.persistSession();
+            this.iconManager.setAttachedTab(target.id);
+            this.logger.log(`Auto-reattached to tab ${target.id} (${target.url})`);
+        }
+        catch {
+            // Best-effort — don't break the close flow
+        }
     }
 }

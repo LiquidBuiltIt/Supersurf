@@ -9,6 +9,7 @@
 export declare function redactParams(params: Record<string, unknown>): Record<string, unknown>;
 export interface AuditEntry {
     ts: string;
+    version: string;
     session_id: string;
     tool: string;
     params: Record<string, unknown>;
@@ -20,7 +21,7 @@ export interface AuditEntry {
 export declare class AuditLogger {
     private _path;
     constructor(sessionId: string, auditDir?: string);
-    write(entry: Omit<AuditEntry, 'ts'>): void;
+    write(entry: Omit<AuditEntry, 'ts' | 'version'>): void;
     getPath(): string;
 }
 //# sourceMappingURL=audit-logger.d.ts.map

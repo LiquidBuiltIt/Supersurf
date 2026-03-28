@@ -366,10 +366,9 @@ async function executeAction(ctx, action) {
             el.getAttribute('aria-haspopup') === 'listbox' ||
             el.getAttribute('aria-haspopup') === 'true' ||
             el.classList.contains('css-1s2u09g-control') || // React Select
-            el.querySelector('[class*="indicatorContainer"]') || // React Select
+            !!el.querySelector('[class*="indicatorContainer"]') || // React Select
             el.getAttribute('data-headlessui-state') !== null ||
-            el.getAttribute('data-radix-select-trigger') !== null ||
-            el.getAttribute('data-state') !== null;
+            el.getAttribute('data-radix-select-trigger') !== null;
 
           if (!isCustomSelect) {
             // Fallback: check if any ancestor/sibling looks like a custom select
