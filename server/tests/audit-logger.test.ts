@@ -223,4 +223,35 @@ describe('AuditLogger', () => {
     const entry = JSON.parse(content.trim());
     expect(entry.url).toBeUndefined();
   });
+
+  it('includes tip field when provided', () => {
+    const logger = new AuditLogger('test', tempDir);
+    logger.write({
+      session_id: 'test',
+      tool: 'browser_evaluate',
+      params: { expression: 'document.querySelector("button").click()' },
+      result: 'ok',
+      duration_ms: 50,
+      tip: 'Tip: use browser_interact instead',
+    });
+
+    const lines = fs.readFileSync(logger.getPath(), 'utf8').trim().split('\n');
+    const entry = JSON.parse(lines[lines.length - 1]);
+    expect(entry.tip).toBe('Tip: use browser_interact instead');
+  });
+
+  it('omits tip field when null', () => {
+    const logger = new AuditLogger('test', tempDir);
+    logger.write({
+      session_id: 'test',
+      tool: 'browser_tabs',
+      params: { action: 'list' },
+      result: 'ok',
+      duration_ms: 10,
+    });
+
+    const lines = fs.readFileSync(logger.getPath(), 'utf8').trim().split('\n');
+    const entry = JSON.parse(lines[lines.length - 1]);
+    expect(entry.tip).toBeUndefined();
+  });
 });

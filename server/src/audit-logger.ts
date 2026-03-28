@@ -47,6 +47,7 @@ export interface AuditEntry {
   error?: string;
   url?: string;
   duration_ms: number;
+  tip?: string;
 }
 
 export class AuditLogger {
