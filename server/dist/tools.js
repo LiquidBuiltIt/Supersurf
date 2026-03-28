@@ -16,6 +16,7 @@ exports.BrowserBridge = void 0;
 const logger_1 = require("./logger");
 const audit_logger_1 = require("./audit-logger");
 const index_1 = require("./experimental/index");
+const tips_1 = require("./tips");
 // Tool modules
 const schemas_1 = require("./tools/schemas");
 const interaction_1 = require("./tools/interaction");
@@ -390,6 +391,8 @@ class BrowserBridge {
         }
         finally {
             const url = this._getCurrentUrl();
+            // Compute tip once — used in both response and audit log
+            const tip = !options.rawResult ? (0, tips_1.getTip)(name, args, callResult, callError) : null;
             this.auditLogger?.write({
                 session_id: this.connectionManager?.clientId ?? 'unknown',
                 tool: name,
@@ -398,7 +401,12 @@ class BrowserBridge {
                 error: callError,
                 url,
                 duration_ms: Date.now() - start,
+                ...(tip ? { tip } : {}),
             });
+            // Append contextual tip to response
+            if (tip && result?.content?.[0]?.type === 'text') {
+                result.content[0].text += `\n\n---\n${tip}`;
+            }
         }
     }
     // ─── URL Helper ─────────────────────────────────────────────

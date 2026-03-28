@@ -86,7 +86,7 @@ function getToolSchemas() {
                                         'wait: if selector is provided, polls for the element every 100ms and resolves immediately when found (rejects on timeout). ' +
                                         'If only timeout is provided, pauses for that fixed duration.',
                                 },
-                                selector: { type: 'string', description: 'CSS selector for the target element. For wait: element to poll for existence.' },
+                                selector: { type: 'string', description: 'CSS selector for the target element. Supports :has-text("...") for text matching, e.g. button:has-text("Submit"). For wait: element to poll for existence.' },
                                 text: { type: 'string', description: 'Text to type (for type action)' },
                                 key: { type: 'string', description: 'Key to press (for press_key action)' },
                                 value: { type: 'string', description: 'Option value or text (for select_option and select_custom)' },
