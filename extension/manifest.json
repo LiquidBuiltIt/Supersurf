@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "SuperSurf",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Browser automation for AI agents via MCP",
   "permissions": [
     "alarms",
+    "cookies",
     "debugger",
     "activeTab",
     "tabs",

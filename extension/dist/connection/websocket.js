@@ -166,9 +166,8 @@ export class WebSocketConnection {
             this.browser.runtime.sendMessage({ type: 'statusChanged' });
         }
         catch { }
-        // Read stored profile name, then send handshake
-        this.browser.storage.local.get(['supersurf_profile']).then((result) => {
-            const profile = result?.supersurf_profile || null;
+        // Resolve profile name: chrome.storage.local first, then cookie fallback
+        this._resolveProfile().then((profile) => {
             this.send({
                 type: 'handshake',
                 browser: this._getBrowserName(),
@@ -176,15 +175,38 @@ export class WebSocketConnection {
                 buildTimestamp: this.buildTimestamp,
                 ...(profile ? { profile } : {}),
             });
-        }).catch(() => {
-            // Fallback: send handshake without profile
-            this.send({
-                type: 'handshake',
-                browser: this._getBrowserName(),
-                version: this.browser.runtime.getManifest().version,
-                buildTimestamp: this.buildTimestamp,
-            });
         });
+    }
+    /**
+     * Resolve the profile name from available sources.
+     * Priority: chrome.storage.local > cookie on daemon origin.
+     * If found via cookie but missing from storage, backfill storage for next time.
+     */
+    async _resolveProfile() {
+        // Primary: chrome.storage.local
+        try {
+            const result = await this.browser.storage.local.get(['supersurf_profile']);
+            if (result?.supersurf_profile) {
+                return result.supersurf_profile;
+            }
+        }
+        catch { }
+        // Fallback: read cookie from daemon origin
+        try {
+            const port = (await this.browser.storage.local.get(['mcpPort'])).mcpPort || '5555';
+            const cookie = await this.browser.cookies.get({
+                url: `http://127.0.0.1:${port}`,
+                name: 'supersurf_profile',
+            });
+            if (cookie?.value) {
+                this.logger.log(`[WebSocket] Profile resolved from cookie: ${cookie.value}`);
+                // Backfill storage so the primary path works next time
+                await this.browser.storage.local.set({ supersurf_profile: cookie.value });
+                return cookie.value;
+            }
+        }
+        catch { }
+        return null;
     }
     /**
      * Route incoming WebSocket messages to the appropriate handler.

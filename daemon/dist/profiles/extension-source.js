@@ -3,6 +3,10 @@
  * Extension source management — downloads and caches the SuperSurf extension
  * from GitHub for use with managed Chromium profiles.
  *
+ * First run: pulls from GitHub and caches to ~/.supersurf/extension/.
+ * Subsequent runs: checks GitHub for updates (non-blocking). If the network
+ * is unreachable, the cached version is used as-is.
+ *
  * @module profiles/extension-source
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
@@ -36,6 +40,16 @@ function getExtensionDir() {
 /** Check if the extension is already cached (manifest.json exists). */
 function isExtensionCached() {
     return fs_1.default.existsSync(path_1.default.join(EXTENSION_DIR, 'manifest.json'));
+}
+/** Read the version from the cached extension's manifest.json, or null if not present. */
+function getCachedVersion() {
+    try {
+        const manifest = JSON.parse(fs_1.default.readFileSync(path_1.default.join(EXTENSION_DIR, 'manifest.json'), 'utf8'));
+        return manifest.version ?? null;
+    }
+    catch {
+        return null;
+    }
 }
 /** Fetch the latest tag name from the GitHub repo. */
 function getLatestTag() {
@@ -153,32 +167,34 @@ async function pullExtension(tag) {
         catch { }
     }
 }
-/** Read the version from the cached extension's manifest.json, or null if not present. */
-function getCachedVersion() {
-    try {
-        const manifest = JSON.parse(fs_1.default.readFileSync(path_1.default.join(EXTENSION_DIR, 'manifest.json'), 'utf8'));
-        return manifest.version ?? null;
-    }
-    catch {
-        return null;
-    }
-}
-/** Ensure the extension is cached locally and up to date. Pulls from GitHub if missing or stale. */
+/**
+ * Ensure the extension is cached locally and up to date.
+ *
+ * - Not cached: pull from GitHub (required for first-time setup)
+ * - Cached: check GitHub for newer version (non-blocking — if network
+ *   fails, the cached version is used)
+ */
 async function ensureExtension() {
     if (!isExtensionCached()) {
         debugLog('Extension not cached, pulling from GitHub...');
         await pullExtension();
         return;
     }
-    const latestTag = await getLatestTag();
-    const latestVersion = latestTag.replace(/^v/, '');
+    // Already cached — update check is best-effort
     const cachedVersion = getCachedVersion();
-    if (cachedVersion !== latestVersion) {
-        debugLog(`Extension stale (cached: ${cachedVersion}, latest: ${latestVersion}), re-pulling...`);
-        await pullExtension(latestTag);
+    try {
+        const latestTag = await getLatestTag();
+        const latestVersion = latestTag.replace(/^v/, '');
+        if (cachedVersion !== latestVersion) {
+            debugLog(`Extension update available (cached: ${cachedVersion}, latest: ${latestVersion}), pulling...`);
+            await pullExtension(latestTag);
+        }
+        else {
+            debugLog(`Extension up to date (v${cachedVersion})`);
+        }
     }
-    else {
-        debugLog(`Extension up to date (${cachedVersion}) at`, EXTENSION_DIR);
+    catch (err) {
+        debugLog(`GitHub update check failed (using cached v${cachedVersion}): ${err.message}`);
     }
 }
 //# sourceMappingURL=extension-source.js.map

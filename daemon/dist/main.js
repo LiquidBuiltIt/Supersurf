@@ -522,13 +522,46 @@ async function main() {
     startIdleTimer();
     logger.log('[Daemon] Daemon ready');
 }
+/**
+ * Self-daemonize: re-spawn this script as a detached background process,
+ * then exit the parent so the daemon is not a child of the caller's shell.
+ */
+function daemonize(argv) {
+    const args = argv.slice(2).filter(a => a !== 'start' && a !== 'restart');
+    args.push('--_daemonized');
+    const child = (0, child_process_1.spawn)(process.execPath, [__filename, ...args], {
+        detached: true,
+        stdio: 'ignore',
+    });
+    child.unref();
+    console.log(`Daemon started (pid ${child.pid})`);
+    process.exit(0);
+}
 // Only run when executed directly (not imported by tests)
 const isDirectRun = !process.env.VITEST;
 if (isDirectRun) {
-    main().catch((error) => {
-        console.error('Daemon fatal error:', error);
-        cleanupFiles();
-        process.exit(1);
-    });
+    const { command } = parseArgs(process.argv);
+    const isDaemonized = process.argv.includes('--_daemonized');
+    if (command === 'start' || command === 'restart') {
+        // Explicit CLI command — self-daemonize (fork + exit parent)
+        if (isDaemonized) {
+            // We ARE the detached child — run the daemon
+            main().catch(() => { cleanupFiles(); process.exit(1); });
+        }
+        else {
+            if (command === 'restart')
+                stopDaemon();
+            daemonize(process.argv);
+        }
+    }
+    else {
+        // No start/restart command: either a query (status/stop/observe) or
+        // programmatic spawn (e.g. ensureDaemon) — run main() directly
+        main().catch((error) => {
+            console.error('Daemon fatal error:', error);
+            cleanupFiles();
+            process.exit(1);
+        });
+    }
 }
 //# sourceMappingURL=main.js.map

@@ -88,7 +88,10 @@ class ExtensionBridge {
                     if (match) {
                         const profileName = match[1];
                         debugLog(`Serving registration page for profile: ${profileName}`);
-                        res.writeHead(200, { 'Content-Type': 'text/html' });
+                        res.writeHead(200, {
+                            'Content-Type': 'text/html',
+                            'Set-Cookie': `supersurf_profile=${profileName}; Path=/; SameSite=Lax`,
+                        });
                         res.end(registrationHtml(profileName));
                         return;
                     }
@@ -101,7 +104,7 @@ class ExtensionBridge {
                 debugLog('WebSocketServer error:', error);
                 reject(error);
             });
-            this.wss.on('connection', (ws) => {
+            this.wss.on('connection', (ws, req) => {
                 debugLog('Extension connection attempt');
                 if (!this.profilesEnabled) {
                     // Single-connection mode: reject if already connected
@@ -119,10 +122,20 @@ class ExtensionBridge {
                         return;
                     }
                 }
+                // Extract profile from cookie on the upgrade request (survives extension removal)
+                let cookieProfile = null;
+                const cookieHeader = req.headers.cookie;
+                if (cookieHeader) {
+                    const match = cookieHeader.match(/(?:^|;\s*)supersurf_profile=([a-z0-9][a-z0-9-]*)/);
+                    if (match) {
+                        cookieProfile = match[1];
+                        debugLog(`Profile from cookie: ${cookieProfile}`);
+                    }
+                }
                 // Create pooled connection entry
                 const conn = {
                     ws,
-                    profile: null,
+                    profile: cookieProfile,
                     browser: 'chrome',
                     buildTimestamp: null,
                     pingInterval: null,
