@@ -542,18 +542,6 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     return { extensions: extensions.map((e) => ({ id: e.id, name: e.name, enabled: e.enabled, type: e.type })) };
   });
 
-  wsConnection.registerCommandHandler('reloadExtension', async (params) => {
-    const extensions = await chrome.management.getAll();
-    const ext = extensions.find((e) =>
-      e.name.toLowerCase().includes((params.extensionName || '').toLowerCase()) &&
-      e.installType === 'development'
-    );
-    if (!ext) throw new Error('Extension not found or not unpacked');
-    await chrome.management.setEnabled(ext.id, false);
-    await chrome.management.setEnabled(ext.id, true);
-    return { success: true, name: ext.name };
-  });
-
   // performance metrics
   wsConnection.registerCommandHandler('performanceMetrics', async () => {
     const tabId = tabHandlers.getAttachedTabId();

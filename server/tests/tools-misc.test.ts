@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   onWindow, onDialog, onEvaluate,
   onVerifyTextVisible, onVerifyElementVisible,
-  onListExtensions, onReloadExtensions,
+  onListExtensions,
   onPerformanceMetrics,
 } from '../src/tools/misc';
 import type { ToolContext } from '../src/tools/types';
@@ -155,14 +155,6 @@ describe('onListExtensions()', () => {
     await onListExtensions(ctx, {});
     expect(ctx.ext.sendCmd).toHaveBeenCalledWith('listExtensions', {});
     expect(ctx.formatResult).toHaveBeenCalled();
-  });
-});
-
-describe('onReloadExtensions()', () => {
-  it('forwards extension name to extension', async () => {
-    const ctx = createMockCtx();
-    await onReloadExtensions(ctx, { extensionName: 'MyExt' }, {});
-    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('reloadExtension', { extensionName: 'MyExt' });
   });
 });
 

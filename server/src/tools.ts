@@ -31,7 +31,7 @@ import { onBrowserDownload } from './tools/downloads';
 import {
   onWindow, onDialog, onEvaluate,
   onVerifyTextVisible, onVerifyElementVisible,
-  onListExtensions, onReloadExtensions,
+  onListExtensions,
   onPerformanceMetrics,
 } from './tools/misc';
 
@@ -347,7 +347,6 @@ export class BrowserBridge {
         case 'browser_pdf_save':        result = await onPdfSave(ctx, args, options); break;
         case 'browser_handle_dialog':   result = await onDialog(ctx, args, options); break;
         case 'browser_list_extensions': result = await onListExtensions(ctx, options); break;
-        case 'browser_reload_extensions': result = await onReloadExtensions(ctx, args, options); break;
         case 'browser_performance_metrics': result = await onPerformanceMetrics(ctx, options); break;
         case 'browser_download':       result = await onBrowserDownload(ctx, args, options); break;
         case 'secure_fill':            result = await onSecureFill(ctx, args, options); break;

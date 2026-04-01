@@ -26,7 +26,7 @@ const TAB_SCOPED_METHODS = new Set([
     'consoleMessages', 'networkRequests', 'clearNetwork',
     'performanceMetrics', 'waitForReady', 'capturePageState',
     'forwardCDPCommand', 'window', 'dialog',
-    'listExtensions', 'reloadExtension', 'secure_fill',
+    'listExtensions', 'secure_fill',
 ]);
 /**
  * Round-robin request scheduler with tab ownership and auto context-switching.

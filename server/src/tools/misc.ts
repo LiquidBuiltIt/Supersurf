@@ -6,7 +6,7 @@
  * - `browser_handle_dialog`: Accept/dismiss alerts, confirms, prompts
  * - `browser_evaluate`: Run JS in page context (with optional secure_eval 3-layer protection)
  * - `browser_verify_text_visible` / `browser_verify_element_visible`: Page assertions
- * - `browser_list_extensions` / `browser_reload_extensions`: Extension management
+ * - `browser_list_extensions`: Extension management
  * - `browser_performance_metrics`: Web Vitals + CDP performance data
  *
  * @module tools/misc
@@ -168,14 +168,6 @@ export async function onVerifyElementVisible(ctx: ToolContext, args: any, option
 export async function onListExtensions(ctx: ToolContext, options: any): Promise<any> {
   const result = await ctx.ext.sendCmd('listExtensions', {});
   return ctx.formatResult('browser_list_extensions', result, options);
-}
-
-/** Reload an unpacked (developer) Chrome extension by name. */
-export async function onReloadExtensions(ctx: ToolContext, args: any, options: any): Promise<any> {
-  const result = await ctx.ext.sendCmd('reloadExtension', {
-    extensionName: args.extensionName,
-  });
-  return ctx.formatResult('browser_reload_extensions', result, options);
 }
 
 /**
