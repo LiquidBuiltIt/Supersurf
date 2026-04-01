@@ -24,6 +24,7 @@ export interface PopupState {
   version: string;
   projectName: string | null;
   domainWhitelistEnabled: boolean;
+  profileName: string | null;
 }
 
 /** Render the main popup view: status indicator, tab info, and enable/disable toggle. */
@@ -38,6 +39,13 @@ export function renderMain(state: PopupState): string {
       </div>
 
       <div class="popup-content">
+        ${state.profileName ? `
+          <div class="profile-badge">
+            <span class="profile-icon">⌘</span>
+            <span class="profile-name">${state.profileName}</span>
+          </div>
+        ` : ''}
+
         <div class="status-row">
           <span class="status-label">Status:</span>
           <div class="status-indicator">

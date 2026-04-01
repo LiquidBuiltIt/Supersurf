@@ -49,6 +49,29 @@ body {
   gap: 12px;
 }
 
+.profile-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #222228;
+  border: 1px solid #3a3a42;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+}
+
+.profile-icon {
+  color: #888;
+  font-size: 11px;
+}
+
+.profile-name {
+  color: #e0e0e0;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
 .status-row {
   display: flex;
   justify-content: space-between;
