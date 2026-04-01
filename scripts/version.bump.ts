@@ -74,11 +74,16 @@ if (bumpType === 'rollback') {
   try { git(`git tag -d ${tag}`); } catch { /* tag may not exist */ }
   git('git reset --soft HEAD~1');
 
-  console.log(`\n${green}Rolled back ${tag}${reset}`);
-  console.log(`  Commit removed (changes preserved in staging)`);
-  console.log(`  Tag ${tag} deleted\n`);
-  console.log(`${yellow}Unstage version files if you don't want them:${reset}`);
-  console.log(`  ${cyan}git restore --staged ${targets.join(' ')}${reset}\n`);
+  // Restore version files to pre-bump state so the next bump reads the correct version
+  for (const rel of targets) {
+    git(`git checkout HEAD -- "${rel}"`);
+  }
+
+  const restoredVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+  console.log(`\n${green}Rolled back ${tag} → v${restoredVersion}${reset}`);
+  console.log(`  Commit removed (non-version changes preserved in staging)`);
+  console.log(`  Tag ${tag} deleted`);
+  console.log(`  Version files restored to v${restoredVersion}\n`);
   process.exit(0);
 }
 

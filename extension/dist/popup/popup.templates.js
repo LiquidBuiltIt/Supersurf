@@ -21,6 +21,13 @@ export function renderMain(state) {
       </div>
 
       <div class="popup-content">
+        ${state.profileName ? `
+          <div class="profile-badge">
+            <span class="profile-icon">⌘</span>
+            <span class="profile-name">${state.profileName}</span>
+          </div>
+        ` : ''}
+
         <div class="status-row">
           <span class="status-label">Status:</span>
           <div class="status-indicator">

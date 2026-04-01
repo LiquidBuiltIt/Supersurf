@@ -25,16 +25,18 @@ const state = {
     version: '0.1.0',
     projectName: null,
     domainWhitelistEnabled: false,
+    profileName: null,
 };
 /** Hydrate state from chrome.storage.local and the extension manifest. */
 async function loadState() {
     const result = await browserAPI.storage.local.get([
-        'extensionEnabled', 'mcpPort', 'debugMode', 'domainWhitelistEnabled',
+        'extensionEnabled', 'mcpPort', 'debugMode', 'domainWhitelistEnabled', 'supersurf_profile',
     ]);
     state.enabled = result.extensionEnabled !== false;
     state.port = result.mcpPort || '5555';
     state.debugMode = result.debugMode === true;
     state.domainWhitelistEnabled = result.domainWhitelistEnabled === true;
+    state.profileName = result.supersurf_profile || null;
     const manifest = browserAPI.runtime.getManifest();
     state.version = manifest.version;
 }
@@ -134,6 +136,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 if (changes.domainWhitelistEnabled) {
                     state.domainWhitelistEnabled = changes.domainWhitelistEnabled.newValue === true;
+                    render();
+                }
+                if (changes.supersurf_profile) {
+                    state.profileName = changes.supersurf_profile.newValue || null;
                     render();
                 }
             }

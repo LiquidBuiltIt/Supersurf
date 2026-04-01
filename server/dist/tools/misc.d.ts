@@ -6,7 +6,7 @@
  * - `browser_handle_dialog`: Accept/dismiss alerts, confirms, prompts
  * - `browser_evaluate`: Run JS in page context (with optional secure_eval 3-layer protection)
  * - `browser_verify_text_visible` / `browser_verify_element_visible`: Page assertions
- * - `browser_list_extensions` / `browser_reload_extensions`: Extension management
+ * - `browser_list_extensions`: Extension management
  * - `browser_performance_metrics`: Web Vitals + CDP performance data
  *
  * @module tools/misc
@@ -34,8 +34,6 @@ export declare function onVerifyTextVisible(ctx: ToolContext, args: any, options
 export declare function onVerifyElementVisible(ctx: ToolContext, args: any, options: any): Promise<any>;
 /** List all installed Chrome extensions. */
 export declare function onListExtensions(ctx: ToolContext, options: any): Promise<any>;
-/** Reload an unpacked (developer) Chrome extension by name. */
-export declare function onReloadExtensions(ctx: ToolContext, args: any, options: any): Promise<any>;
 /**
  * Collect Web Vitals (TTFB, FCP, DOM Content Loaded, Load) from the
  * Performance API and raw CDP metrics from the extension.

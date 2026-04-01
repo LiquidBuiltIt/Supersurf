@@ -345,9 +345,6 @@ class BrowserBridge {
                 case 'browser_list_extensions':
                     result = await (0, misc_1.onListExtensions)(ctx, options);
                     break;
-                case 'browser_reload_extensions':
-                    result = await (0, misc_1.onReloadExtensions)(ctx, args, options);
-                    break;
                 case 'browser_performance_metrics':
                     result = await (0, misc_1.onPerformanceMetrics)(ctx, options);
                     break;

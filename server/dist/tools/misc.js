@@ -7,7 +7,7 @@
  * - `browser_handle_dialog`: Accept/dismiss alerts, confirms, prompts
  * - `browser_evaluate`: Run JS in page context (with optional secure_eval 3-layer protection)
  * - `browser_verify_text_visible` / `browser_verify_element_visible`: Page assertions
- * - `browser_list_extensions` / `browser_reload_extensions`: Extension management
+ * - `browser_list_extensions`: Extension management
  * - `browser_performance_metrics`: Web Vitals + CDP performance data
  *
  * @module tools/misc
@@ -19,7 +19,6 @@ exports.onEvaluate = onEvaluate;
 exports.onVerifyTextVisible = onVerifyTextVisible;
 exports.onVerifyElementVisible = onVerifyElementVisible;
 exports.onListExtensions = onListExtensions;
-exports.onReloadExtensions = onReloadExtensions;
 exports.onPerformanceMetrics = onPerformanceMetrics;
 const index_1 = require("../experimental/index");
 /** Resize, close, minimize, or maximize the browser window. */
@@ -158,13 +157,6 @@ async function onVerifyElementVisible(ctx, args, options) {
 async function onListExtensions(ctx, options) {
     const result = await ctx.ext.sendCmd('listExtensions', {});
     return ctx.formatResult('browser_list_extensions', result, options);
-}
-/** Reload an unpacked (developer) Chrome extension by name. */
-async function onReloadExtensions(ctx, args, options) {
-    const result = await ctx.ext.sendCmd('reloadExtension', {
-        extensionName: args.extensionName,
-    });
-    return ctx.formatResult('browser_reload_extensions', result, options);
 }
 /**
  * Collect Web Vitals (TTFB, FCP, DOM Content Loaded, Load) from the

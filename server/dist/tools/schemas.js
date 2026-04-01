@@ -367,17 +367,6 @@ function getToolSchemas() {
             inputSchema: { type: 'object', properties: {} },
             annotations: { title: 'List extensions', readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        {
-            name: 'browser_reload_extensions',
-            description: 'Reload an unpacked (developer) extension by name.',
-            inputSchema: {
-                type: 'object',
-                properties: {
-                    extensionName: { type: 'string', description: 'Extension name to reload (must be unpacked)' },
-                },
-            },
-            annotations: { title: 'Reload extensions', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-        },
         // ── Performance ──
         {
             name: 'browser_performance_metrics',
