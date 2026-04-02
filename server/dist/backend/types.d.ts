@@ -8,6 +8,7 @@
  * @module backend/types
  */
 import type { IExtensionTransport } from '../bridge';
+import type { AuditLogger } from '../audit-logger';
 /** Server configuration resolved from CLI options and environment variables. */
 export interface BackendConfig {
     debug: boolean;
@@ -50,6 +51,7 @@ export interface ConnectionManagerAPI {
     clientId: string | null;
     connectedBrowserName: string | null;
     attachedTab: TabInfo | null;
+    auditLogger: AuditLogger | null;
     daemonCapabilities: {
         profiles: boolean;
     } | null;

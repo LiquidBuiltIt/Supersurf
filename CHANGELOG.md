@@ -4,6 +4,15 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
+## 1.6.5 — 2026-04-01
+
+- feat: show tethered profile name in extension popup — makes identity theft between managed profiles immediately visible
+- fix: version bump rollback now restores version files to previous version instead of leaving them bumped
+
+## 1.6.4 — 2026-03-31
+
+- chore: remove `browser_reload_extensions` — fatal for managed profiles
+
 ## 1.6.0 — 2026-03-28
 
 - feat: targeted tool tips — 14 contextual hints appended to tool responses when agents use `browser_evaluate` for things purpose-built tools already handle (clicks, scrolls, value setting, DOM reads, position lookups, style inspection, innerHTML extraction)

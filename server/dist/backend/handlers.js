@@ -158,7 +158,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         index_1.experimentRegistry.bind(client);
         const BB = await getBrowserBridge();
         mgr.bridge = new BB(mgr.config, mgr.extensionServer);
-        await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr);
+        await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr, mgr.auditLogger);
         mgr.state = 'active';
         mgr.connectedBrowserName = client.browser;
         // Store daemon capabilities

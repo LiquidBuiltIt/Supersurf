@@ -20,6 +20,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { IExtensionTransport } from './bridge';
+import { AuditLogger } from './audit-logger';
 import { createLog } from './logger';
 
 // Re-export types so existing imports from './backend' still work
@@ -58,6 +59,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
   connectedBrowserName: string | null = null;
   attachedTab: TabInfo | null = null;
   stealthMode: boolean = false;
+  auditLogger: AuditLogger | null = null;
   daemonCapabilities: { profiles: boolean } | null = null;
   server: Server | null = null;
   clientInfo: Record<string, unknown> = {};
@@ -127,33 +129,104 @@ export class ConnectionManager implements ConnectionManagerAPI {
   ): Promise<any> {
     log(`callTool(${name}) — state: ${this.state}`);
 
-    switch (name) {
-      case 'connect':
-        return await onConnect(this, rawArguments, options);
-      case 'disconnect':
-        return await onDisconnect(this, options);
-      case 'status':
-        return await onStatus(this, options);
-      case 'experimental_features':
-        return await onExperimentalFeatures(this, rawArguments, options);
-      case 'reload_mcp':
-        return onReloadMCP(this, options);
-      case 'profile_create':
-      case 'profile_list':
-      case 'profile_delete': {
-        if (!this.extensionServer) {
-          const msg = 'Not connected to service. Call `connect` first, then use profile tools.';
-          if (options.rawResult) return { success: false, error: 'not_connected', message: msg };
-          return { content: [{ type: 'text', text: msg }], isError: true };
+    const start = Date.now();
+
+    const BACKEND_TOOLS = new Set([
+      'connect', 'disconnect', 'status', 'experimental_features', 'reload_mcp',
+      'profile_create', 'profile_list', 'profile_delete',
+    ]);
+
+    if (BACKEND_TOOLS.has(name)) {
+      // Create audit logger on connect (before handler, so it captures the connect call itself)
+      if (name === 'connect' && !this.auditLogger && rawArguments.client_id) {
+        this.auditLogger = new AuditLogger(String(rawArguments.client_id));
+      }
+
+      let result: any;
+      try {
+        switch (name) {
+          case 'connect':
+            result = await onConnect(this, rawArguments, options);
+            break;
+          case 'disconnect':
+            result = await onDisconnect(this, options);
+            break;
+          case 'status':
+            result = await onStatus(this, options);
+            break;
+          case 'experimental_features':
+            result = await onExperimentalFeatures(this, rawArguments, options);
+            break;
+          case 'reload_mcp':
+            result = onReloadMCP(this, options);
+            break;
+          case 'profile_create':
+          case 'profile_list':
+          case 'profile_delete': {
+            if (!this.extensionServer) {
+              const msg = 'Not connected to service. Call `connect` first, then use profile tools.';
+              if (options.rawResult) result = { success: false, error: 'not_connected', message: msg };
+              else result = { content: [{ type: 'text', text: msg }], isError: true };
+              break;
+            }
+            if (!this.daemonCapabilities?.profiles) {
+              const msg = 'Profile management is not enabled on the daemon. Set `SUPERSURF_EXPERIMENTS=profiles` in your environment and restart the session.';
+              if (options.rawResult) result = { success: false, error: 'profiles_not_enabled', message: msg };
+              else result = { content: [{ type: 'text', text: msg }], isError: true };
+              break;
+            }
+            if (name === 'profile_create') result = await onProfileCreate(this, rawArguments, options);
+            else if (name === 'profile_list') result = await onProfileList(this, options);
+            else result = await onProfileDelete(this, rawArguments, options);
+            break;
+          }
         }
-        if (!this.daemonCapabilities?.profiles) {
-          const msg = 'Profile management is not enabled on the daemon. Set `SUPERSURF_EXPERIMENTS=profiles` in your environment and restart the session.';
-          if (options.rawResult) return { success: false, error: 'profiles_not_enabled', message: msg };
-          return { content: [{ type: 'text', text: msg }], isError: true };
+
+        // Audit log the backend tool call
+        const isError = result?.isError === true || result?.success === false;
+        const entry: any = {
+          session_id: this.clientId || 'unknown',
+          tool: name,
+          params: rawArguments,
+          result: isError ? 'error' : 'ok',
+          duration_ms: Date.now() - start,
+        };
+        if (isError) {
+          entry.error = result?.error || result?.content?.[0]?.text || 'unknown error';
         }
-        if (name === 'profile_create') return await onProfileCreate(this, rawArguments, options);
-        if (name === 'profile_list') return await onProfileList(this, options);
-        return await onProfileDelete(this, rawArguments, options);
+        if (name === 'connect' && this.clientInfo) {
+          const ci = this.clientInfo as Record<string, unknown>;
+          if (ci.name || ci.version) {
+            entry.client = {
+              name: String(ci.name || 'unknown'),
+              version: String(ci.version || 'unknown'),
+            };
+          }
+        }
+        this.auditLogger?.write(entry);
+
+        return result;
+      } catch (err: any) {
+        // Audit log the error
+        const entry: any = {
+          session_id: this.clientId || 'unknown',
+          tool: name,
+          params: rawArguments,
+          result: 'error' as const,
+          error: err?.message || String(err),
+          duration_ms: Date.now() - start,
+        };
+        if (name === 'connect' && this.clientInfo) {
+          const ci = this.clientInfo as Record<string, unknown>;
+          if (ci.name || ci.version) {
+            entry.client = {
+              name: String(ci.name || 'unknown'),
+              version: String(ci.version || 'unknown'),
+            };
+          }
+        }
+        this.auditLogger?.write(entry);
+        throw err;
       }
     }
 

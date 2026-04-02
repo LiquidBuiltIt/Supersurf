@@ -4,6 +4,7 @@ knowledge/
 .claude/
 research/
 .dialup.config.json
+.superpowers/
 
 # Dependencies
 node_modules/

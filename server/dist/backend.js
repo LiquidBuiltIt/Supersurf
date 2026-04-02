@@ -53,6 +53,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConnectionManager = void 0;
+const audit_logger_1 = require("./audit-logger");
 const logger_1 = require("./logger");
 const status_1 = require("./backend/status");
 const schemas_1 = require("./backend/schemas");
@@ -82,6 +83,7 @@ class ConnectionManager {
     connectedBrowserName = null;
     attachedTab = null;
     stealthMode = false;
+    auditLogger = null;
     daemonCapabilities = null;
     server = null;
     clientInfo = {};
@@ -133,37 +135,107 @@ class ConnectionManager {
      */
     async callTool(name, rawArguments = {}, options = {}) {
         log(`callTool(${name}) — state: ${this.state}`);
-        switch (name) {
-            case 'connect':
-                return await (0, handlers_1.onConnect)(this, rawArguments, options);
-            case 'disconnect':
-                return await (0, handlers_1.onDisconnect)(this, options);
-            case 'status':
-                return await (0, handlers_1.onStatus)(this, options);
-            case 'experimental_features':
-                return await (0, handlers_1.onExperimentalFeatures)(this, rawArguments, options);
-            case 'reload_mcp':
-                return (0, handlers_1.onReloadMCP)(this, options);
-            case 'profile_create':
-            case 'profile_list':
-            case 'profile_delete': {
-                if (!this.extensionServer) {
-                    const msg = 'Not connected to service. Call `connect` first, then use profile tools.';
-                    if (options.rawResult)
-                        return { success: false, error: 'not_connected', message: msg };
-                    return { content: [{ type: 'text', text: msg }], isError: true };
+        const start = Date.now();
+        const BACKEND_TOOLS = new Set([
+            'connect', 'disconnect', 'status', 'experimental_features', 'reload_mcp',
+            'profile_create', 'profile_list', 'profile_delete',
+        ]);
+        if (BACKEND_TOOLS.has(name)) {
+            // Create audit logger on connect (before handler, so it captures the connect call itself)
+            if (name === 'connect' && !this.auditLogger && rawArguments.client_id) {
+                this.auditLogger = new audit_logger_1.AuditLogger(String(rawArguments.client_id));
+            }
+            let result;
+            try {
+                switch (name) {
+                    case 'connect':
+                        result = await (0, handlers_1.onConnect)(this, rawArguments, options);
+                        break;
+                    case 'disconnect':
+                        result = await (0, handlers_1.onDisconnect)(this, options);
+                        break;
+                    case 'status':
+                        result = await (0, handlers_1.onStatus)(this, options);
+                        break;
+                    case 'experimental_features':
+                        result = await (0, handlers_1.onExperimentalFeatures)(this, rawArguments, options);
+                        break;
+                    case 'reload_mcp':
+                        result = (0, handlers_1.onReloadMCP)(this, options);
+                        break;
+                    case 'profile_create':
+                    case 'profile_list':
+                    case 'profile_delete': {
+                        if (!this.extensionServer) {
+                            const msg = 'Not connected to service. Call `connect` first, then use profile tools.';
+                            if (options.rawResult)
+                                result = { success: false, error: 'not_connected', message: msg };
+                            else
+                                result = { content: [{ type: 'text', text: msg }], isError: true };
+                            break;
+                        }
+                        if (!this.daemonCapabilities?.profiles) {
+                            const msg = 'Profile management is not enabled on the daemon. Set `SUPERSURF_EXPERIMENTS=profiles` in your environment and restart the session.';
+                            if (options.rawResult)
+                                result = { success: false, error: 'profiles_not_enabled', message: msg };
+                            else
+                                result = { content: [{ type: 'text', text: msg }], isError: true };
+                            break;
+                        }
+                        if (name === 'profile_create')
+                            result = await (0, handlers_1.onProfileCreate)(this, rawArguments, options);
+                        else if (name === 'profile_list')
+                            result = await (0, handlers_1.onProfileList)(this, options);
+                        else
+                            result = await (0, handlers_1.onProfileDelete)(this, rawArguments, options);
+                        break;
+                    }
                 }
-                if (!this.daemonCapabilities?.profiles) {
-                    const msg = 'Profile management is not enabled on the daemon. Set `SUPERSURF_EXPERIMENTS=profiles` in your environment and restart the session.';
-                    if (options.rawResult)
-                        return { success: false, error: 'profiles_not_enabled', message: msg };
-                    return { content: [{ type: 'text', text: msg }], isError: true };
+                // Audit log the backend tool call
+                const isError = result?.isError === true || result?.success === false;
+                const entry = {
+                    session_id: this.clientId || 'unknown',
+                    tool: name,
+                    params: rawArguments,
+                    result: isError ? 'error' : 'ok',
+                    duration_ms: Date.now() - start,
+                };
+                if (isError) {
+                    entry.error = result?.error || result?.content?.[0]?.text || 'unknown error';
                 }
-                if (name === 'profile_create')
-                    return await (0, handlers_1.onProfileCreate)(this, rawArguments, options);
-                if (name === 'profile_list')
-                    return await (0, handlers_1.onProfileList)(this, options);
-                return await (0, handlers_1.onProfileDelete)(this, rawArguments, options);
+                if (name === 'connect' && this.clientInfo) {
+                    const ci = this.clientInfo;
+                    if (ci.name || ci.version) {
+                        entry.client = {
+                            name: String(ci.name || 'unknown'),
+                            version: String(ci.version || 'unknown'),
+                        };
+                    }
+                }
+                this.auditLogger?.write(entry);
+                return result;
+            }
+            catch (err) {
+                // Audit log the error
+                const entry = {
+                    session_id: this.clientId || 'unknown',
+                    tool: name,
+                    params: rawArguments,
+                    result: 'error',
+                    error: err?.message || String(err),
+                    duration_ms: Date.now() - start,
+                };
+                if (name === 'connect' && this.clientInfo) {
+                    const ci = this.clientInfo;
+                    if (ci.name || ci.version) {
+                        entry.client = {
+                            name: String(ci.name || 'unknown'),
+                            version: String(ci.version || 'unknown'),
+                        };
+                    }
+                }
+                this.auditLogger?.write(entry);
+                throw err;
             }
         }
         // Forward to active bridge

@@ -254,4 +254,58 @@ describe('AuditLogger', () => {
     const entry = JSON.parse(lines[lines.length - 1]);
     expect(entry.tip).toBeUndefined();
   });
+
+  it('includes client field when provided', () => {
+    const logger = new AuditLogger('test', tempDir);
+    logger.write({
+      session_id: 'test',
+      tool: 'connect',
+      params: { client_id: 'my-session' },
+      result: 'ok',
+      duration_ms: 500,
+      client: { name: 'claude-code', version: '1.0.0' },
+    });
+
+    const content = fs.readFileSync(logger.getPath(), 'utf8');
+    const entry = JSON.parse(content.trim());
+    expect(entry.client).toEqual({ name: 'claude-code', version: '1.0.0' });
+  });
+
+  it('includes experiments snapshot when provided', () => {
+    const logger = new AuditLogger('test', tempDir);
+    logger.write({
+      session_id: 'test',
+      tool: 'browser_interact',
+      params: { action: 'click' },
+      result: 'ok',
+      duration_ms: 42,
+      experiments: { page_diffing: true, smart_waiting: false, mouse_humanization: true, secure_eval: false, storage_inspection: false },
+    });
+
+    const content = fs.readFileSync(logger.getPath(), 'utf8');
+    const entry = JSON.parse(content.trim());
+    expect(entry.experiments).toEqual({
+      page_diffing: true,
+      smart_waiting: false,
+      mouse_humanization: true,
+      secure_eval: false,
+      storage_inspection: false,
+    });
+  });
+
+  it('omits client and experiments when not provided', () => {
+    const logger = new AuditLogger('test', tempDir);
+    logger.write({
+      session_id: 'test',
+      tool: 'browser_snapshot',
+      params: {},
+      result: 'ok',
+      duration_ms: 10,
+    });
+
+    const content = fs.readFileSync(logger.getPath(), 'utf8');
+    const entry = JSON.parse(content.trim());
+    expect(entry.client).toBeUndefined();
+    expect(entry.experiments).toBeUndefined();
+  });
 });

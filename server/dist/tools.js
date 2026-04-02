@@ -51,11 +51,11 @@ class BrowserBridge {
      * Bind the MCP server, client metadata, and connection manager.
      * Must be called before any tool dispatch.
      */
-    async initialize(server, clientInfo, connectionManager) {
+    async initialize(server, clientInfo, connectionManager, auditLogger) {
         this.server = server;
         this.clientInfo = clientInfo;
         this.connectionManager = connectionManager;
-        this.auditLogger = new audit_logger_1.AuditLogger(connectionManager?.clientId ?? 'unknown');
+        this.auditLogger = auditLogger ?? new audit_logger_1.AuditLogger(connectionManager?.clientId ?? 'unknown');
     }
     /** Cleanup hook called when the MCP server shuts down. */
     serverClosed() {
@@ -280,6 +280,7 @@ class BrowserBridge {
                 params: args,
                 result: callResult,
                 error: callError,
+                experiments: index_1.experimentRegistry.getStates(),
                 duration_ms: Date.now() - start,
             });
             return response;
@@ -397,6 +398,7 @@ class BrowserBridge {
                 result: callResult,
                 error: callError,
                 url,
+                experiments: index_1.experimentRegistry.getStates(),
                 duration_ms: Date.now() - start,
                 ...(tip ? { tip } : {}),
             });

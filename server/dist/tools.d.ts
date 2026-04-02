@@ -12,6 +12,7 @@
  */
 import type { IExtensionTransport } from './bridge';
 import type { ToolSchema } from './tools/types';
+import { AuditLogger } from './audit-logger';
 /**
  * Orchestrates all browser tool execution.
  *
@@ -31,7 +32,7 @@ export declare class BrowserBridge {
      * Bind the MCP server, client metadata, and connection manager.
      * Must be called before any tool dispatch.
      */
-    initialize(server: any, clientInfo: any, connectionManager?: any): Promise<void>;
+    initialize(server: any, clientInfo: any, connectionManager?: any, auditLogger?: AuditLogger): Promise<void>;
     /** Cleanup hook called when the MCP server shuts down. */
     serverClosed(): void;
     /** Build the context object that tool handlers receive */

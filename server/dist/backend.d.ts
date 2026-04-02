@@ -19,6 +19,7 @@
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { IExtensionTransport } from './bridge';
+import { AuditLogger } from './audit-logger';
 export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend/types';
 import type { BackendConfig, TabInfo, BackendState, ToolSchema, ConnectionManagerAPI } from './backend/types';
 /**
@@ -35,6 +36,7 @@ export declare class ConnectionManager implements ConnectionManagerAPI {
     connectedBrowserName: string | null;
     attachedTab: TabInfo | null;
     stealthMode: boolean;
+    auditLogger: AuditLogger | null;
     daemonCapabilities: {
         profiles: boolean;
     } | null;

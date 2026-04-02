@@ -15,7 +15,7 @@ import type { IExtensionTransport } from './bridge';
 import type { ToolSchema, ToolContext } from './tools/types';
 import { createLog } from './logger';
 import { AuditLogger } from './audit-logger';
-import { getExperimentalToolSchemas, callExperimentalTool } from './experimental/index';
+import { getExperimentalToolSchemas, callExperimentalTool, experimentRegistry } from './experimental/index';
 import { getTip } from './tips';
 
 // Tool modules
@@ -61,11 +61,11 @@ export class BrowserBridge {
    * Bind the MCP server, client metadata, and connection manager.
    * Must be called before any tool dispatch.
    */
-  async initialize(server: any, clientInfo: any, connectionManager?: any): Promise<void> {
+  async initialize(server: any, clientInfo: any, connectionManager?: any, auditLogger?: AuditLogger): Promise<void> {
     this.server = server;
     this.clientInfo = clientInfo;
     this.connectionManager = connectionManager;
-    this.auditLogger = new AuditLogger(connectionManager?.clientId ?? 'unknown');
+    this.auditLogger = auditLogger ?? new AuditLogger(connectionManager?.clientId ?? 'unknown');
   }
 
   /** Cleanup hook called when the MCP server shuts down. */
@@ -318,6 +318,7 @@ export class BrowserBridge {
         params: args,
         result: callResult,
         error: callError,
+        experiments: experimentRegistry.getStates(),
         duration_ms: Date.now() - start,
       });
       return response;
@@ -397,6 +398,7 @@ export class BrowserBridge {
         result: callResult,
         error: callError,
         url,
+        experiments: experimentRegistry.getStates(),
         duration_ms: Date.now() - start,
         ...(tip ? { tip } : {}),
       });

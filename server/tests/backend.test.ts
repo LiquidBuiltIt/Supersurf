@@ -60,6 +60,16 @@ vi.mock('../src/daemon-spawn', () => ({
   getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
 }));
 
+// Mock AuditLogger
+const mockAuditWrite = vi.fn();
+const mockAuditGetPath = vi.fn().mockReturnValue('/tmp/audit.ndjson');
+vi.mock('../src/audit-logger', () => ({
+  AuditLogger: vi.fn(function () {
+    return { write: mockAuditWrite, getPath: mockAuditGetPath };
+  }),
+  redactParams: vi.fn((p: any) => p),
+}));
+
 // Mock the tools module (lazy import) — BrowserBridge
 const mockBridgeInstance = {
   initialize: vi.fn().mockResolvedValue(undefined),
@@ -108,6 +118,7 @@ describe('ConnectionManager', () => {
     mockDaemonClientInstance.browser = 'chrome';
     mockDaemonClientInstance.onReconnect = null;
     mockDaemonClientInstance.onTabInfoUpdate = null;
+    mockAuditWrite.mockClear();
 
     backend = new ConnectionManager(makeConfig());
   });
@@ -684,6 +695,108 @@ describe('ConnectionManager', () => {
       await backend.serverClosed();
       const status = await backend.callTool('status', {}, { rawResult: true });
       expect(status.state).toBe('passive');
+    });
+  });
+
+  // ---- Audit logging of backend tools ----
+
+  describe('audit logging', () => {
+    beforeEach(async () => {
+      await backend.initialize(makeMockServer(), {});
+    });
+
+    it('connect creates an audit logger and logs the connect call', async () => {
+      const { AuditLogger } = await import('../src/audit-logger');
+
+      await backend.callTool('connect', { client_id: 'audit-test' });
+
+      expect(AuditLogger).toHaveBeenCalledWith('audit-test');
+      expect(mockAuditWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          session_id: 'audit-test',
+          tool: 'connect',
+          result: 'ok',
+        })
+      );
+    });
+
+    it('disconnect logs to the audit logger', async () => {
+      await backend.callTool('connect', { client_id: 'test' });
+      mockAuditWrite.mockClear();
+
+      await backend.callTool('disconnect');
+
+      expect(mockAuditWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool: 'disconnect',
+          result: 'ok',
+        })
+      );
+    });
+
+    it('status logs to the audit logger', async () => {
+      await backend.callTool('connect', { client_id: 'test' });
+      mockAuditWrite.mockClear();
+
+      await backend.callTool('status');
+
+      expect(mockAuditWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool: 'status',
+          result: 'ok',
+        })
+      );
+    });
+
+    it('experimental_features logs to the audit logger with params', async () => {
+      await backend.callTool('connect', { client_id: 'test' });
+      mockAuditWrite.mockClear();
+
+      await backend.callTool('experimental_features', { page_diffing: true });
+
+      expect(mockAuditWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool: 'experimental_features',
+          params: { page_diffing: true },
+          result: 'ok',
+        })
+      );
+    });
+
+    it('connect includes client metadata when clientInfo has name/version', async () => {
+      await backend.initialize(makeMockServer(), { name: 'claude-desktop', version: '2.1.0' });
+
+      await backend.callTool('connect', { client_id: 'meta-test' });
+
+      expect(mockAuditWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool: 'connect',
+          client: { name: 'claude-desktop', version: '2.1.0' },
+        })
+      );
+    });
+
+    it('failed connect still creates logger and logs the error', async () => {
+      const { AuditLogger } = await import('../src/audit-logger');
+      // Missing client_id triggers a validation error (not a throw)
+      const result = await backend.callTool('connect', {}, { rawResult: true });
+
+      expect(result.success).toBe(false);
+      // Logger is NOT created when client_id is missing (no session to bind to)
+      // But if client_id is present and the daemon fails:
+      mockAuditWrite.mockClear();
+      (AuditLogger as any).mockClear();
+      mockDaemonClientInstance.start.mockRejectedValueOnce(new Error('Connection refused'));
+
+      const result2 = await backend.callTool('connect', { client_id: 'fail-test' }, { rawResult: true });
+      expect(result2.success).toBe(false);
+      expect(AuditLogger).toHaveBeenCalledWith('fail-test');
+      expect(mockAuditWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool: 'connect',
+          result: 'error',
+        })
+      );
     });
   });
 

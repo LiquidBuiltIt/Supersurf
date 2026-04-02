@@ -48,6 +48,8 @@ export interface AuditEntry {
   url?: string;
   duration_ms: number;
   tip?: string;
+  client?: { name: string; version: string };
+  experiments?: Record<string, boolean>;
 }
 
 export class AuditLogger {
