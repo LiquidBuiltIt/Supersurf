@@ -20,6 +20,64 @@ import { createLog } from '../logger';
 const log = createLog('[Interact]');
 
 /**
+ * Pure-JS option matcher used by `select_custom`.
+ *
+ * Inlined into the page-context eval AND independently unit-tested via
+ * `new Function(OPTION_MATCHER_JS + '...')`. Both call sites share the same
+ * source string so behavior cannot drift.
+ *
+ * Match strategy (lowest score = best match):
+ *   0 — exact normalized match (whitespace-collapsed, case-insensitive)
+ *   1 — alphanumeric-only equality (ignores all spaces/punctuation)
+ *   2 — candidate text/value startsWith target
+ *   3 — alphanumeric-only startsWith
+ *   4 — candidate includes target as substring
+ *   5 — alphanumeric-only substring
+ *
+ * Tie-breaker at the same score: shortest candidate text wins (most specific).
+ *
+ * Designed to recover from real-world ATS mismatches like
+ *   target "United States" vs option "United States +1"
+ *   target "United States +1" vs option "United States+1" (no space)
+ *
+ * Returns the index of the best candidate, or -1 if no match.
+ */
+export const OPTION_MATCHER_JS = `
+function matchOption(target, candidates) {
+  if (!target || !candidates || candidates.length === 0) return -1;
+  var norm = function (s) { return (s || '').toLowerCase().replace(/\\s+/g, ' ').trim(); };
+  var alnum = function (s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); };
+  var t = norm(target);
+  var ta = alnum(target);
+  if (!t && !ta) return -1;
+  var best = -1;
+  var bestScore = 999;
+  var bestLen = Infinity;
+  for (var i = 0; i < candidates.length; i++) {
+    var c = candidates[i] || {};
+    var text = norm(c.text);
+    var value = norm(c.value);
+    var textA = alnum(c.text);
+    var valueA = alnum(c.value);
+    var score = 999;
+    if (t && (text === t || value === t)) score = 0;
+    else if (ta && (textA === ta || valueA === ta)) score = 1;
+    else if (t && (text.startsWith(t) || value.startsWith(t))) score = 2;
+    else if (ta && (textA.startsWith(ta) || valueA.startsWith(ta))) score = 3;
+    else if (t && (text.includes(t) || value.includes(t))) score = 4;
+    else if (ta && (textA.includes(ta) || valueA.includes(ta))) score = 5;
+    var len = (c.text || '').length;
+    if (score < bestScore || (score === bestScore && len < bestLen)) {
+      bestScore = score;
+      best = i;
+      bestLen = len;
+    }
+  }
+  return bestScore < 999 ? best : -1;
+}
+`;
+
+/**
  * Detect tabs spawned by a click action (window.open, target="_blank", etc.).
  * Non-blocking — errors are swallowed so the click response always succeeds.
  */
@@ -85,7 +143,12 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
   for (const action of actions) {
     try {
       const msg = await executeAction(ctx, action);
-      results.push(`✓ ${action.type}: ${msg}`);
+      // Handlers may return a message starting with `⚠ ` to signal a soft
+      // unverified result (mutation ran but post-action read-back didn't
+      // confirm). Strip the marker and use it as the line prefix instead of ✓.
+      const isWarn = typeof msg === 'string' && msg.startsWith('⚠ ');
+      const body = isWarn ? msg.slice(2) : msg;
+      results.push(`${isWarn ? '⚠' : '✓'} ${action.type}: ${body}`);
     } catch (error: any) {
       results.push(`✗ ${action.type}: ${error.message}`);
       if (onError === 'stop') break;
@@ -451,8 +514,8 @@ async function executeAction(ctx: ToolContext, action: any): Promise<string> {
       // that appeared AFTER the click (scopes to this dropdown, not others)
       const optionResult = await ctx.eval(`
         (() => {
+          ${OPTION_MATCHER_JS}
           const target = ${JSON.stringify(targetValue)};
-          const targetLower = target.toLowerCase();
           const beforeIds = new Set(${JSON.stringify(beforeSnapshot)});
 
           const optionSelectors = [
@@ -485,24 +548,27 @@ async function executeAction(ctx: ToolContext, action: any): Promise<string> {
             return all;
           })();
 
-          // Search candidates for matching option
-          for (const opt of candidates) {
-            const text = opt.textContent?.trim() || '';
-            const value = opt.getAttribute('data-value') || opt.getAttribute('value') || '';
-            if (text.toLowerCase() === targetLower || value.toLowerCase() === targetLower) {
-              opt.scrollIntoView({ block: 'nearest' });
-              opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-              opt.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-              opt.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-              return { found: true, optionText: text || value };
-            }
+          // Build the {text, value} pairs the matcher expects
+          const pairs = candidates.map((opt) => ({
+            text: opt.textContent?.trim() || '',
+            value: opt.getAttribute('data-value') || opt.getAttribute('value') || '',
+          }));
+
+          const idx = matchOption(target, pairs);
+          if (idx >= 0) {
+            const opt = candidates[idx];
+            const matched = pairs[idx];
+            opt.scrollIntoView({ block: 'nearest' });
+            opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            opt.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            opt.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            return { found: true, optionText: matched.text || matched.value };
           }
 
           // Collect available options for error message
           const available = [];
-          for (const opt of candidates) {
-            const t = opt.textContent?.trim();
-            if (t && !available.includes(t)) available.push(t);
+          for (const p of pairs) {
+            if (p.text && !available.includes(p.text)) available.push(p.text);
           }
           return { found: false, available: available.slice(0, 20) };
         })()
@@ -518,7 +584,24 @@ async function executeAction(ctx: ToolContext, action: any): Promise<string> {
       // Brief wait for selection to register
       await ctx.sleep(150);
 
-      return `Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector}`;
+      // Post-action read-back: confirm the trigger element's visible text changed.
+      // React-Select / Headless UI / Radix Select all update the trigger label
+      // on selection. If the text is identical to the pre-click snapshot, the
+      // click did not propagate to component state — likely a fiber/state issue.
+      const verification: any = await ctx.eval(`
+        (() => {
+          const el = ${expr};
+          if (!el) return { verified: false, currentText: '' };
+          const currentText = el.textContent?.trim().substring(0, 100) || '';
+          const before = ${JSON.stringify(detection.triggerText)};
+          return { verified: currentText !== before, currentText };
+        })()
+      `);
+
+      if (verification?.verified) {
+        return `Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector}`;
+      }
+      return `⚠ Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector} (unverified — trigger text unchanged after option click; the dropdown may not have committed selection state)`;
     }
 
     case 'file_upload': {
@@ -533,7 +616,24 @@ async function executeAction(ctx: ToolContext, action: any): Promise<string> {
         files: action.files,
         backendNodeId: nodeResult.node.backendNodeId,
       });
-      return `Uploaded ${action.files.length} file(s) to ${action.selector}`;
+
+      // Post-action read-back: confirm the input now reports the expected file count.
+      // setFileInputFiles is a CDP-only operation that doesn't always fire 'change',
+      // so the page-level state (and any React listeners) may not see the upload.
+      const verification: any = await ctx.eval(`
+        (() => {
+          const el = document.querySelector(${JSON.stringify(action.selector)});
+          if (!el) return { verified: false, count: 0 };
+          const count = el.files ? el.files.length : 0;
+          return { verified: count === ${action.files.length}, count };
+        })()
+      `);
+
+      const expectedCount = action.files.length;
+      if (verification?.verified) {
+        return `Uploaded ${expectedCount} file(s) to ${action.selector}`;
+      }
+      return `⚠ Uploaded ${expectedCount} file(s) to ${action.selector} (unverified — input reports ${verification?.count ?? 0} file(s) after upload; the page may not have observed the change)`;
     }
 
     case 'force_pseudo_state': {

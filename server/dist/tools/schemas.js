@@ -65,7 +65,8 @@ function getToolSchemas() {
         // ── Interaction ──
         {
             name: 'browser_interact',
-            description: 'Run a sequence of page interactions: click, type, press keys, hover, scroll, wait, select (native or custom dropdowns), upload files, or force pseudo-states.',
+            description: 'Run a sequence of page interactions: click, type, press keys, hover, scroll, wait, select (native or custom dropdowns), upload files, or force pseudo-states. ' +
+                '`select_custom` and `file_upload` return `✓` (verified) or `⚠` (unverified — re-check before submitting).',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -240,7 +241,8 @@ function getToolSchemas() {
         // ── Forms ──
         {
             name: 'browser_fill_form',
-            description: 'Set values on multiple form fields at once.',
+            description: 'Set values on multiple form fields at once. ' +
+                'Returns one line per field prefixed with `✓` (verified — DOM value matches) or `⚠` (mutation ran but read-back didn\'t confirm; the field may need re-verification before form submission).',
             inputSchema: {
                 type: 'object',
                 properties: {

@@ -4,6 +4,14 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
+## 1.7.0 — 2026-04-08
+
+- fix: `browser_evaluate` function form now wraps as IIFE so arrow/async functions actually execute (previously returned `undefined`)
+- fix: `fill_form` selector escaping — selectors with single quotes (e.g. ATS UUID-attribute selectors `[id='uuid-...']`) no longer break the inline JS template
+- feat: `select_custom` fuzzy option matcher — 6-tier scoring (exact → alphanumeric → startsWith → substring) recovers from real-world ATS label mismatches like "United States" → "United States +1"
+- feat: post-action validation for `fill_form`, `select_custom`, and `file_upload` — tools now read back DOM state after the mutation and prefix results with `✓` (verified) or `⚠` (mutation ran but read-back didn't confirm)
+- docs: research note on the React value-tracker silent-failure mode for `fill_form` — DOM-level read-back is necessary but not sufficient to catch React state drift; fiber-walk verification deferred to a follow-up
+
 ## 1.6.5 — 2026-04-01
 
 - feat: show tethered profile name in extension popup — makes identity theft between managed profiles immediately visible

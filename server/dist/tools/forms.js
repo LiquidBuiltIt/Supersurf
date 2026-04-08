@@ -34,7 +34,7 @@ async function onFillForm(ctx, args, options) {
         await ctx.eval(`
       (async () => {
         const el = ${expr};
-        if (!el) throw new Error('Element not found: ${field.selector}');
+        if (!el) throw new Error('Element not found: ' + ${JSON.stringify(field.selector)});
         const tag = el.tagName;
         const type = el.type;
 
@@ -79,7 +79,31 @@ async function onFillForm(ctx, args, options) {
         el.dispatchEvent(new Event('blur', { bubbles: true }));
       })()
     `);
-        results.push(`✓ ${field.selector} = "${field.value}"`);
+        // Post-action read-back: confirm the DOM value reflects what we set.
+        // NOTE: This catches loud failures (wrong selector, disabled input, rejected value)
+        // but does NOT catch React's silent value-tracker drift. See
+        // docs/research/2026-04-08-fill-form-react-state-investigation.md for the
+        // tracker failure mode and the deferred fiber-walk follow-up.
+        const verification = await ctx.eval(`
+      (() => {
+        const el = ${expr};
+        if (!el) return { verified: false, actual: null };
+        const actual = (el.type === 'checkbox' || el.type === 'radio')
+          ? String(el.checked)
+          : (el.value ?? '');
+        const expected = ${JSON.stringify(String(field.value))};
+        return { verified: actual === expected, actual };
+      })()
+    `);
+        if (verification?.verified) {
+            results.push(`✓ ${field.selector} = "${field.value}"`);
+        }
+        else {
+            const actualStr = verification?.actual === null
+                ? 'element disappeared'
+                : `actual: "${verification?.actual ?? ''}"`;
+            results.push(`⚠ ${field.selector} = "${field.value}" (unverified — ${actualStr})`);
+        }
     }
     if (options.rawResult)
         return { success: true, fields: results };

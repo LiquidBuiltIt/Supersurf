@@ -25,6 +25,8 @@ describe('onFillForm()', () => {
   });
 
   it('fills multiple form fields', async () => {
+    (ctx.eval as any).mockResolvedValue({ verified: true, actual: 'x' });
+
     const result = await onFillForm(ctx, {
       fields: [
         { selector: '#name', value: 'John' },
@@ -32,12 +34,15 @@ describe('onFillForm()', () => {
       ],
     }, {});
 
-    expect(ctx.eval).toHaveBeenCalledTimes(2);
+    // 2 fields × (mutation + read-back) = 4 eval calls
+    expect(ctx.eval).toHaveBeenCalledTimes(4);
     expect(result.content[0].text).toContain('#name');
     expect(result.content[0].text).toContain('#email');
   });
 
   it('returns raw result', async () => {
+    (ctx.eval as any).mockResolvedValue({ verified: true, actual: 'John' });
+
     const result = await onFillForm(ctx, {
       fields: [{ selector: '#name', value: 'John' }],
     }, { rawResult: true });
@@ -47,15 +52,19 @@ describe('onFillForm()', () => {
   });
 
   it('dispatches focus, InputEvent, change, and blur events', async () => {
-    let evalCode = '';
+    const evalCalls: string[] = [];
     (ctx.eval as any).mockImplementation((code: string) => {
-      evalCode = code;
-      return Promise.resolve(undefined);
+      evalCalls.push(code);
+      // First call is mutation, second is read-back
+      if (evalCalls.length === 1) return Promise.resolve(undefined);
+      return Promise.resolve({ verified: true, actual: 'John' });
     });
 
     await onFillForm(ctx, {
       fields: [{ selector: '#name', value: 'John' }],
     }, {});
+
+    const evalCode = evalCalls[0];
 
     // Should dispatch focus before setting value
     expect(evalCode).toContain("dispatchEvent(new Event('focus'");
@@ -68,18 +77,106 @@ describe('onFillForm()', () => {
   });
 
   it('uses native prototype setter for input elements', async () => {
-    let evalCode = '';
+    const evalCalls: string[] = [];
     (ctx.eval as any).mockImplementation((code: string) => {
-      evalCode = code;
-      return Promise.resolve(undefined);
+      evalCalls.push(code);
+      if (evalCalls.length === 1) return Promise.resolve(undefined);
+      return Promise.resolve({ verified: true, actual: 'test@test.com' });
     });
 
     await onFillForm(ctx, {
       fields: [{ selector: '#email', value: 'test@test.com' }],
     }, {});
 
-    // Should still use the native setter pattern
-    expect(evalCode).toContain('Object.getOwnPropertyDescriptor(HTMLInputElement.prototype');
+    // Should still use the native setter pattern (in the mutation eval)
+    expect(evalCalls[0]).toContain('Object.getOwnPropertyDescriptor(HTMLInputElement.prototype');
+  });
+
+  it('escapes selectors containing single quotes (regression: ATS UUID-attribute selectors)', async () => {
+    // Real selector pattern observed in audit logs: [id='uuid-with-dashes']
+    // Previously, raw interpolation broke the JS template with
+    // "SyntaxError: missing ) after argument list".
+    const evalCalls: string[] = [];
+    (ctx.eval as any).mockImplementation((code: string) => {
+      evalCalls.push(code);
+      if (evalCalls.length === 1) return Promise.resolve(undefined);
+      return Promise.resolve({ verified: true, actual: 'jcrisptx@gmail.com' });
+    });
+
+    const tricky = "[id='0c54799f-3b5f-47f9-92cd-c67e6ad1c7e4']";
+    await onFillForm(ctx, {
+      fields: [{ selector: tricky, value: 'jcrisptx@gmail.com' }],
+    }, {});
+
+    // The generated JS must be parseable — no stray unescaped single quotes
+    // closing the error string early. Validate by parsing all eval calls.
+    for (const evalCode of evalCalls) {
+      expect(() => new Function(evalCode)).not.toThrow();
+    }
+  });
+
+  it('escapes values containing quotes, parens, and backticks', async () => {
+    const evalCalls: string[] = [];
+    (ctx.eval as any).mockImplementation((code: string) => {
+      evalCalls.push(code);
+      if (evalCalls.length === 1) return Promise.resolve(undefined);
+      return Promise.resolve({ verified: true, actual: `O'Brien (he/him) \`code\`` });
+    });
+
+    await onFillForm(ctx, {
+      fields: [{ selector: '#bio', value: `O'Brien (he/him) \`code\`` }],
+    }, {});
+
+    for (const evalCode of evalCalls) {
+      expect(() => new Function(evalCode)).not.toThrow();
+    }
+  });
+
+  describe('post-action validation', () => {
+    it('returns ✓ when read-back value matches intended value', async () => {
+      (ctx.eval as any)
+        .mockResolvedValueOnce(undefined) // mutation eval
+        .mockResolvedValueOnce({ verified: true, actual: 'John' }); // read-back eval
+
+      const result = await onFillForm(ctx, {
+        fields: [{ selector: '#name', value: 'John' }],
+      }, {});
+
+      expect(result.content[0].text).toContain('✓');
+      expect(result.content[0].text).toContain('#name');
+    });
+
+    it('returns ⚠ when read-back value differs from intended', async () => {
+      (ctx.eval as any)
+        .mockResolvedValueOnce(undefined) // mutation eval
+        .mockResolvedValueOnce({ verified: false, actual: '' }); // read-back: empty string
+
+      const result = await onFillForm(ctx, {
+        fields: [{ selector: '#name', value: 'John' }],
+      }, {});
+
+      expect(result.content[0].text).toContain('⚠');
+      expect(result.content[0].text).toContain('unverified');
+      expect(result.content[0].text).toContain('#name');
+    });
+
+    it('verifies each field independently in a multi-field fill', async () => {
+      (ctx.eval as any)
+        .mockResolvedValueOnce(undefined) // field 1 mutation
+        .mockResolvedValueOnce({ verified: true, actual: 'John' }) // field 1 read-back
+        .mockResolvedValueOnce(undefined) // field 2 mutation
+        .mockResolvedValueOnce({ verified: false, actual: '' }); // field 2 read-back
+
+      const result = await onFillForm(ctx, {
+        fields: [
+          { selector: '#name', value: 'John' },
+          { selector: '#email', value: 'john@test.com' },
+        ],
+      }, {});
+
+      expect(result.content[0].text).toContain('✓');
+      expect(result.content[0].text).toContain('⚠');
+    });
   });
 });
 

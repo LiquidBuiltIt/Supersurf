@@ -1,6 +1,6 @@
 {
   "name": "supersurf",
-  "version": "1.6.5",
+  "version": "1.7.0",
   "private": true,
   "description": "MCP browser automation for autonomous AI agents",
   "license": "Apache-2.0",
@@ -22,7 +22,7 @@
     "test.daemon": "cd daemon && npm test",
     "test": "npm run test.daemon && npm run test.server && npm run test.extension",
     "mcp": "claude mcp add supersurf -- node server/dist/cli.js",
-    "filesize": "find ./{shared,extension,server,daemon} -type f ! -path \"*/node_modules/*\" ! -path \"*/dist/*\" ! -name \"package-lock.json\" -exec wc -l {} + | sort -nr",
+    "filesize": "find ./{shared,extension,server,daemon} -type f ! -path \"*/node_modules/*\" ! -path \"*/dist/*\" ! -name \"package-lock.json\"  -name *.ts   -exec wc -l {} + | sort -nr",
     "version.bump": "npx tsx scripts/version.bump.ts",
     "cws.auth": "npx tsx scripts/cws.auth.ts",
     "cws.publish": "npx tsx scripts/cws.publish.ts",

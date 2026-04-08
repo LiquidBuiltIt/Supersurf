@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { onInteract } from '../src/tools/interaction';
+import { onInteract, OPTION_MATCHER_JS } from '../src/tools/interaction';
 import type { ToolContext } from '../src/tools/types';
+
+// Build a node-callable version of the page-context matcher.
+// This lets us test the same JS string that gets inlined into select_custom.
+const matchOption = new Function(
+  'target', 'candidates',
+  OPTION_MATCHER_JS + '\nreturn matchOption(target, candidates);'
+) as (target: string, candidates: Array<{ text: string; value?: string }>) => number;
 
 // Mock experimental registry
 vi.mock('../src/experimental/index', () => ({
@@ -168,7 +175,8 @@ describe('onInteract()', () => {
       .mockResolvedValueOnce({ found: true, triggerSelector: '.my-select', triggerText: 'Choose...' }) // detect
       .mockResolvedValueOnce([]) // before-snapshot (no pre-existing options)
       .mockResolvedValueOnce(undefined) // click trigger (DOM click)
-      .mockResolvedValueOnce({ found: true, optionText: 'Engineering' }); // find & click option
+      .mockResolvedValueOnce({ found: true, optionText: 'Engineering' }) // find & click option
+      .mockResolvedValueOnce({ verified: true, currentText: 'Engineering' }); // post-click read-back
 
     const result = await onInteract(ctx, {
       actions: [{ type: 'select_custom', selector: '.my-select', value: 'Engineering' }],
@@ -179,6 +187,40 @@ describe('onInteract()', () => {
     expect(ctx.eval).toHaveBeenCalled();
   });
 
+  describe('select_custom post-action validation', () => {
+    it('returns ✓ when trigger text changes to reflect the selection', async () => {
+      (ctx.eval as any)
+        .mockResolvedValueOnce({ found: true, triggerSelector: '.sel', triggerText: 'Choose...' }) // detect
+        .mockResolvedValueOnce([]) // before-snapshot
+        .mockResolvedValueOnce(undefined) // click trigger DOM fallback
+        .mockResolvedValueOnce({ found: true, optionText: 'Engineering' }) // option click
+        .mockResolvedValueOnce({ verified: true, currentText: 'Engineering' }); // post-click read-back
+
+      const result = await onInteract(ctx, {
+        actions: [{ type: 'select_custom', selector: '.sel', value: 'Engineering' }],
+      }, {});
+
+      expect(result.content[0].text).toContain('✓ select_custom');
+      expect(result.content[0].text).toContain('Engineering');
+    });
+
+    it('returns ⚠ when trigger text is unchanged after option click', async () => {
+      (ctx.eval as any)
+        .mockResolvedValueOnce({ found: true, triggerSelector: '.sel', triggerText: 'Choose...' })
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({ found: true, optionText: 'Engineering' })
+        .mockResolvedValueOnce({ verified: false, currentText: 'Choose...' });
+
+      const result = await onInteract(ctx, {
+        actions: [{ type: 'select_custom', selector: '.sel', value: 'Engineering' }],
+      }, {});
+
+      expect(result.content[0].text).toContain('⚠ select_custom');
+      expect(result.content[0].text).toContain('unverified');
+    });
+  });
+
   it('select_custom fails when no dropdown trigger found', async () => {
     (ctx.eval as any).mockResolvedValueOnce({ found: false });
 
@@ -187,6 +229,76 @@ describe('onInteract()', () => {
     }, {});
 
     expect(result.content[0].text).toContain('✗ select_custom');
+  });
+
+  describe('select_custom OPTION_MATCHER_JS (fuzzy match)', () => {
+    it('matches exactly when target equals option text', () => {
+      expect(matchOption('Engineering', [{ text: 'Engineering' }, { text: 'Design' }])).toBe(0);
+    });
+
+    it('is case-insensitive', () => {
+      expect(matchOption('engineering', [{ text: 'Engineering' }])).toBe(0);
+    });
+
+    it('returns -1 when no candidate matches', () => {
+      expect(matchOption('Yes', [{ text: 'No' }, { text: 'Maybe' }])).toBe(-1);
+    });
+
+    it('matches "United States" to "United States +1" via startsWith (real audit failure)', () => {
+      const candidates = [
+        { text: 'Afghanistan +93' },
+        { text: 'Albania +355' },
+        { text: 'United States +1' },
+        { text: 'United Kingdom +44' },
+      ];
+      expect(matchOption('United States', candidates)).toBe(2);
+    });
+
+    it('matches "United States" to "United States of America (+1)" via startsWith', () => {
+      const candidates = [{ text: 'Canada' }, { text: 'United States of America (+1)' }];
+      expect(matchOption('United States', candidates)).toBe(1);
+    });
+
+    it('matches "United States +1" to "United States+1" via alphanumeric normalization', () => {
+      // Real audit case: option had no space between country and code
+      const candidates = [
+        { text: 'Afghanistan+93' },
+        { text: 'United States+1' },
+      ];
+      expect(matchOption('United States +1', candidates)).toBe(1);
+    });
+
+    it('prefers shorter candidate when multiple match at same priority', () => {
+      // Both candidates start with "United States" → tiebreaker: shorter wins
+      const candidates = [
+        { text: 'United States of America' },
+        { text: 'United States +1' },
+      ];
+      expect(matchOption('United States', candidates)).toBe(1);
+    });
+
+    it('falls back to substring match', () => {
+      const candidates = [{ text: 'Republic of the United States' }];
+      expect(matchOption('United States', candidates)).toBe(0);
+    });
+
+    it('matches by value attribute too', () => {
+      const candidates = [{ text: '🇺🇸 USA', value: 'United States' }];
+      expect(matchOption('United States', candidates)).toBe(0);
+    });
+
+    it('handles empty inputs gracefully', () => {
+      expect(matchOption('', [{ text: 'foo' }])).toBe(-1);
+      expect(matchOption('foo', [])).toBe(-1);
+    });
+
+    it('exact match outranks startsWith from a longer option', () => {
+      const candidates = [
+        { text: 'United States of America' }, // startsWith score 2
+        { text: 'United States' },             // exact score 0
+      ];
+      expect(matchOption('United States', candidates)).toBe(1);
+    });
   });
 
   it('select_custom fails when option not found in listbox', async () => {
@@ -369,5 +481,41 @@ describe('onInteract()', () => {
 
     // sleep(350) should be called for scroll settlement
     expect(ctx.sleep).toHaveBeenCalledWith(350);
+  });
+
+  describe('file_upload post-action validation', () => {
+    it('returns ✓ when files are present after upload', async () => {
+      (ctx.cdp as any).mockImplementation((method: string) => {
+        if (method === 'Runtime.evaluate') return Promise.resolve({ result: { objectId: 'obj-1' } });
+        if (method === 'DOM.describeNode') return Promise.resolve({ node: { backendNodeId: 99 } });
+        if (method === 'DOM.setFileInputFiles') return Promise.resolve({});
+        return Promise.resolve({});
+      });
+      (ctx.eval as any).mockResolvedValue({ verified: true, count: 2 });
+
+      const result = await onInteract(ctx, {
+        actions: [{ type: 'file_upload', selector: 'input[type=file]', files: ['/tmp/a.pdf', '/tmp/b.pdf'] }],
+      }, {});
+
+      expect(result.content[0].text).toContain('✓ file_upload');
+      expect(result.content[0].text).toContain('Uploaded 2 file(s)');
+    });
+
+    it('returns ⚠ when files.length is 0 after upload', async () => {
+      (ctx.cdp as any).mockImplementation((method: string) => {
+        if (method === 'Runtime.evaluate') return Promise.resolve({ result: { objectId: 'obj-1' } });
+        if (method === 'DOM.describeNode') return Promise.resolve({ node: { backendNodeId: 99 } });
+        if (method === 'DOM.setFileInputFiles') return Promise.resolve({});
+        return Promise.resolve({});
+      });
+      (ctx.eval as any).mockResolvedValue({ verified: false, count: 0 });
+
+      const result = await onInteract(ctx, {
+        actions: [{ type: 'file_upload', selector: 'input[type=file]', files: ['/tmp/a.pdf'] }],
+      }, {});
+
+      expect(result.content[0].text).toContain('⚠ file_upload');
+      expect(result.content[0].text).toContain('unverified');
+    });
   });
 });

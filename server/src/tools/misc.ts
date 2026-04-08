@@ -51,7 +51,11 @@ export async function onDialog(ctx: ToolContext, args: any, options: any): Promi
  * @param args - `{ function?: string, expression?: string }`
  */
 export async function onEvaluate(ctx: ToolContext, args: any, options: any): Promise<any> {
-  const code = args.function || args.expression;
+  // Normalize function form to an IIFE expression so it actually executes.
+  // Without this wrap, an arrow function like `() => 42` parses as a bare
+  // function literal whose return value is discarded, yielding undefined.
+  const expression = args.function ? `(${args.function})()` : args.expression;
+  const code = expression;
 
   if (code && experimentRegistry.isEnabled('secure_eval')) {
     // Layer 1: Static AST analysis (~1ms)
@@ -109,8 +113,7 @@ export async function onEvaluate(ctx: ToolContext, args: any, options: any): Pro
   }
 
   const result = await ctx.ext.sendCmd('evaluate', {
-    function: args.function,
-    expression: args.expression,
+    expression,
   });
 
   if (options.rawResult) return result;

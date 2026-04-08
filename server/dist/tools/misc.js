@@ -54,7 +54,11 @@ async function onDialog(ctx, args, options) {
  * @param args - `{ function?: string, expression?: string }`
  */
 async function onEvaluate(ctx, args, options) {
-    const code = args.function || args.expression;
+    // Normalize function form to an IIFE expression so it actually executes.
+    // Without this wrap, an arrow function like `() => 42` parses as a bare
+    // function literal whose return value is discarded, yielding undefined.
+    const expression = args.function ? `(${args.function})()` : args.expression;
+    const code = expression;
     if (code && index_1.experimentRegistry.isEnabled('secure_eval')) {
         // Layer 1: Static AST analysis (~1ms)
         const analysis = (0, index_1.analyzeCode)(code);
@@ -101,8 +105,7 @@ async function onEvaluate(ctx, args, options) {
         }
     }
     const result = await ctx.ext.sendCmd('evaluate', {
-        function: args.function,
-        expression: args.expression,
+        expression,
     });
     if (options.rawResult)
         return result;

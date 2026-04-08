@@ -98,6 +98,24 @@ describe('onEvaluate()', () => {
     const result = await onEvaluate(ctx, { expression: 'test' }, { rawResult: true });
     expect(result).toEqual({ data: 123 });
   });
+
+  it('wraps function form as IIFE so it actually executes', async () => {
+    const ctx = createMockCtx();
+    (ctx.ext.sendCmd as any).mockResolvedValue(42);
+    await onEvaluate(ctx, { function: '() => 42' }, {});
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('evaluate', {
+      expression: '(() => 42)()',
+    });
+  });
+
+  it('wraps async function form as IIFE', async () => {
+    const ctx = createMockCtx();
+    (ctx.ext.sendCmd as any).mockResolvedValue('done');
+    await onEvaluate(ctx, { function: 'async () => { return "done"; }' }, {});
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('evaluate', {
+      expression: '(async () => { return "done"; })()',
+    });
+  });
 });
 
 describe('onVerifyTextVisible()', () => {
