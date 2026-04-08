@@ -96,6 +96,91 @@ describe('onSnapshot()', () => {
     expect(result.content[0].text).not.toContain('Form Fields');
   });
 
+  it('coalesces adjacent InlineTextBox siblings under the same parent', async () => {
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [
+        { nodeId: '1', parentId: null, role: { value: 'StaticText' }, name: { value: '' }, depth: 0 },
+        { nodeId: '2', parentId: '1', role: { value: 'InlineTextBox' }, name: { value: 'John' }, depth: 1 },
+        { nodeId: '3', parentId: '1', role: { value: 'InlineTextBox' }, name: { value: 'Doe' }, depth: 1 },
+        { nodeId: '4', parentId: '1', role: { value: 'InlineTextBox' }, name: { value: '@' }, depth: 1 },
+        { nodeId: '5', parentId: '1', role: { value: 'InlineTextBox' }, name: { value: 'example' }, depth: 1 },
+      ],
+    });
+
+    const result = await onSnapshot(ctx, {});
+    const text = result.content[0].text;
+    // Should appear as a single coalesced StaticText-ish node with joined name
+    expect(text).toContain('John Doe @ example');
+    // Should appear only once
+    const matches = text.match(/InlineTextBox|StaticText/g) || [];
+    // No duplicated InlineTextBox entries
+    const inlineCount = (text.match(/\[InlineTextBox\]/g) || []).length;
+    expect(inlineCount).toBeLessThanOrEqual(1);
+  });
+
+  it('does not coalesce InlineTextBox siblings with different parents', async () => {
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [
+        { nodeId: '1', parentId: 'a', role: { value: 'InlineTextBox' }, name: { value: 'Alpha' }, depth: 1 },
+        { nodeId: '2', parentId: 'b', role: { value: 'InlineTextBox' }, name: { value: 'Beta' }, depth: 1 },
+      ],
+    });
+
+    const result = await onSnapshot(ctx, {});
+    const text = result.content[0].text;
+    expect(text).toContain('Alpha');
+    expect(text).toContain('Beta');
+    // Not merged into "Alpha Beta"
+    expect(text).not.toMatch(/Alpha Beta/);
+  });
+
+  it('does not merge InlineTextBox across non-InlineTextBox sibling', async () => {
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [
+        { nodeId: '1', parentId: 'p', role: { value: 'InlineTextBox' }, name: { value: 'First' }, depth: 1 },
+        { nodeId: '2', parentId: 'p', role: { value: 'link' }, name: { value: 'Link' }, depth: 1 },
+        { nodeId: '3', parentId: 'p', role: { value: 'InlineTextBox' }, name: { value: 'Second' }, depth: 1 },
+      ],
+    });
+
+    const result = await onSnapshot(ctx, {});
+    const text = result.content[0].text;
+    expect(text).toContain('First');
+    expect(text).toContain('Second');
+    expect(text).toContain('[link] Link');
+    // Not merged across the link
+    expect(text).not.toMatch(/First Second/);
+  });
+
+  it('joins InlineTextBox names with a single space separator', async () => {
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [
+        { nodeId: '1', parentId: 'p', role: { value: 'InlineTextBox' }, name: { value: '  Hello  ' }, depth: 1 },
+        { nodeId: '2', parentId: 'p', role: { value: 'InlineTextBox' }, name: { value: '\nworld\n' }, depth: 1 },
+      ],
+    });
+
+    const result = await onSnapshot(ctx, {});
+    const text = result.content[0].text;
+    expect(text).toContain('Hello world');
+    expect(text).not.toMatch(/Hello {2,}world/);
+  });
+
+  it('preserves InlineTextBox coalescing in raw result', async () => {
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [
+        { nodeId: '1', parentId: 'p', role: { value: 'InlineTextBox' }, name: { value: 'foo' }, depth: 1 },
+        { nodeId: '2', parentId: 'p', role: { value: 'InlineTextBox' }, name: { value: 'bar' }, depth: 1 },
+      ],
+    });
+
+    const result = await onSnapshot(ctx, { rawResult: true });
+    // Raw result should pass through untouched (no coalescing)
+    expect(result.nodes).toHaveLength(2);
+    expect(result.nodes[0].name.value).toBe('foo');
+    expect(result.nodes[1].name.value).toBe('bar');
+  });
+
   it('includes form fields in raw result', async () => {
     const mockData = {
       nodes: [{ role: { value: 'button' } }],

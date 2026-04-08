@@ -191,6 +191,9 @@ export class ConnectionManager implements ConnectionManagerAPI {
           result: isError ? 'error' : 'ok',
           duration_ms: Date.now() - start,
         };
+        if (this.attachedTab?.url) {
+          entry.url = this.attachedTab.url;
+        }
         if (isError) {
           entry.error = result?.error || result?.content?.[0]?.text || 'unknown error';
         }

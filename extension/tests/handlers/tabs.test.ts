@@ -433,6 +433,7 @@ describe('TabHandlers', () => {
         attached: false,
         groupId: -1,
         stealthMode: null,
+        windowType: 'normal',
         techStack: null,
       });
       expect(result.attachedTabId).toBeNull();
@@ -499,6 +500,138 @@ describe('TabHandlers', () => {
       expect(result.tabs[0].url).toBe('');
       // Empty URL is not chrome:// or about:, so it's technically automatable
       expect(result.tabs[0].automatable).toBe(true);
+    });
+  });
+
+  describe('ensureAttachedTab() — recovery', () => {
+    it('returns the current attached tab without recovery when it is valid', async () => {
+      const created = { id: 300, index: 0, title: 'Tab', url: 'about:blank', windowId: 1 };
+      mockChrome.tabs.create.mockResolvedValue(created);
+      await tabs.createTab({});
+
+      // chrome.tabs.get will succeed (mock default)
+      mockChrome.tabs.get.mockResolvedValue({
+        id: 300, index: 0, title: 'Tab', url: 'https://example.com', windowId: 1,
+      });
+
+      const result = await tabs.ensureAttachedTab();
+      expect(result.tabId).toBe(300);
+      expect(result.recovery).toBeUndefined();
+    });
+
+    it('recovers when attachedTabId is null by selecting the active visible tab', async () => {
+      // No attached tab
+      expect(tabs.getAttachedTabId()).toBeNull();
+
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 1, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: false },
+        { id: 2, index: 1, title: 'B', url: 'https://b.com', windowId: 1, active: true },
+      ]);
+
+      const result = await tabs.ensureAttachedTab();
+      expect(result.tabId).toBe(2);
+      expect(result.recovery).toBeDefined();
+      expect(result.recovery!.reason).toBe('no-attached-tab');
+      expect(result.recovery!.newTabId).toBe(2);
+      expect(result.recovery!.url).toBe('https://b.com');
+      expect(tabs.getAttachedTabId()).toBe(2);
+    });
+
+    it('recovers when attachedTabId points at a tab that no longer exists (stale)', async () => {
+      // Force-set a stale attached tab id
+      sessionContext.attachedTabId = 999;
+
+      // chrome.tabs.get throws for 999
+      mockChrome.tabs.get.mockImplementation(async (id: number) => {
+        if (id === 999) throw new Error('No tab with id 999');
+        return { id, index: 0, title: 'T', url: 'https://x.com', windowId: 1 };
+      });
+
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 11, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: true },
+      ]);
+
+      const result = await tabs.ensureAttachedTab();
+      expect(result.tabId).toBe(11);
+      expect(result.recovery).toBeDefined();
+      expect(result.recovery!.reason).toBe('stale-attached-tab');
+      expect(result.recovery!.previousTabId).toBe(999);
+      expect(result.recovery!.newTabId).toBe(11);
+      expect(tabs.getAttachedTabId()).toBe(11);
+    });
+
+    it('prefers the active visible tab in the same window as the stale tab', async () => {
+      // The stale tab's windowId is known from tabs.query result (since .get fails, we fall back)
+      sessionContext.attachedTabId = 777;
+      mockChrome.tabs.get.mockRejectedValue(new Error('No tab'));
+
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 40, index: 0, title: 'other-win active', url: 'https://o.com', windowId: 2, active: true },
+        { id: 50, index: 0, title: 'same-win inactive', url: 'https://s.com', windowId: 1, active: false },
+        { id: 60, index: 1, title: 'same-win active', url: 'https://s2.com', windowId: 1, active: true },
+      ]);
+
+      // windows.getCurrent returns windowId 1
+      mockChrome.windows.getCurrent.mockResolvedValue({ id: 1, type: 'normal', focused: true });
+
+      const result = await tabs.ensureAttachedTab();
+      expect(result.tabId).toBe(60);
+    });
+
+    it('falls back to any automatable visible tab when no active one matches', async () => {
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 70, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: false },
+      ]);
+
+      const result = await tabs.ensureAttachedTab();
+      expect(result.tabId).toBe(70);
+      expect(result.recovery).toBeDefined();
+    });
+
+    it('skips chrome:// and chrome-extension:// tabs when recovering', async () => {
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 80, index: 0, title: 'settings', url: 'chrome://settings', windowId: 1, active: true },
+        { id: 81, index: 1, title: 'ext', url: 'chrome-extension://abc/', windowId: 1, active: false },
+        { id: 82, index: 2, title: 'real', url: 'https://real.com', windowId: 1, active: false },
+      ]);
+
+      const result = await tabs.ensureAttachedTab();
+      expect(result.tabId).toBe(82);
+    });
+
+    it('throws a clear error when no tabs are available for recovery', async () => {
+      mockChrome.tabs.query.mockResolvedValue([]);
+      await expect(tabs.ensureAttachedTab()).rejects.toThrow(
+        /No attached tab and no recoverable tabs/i
+      );
+    });
+
+    it('throws a clear error when only non-automatable tabs exist', async () => {
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 90, index: 0, title: 'x', url: 'chrome://settings', windowId: 1, active: true },
+      ]);
+      await expect(tabs.ensureAttachedTab()).rejects.toThrow(
+        /No attached tab and no recoverable tabs/i
+      );
+    });
+
+    it('logs recovery via logger so audit can pick it up', async () => {
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 100, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: true },
+      ]);
+
+      await tabs.ensureAttachedTab();
+      const logCalls = (mockLogger.log as any).mock.calls.map((c: any[]) => String(c[0]));
+      expect(logCalls.some((m: string) => /recover/i.test(m))).toBe(true);
+    });
+
+    it('updates the icon manager on recovery', async () => {
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 110, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: true },
+      ]);
+
+      await tabs.ensureAttachedTab();
+      expect(mockIconManager.setAttachedTab).toHaveBeenCalledWith(110);
     });
   });
 

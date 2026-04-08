@@ -58,6 +58,83 @@ describe('WebSocketConnection', () => {
     });
   });
 
+  describe('recovery note envelope', () => {
+    // Helper — hand-fire a command message through the private _handleMessage
+    async function fireCommand(wsInst: WebSocketConnection, message: any): Promise<any> {
+      const sent: any[] = [];
+      // Stub the outgoing send path
+      (wsInst as any).socket = { readyState: 1, send: (s: string) => sent.push(JSON.parse(s)) };
+      wsInst.isConnected = true;
+      await (wsInst as any)._handleMessage({ data: JSON.stringify(message) });
+      return sent[0];
+    }
+
+    it('returns the raw result when no recovery note is present', async () => {
+      ws.registerCommandHandler('echo', async (params) => ({ ok: true, params }));
+      ws.setRecoveryNoteProvider(() => null, () => {});
+
+      const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 1, method: 'echo', params: { a: 1 } });
+
+      expect(sent.id).toBe(1);
+      expect(sent.result).toEqual({ ok: true, params: { a: 1 } });
+      expect(sent.result._recovery).toBeUndefined();
+    });
+
+    it('attaches _recovery to an object result when provider returns a note', async () => {
+      ws.registerCommandHandler('echo', async () => ({ ok: true }));
+      const note = {
+        reason: 'no-attached-tab',
+        previousTabId: null,
+        newTabId: 42,
+        url: 'https://recovered.com',
+      };
+      let fired = false;
+      ws.setRecoveryNoteProvider(() => {
+        if (fired) return null;
+        fired = true;
+        return note;
+      }, () => {});
+
+      const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 2, method: 'echo', params: {} });
+
+      expect(sent.result).toEqual({ ok: true, _recovery: note });
+    });
+
+    it('wraps primitive results as { value, _recovery } when recovery fires', async () => {
+      ws.registerCommandHandler('num', async () => 5);
+      ws.setRecoveryNoteProvider(() => ({
+        reason: 'stale-attached-tab',
+        previousTabId: 99,
+        newTabId: 1,
+        url: 'https://x.com',
+      }), () => {});
+
+      const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 3, method: 'num', params: {} });
+
+      expect(sent.result.value).toBe(5);
+      expect(sent.result._recovery.reason).toBe('stale-attached-tab');
+    });
+
+    it('calls the reset hook before each command', async () => {
+      ws.registerCommandHandler('noop', async () => ({}));
+      const reset = vi.fn();
+      ws.setRecoveryNoteProvider(() => null, reset);
+
+      await fireCommand(ws, { jsonrpc: '2.0', id: 4, method: 'noop', params: {} });
+
+      expect(reset).toHaveBeenCalledTimes(1);
+    });
+
+    it('survives a provider that throws without breaking the response', async () => {
+      ws.registerCommandHandler('noop', async () => ({ ok: true }));
+      ws.setRecoveryNoteProvider(() => { throw new Error('boom'); }, () => {});
+
+      const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 5, method: 'noop', params: {} });
+
+      expect(sent.result).toEqual({ ok: true });
+    });
+  });
+
   describe('registerNotificationHandler()', () => {
     it('stores handler in notificationHandlers map', () => {
       const handler = vi.fn();

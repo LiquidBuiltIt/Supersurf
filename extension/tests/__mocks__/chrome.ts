@@ -121,6 +121,8 @@ export function createMockChrome() {
     },
 
     windows: {
+      get: vi.fn(async (_id: number) => ({ id: _id, type: 'normal', focused: true })),
+      getCurrent: vi.fn(async () => ({ id: 1, type: 'normal', focused: true })),
       update: vi.fn(async () => ({})),
       remove: vi.fn(async () => {}),
     },

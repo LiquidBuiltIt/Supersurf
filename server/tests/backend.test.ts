@@ -748,6 +748,32 @@ describe('ConnectionManager', () => {
       );
     });
 
+    it('status includes attached tab url when available', async () => {
+      await backend.callTool('connect', { client_id: 'test' });
+      backend.setAttachedTab({ id: 1, index: 0, title: 'Ex', url: 'https://example.com/page' });
+      mockAuditWrite.mockClear();
+
+      await backend.callTool('status');
+
+      expect(mockAuditWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool: 'status',
+          url: 'https://example.com/page',
+        })
+      );
+    });
+
+    it('status omits url when no tab attached', async () => {
+      await backend.callTool('connect', { client_id: 'test' });
+      mockAuditWrite.mockClear();
+
+      await backend.callTool('status');
+
+      const entry = mockAuditWrite.mock.calls[0][0];
+      expect(entry.tool).toBe('status');
+      expect(entry.url).toBeUndefined();
+    });
+
     it('experimental_features logs to the audit logger with params', async () => {
       await backend.callTool('connect', { client_id: 'test' });
       mockAuditWrite.mockClear();

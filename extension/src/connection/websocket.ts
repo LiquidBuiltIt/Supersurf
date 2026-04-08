@@ -44,6 +44,26 @@ export class WebSocketConnection {
   /** Registered handlers for JSON-RPC notifications (no `id`, fire-and-forget). */
   notificationHandlers: Map<string, (params: any) => Promise<void>> = new Map();
 
+  /**
+   * Optional hook consulted after each command handler returns. Used by
+   * the tab recovery system to attach a `_recovery` note to the response
+   * envelope whenever the extension auto-reattached to a different tab
+   * mid-call. Returns a recovery object, or null if none happened.
+   */
+  private recoveryNoteProvider: (() => any) | null = null;
+
+  /**
+   * Optional reset hook, fired right before each command runs so the
+   * tab handler can drop any stale recovery-note buffer from a prior call.
+   */
+  private recoveryNoteReset: (() => void) | null = null;
+
+  /** Register the recovery note provider (see `recoveryNoteProvider`). */
+  setRecoveryNoteProvider(provider: (() => any) | null, reset?: (() => void) | null): void {
+    this.recoveryNoteProvider = provider;
+    this.recoveryNoteReset = reset ?? null;
+  }
+
   constructor(browserAPI: typeof chrome, logger: Logger, iconManager: IconManager, buildTimestamp: string | null = null) {
     this.browser = browserAPI;
     this.logger = logger;
@@ -243,8 +263,29 @@ export class WebSocketConnection {
       }
 
       // Command (has id and method)
+      if (this.recoveryNoteReset) {
+        try { this.recoveryNoteReset(); } catch { /* never break a command */ }
+      }
       const response = await this._routeCommand(message);
-      this.send({ jsonrpc: '2.0', id: message.id, result: response });
+
+      // Attach a tab-recovery note to the response if ensureAttachedTab()
+      // fired this call. Stored as `_recovery` on the result so the server
+      // and ultimately the agent can see the attached tab changed.
+      let finalResponse = response;
+      if (this.recoveryNoteProvider) {
+        try {
+          const note = this.recoveryNoteProvider();
+          if (note) {
+            if (finalResponse && typeof finalResponse === 'object') {
+              finalResponse = { ...finalResponse, _recovery: note };
+            } else {
+              finalResponse = { value: finalResponse, _recovery: note };
+            }
+          }
+        } catch { /* never let the hook break a response */ }
+      }
+
+      this.send({ jsonrpc: '2.0', id: message.id, result: finalResponse });
     } catch (error: any) {
       this.logger.logAlways('[WebSocket] Command error:', error);
       if (message?.id) {
@@ -272,8 +313,8 @@ export class WebSocketConnection {
   private async _routeCommand(message: any): Promise<any> {
     const { method, params } = message;
     const handler = this.commandHandlers.get(method);
-    if (handler) return await handler(params, message);
-    throw new Error(`Unknown command: ${method}`);
+    if (!handler) throw new Error(`Unknown command: ${method}`);
+    return await handler(params, message);
   }
 
   private _handleError(_error: Event): void {

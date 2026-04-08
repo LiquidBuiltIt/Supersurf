@@ -4,6 +4,12 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
+## 1.8.0 — 2026-04-08
+
+- feat: `browser_snapshot` coalesces adjacent `InlineTextBox` siblings into a single text node — cuts AX tree noise on text-heavy pages where Chrome splits long runs into per-line boxes
+- feat: lightweight tab recovery — `ensureAttachedTab()` auto-recovers when the attached tab is null or stale (crashed/closed) instead of failing the call. Recovery prefers the active visible tab in the focused window. Surfaces `_recovery: { reason, previousTabId, newTabId, url }` on the result so agents know the tab changed
+- feat: backend tool audit entries (`connect`/`disconnect`/`status`/`experimental_features`/`reload_mcp`/`profile_*`) now populate the `url` field — closes a session-boundary blind spot in audit analysis
+
 ## 1.7.0 — 2026-04-08
 
 - fix: `browser_evaluate` function form now wraps as IIFE so arrow/async functions actually execute (previously returned `undefined`)

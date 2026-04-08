@@ -282,6 +282,9 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     }
     // ── WebSocket connection ──
     wsConnection = new WebSocketConnection(chrome, logger, iconManager);
+    // Wire the tab-recovery note provider so every command response can
+    // carry a `_recovery` field whenever ensureAttachedTab() had to reattach.
+    wsConnection.setRecoveryNoteProvider(() => tabHandlers.consumeRecoveryNote(), () => tabHandlers.clearRecoveryNote());
     // ── Register command handlers ──
     // Each handler corresponds to a JSON-RPC method the server can invoke.
     // Handlers receive params from the server and return results or throw errors.
@@ -310,9 +313,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // completion (via tabs.onUpdated) then optionally applies smart waiting
     // (DOM stability detection) before capturing.
     wsConnection.registerCommandHandler('navigate', async (params) => {
-        const tabId = tabHandlers.getAttachedTabId();
-        if (!tabId)
-            throw new Error('No tab attached');
+        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
         const action = params.action || 'url';
         if (action === 'url') {
             await chrome.tabs.update(tabId, { url: params.url });
@@ -381,9 +382,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // forwardCDPCommand — Generic CDP passthrough for server-side tools
     // that need direct CDP access (e.g., CSS inspection, accessibility tree).
     wsConnection.registerCommandHandler('forwardCDPCommand', async (params) => {
-        const tabId = tabHandlers.getAttachedTabId();
-        if (!tabId)
-            throw new Error('No tab attached');
+        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
         return await cdp(tabId, params.method, params.params || {});
     });
     // evaluate — Execute JavaScript in the page via CDP Runtime.evaluate.
@@ -392,9 +391,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // Bot-detection bypass: shouldUnwrap/wrapWithUnwrap temporarily restores native
     // DOM methods that pages may have overridden to detect automation.
     wsConnection.registerCommandHandler('evaluate', async (params) => {
-        const tabId = tabHandlers.getAttachedTabId();
-        if (!tabId)
-            throw new Error('No tab attached');
+        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
         const code = params.function || params.expression || '';
         let expression;
         if (params.prewrapped) {
@@ -426,16 +423,12 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // snapshot (accessible DOM)
     wsConnection.registerCommandHandler('snapshot', async () => {
-        const tabId = tabHandlers.getAttachedTabId();
-        if (!tabId)
-            throw new Error('No tab attached');
+        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
         return await cdp(tabId, 'Accessibility.getFullAXTree', {});
     });
     // screenshot
     wsConnection.registerCommandHandler('screenshot', async (params) => {
-        const tabId = tabHandlers.getAttachedTabId();
-        if (!tabId)
-            throw new Error('No tab attached');
+        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
         const captureParams = {
             format: params.type || 'jpeg',
             quality: params.quality || 70,
@@ -468,9 +461,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // dialog
     wsConnection.registerCommandHandler('dialog', async (params) => {
-        const tabId = tabHandlers.getAttachedTabId();
-        if (!tabId)
-            throw new Error('No tab attached');
+        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
         if (params.accept !== undefined) {
             await dialogHandler.setupDialogOverrides(tabId, params.accept, params.text);
             return { success: true };
@@ -479,9 +470,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // window management
     wsConnection.registerCommandHandler('window', async (params) => {
-        const tabId = tabHandlers.getAttachedTabId();
-        if (!tabId)
-            throw new Error('No tab attached');
+        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
         const tab = await chrome.tabs.get(tabId);
         const windowId = tab.windowId;
         switch (params.action) {
@@ -508,9 +497,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // performance metrics
     wsConnection.registerCommandHandler('performanceMetrics', async () => {
-        const tabId = tabHandlers.getAttachedTabId();
-        if (!tabId)
-            throw new Error('No tab attached');
+        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
         const result = await cdp(tabId, 'Performance.getMetrics', {});
         return { metrics: result.metrics };
     });
@@ -522,9 +509,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // Runs in MAIN world (not isolated) so it can interact with page-level input frameworks.
     // Types character-by-character with randomized delays to mimic human input.
     wsConnection.registerCommandHandler('secure_fill', async (params) => {
-        const tabId = tabHandlers.getAttachedTabId();
-        if (!tabId)
-            throw new Error('No tab attached');
+        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
         const results = await chrome.scripting.executeScript({
             target: { tabId },
             world: 'MAIN',

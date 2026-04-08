@@ -59,6 +59,19 @@ export class TabHandlers {
   private consoleInjector: ((tabId: number) => Promise<void>) | null = null;
   private dialogInjector: ((tabId: number) => Promise<void>) | null = null;
 
+  /**
+   * Transient per-command recovery note. Set by ensureAttachedTab() when
+   * recovery fires, consumed by the websocket layer after the command
+   * handler returns so the note can be attached to the response envelope.
+   * Single-slot buffer — handlers run serially per session.
+   */
+  private _lastRecoveryNote: {
+    reason: 'no-attached-tab' | 'stale-attached-tab';
+    previousTabId: number | null;
+    newTabId: number;
+    url: string;
+  } | null = null;
+
   constructor(browserAPI: typeof chrome, logger: Logger, iconManager: IconManager, sessionContext: SessionContext) {
     this.browser = browserAPI;
     this.logger = logger;
@@ -85,6 +98,122 @@ export class TabHandlers {
   /** Returns the currently attached tab ID, or null if no tab is attached. */
   getAttachedTabId(): number | null {
     return this.ctx.attachedTabId;
+  }
+
+  /**
+   * Resolve the current attached tab, recovering if it is null or stale.
+   *
+   * Recovery order:
+   *   1. If `attachedTabId` is set AND `chrome.tabs.get` succeeds, return as-is.
+   *   2. Otherwise (null or stale), pick the most recently active visible
+   *      automatable tab — preferring tabs in the current focused window.
+   *   3. If no candidates exist, throw with a clear error.
+   *
+   * On recovery, updates sessionContext + icon manager and logs the event
+   * so audit analysis can see it happened.
+   *
+   * @returns `{ tabId, recovery? }` — `recovery` is undefined when no recovery was needed.
+   */
+  async ensureAttachedTab(): Promise<{
+    tabId: number;
+    recovery?: {
+      reason: 'no-attached-tab' | 'stale-attached-tab';
+      previousTabId: number | null;
+      newTabId: number;
+      url: string;
+    };
+  }> {
+    const previousTabId = this.ctx.attachedTabId;
+
+    // Path 1: attached tab exists — verify it is still alive
+    if (previousTabId !== null) {
+      try {
+        await this.browser.tabs.get(previousTabId);
+        return { tabId: previousTabId };
+      } catch {
+        // Stale — fall through to recovery
+        this.ctx.attachedTabId = null;
+        this.iconManager.setAttachedTab(null);
+      }
+    }
+
+    const reason: 'no-attached-tab' | 'stale-attached-tab' =
+      previousTabId === null ? 'no-attached-tab' : 'stale-attached-tab';
+
+    // Find a recovery candidate
+    const allTabs = await this.browser.tabs.query({});
+    const candidates = allTabs.filter((t) => {
+      if (!t.id || !t.url) return false;
+      if (t.url.startsWith('chrome://')) return false;
+      if (t.url.startsWith('chrome-extension://')) return false;
+      if (t.url.startsWith('about:')) return false;
+      return true;
+    });
+
+    if (candidates.length === 0) {
+      throw new Error(
+        `No attached tab and no recoverable tabs available. Open a tab or call browser_tabs with action="new" to create one.`
+      );
+    }
+
+    // Determine the preferred window (current focused window if available)
+    let preferredWindowId: number | undefined;
+    try {
+      const win = await (this.browser as any).windows.getCurrent();
+      preferredWindowId = win?.id;
+    } catch {
+      // windows API not available (e.g. in tests) — skip preference
+    }
+
+    // Preference order:
+    //   (a) active tab in preferred window
+    //   (b) any active tab
+    //   (c) any candidate (last in list — typically most-recently opened)
+    let target: chrome.tabs.Tab | undefined;
+    if (preferredWindowId !== undefined) {
+      target = candidates.find((t) => t.active && t.windowId === preferredWindowId);
+    }
+    if (!target) target = candidates.find((t) => t.active);
+    if (!target) target = candidates[candidates.length - 1];
+
+    this.ctx.attachedTabId = target.id!;
+    this.ctx.persistSession();
+    this.iconManager.setAttachedTab(target.id!);
+
+    this.logger.log(
+      `[TabHandlers] Tab recovery (${reason}): previous=${previousTabId} → new=${target.id} (${target.url})`
+    );
+
+    const recovery = {
+      reason,
+      previousTabId,
+      newTabId: target.id!,
+      url: target.url || '',
+    };
+    this._lastRecoveryNote = recovery;
+
+    return { tabId: target.id!, recovery };
+  }
+
+  /**
+   * Consume and clear the last recovery note. Called by the websocket layer
+   * after a command handler returns so it can attach the note to the
+   * response envelope. Returns null if no recovery happened this call.
+   */
+  consumeRecoveryNote(): {
+    reason: 'no-attached-tab' | 'stale-attached-tab';
+    previousTabId: number | null;
+    newTabId: number;
+    url: string;
+  } | null {
+    const note = this._lastRecoveryNote;
+    this._lastRecoveryNote = null;
+    return note;
+  }
+
+  /** Reset the recovery-note buffer before a command runs. */
+  clearRecoveryNote(): void {
+    this._lastRecoveryNote = null;
   }
 
   /** Store framework/library detection results reported by the content script. */
