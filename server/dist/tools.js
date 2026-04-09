@@ -422,8 +422,34 @@ class BrowserBridge {
     formatResult(name, result, options) {
         if (options.rawResult)
             return result;
+        // ── Tab recovery envelope ───────────────────────────────────
+        // Extension's ensureAttachedTab() attaches a `_recovery` field whenever
+        // the attached tab was stale and had to be re-bound mid-call. Handle two
+        // envelope shapes before anything else touches `result`:
+        //   - Object result: `{ ...fields, _recovery }`
+        //   - Primitive-wrap: `{ value, _recovery }` → unwrap to the inner value
+        let recoveryNote = '';
+        if (result && typeof result === 'object' && '_recovery' in result) {
+            const rec = result._recovery;
+            if (rec && typeof rec === 'object') {
+                const prev = rec.previousTabId ?? '?';
+                const next = rec.newTabId ?? '?';
+                const url = rec.url ? ` (${rec.url})` : '';
+                recoveryNote = `↻ tab recovered: stale tab ${prev} → ${next}${url}\n`;
+            }
+            // Unwrap primitive-wrap envelope so text serialization shows the real value
+            if ('value' in result && Object.keys(result).length === 2) {
+                result = result.value;
+            }
+            else {
+                // Strip _recovery from the outer object so it isn't dumped into JSON text
+                const { _recovery, ...rest } = result;
+                void _recovery;
+                result = rest;
+            }
+        }
         // Update connection manager's tab info if result contains it
-        if (result && this.connectionManager) {
+        if (result && typeof result === 'object' && this.connectionManager) {
             if (result.attachedTab)
                 this.connectionManager.setAttachedTab(result.attachedTab);
             if (result.browserName)
@@ -436,7 +462,7 @@ class BrowserBridge {
         if (result?.data && name === 'browser_take_screenshot') {
             return {
                 content: [
-                    { type: 'text', text: statusHeader + (result.message || 'Screenshot captured') },
+                    { type: 'text', text: recoveryNote + statusHeader + (result.message || 'Screenshot captured') },
                     { type: 'image', data: result.data, mimeType: result.mimeType || 'image/jpeg' },
                 ],
             };
@@ -444,7 +470,7 @@ class BrowserBridge {
         const text = typeof result === 'string'
             ? result
             : result?.text || result?.message || JSON.stringify(result, null, 2);
-        return { content: [{ type: 'text', text: statusHeader + text }] };
+        return { content: [{ type: 'text', text: recoveryNote + statusHeader + text }] };
     }
     /** Format an error as an MCP error block, or as `{ success: false }` in rawResult mode. */
     error(message, options) {

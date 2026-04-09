@@ -257,6 +257,94 @@ describe('BrowserBridge', () => {
     });
   });
 
+  // ── tab recovery envelope ──
+
+  describe('tab recovery envelope', () => {
+    it('prepends recovery note when result has _recovery field', async () => {
+      mockExt.sendCmd.mockResolvedValue({
+        success: true,
+        url: 'https://bar.com',
+        _recovery: {
+          reason: 'stale-attached-tab',
+          previousTabId: 48291,
+          newTabId: 48305,
+          url: 'https://bar.com',
+        },
+      });
+
+      const result = await bridge.callTool('browser_navigate', { action: 'url', url: 'https://bar.com' });
+
+      const text = result.content[0].text;
+      expect(text).toMatch(/↻ tab recovered/);
+      expect(text).toContain('48291');
+      expect(text).toContain('48305');
+      expect(text).toContain('https://bar.com');
+    });
+
+    it('strips _recovery from the JSON body so it is not duplicated', async () => {
+      mockExt.sendCmd.mockResolvedValue({
+        success: true,
+        url: 'https://x.test',
+        _recovery: {
+          reason: 'stale-attached-tab',
+          previousTabId: 1,
+          newTabId: 2,
+          url: 'https://x.test',
+        },
+      });
+
+      const result = await bridge.callTool('browser_navigate', { action: 'url', url: 'https://x.test' });
+      const text = result.content[0].text;
+
+      // The one-line note appears once, but _recovery shouldn't be dumped as JSON too
+      expect(text).not.toMatch(/"_recovery"/);
+    });
+
+    it('handles primitive-wrap envelope { value, _recovery }', async () => {
+      mockExt.sendCmd.mockResolvedValue({
+        value: 'some-string',
+        _recovery: {
+          reason: 'stale-attached-tab',
+          previousTabId: 10,
+          newTabId: 20,
+          url: 'https://y.test',
+        },
+      });
+
+      const result = await bridge.callTool('browser_navigate', { action: 'url', url: 'https://y.test' });
+      const text = result.content[0].text;
+      expect(text).toMatch(/↻ tab recovered/);
+      expect(text).toContain('10');
+      expect(text).toContain('20');
+    });
+
+    it('does nothing when result has no _recovery field', async () => {
+      mockExt.sendCmd.mockResolvedValue({ success: true, url: 'https://bar.com' });
+
+      const result = await bridge.callTool('browser_navigate', { action: 'url', url: 'https://bar.com' });
+      const text = result.content[0].text;
+      expect(text).not.toMatch(/↻ tab recovered/);
+    });
+
+    it('does not emit recovery note in rawResult mode', async () => {
+      mockExt.sendCmd.mockResolvedValue({
+        success: true,
+        url: 'https://x.test',
+        _recovery: {
+          reason: 'stale-attached-tab',
+          previousTabId: 1,
+          newTabId: 2,
+          url: 'https://x.test',
+        },
+      });
+
+      const result = await bridge.callTool('browser_navigate', { action: 'url', url: 'https://x.test' }, { rawResult: true });
+      // rawResult passes through untouched — _recovery preserved for programmatic consumers
+      expect(result._recovery).toBeDefined();
+      expect(result._recovery.previousTabId).toBe(1);
+    });
+  });
+
   // ── serverClosed ──
 
   describe('serverClosed()', () => {

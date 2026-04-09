@@ -70,8 +70,8 @@ async function onFillForm(ctx, args, options) {
           else el.value = ${JSON.stringify(field.value)};
         }
 
-        // InputEvent for React 17+ synthetic event detection
-        el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+        // Plain Event triggers React's value-tracker diff (per facebook/react#10135)
+        el.dispatchEvent(new Event('input', { bubbles: true }));
         // Microtask yield — let React reconcile before change fires
         await Promise.resolve();
         el.dispatchEvent(new Event('change', { bubbles: true }));

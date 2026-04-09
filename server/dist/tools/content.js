@@ -10,9 +10,70 @@
  * @module tools/content
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.coalesceInlineTextBoxes = coalesceInlineTextBoxes;
 exports.onSnapshot = onSnapshot;
 exports.onLookup = onLookup;
 exports.onExtractContent = onExtractContent;
+/**
+ * Coalesce adjacent `InlineTextBox` siblings under the same parent into a single
+ * text node. Chrome's AX tree splits long text runs into one `InlineTextBox` per
+ * visual line, which bloats snapshot output and makes it harder to read. This
+ * merges consecutive InlineTextBox nodes that share the same `parentId` into one
+ * node whose `name.value` is the joined text. Non-InlineTextBox siblings between
+ * two InlineTextBox nodes break the run — nothing is merged across element types.
+ *
+ * Names are trimmed, collapsed on internal whitespace, and joined with a single
+ * space. The first node of a run is kept (depth, parentId, etc.) and has its
+ * `name.value` replaced with the coalesced text.
+ *
+ * Raw result mode (`rawResult: true`) bypasses this — callers opting into raw
+ * data get the unmodified CDP output.
+ */
+function coalesceInlineTextBoxes(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0)
+        return nodes || [];
+    const out = [];
+    let i = 0;
+    while (i < nodes.length) {
+        const node = nodes[i];
+        const role = node?.role?.value;
+        if (role === 'InlineTextBox') {
+            const parentId = node.parentId;
+            const texts = [];
+            const pushText = (raw) => {
+                const normalized = String(raw ?? '').replace(/\s+/g, ' ').trim();
+                if (normalized)
+                    texts.push(normalized);
+            };
+            pushText(node?.name?.value);
+            let j = i + 1;
+            while (j < nodes.length &&
+                nodes[j]?.role?.value === 'InlineTextBox' &&
+                nodes[j]?.parentId === parentId) {
+                pushText(nodes[j]?.name?.value);
+                j++;
+            }
+            if (j === i + 1) {
+                // Single InlineTextBox — still normalize its own name for consistency.
+                out.push({
+                    ...node,
+                    name: { ...(node.name || {}), value: texts.join(' ') },
+                });
+            }
+            else {
+                out.push({
+                    ...node,
+                    name: { ...(node.name || {}), value: texts.join(' ') },
+                });
+            }
+            i = j;
+            continue;
+        }
+        out.push(node);
+        i++;
+    }
+    return out;
+}
 /**
  * Return the page's accessibility tree as indented text.
  * Filters out generic/none roles to keep output meaningful.
@@ -74,7 +135,8 @@ async function onSnapshot(ctx, options) {
     if (options.rawResult) {
         return { ...result, formFields: formFields || [] };
     }
-    const nodes = result?.nodes || [];
+    const rawNodes = result?.nodes || [];
+    const nodes = coalesceInlineTextBoxes(rawNodes);
     if (nodes.length === 0 && (!formFields || formFields.length === 0)) {
         return { content: [{ type: 'text', text: 'Empty accessibility tree' }] };
     }

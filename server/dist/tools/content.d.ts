@@ -10,6 +10,22 @@
  */
 import type { ToolContext } from './types';
 /**
+ * Coalesce adjacent `InlineTextBox` siblings under the same parent into a single
+ * text node. Chrome's AX tree splits long text runs into one `InlineTextBox` per
+ * visual line, which bloats snapshot output and makes it harder to read. This
+ * merges consecutive InlineTextBox nodes that share the same `parentId` into one
+ * node whose `name.value` is the joined text. Non-InlineTextBox siblings between
+ * two InlineTextBox nodes break the run — nothing is merged across element types.
+ *
+ * Names are trimmed, collapsed on internal whitespace, and joined with a single
+ * space. The first node of a run is kept (depth, parentId, etc.) and has its
+ * `name.value` replaced with the coalesced text.
+ *
+ * Raw result mode (`rawResult: true`) bypasses this — callers opting into raw
+ * data get the unmodified CDP output.
+ */
+export declare function coalesceInlineTextBoxes(nodes: any[]): any[];
+/**
  * Return the page's accessibility tree as indented text.
  * Filters out generic/none roles to keep output meaningful.
  */

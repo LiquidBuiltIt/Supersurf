@@ -176,6 +176,76 @@ async function onInteract(ctx, args, options) {
         isError: results.some(r => r.startsWith('✗')),
     };
 }
+/**
+ * DFS-walk the frame tree and evaluate `selectorExpr` in each child frame's
+ * isolated world. Returns the first frame where the expression yields a
+ * non-null `objectId`, along with that frame's execution context id so the
+ * caller can re-use it for post-action read-backs.
+ *
+ * Uses `Page.createIsolatedWorld` per frame to obtain an execution context
+ * — isolated worlds sidestep CSP restrictions and page-installed Proxy
+ * shenanigans, mirroring the extension's content-script isolation.
+ *
+ * Only used by file_upload today, but the mechanics (frame tree + per-frame
+ * objectId resolution) are the same for any tool that needs to reach into
+ * iframes.
+ */
+async function findElementInFrames(ctx, selectorExpr) {
+    let tree;
+    try {
+        tree = await ctx.cdp('Page.getFrameTree', {});
+    }
+    catch {
+        return null;
+    }
+    const root = tree?.frameTree;
+    if (!root)
+        return null;
+    // Collect frame ids in DFS order. Skip the top frame since the caller
+    // already queried it via the default execution context.
+    const frameIds = [];
+    const walk = (node, isRoot) => {
+        if (!node?.frame?.id)
+            return;
+        if (!isRoot)
+            frameIds.push(node.frame.id);
+        const children = node.childFrames || [];
+        for (const child of children)
+            walk(child, false);
+    };
+    walk(root, true);
+    for (const frameId of frameIds) {
+        let contextId;
+        try {
+            const world = await ctx.cdp('Page.createIsolatedWorld', {
+                frameId,
+                worldName: 'supersurf_file_upload',
+                grantUniveralAccess: false,
+            });
+            contextId = world.executionContextId;
+        }
+        catch {
+            continue;
+        }
+        if (contextId == null)
+            continue;
+        try {
+            const result = await ctx.cdp('Runtime.evaluate', {
+                expression: selectorExpr,
+                contextId,
+                returnByValue: false,
+            });
+            const objectId = result?.result?.objectId;
+            if (objectId) {
+                return { objectId, contextId };
+            }
+        }
+        catch {
+            continue;
+        }
+    }
+    return null;
+}
 /** Get viewport dimensions from extension */
 async function getViewportSize(ctx) {
     return await ctx.ext.sendCmd('getViewportDimensions', {});
@@ -573,13 +643,32 @@ async function executeAction(ctx, action) {
             return `⚠ Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector} (unverified — trigger text unchanged after option click; the dropdown may not have committed selection state)`;
         }
         case 'file_upload': {
+            const selectorExpr = `document.querySelector(${JSON.stringify(action.selector)})`;
+            const verificationExpr = `
+        (() => {
+          const el = document.querySelector(${JSON.stringify(action.selector)});
+          if (!el) return { verified: false, count: 0 };
+          const count = el.files ? el.files.length : 0;
+          return { verified: count === ${action.files.length}, count };
+        })()
+      `;
+            // Step 1: Try top frame first (unchanged happy path).
             const evalResult = await ctx.cdp('Runtime.evaluate', {
-                expression: `document.querySelector(${JSON.stringify(action.selector)})`,
+                expression: selectorExpr,
                 returnByValue: false,
             });
-            if (!evalResult.result?.objectId)
-                throw new Error(`Element not found: ${action.selector}`);
-            const nodeResult = await ctx.cdp('DOM.describeNode', { objectId: evalResult.result.objectId });
+            let objectId = evalResult.result?.objectId;
+            let frameContextId = null;
+            // Step 2: If top frame has no match, walk child frames in DFS order.
+            if (!objectId) {
+                const match = await findElementInFrames(ctx, selectorExpr);
+                if (!match) {
+                    throw new Error(`Element not found in any frame: ${action.selector}`);
+                }
+                objectId = match.objectId;
+                frameContextId = match.contextId;
+            }
+            const nodeResult = await ctx.cdp('DOM.describeNode', { objectId });
             await ctx.cdp('DOM.setFileInputFiles', {
                 files: action.files,
                 backendNodeId: nodeResult.node.backendNodeId,
@@ -587,14 +676,20 @@ async function executeAction(ctx, action) {
             // Post-action read-back: confirm the input now reports the expected file count.
             // setFileInputFiles is a CDP-only operation that doesn't always fire 'change',
             // so the page-level state (and any React listeners) may not see the upload.
-            const verification = await ctx.eval(`
-        (() => {
-          const el = document.querySelector(${JSON.stringify(action.selector)});
-          if (!el) return { verified: false, count: 0 };
-          const count = el.files ? el.files.length : 0;
-          return { verified: count === ${action.files.length}, count };
-        })()
-      `);
+            // CRITICAL: the read-back must run in the SAME frame context as the input —
+            // querying the top frame after uploading to a child frame always reports 0.
+            let verification;
+            if (frameContextId !== null) {
+                const r = await ctx.cdp('Runtime.evaluate', {
+                    expression: verificationExpr,
+                    contextId: frameContextId,
+                    returnByValue: true,
+                });
+                verification = r.result?.value;
+            }
+            else {
+                verification = await ctx.eval(verificationExpr);
+            }
             const expectedCount = action.files.length;
             if (verification?.verified) {
                 return `Uploaded ${expectedCount} file(s) to ${action.selector}`;

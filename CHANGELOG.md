@@ -4,6 +4,12 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
+## 1.9.0 — 2026-04-08
+
+- feat: `file_upload` walks child frames when the selector isn't found in the top frame — uses `Page.getFrameTree` + per-frame isolated worlds. Closes the iCIMS / Stripe / embedded form-builder gap where file inputs live inside iframes. Top-frame happy path is unchanged
+- feat: tab recovery is now visible to agents — `BrowserBridge.formatResult()` extracts the `_recovery` envelope from extension responses and prefixes the response with `↻ tab recovered: stale tab N → M (url)` so agents know the tab changed mid-call
+- fix: `fill_form` dispatches `new Event('input', ...)` instead of `new InputEvent('input', ...)` — `InputEvent` was routing some React versions down a composition-event path that bypassed the value tracker, leaving controlled-input state stale (e.g. Lever ATS `Resume_URL` silent failure). Per facebook/react#10135
+
 ## 1.8.0 — 2026-04-08
 
 - feat: `browser_snapshot` coalesces adjacent `InlineTextBox` siblings into a single text node — cuts AX tree noise on text-heavy pages where Chrome splits long runs into per-line boxes

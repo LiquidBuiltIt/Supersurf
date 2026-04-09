@@ -51,7 +51,7 @@ describe('onFillForm()', () => {
     expect(result.fields).toHaveLength(1);
   });
 
-  it('dispatches focus, InputEvent, change, and blur events', async () => {
+  it('dispatches focus, Event, change, and blur events', async () => {
     const evalCalls: string[] = [];
     (ctx.eval as any).mockImplementation((code: string) => {
       evalCalls.push(code);
@@ -68,8 +68,8 @@ describe('onFillForm()', () => {
 
     // Should dispatch focus before setting value
     expect(evalCode).toContain("dispatchEvent(new Event('focus'");
-    // Should use InputEvent for input event (React 17+ compatibility)
-    expect(evalCode).toContain("new InputEvent('input'");
+    // Should use plain Event for input event (React value-tracker compatibility, facebook/react#10135)
+    expect(evalCode).toContain("new Event('input'");
     // Should dispatch blur after change
     expect(evalCode).toContain("dispatchEvent(new Event('blur'");
     // Should have microtask yield before change

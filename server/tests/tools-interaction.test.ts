@@ -517,5 +517,140 @@ describe('onInteract()', () => {
       expect(result.content[0].text).toContain('⚠ file_upload');
       expect(result.content[0].text).toContain('unverified');
     });
+
+    it('walks into child frames when top frame has no match', async () => {
+      // Top frame query returns no objectId → walk frames
+      // Frame tree has root + child frame; child frame contains the input
+      (ctx.cdp as any).mockImplementation((method: string, params?: any) => {
+        if (method === 'Runtime.evaluate' && !params?.contextId) {
+          // Top-frame query: no match
+          return Promise.resolve({ result: { type: 'object', subtype: 'null', value: null } });
+        }
+        if (method === 'Page.getFrameTree') {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: 'root-frame', url: 'https://example.com' },
+              childFrames: [
+                {
+                  frame: { id: 'child-frame-1', url: 'https://iframe.example.com' },
+                },
+              ],
+            },
+          });
+        }
+        if (method === 'Page.createIsolatedWorld' && params?.frameId === 'root-frame') {
+          return Promise.resolve({ executionContextId: 100 });
+        }
+        if (method === 'Page.createIsolatedWorld' && params?.frameId === 'child-frame-1') {
+          return Promise.resolve({ executionContextId: 200 });
+        }
+        if (method === 'Runtime.evaluate' && params?.contextId === 100) {
+          // Root frame isolated world: no match
+          return Promise.resolve({ result: { type: 'object', subtype: 'null', value: null } });
+        }
+        if (method === 'Runtime.evaluate' && params?.contextId === 200 && !params.returnByValue) {
+          // Child frame: found!
+          return Promise.resolve({ result: { objectId: 'child-obj-1' } });
+        }
+        if (method === 'Runtime.evaluate' && params?.contextId === 200 && params.returnByValue) {
+          // Post-action verification in child frame
+          return Promise.resolve({ result: { value: { verified: true, count: 1 } } });
+        }
+        if (method === 'DOM.describeNode') return Promise.resolve({ node: { backendNodeId: 77 } });
+        if (method === 'DOM.setFileInputFiles') return Promise.resolve({});
+        return Promise.resolve({});
+      });
+
+      const result = await onInteract(ctx, {
+        actions: [{ type: 'file_upload', selector: 'input[type=file]', files: ['/tmp/a.pdf'] }],
+      }, {});
+
+      expect(ctx.cdp).toHaveBeenCalledWith('Page.getFrameTree', expect.anything());
+      expect(ctx.cdp).toHaveBeenCalledWith('Page.createIsolatedWorld', expect.objectContaining({ frameId: 'child-frame-1' }));
+      expect(ctx.cdp).toHaveBeenCalledWith('DOM.setFileInputFiles', expect.objectContaining({ backendNodeId: 77 }));
+      expect(result.content[0].text).toContain('✓ file_upload');
+      expect(result.content[0].text).toContain('Uploaded 1 file(s)');
+    });
+
+    it('throws clear error when element is not in any frame', async () => {
+      (ctx.cdp as any).mockImplementation((method: string, params?: any) => {
+        if (method === 'Runtime.evaluate' && !params?.contextId) {
+          return Promise.resolve({ result: { type: 'object', subtype: 'null', value: null } });
+        }
+        if (method === 'Page.getFrameTree') {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: 'root-frame', url: 'https://example.com' },
+              childFrames: [
+                { frame: { id: 'child-a', url: 'https://a.example.com' } },
+                {
+                  frame: { id: 'child-b', url: 'https://b.example.com' },
+                  childFrames: [{ frame: { id: 'grandchild', url: 'https://gc.example.com' } }],
+                },
+              ],
+            },
+          });
+        }
+        if (method === 'Page.createIsolatedWorld') {
+          return Promise.resolve({ executionContextId: 999 });
+        }
+        if (method === 'Runtime.evaluate' && params?.contextId) {
+          return Promise.resolve({ result: { type: 'object', subtype: 'null', value: null } });
+        }
+        return Promise.resolve({});
+      });
+
+      const result = await onInteract(ctx, {
+        actions: [{ type: 'file_upload', selector: 'input[type=file]', files: ['/tmp/a.pdf'] }],
+      }, {});
+
+      expect(result.content[0].text).toContain('✗ file_upload');
+      expect(result.content[0].text).toContain('Element not found in any frame');
+    });
+
+    it('post-action read-back queries the correct child frame context', async () => {
+      const evalCalls: any[] = [];
+      (ctx.cdp as any).mockImplementation((method: string, params?: any) => {
+        if (method === 'Runtime.evaluate') evalCalls.push(params);
+        if (method === 'Runtime.evaluate' && !params?.contextId) {
+          return Promise.resolve({ result: { type: 'object', subtype: 'null', value: null } });
+        }
+        if (method === 'Page.getFrameTree') {
+          return Promise.resolve({
+            frameTree: {
+              frame: { id: 'root', url: 'https://example.com' },
+              childFrames: [{ frame: { id: 'iframe-42', url: 'https://x.example.com' } }],
+            },
+          });
+        }
+        if (method === 'Page.createIsolatedWorld' && params?.frameId === 'root') {
+          return Promise.resolve({ executionContextId: 11 });
+        }
+        if (method === 'Page.createIsolatedWorld' && params?.frameId === 'iframe-42') {
+          return Promise.resolve({ executionContextId: 42 });
+        }
+        if (method === 'Runtime.evaluate' && params?.contextId === 11) {
+          return Promise.resolve({ result: { type: 'object', subtype: 'null', value: null } });
+        }
+        if (method === 'Runtime.evaluate' && params?.contextId === 42 && !params.returnByValue) {
+          return Promise.resolve({ result: { objectId: 'file-input-obj' } });
+        }
+        if (method === 'Runtime.evaluate' && params?.contextId === 42 && params.returnByValue) {
+          return Promise.resolve({ result: { value: { verified: true, count: 1 } } });
+        }
+        if (method === 'DOM.describeNode') return Promise.resolve({ node: { backendNodeId: 55 } });
+        if (method === 'DOM.setFileInputFiles') return Promise.resolve({});
+        return Promise.resolve({});
+      });
+
+      const result = await onInteract(ctx, {
+        actions: [{ type: 'file_upload', selector: 'input[type=file]', files: ['/tmp/a.pdf'] }],
+      }, {});
+
+      // Verification call must have been issued with contextId=42 and returnByValue
+      const verificationCall = evalCalls.find((c) => c?.contextId === 42 && c?.returnByValue);
+      expect(verificationCall).toBeDefined();
+      expect(result.content[0].text).toContain('✓ file_upload');
+    });
   });
 });
