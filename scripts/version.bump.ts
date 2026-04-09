@@ -1,15 +1,16 @@
 #!/usr/bin/env npx tsx
 /**
- * Release prep script. Bumps version across the monorepo, commits, and tags.
+ * Release prep script. Bumps version across the monorepo and commits.
  *
  * Usage:
  *   npm run version.bump patch "fix port cleanup"  # v0.6.3 — fix port cleanup
  *   npm run version.bump minor "add profiles"      # v0.7.0 — add profiles
  *   npm run version.bump major "breaking changes"   # v1.0.0 — breaking changes
- *   npm run version.bump rollback # undo last bump (reset commit + delete tag)
+ *   npm run version.bump rollback # undo last bump (reset commit, restore version files)
  *
- * After running, review the commit then push manually:
- *   git push && git push --tags
+ * Tagging happens at publish time (`npm run publish`), not here. This means
+ * tags only exist for versions that were actually shipped — re-bumping or
+ * amending after this script is free, no tag cleanup needed.
  */
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -71,6 +72,8 @@ if (bumpType === 'rollback') {
     process.exit(1);
   }
 
+  // Tags are now created at publish time, but defensively clean up any legacy
+  // or manually-created tag pointing at this commit.
   try { git(`git tag -d ${tag}`); } catch { /* tag may not exist */ }
   git('git reset --soft HEAD~1');
 
@@ -108,13 +111,12 @@ for (const rel of targets) {
 
 console.log(`\nBumped ${bumpType}: ${current} -> ${next}\n`);
 
-// Commit and tag — stage everything for the release
+// Commit (no tag — tagging happens at publish time)
 git(`git add .`);
 const fullMsg = commitMsg ? `v${next} — ${commitMsg}` : `v${next}`;
 git(`git commit -m "${fullMsg}"`);
-git(`git tag v${next}`);
 
-console.log(`\n${green}Tagged v${next}${reset}`);
-console.log(`${yellow}Review the commit before pushing to remotes.${reset}\n`);
-console.log(`  ${cyan}git log --oneline -1${reset}    # check the commit`);
-console.log(`  ${cyan}git push && git push --tags${reset}\n`);
+console.log(`\n${green}Committed v${next}${reset}`);
+console.log(`${yellow}Tag will be created when you publish. To ship:${reset}\n`);
+console.log(`  ${cyan}git log --oneline -1${reset}    # review the commit`);
+console.log(`  ${cyan}npm run publish${reset}         # tag, push, npm, CWS\n`);

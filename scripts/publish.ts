@@ -13,10 +13,14 @@
  *
  * Pipeline:
  *   1. Check CWS auth (.cws-token + token refresh)
- *   2. Check HEAD is a version tag commit + clean working tree
- *   3. git push && git push --tags
- *   4. npm publish daemon + server
- *   5. Build extension zip + upload + publish to CWS
+ *   2. Check HEAD is a version-bump commit + clean working tree
+ *   3. Create git tag (idempotent — skipped if tag already on HEAD)
+ *   4. git push && git push --tags (deletes local tag if push fails)
+ *   5. npm publish daemon + server
+ *   6. Build extension zip + upload + publish to CWS
+ *
+ * Tags are created here, not by version.bump, so they only exist for versions
+ * that were actually shipped.
  */
 
 import { readFileSync, existsSync } from 'fs';
@@ -189,22 +193,27 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
     }
     ok(`HEAD is version bump: v${versionMatch[1]}`);
 
+    // Tag may or may not exist yet — version.bump no longer creates it.
+    // If a tag with this version exists, it must point at HEAD (otherwise
+    // we'd be re-using a version number for a different commit).
     const headSha = git('git rev-parse HEAD');
-    let tagSha: string;
+    let existingTagSha: string | null = null;
     try {
-      tagSha = git(`git rev-parse v${versionMatch[1]}`);
-    } catch {
-      console.error(`\n${red}Tag v${versionMatch[1]} does not exist.${reset}`);
-      console.error(`  The version.bump script should have created it. Something is off.\n`);
+      existingTagSha = git(`git rev-parse v${versionMatch[1]}`);
+    } catch { /* tag does not exist — that's the normal case */ }
+
+    if (existingTagSha && existingTagSha !== headSha) {
+      console.error(`\n${red}Tag v${versionMatch[1]} already exists but points elsewhere.${reset}`);
+      console.error(`  Tag points to: ${existingTagSha.slice(0, 8)}`);
+      console.error(`  HEAD is:       ${headSha.slice(0, 8)}`);
+      console.error(`  Bump to a new version or delete the conflicting tag.\n`);
       process.exit(1);
     }
-    if (headSha !== tagSha) {
-      console.error(`\n${red}Tag v${versionMatch[1]} does not point to HEAD.${reset}`);
-      console.error(`  Tag points to: ${tagSha.slice(0, 8)}`);
-      console.error(`  HEAD is:       ${headSha.slice(0, 8)}\n`);
-      process.exit(1);
+    if (existingTagSha) {
+      ok(`Tag v${versionMatch[1]} already on HEAD (idempotent re-run)`);
+    } else {
+      ok(`No conflicting tag for v${versionMatch[1]}`);
     }
-    ok(`Tag v${versionMatch[1]} exists on HEAD`);
   }
 
   // 3. Verify package versions match
@@ -228,13 +237,43 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
 
 // ── Pipeline steps ───────────────────────────────────────────
 
-function pushToGitHub() {
+function pushToGitHub(version: string) {
+  const tag = `v${version}`;
+  let createdTagThisRun = false;
+
+  // Create the tag if it doesn't already exist (idempotent for retry runs).
+  // Pre-flight already verified that any existing tag points at HEAD.
+  let tagExists = false;
+  try {
+    git(`git rev-parse ${tag}`);
+    tagExists = true;
+  } catch { /* tag does not exist yet */ }
+
+  if (!tagExists) {
+    try {
+      run(`git tag ${tag}`);
+      createdTagThisRun = true;
+      ok(`Created tag ${tag}`);
+    } catch (err) {
+      recordFailure('github', err);
+      return;
+    }
+  }
+
   info('Pushing to GitHub...');
   try {
     run('git push && git push --tags');
     results['github'] = 'success';
     ok('Pushed commits and tags');
   } catch (err) {
+    // If we created the tag in this run and push failed, delete it so the
+    // next retry doesn't see a stale local tag pointing at an unpushed commit.
+    if (createdTagThisRun) {
+      try {
+        run(`git tag -d ${tag}`);
+        warn(`Push failed — local tag ${tag} removed for clean retry`);
+      } catch { /* best effort */ }
+    }
     recordFailure('github', err);
   }
 }
@@ -342,11 +381,11 @@ async function main() {
 
   console.log(`\n${bold}Publishing v${version}${reset}\n`);
 
-  // Step 1: GitHub
+  // Step 1: GitHub (creates tag, then pushes)
   if (noGithub) {
     results['github'] = 'skipped';
   } else {
-    pushToGitHub();
+    pushToGitHub(version);
   }
 
   // Step 2: npm (daemon first — server depends on it)
