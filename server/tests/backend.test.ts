@@ -411,10 +411,12 @@ describe('ConnectionManager', () => {
       await backend.initialize(makeMockServer(), {});
     });
 
-    it('returns not_connected when not connected (before checking experiments)', async () => {
+    it('returns profiles_not_enabled from passive state when daemon lacks profiles capability', async () => {
+      // No connect() call — profile tools should still reach the daemon via temp connection
+      mockDaemonClientInstance.capabilities = null;
       const result = await backend.callTool('profile_list', {}, { rawResult: true });
       expect(result.success).toBe(false);
-      expect(result.error).toBe('not_connected');
+      expect(result.error).toBe('profiles_not_enabled');
     });
 
     it('returns profiles_not_enabled when connected but experiment is off', async () => {

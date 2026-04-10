@@ -375,32 +375,69 @@ async function onExperimentalFeatures(mgr, args = {}, options = {}) {
             }],
     };
 }
-// ─── Profile Management ──────────────────────────────────────
-/** Create a new managed Chromium profile. */
-async function onProfileCreate(mgr, args = {}, options = {}) {
-    if (!mgr.extensionServer) {
-        const msg = 'Not connected. Call connect first.';
+/**
+ * Execute a callback with a daemon connection. Reuses the existing extensionServer
+ * if connected, otherwise spawns the daemon (if needed) and creates a temporary
+ * DaemonClient for the duration of the call. This lets profile tools work from
+ * passive state without a full connect/disconnect cycle.
+ */
+async function withDaemonConnection(mgr, fn) {
+    // Reuse existing connection if available
+    if (mgr.extensionServer) {
+        return fn({
+            sendCmd: (method, params, timeout) => mgr.extensionServer.sendCmd(method, params, timeout),
+            capabilities: mgr.daemonCapabilities,
+        });
+    }
+    // Create a temporary daemon connection
+    await (0, daemon_spawn_1.ensureDaemon)(mgr.config.port || 5555, mgr.debugMode, mgr.config.enabledExperiments || []);
+    const sockPath = (0, daemon_spawn_1.getSockPath)();
+    const tempClient = new daemon_client_1.DaemonClient(sockPath, `profile-mgmt-${Date.now()}`);
+    try {
+        await tempClient.start();
+        return await fn({
+            sendCmd: (method, params, timeout) => tempClient.sendCmd(method, params, timeout),
+            capabilities: tempClient.capabilities,
+        });
+    }
+    finally {
+        await tempClient.stop().catch(() => { });
+    }
+}
+/** Guard: check that daemon supports profiles. Returns error response or null. */
+function checkProfileCapability(client, options) {
+    if (!client.capabilities?.profiles) {
+        const msg = 'Profile management is not enabled on the daemon. Set `SUPERSURF_EXPERIMENTS=profiles` in your environment and restart the session.';
         return options.rawResult
-            ? { success: false, error: 'not_connected', message: msg }
+            ? { success: false, error: 'profiles_not_enabled', message: msg }
             : { content: [{ type: 'text', text: msg }], isError: true };
     }
+    return null;
+}
+/** Create a new managed Chromium profile. */
+async function onProfileCreate(mgr, args = {}, options = {}) {
     try {
-        const result = await mgr.extensionServer.sendCmd('profiles.create', {
-            name: args.name,
-            experiments: args.experiments,
-        }, 10000);
-        if (options.rawResult)
-            return result;
-        return {
-            content: [{
-                    type: 'text',
-                    text: mgr.statusHeader() +
-                        `### Profile Created\n\n` +
-                        `**Name:** ${result.profile?.name}\n` +
-                        `**Created:** ${result.profile?.created}\n\n` +
-                        `Use \`connect client_id='...' profile='${result.profile?.name}'\` to connect.`,
-                }],
-        };
+        return await withDaemonConnection(mgr, async (client) => {
+            const capErr = checkProfileCapability(client, options);
+            if (capErr)
+                return capErr;
+            const result = await client.sendCmd('profiles.create', {
+                name: args.name,
+                experiments: args.experiments,
+            }, 10000);
+            if (options.rawResult)
+                return result;
+            return {
+                content: [{
+                        type: 'text',
+                        text: mgr.statusHeader() +
+                            `### Profile Created\n\n` +
+                            `**Name:** ${result.profile?.name}\n` +
+                            `**Created:** ${result.profile?.created}\n\n` +
+                            `Use \`connect client_id='...' profile='${result.profile?.name}'\` to connect.`,
+                    }],
+            };
+        });
     }
     catch (error) {
         if (options.rawResult)
@@ -410,32 +447,31 @@ async function onProfileCreate(mgr, args = {}, options = {}) {
 }
 /** List all managed Chromium profiles. */
 async function onProfileList(mgr, options = {}) {
-    if (!mgr.extensionServer) {
-        const msg = 'Not connected. Call connect first.';
-        return options.rawResult
-            ? { success: false, error: 'not_connected', message: msg }
-            : { content: [{ type: 'text', text: msg }], isError: true };
-    }
     try {
-        const result = await mgr.extensionServer.sendCmd('profiles.list', {}, 10000);
-        if (options.rawResult)
-            return result;
-        const profiles = result.profiles || [];
-        if (profiles.length === 0) {
+        return await withDaemonConnection(mgr, async (client) => {
+            const capErr = checkProfileCapability(client, options);
+            if (capErr)
+                return capErr;
+            const result = await client.sendCmd('profiles.list', {}, 10000);
+            if (options.rawResult)
+                return result;
+            const profiles = result.profiles || [];
+            if (profiles.length === 0) {
+                return {
+                    content: [{
+                            type: 'text',
+                            text: mgr.statusHeader() + '### No Profiles\n\nUse `profile_create` to create one.',
+                        }],
+                };
+            }
+            const lines = profiles.map((p) => `- **${p.name}** — created ${p.created}${p.running ? ' (running)' : ''}`);
             return {
                 content: [{
                         type: 'text',
-                        text: mgr.statusHeader() + '### No Profiles\n\nUse `profile_create` to create one.',
+                        text: mgr.statusHeader() + `### Profiles (${profiles.length})\n\n${lines.join('\n')}`,
                     }],
             };
-        }
-        const lines = profiles.map((p) => `- **${p.name}** — created ${p.created}${p.running ? ' (running)' : ''}`);
-        return {
-            content: [{
-                    type: 'text',
-                    text: mgr.statusHeader() + `### Profiles (${profiles.length})\n\n${lines.join('\n')}`,
-                }],
-        };
+        });
     }
     catch (error) {
         if (options.rawResult)
@@ -445,24 +481,23 @@ async function onProfileList(mgr, options = {}) {
 }
 /** Delete a managed Chromium profile. */
 async function onProfileDelete(mgr, args = {}, options = {}) {
-    if (!mgr.extensionServer) {
-        const msg = 'Not connected. Call connect first.';
-        return options.rawResult
-            ? { success: false, error: 'not_connected', message: msg }
-            : { content: [{ type: 'text', text: msg }], isError: true };
-    }
     try {
-        const result = await mgr.extensionServer.sendCmd('profiles.delete', {
-            name: args.name,
-        }, 10000);
-        if (options.rawResult)
-            return result;
-        return {
-            content: [{
-                    type: 'text',
-                    text: mgr.statusHeader() + `### Profile Deleted\n\nProfile "${args.name}" has been removed.`,
-                }],
-        };
+        return await withDaemonConnection(mgr, async (client) => {
+            const capErr = checkProfileCapability(client, options);
+            if (capErr)
+                return capErr;
+            const result = await client.sendCmd('profiles.delete', {
+                name: args.name,
+            }, 10000);
+            if (options.rawResult)
+                return result;
+            return {
+                content: [{
+                        type: 'text',
+                        text: mgr.statusHeader() + `### Profile Deleted\n\nProfile "${args.name}" has been removed.`,
+                    }],
+            };
+        });
     }
     catch (error) {
         if (options.rawResult)
