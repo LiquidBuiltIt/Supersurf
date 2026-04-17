@@ -7,5 +7,6 @@
  *
  * @module tips
  */
-export declare function getTip(tool: string, params: Record<string, unknown>, result: 'ok' | 'error', error?: string): string | null;
+export declare function clearTipCounters(sessionId: string): void;
+export declare function getTip(tool: string, params: Record<string, unknown>, result: 'ok' | 'error', error?: string, sessionId?: string): string | null;
 //# sourceMappingURL=tips.d.ts.map

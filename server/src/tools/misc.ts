@@ -51,6 +51,16 @@ export async function onDialog(ctx: ToolContext, args: any, options: any): Promi
  * @param args - `{ function?: string, expression?: string }`
  */
 export async function onEvaluate(ctx: ToolContext, args: any, options: any): Promise<any> {
+  const purpose = typeof args.purpose === 'string' ? args.purpose.trim() : '';
+  if (!purpose) {
+    return ctx.error(
+      '`browser_evaluate` requires a `purpose` parameter explaining why evaluate is needed ' +
+      'instead of a dedicated tool (browser_lookup, browser_extract_content, browser_interact, ' +
+      'browser_fill_form, browser_navigate, browser_get_element_styles).',
+      options
+    );
+  }
+
   // Normalize function form to an IIFE expression so it actually executes.
   // Without this wrap, an arrow function like `() => 42` parses as a bare
   // function literal whose return value is discarded, yielding undefined.

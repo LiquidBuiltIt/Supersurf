@@ -60,6 +60,7 @@ const daemon_spawn_1 = require("../daemon-spawn");
 const logger_1 = require("../logger");
 const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
+const tips_1 = require("../tips");
 const log = (0, logger_1.createLog)('[Conn]');
 // Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
 let BrowserBridge = null;
@@ -251,9 +252,10 @@ async function onDisconnect(mgr, options = {}) {
         await mgr.extensionServer.stop();
         mgr.extensionServer = null;
     }
-    // Close session log
+    // Close session log + clear tip suppression counters
     if (mgr.clientId) {
         (0, logger_1.getRegistry)().clearSessionLog(mgr.clientId);
+        (0, tips_1.clearTipCounters)(mgr.clientId);
     }
     mgr.state = 'passive';
     mgr.connectedBrowserName = null;

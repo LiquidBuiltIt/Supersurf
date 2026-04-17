@@ -4,6 +4,17 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
+## Unreleased
+
+- feat: `browser_evaluate` requires a `purpose` parameter — a free-text field where the agent explains why evaluate is needed instead of a dedicated tool (`browser_lookup`, `browser_extract_content`, `browser_interact`, `browser_fill_form`, `browser_navigate`, `browser_get_element_styles`). Captured in the audit log for intent analysis. Missing/empty purpose is rejected before dispatch
+- feat: contextual tip suppression — if a tip fires 3 consecutive times for the same (session, tool, tip_id), it is suppressed on subsequent calls until that tool is called without triggering it (per-tip reset). Stops high-volume repeat coaching (the `browser_lookup` tip fired 261 times in the recent job-search sessions with a 2% follow-through rate) from becoming wallpaper. Counters clear on `disconnect`
+
+## 1.9.2 — 2026-04-10
+
+- feat: profile tools (`profile_list`, `profile_create`, `profile_delete`) work without `connect`/`disconnect` — handlers spin up a temporary daemon connection when no active session exists, so agents can manage profiles from passive state
+- chore: added `npm run tree` script for listing project source files
+- chore: CLAUDE.md updated to reflect v1.9.1 state — added daemon experiments layer, tips system, dotenv, sandbox, chrome types, and missing test entries
+
 ## 1.9.1 — 2026-04-08
 
 - chore: `scripts/publish.ts` now owns git tagging — `scripts/version.bump.ts` no longer creates tags. Tags only exist for versions actually shipped, so re-bumping or amending after a bump is free (no tag cleanup). Publish is idempotent on retry — existing tag at HEAD is reused, push failure on a freshly-created tag rolls it back for a clean retry

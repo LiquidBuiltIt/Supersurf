@@ -652,7 +652,7 @@ describe('browser_evaluate with secure_eval experiment', () => {
   });
 
   it('allows code through when experiment is disabled', async () => {
-    const result = await bridge.callTool('browser_evaluate', {
+    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "fetch('/api')",
     });
     expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.anything());
@@ -661,7 +661,7 @@ describe('browser_evaluate with secure_eval experiment', () => {
 
   it('blocks dangerous code when experiment is enabled', async () => {
     experimentRegistry.enable('secure_eval');
-    const result = await bridge.callTool('browser_evaluate', {
+    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "fetch('/api')",
     });
     expect(mockExt.sendCmd).not.toHaveBeenCalled();
@@ -672,7 +672,7 @@ describe('browser_evaluate with secure_eval experiment', () => {
 
   it('allows safe code when experiment is enabled', async () => {
     experimentRegistry.enable('secure_eval');
-    const result = await bridge.callTool('browser_evaluate', {
+    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "document.querySelector('h1').textContent",
     });
     expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.anything());
@@ -681,7 +681,7 @@ describe('browser_evaluate with secure_eval experiment', () => {
 
   it('blocks via function arg too', async () => {
     experimentRegistry.enable('secure_eval');
-    const result = await bridge.callTool('browser_evaluate', {
+    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       function: "fetch('/api')",
     });
     expect(mockExt.sendCmd).not.toHaveBeenCalled();
@@ -692,7 +692,7 @@ describe('browser_evaluate with secure_eval experiment', () => {
     experimentRegistry.enable('secure_eval');
     const result = await bridge.callTool(
       'browser_evaluate',
-      { expression: "fetch('/api')" },
+      { purpose: 'test', expression: "fetch('/api')" },
       { rawResult: true }
     );
     expect(result.success).toBe(false);
@@ -813,7 +813,7 @@ describe('three-layer secure_eval flow', () => {
 
   it('Layer 1 stops before Layer 2 for known dangerous code', async () => {
     experimentRegistry.enable('secure_eval');
-    await bridge.callTool('browser_evaluate', { expression: "fetch('/api')" });
+    await bridge.callTool('browser_evaluate', { purpose: 'test', expression: "fetch('/api')" });
     // Layer 1 blocks — sendCmd never called
     expect(mockExt.sendCmd).not.toHaveBeenCalled();
   });
@@ -828,7 +828,7 @@ describe('three-layer secure_eval flow', () => {
       return 'ok';
     });
 
-    const result = await bridge.callTool('browser_evaluate', {
+    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       // This code passes AST (Layer 1 doesn't detect the pattern)
       expression: "document.querySelector('h1').textContent",
     });
@@ -848,7 +848,7 @@ describe('three-layer secure_eval flow', () => {
       return 'result';
     });
 
-    await bridge.callTool('browser_evaluate', {
+    await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "document.querySelector('h1').textContent",
     });
 
@@ -867,7 +867,7 @@ describe('three-layer secure_eval flow', () => {
       return 'ok';
     });
 
-    const result = await bridge.callTool('browser_evaluate', {
+    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "document.querySelector('h1').textContent",
     });
 
@@ -884,7 +884,7 @@ describe('three-layer secure_eval flow', () => {
       return 'ok';
     });
 
-    const result = await bridge.callTool('browser_evaluate', {
+    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: 'x.toString()',
     });
 
@@ -902,7 +902,7 @@ describe('three-layer secure_eval flow', () => {
       return 'result value';
     });
 
-    const result = await bridge.callTool('browser_evaluate', {
+    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "document.querySelector('h1').textContent",
     });
 
@@ -912,7 +912,7 @@ describe('three-layer secure_eval flow', () => {
   });
 
   it('passes through without wrapping when experiment is disabled', async () => {
-    const result = await bridge.callTool('browser_evaluate', {
+    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "fetch('/api')",
     });
 

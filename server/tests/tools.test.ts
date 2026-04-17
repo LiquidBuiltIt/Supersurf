@@ -114,7 +114,7 @@ describe('BrowserBridge', () => {
 
     it('dispatches browser_evaluate to extension', async () => {
       mockExt.sendCmd.mockResolvedValue('42');
-      await bridge.callTool('browser_evaluate', { expression: '1+1' });
+      await bridge.callTool('browser_evaluate', { expression: '1+1', purpose: 'arithmetic probe' });
       expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.objectContaining({ expression: '1+1' }));
     });
 

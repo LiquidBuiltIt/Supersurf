@@ -218,7 +218,14 @@ function getToolSchemas() {
                 properties: {
                     function: { type: 'string', description: 'JavaScript function to execute' },
                     expression: { type: 'string', description: 'JavaScript expression to evaluate' },
+                    purpose: {
+                        type: 'string',
+                        description: 'Required. Explain why evaluate is needed instead of a dedicated tool ' +
+                            '(browser_lookup, browser_extract_content, browser_interact, browser_fill_form, ' +
+                            'browser_navigate, browser_get_element_styles). Logged for audit.',
+                    },
                 },
+                required: ['purpose'],
             },
             annotations: { title: 'Evaluate JS', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         },

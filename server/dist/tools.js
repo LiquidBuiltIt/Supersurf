@@ -390,7 +390,8 @@ class BrowserBridge {
         finally {
             const url = this._getCurrentUrl();
             // Compute tip once — used in both response and audit log
-            const tip = !options.rawResult ? (0, tips_1.getTip)(name, args, callResult, callError) : null;
+            const sessionId = this.connectionManager?.clientId ?? 'unknown';
+            const tip = !options.rawResult ? (0, tips_1.getTip)(name, args, callResult, callError, sessionId) : null;
             this.auditLogger?.write({
                 session_id: this.connectionManager?.clientId ?? 'unknown',
                 tool: name,

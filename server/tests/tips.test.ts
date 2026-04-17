@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getTip } from '../src/tips';
+import { getTip, clearTipCounters } from '../src/tips';
 
 describe('getTip', () => {
   // Tip 1: evaluate doing .click() with text matching
@@ -175,5 +175,88 @@ describe('getTip', () => {
     }, 'ok');
     expect(tip).toContain('browser_interact');
     expect(tip).not.toContain('browser_lookup');
+  });
+});
+
+describe('getTip session suppression', () => {
+  const queryEval = { expression: `document.querySelector('h1').textContent` };
+  const clickEval = { expression: `document.querySelector('button').click()` };
+
+  it('omits suppression when no sessionId given (pure-function mode)', () => {
+    // Without sessionId, tip always returns regardless of prior calls
+    for (let i = 0; i < 10; i++) {
+      const tip = getTip('browser_evaluate', queryEval, 'ok');
+      expect(tip).toBeTruthy();
+    }
+  });
+
+  it('shows tip for first 3 consecutive triggers then suppresses on 4th', () => {
+    const sid = 'sess-suppress-basic';
+    clearTipCounters(sid);
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toContain('browser_lookup');
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toContain('browser_lookup');
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toContain('browser_lookup');
+    // 4th consecutive trigger: suppressed
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toBeNull();
+    // 5th still suppressed
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toBeNull();
+    clearTipCounters(sid);
+  });
+
+  it('resets counter when the same tool is called without this tip matching', () => {
+    const sid = 'sess-suppress-reset';
+    clearTipCounters(sid);
+    // Trigger lookup tip 3x -> suppressed on 4th
+    getTip('browser_evaluate', queryEval, 'ok', undefined, sid);
+    getTip('browser_evaluate', queryEval, 'ok', undefined, sid);
+    getTip('browser_evaluate', queryEval, 'ok', undefined, sid);
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toBeNull();
+    // Call evaluate with code that doesn't match the lookup tip (plain math)
+    getTip('browser_evaluate', { expression: '1+1' }, 'ok', undefined, sid);
+    // Next matching call should fire again
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toContain('browser_lookup');
+    clearTipCounters(sid);
+  });
+
+  it('tracks tips independently — click tip counter does not affect lookup tip counter', () => {
+    const sid = 'sess-suppress-indep';
+    clearTipCounters(sid);
+    // Fire click tip 3x
+    getTip('browser_evaluate', clickEval, 'ok', undefined, sid);
+    getTip('browser_evaluate', clickEval, 'ok', undefined, sid);
+    getTip('browser_evaluate', clickEval, 'ok', undefined, sid);
+    // Click tip should be suppressed on the 4th
+    expect(getTip('browser_evaluate', clickEval, 'ok', undefined, sid)).toBeNull();
+    // Lookup tip should still fire (its counter is untouched)
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toContain('browser_lookup');
+    clearTipCounters(sid);
+  });
+
+  it('isolates state per session', () => {
+    const a = 'sess-A';
+    const b = 'sess-B';
+    clearTipCounters(a);
+    clearTipCounters(b);
+    // Saturate session A
+    getTip('browser_evaluate', queryEval, 'ok', undefined, a);
+    getTip('browser_evaluate', queryEval, 'ok', undefined, a);
+    getTip('browser_evaluate', queryEval, 'ok', undefined, a);
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, a)).toBeNull();
+    // Session B still sees the tip
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, b)).toContain('browser_lookup');
+    clearTipCounters(a);
+    clearTipCounters(b);
+  });
+
+  it('clearTipCounters() resets a session', () => {
+    const sid = 'sess-clear';
+    clearTipCounters(sid);
+    getTip('browser_evaluate', queryEval, 'ok', undefined, sid);
+    getTip('browser_evaluate', queryEval, 'ok', undefined, sid);
+    getTip('browser_evaluate', queryEval, 'ok', undefined, sid);
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toBeNull();
+    clearTipCounters(sid);
+    expect(getTip('browser_evaluate', queryEval, 'ok', undefined, sid)).toContain('browser_lookup');
+    clearTipCounters(sid);
   });
 });

@@ -19,6 +19,7 @@ import { ensureDaemon, getSockPath } from '../daemon-spawn';
 import { createLog, getRegistry } from '../logger';
 import { experimentRegistry, applyInitialState } from '../experimental/index';
 import { initSession as initHumanization, destroySession as destroyHumanization } from '../experimental/mouse-humanization/index';
+import { clearTipCounters } from '../tips';
 
 const log = createLog('[Conn]');
 
@@ -258,9 +259,10 @@ export async function onDisconnect(
     mgr.extensionServer = null;
   }
 
-  // Close session log
+  // Close session log + clear tip suppression counters
   if (mgr.clientId) {
     getRegistry().clearSessionLog(mgr.clientId);
+    clearTipCounters(mgr.clientId);
   }
 
   mgr.state = 'passive';
