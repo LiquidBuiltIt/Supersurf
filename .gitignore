@@ -5,6 +5,7 @@ knowledge/
 research/
 .dialup.config.json
 .superpowers/
+.worktrees/
 
 # Dependencies
 node_modules/
