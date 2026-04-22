@@ -20,11 +20,23 @@ vi.mock('../src/experimental/index', () => ({
 }));
 
 function createMockCtx(): ToolContext {
+  // Default cdp mock: top-frame Runtime.evaluate reports "element exists"
+  // so resolveInFrames / findElementInFrames helpers don't DFS into child
+  // frames for tests that don't opt in to iframe behavior.
+  const defaultCdp = vi.fn().mockImplementation(async (method: string, params: any) => {
+    if (method === 'Runtime.evaluate' && (params == null || params.contextId === undefined)) {
+      return { result: { objectId: 'top-obj' } };
+    }
+    return {};
+  });
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
     connectionManager: null,
-    cdp: vi.fn().mockResolvedValue({}),
-    eval: vi.fn().mockResolvedValue(undefined),
+    cdp: defaultCdp,
+    // Default eval returns a truthy object so verification shims
+    // (`{focused}`, `{scrolled}`, `{cleared}`, `{selected}`, `{verified}`)
+    // don't throw for tests that don't opt in. Specific tests override as needed.
+    eval: vi.fn().mockResolvedValue({ focused: true, scrolled: true, cleared: true, selected: true, optionText: 'ok', verified: true, found: true }),
     sleep: vi.fn().mockResolvedValue(undefined),
     getElementCenter: vi.fn().mockResolvedValue({ x: 50, y: 50 }),
     getSelectorExpression: vi.fn((s) => `document.querySelector("${s}")`),
@@ -85,7 +97,10 @@ describe('onInteract()', () => {
     }, {});
 
     // Should dispatch 5 char events (h, e, l, l, o)
-    expect(ctx.cdp).toHaveBeenCalledTimes(5);
+    const charCalls = (ctx.cdp as any).mock.calls.filter(
+      (c: any) => c[0] === 'Input.dispatchKeyEvent' && c[1]?.type === 'char'
+    );
+    expect(charCalls).toHaveLength(5);
     expect(result.content[0].text).toContain('Typed');
   });
 

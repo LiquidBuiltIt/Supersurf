@@ -15,6 +15,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OPTION_MATCHER_JS = void 0;
 exports.onInteract = onInteract;
+const frames_1 = require("./frames");
 const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const logger_1 = require("../logger");
@@ -176,76 +177,6 @@ async function onInteract(ctx, args, options) {
         isError: results.some(r => r.startsWith('✗')),
     };
 }
-/**
- * DFS-walk the frame tree and evaluate `selectorExpr` in each child frame's
- * isolated world. Returns the first frame where the expression yields a
- * non-null `objectId`, along with that frame's execution context id so the
- * caller can re-use it for post-action read-backs.
- *
- * Uses `Page.createIsolatedWorld` per frame to obtain an execution context
- * — isolated worlds sidestep CSP restrictions and page-installed Proxy
- * shenanigans, mirroring the extension's content-script isolation.
- *
- * Only used by file_upload today, but the mechanics (frame tree + per-frame
- * objectId resolution) are the same for any tool that needs to reach into
- * iframes.
- */
-async function findElementInFrames(ctx, selectorExpr) {
-    let tree;
-    try {
-        tree = await ctx.cdp('Page.getFrameTree', {});
-    }
-    catch {
-        return null;
-    }
-    const root = tree?.frameTree;
-    if (!root)
-        return null;
-    // Collect frame ids in DFS order. Skip the top frame since the caller
-    // already queried it via the default execution context.
-    const frameIds = [];
-    const walk = (node, isRoot) => {
-        if (!node?.frame?.id)
-            return;
-        if (!isRoot)
-            frameIds.push(node.frame.id);
-        const children = node.childFrames || [];
-        for (const child of children)
-            walk(child, false);
-    };
-    walk(root, true);
-    for (const frameId of frameIds) {
-        let contextId;
-        try {
-            const world = await ctx.cdp('Page.createIsolatedWorld', {
-                frameId,
-                worldName: 'supersurf_file_upload',
-                grantUniveralAccess: false,
-            });
-            contextId = world.executionContextId;
-        }
-        catch {
-            continue;
-        }
-        if (contextId == null)
-            continue;
-        try {
-            const result = await ctx.cdp('Runtime.evaluate', {
-                expression: selectorExpr,
-                contextId,
-                returnByValue: false,
-            });
-            const objectId = result?.result?.objectId;
-            if (objectId) {
-                return { objectId, contextId };
-            }
-        }
-        catch {
-            continue;
-        }
-    }
-    return null;
-}
 /** Get viewport dimensions from extension */
 async function getViewportSize(ctx) {
     return await ctx.ext.sendCmd('getViewportDimensions', {});
@@ -276,8 +207,12 @@ async function executeAction(ctx, action) {
         case 'click': {
             const clickTimestamp = Date.now();
             let x, y;
+            let clickContextId = null;
             if (action.selector) {
-                ({ x, y } = await ctx.getElementCenter(action.selector));
+                const c = await (0, frames_1.getCenterInFrame)(ctx, action.selector);
+                x = c.x;
+                y = c.y;
+                clickContextId = c.contextId;
             }
             else if (action.x !== undefined && action.y !== undefined) {
                 x = action.x;
@@ -297,11 +232,13 @@ async function executeAction(ctx, action) {
             await ctx.cdp('Input.dispatchMouseEvent', {
                 type: 'mouseReleased', x, y, button, clickCount,
             });
-            // Dispatch DOM-level click for navigation (CDP mouse events don't synthesize click)
-            await ctx.eval(`(() => {
+            // Dispatch DOM-level click for navigation (CDP mouse events don't synthesize click).
+            // Must run in the frame that owns the element so elementFromPoint resolves inside the iframe.
+            const domClickExpr = `(() => {
         const el = document.elementFromPoint(${x}, ${y});
         if (el && (el.closest('a[href]') || el.onclick)) el.click();
-      })()`).catch(() => { });
+      })()`;
+            await (0, frames_1.evalInFrameOrTop)(ctx, domClickExpr, clickContextId).catch(() => { });
             // === EXPERIMENTAL: post-click smart waiting ===
             if (index_1.experimentRegistry.isEnabled('smart_waiting')) {
                 try {
@@ -318,31 +255,55 @@ async function executeAction(ctx, action) {
             return `Clicked ${clickLabel} at (${x}, ${y})`;
         }
         case 'type': {
+            let typeContextId = null;
             if (action.selector) {
-                const expr = ctx.getSelectorExpression(action.selector);
-                await ctx.eval(`(() => { const el = ${expr}; if (el) el.focus(); })()`);
+                const selectorExpr = ctx.getSelectorExpression(action.selector);
+                const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr);
+                if (!match)
+                    throw new Error(`Element not found: ${action.selector}`);
+                typeContextId = match.contextId;
+                const focusExpr = `
+          (() => {
+            const el = ${selectorExpr};
+            if (!el) return { focused: false };
+            el.focus();
+            return { focused: document.activeElement === el };
+          })()
+        `;
+                const focusResult = await (0, frames_1.evalInFrameOrTop)(ctx, focusExpr, typeContextId);
+                if (!focusResult?.focused)
+                    throw new Error(`Failed to focus ${action.selector}`);
             }
             for (const char of action.text) {
                 await ctx.cdp('Input.dispatchKeyEvent', { type: 'char', text: char });
             }
             if (action.selector) {
-                const expr = ctx.getSelectorExpression(action.selector);
-                const finalValue = await ctx.eval(`(() => { const el = ${expr}; return el?.value; })()`);
+                const selectorExpr = ctx.getSelectorExpression(action.selector);
+                const readExpr = `(() => { const el = ${selectorExpr}; return el?.value; })()`;
+                const finalValue = await (0, frames_1.evalInFrameOrTop)(ctx, readExpr, typeContextId);
                 return `Typed "${action.text}" into ${action.selector} (value: "${finalValue ?? 'N/A'}")`;
             }
             return `Typed "${action.text}" into focused element`;
         }
         case 'clear': {
-            const expr = ctx.getSelectorExpression(action.selector);
-            await ctx.eval(`
+            const selectorExpr = ctx.getSelectorExpression(action.selector);
+            const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr);
+            if (!match)
+                throw new Error(`Element not found: ${action.selector}`);
+            const clearExpr = `
         (() => {
-          const el = ${expr};
-          if (!el) throw new Error('Element not found');
+          const el = ${selectorExpr};
+          if (!el) return { cleared: false };
+          el.focus();
           el.value = '';
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
+          return { cleared: true };
         })()
-      `);
+      `;
+            const result = await (0, frames_1.evalInFrameOrTop)(ctx, clearExpr, match.contextId);
+            if (!result?.cleared)
+                throw new Error(`Failed to clear ${action.selector}`);
             return `Cleared ${action.selector}`;
         }
         case 'press_key': {
@@ -360,28 +321,22 @@ async function executeAction(ctx, action) {
             return `Pressed ${key}`;
         }
         case 'hover': {
-            const { x, y } = await ctx.getElementCenter(action.selector);
+            const { x, y } = await (0, frames_1.getCenterInFrame)(ctx, action.selector);
             await moveCursorTo(ctx, x, y, '_default');
             return `Hovered ${action.selector} at (${x}, ${y})`;
         }
         case 'wait': {
             const timeout = action.timeout || 30000;
             if (action.selector) {
-                await ctx.eval(`
-          new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Timeout waiting for element')), ${timeout});
-            const check = () => {
-              if (document.querySelector(${JSON.stringify(action.selector)})) {
-                clearTimeout(timeout);
-                resolve(true);
-              } else {
-                setTimeout(check, 100);
-              }
-            };
-            check();
-          })
-        `);
-                return `Element appeared: ${action.selector}`;
+                const selectorExpr = ctx.getSelectorExpression(action.selector);
+                const deadline = Date.now() + timeout;
+                while (Date.now() < deadline) {
+                    const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr);
+                    if (match)
+                        return `Element appeared: ${action.selector}`;
+                    await ctx.sleep(100);
+                }
+                throw new Error(`Timeout waiting for element: ${action.selector}`);
             }
             else {
                 await ctx.sleep(timeout);
@@ -425,8 +380,21 @@ async function executeAction(ctx, action) {
         }
         case 'scroll_to': {
             if (action.selector) {
-                const expr = ctx.getSelectorExpression(action.selector);
-                await ctx.eval(`(() => { const el = ${expr}; if (el) el.scrollTo(${action.x || 0}, ${action.y || 0}); })()`);
+                const selectorExpr = ctx.getSelectorExpression(action.selector);
+                const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr);
+                if (!match)
+                    throw new Error(`Element not found: ${action.selector}`);
+                const expr = `
+          (() => {
+            const el = ${selectorExpr};
+            if (!el) return { scrolled: false };
+            el.scrollTo(${action.x || 0}, ${action.y || 0});
+            return { scrolled: true };
+          })()
+        `;
+                const r = await (0, frames_1.evalInFrameOrTop)(ctx, expr, match.contextId);
+                if (!r?.scrolled)
+                    throw new Error(`Failed to scroll ${action.selector}`);
                 return `Scrolled ${action.selector} to (${action.x || 0}, ${action.y || 0})`;
             }
             await ctx.eval(`window.scrollTo(${action.x || 0}, ${action.y || 0})`);
@@ -434,37 +402,61 @@ async function executeAction(ctx, action) {
         }
         case 'scroll_by': {
             if (action.selector) {
-                const expr = ctx.getSelectorExpression(action.selector);
-                await ctx.eval(`(() => { const el = ${expr}; if (el) el.scrollBy(${action.x || 0}, ${action.y || 0}); })()`);
+                const selectorExpr = ctx.getSelectorExpression(action.selector);
+                const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr);
+                if (!match)
+                    throw new Error(`Element not found: ${action.selector}`);
+                const expr = `
+          (() => {
+            const el = ${selectorExpr};
+            if (!el) return { scrolled: false };
+            el.scrollBy(${action.x || 0}, ${action.y || 0});
+            return { scrolled: true };
+          })()
+        `;
+                const r = await (0, frames_1.evalInFrameOrTop)(ctx, expr, match.contextId);
+                if (!r?.scrolled)
+                    throw new Error(`Failed to scroll ${action.selector}`);
                 return `Scrolled ${action.selector} by (${action.x || 0}, ${action.y || 0})`;
             }
             await ctx.eval(`window.scrollBy(${action.x || 0}, ${action.y || 0})`);
             return `Scrolled window by (${action.x || 0}, ${action.y || 0})`;
         }
         case 'scroll_into_view': {
-            const expr = ctx.getSelectorExpression(action.selector);
-            await ctx.eval(`
+            const selectorExpr = ctx.getSelectorExpression(action.selector);
+            const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr);
+            if (!match)
+                throw new Error(`Element not found: ${action.selector}`);
+            const expr = `
         (() => {
-          const el = ${expr};
-          if (!el) throw new Error('Element not found');
+          const el = ${selectorExpr};
+          if (!el) return { scrolled: false };
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return { scrolled: true };
         })()
-      `);
+      `;
+            const r = await (0, frames_1.evalInFrameOrTop)(ctx, expr, match.contextId);
+            if (!r?.scrolled)
+                throw new Error(`Failed to scroll ${action.selector} into view`);
             return `Scrolled ${action.selector} into view`;
         }
         case 'select_option': {
-            const expr = ctx.getSelectorExpression(action.selector);
-            const result = await ctx.eval(`
+            const selectorExpr = ctx.getSelectorExpression(action.selector);
+            const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr);
+            if (!match)
+                throw new Error(`Element not found: ${action.selector}`);
+            const target = JSON.stringify(action.value);
+            const expr = `
         (() => {
-          const el = ${expr};
-          if (!el || el.tagName !== 'SELECT') throw new Error('Not a <select> element');
+          const el = ${selectorExpr};
+          if (!el || el.tagName !== 'SELECT') return { selected: false, reason: 'not-a-select' };
           const options = Array.from(el.options);
-          const target = ${JSON.stringify(action.value)};
+          const target = ${target};
 
           // Match by value first, then by text
           let opt = options.find(o => o.value === target);
           if (!opt) opt = options.find(o => o.textContent?.trim().toLowerCase() === target.toLowerCase());
-          if (!opt) throw new Error('Option not found: ' + target);
+          if (!opt) return { selected: false, reason: 'no-option', available: options.map(o => o.textContent?.trim() || '') };
 
           // Use native setter to bypass frameworks
           const nativeSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
@@ -473,10 +465,13 @@ async function executeAction(ctx, action) {
 
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
-          return opt.textContent?.trim() || opt.value;
+          return { selected: true, optionText: opt.textContent?.trim() || opt.value };
         })()
-      `);
-            return `Selected "${result}" in ${action.selector}`;
+      `;
+            const r = await (0, frames_1.evalInFrameOrTop)(ctx, expr, match.contextId);
+            if (!r?.selected)
+                throw new Error(`Failed to select in ${action.selector}: ${r?.reason ?? 'unknown'}`);
+            return `Selected "${r.optionText}" in ${action.selector}`;
         }
         case 'select_custom': {
             const triggerSelector = action.selector;
@@ -486,8 +481,12 @@ async function executeAction(ctx, action) {
             if (!targetValue)
                 throw new Error('select_custom requires a value');
             const expr = ctx.getSelectorExpression(triggerSelector);
+            const triggerMatch = await (0, frames_1.resolveInFrames)(ctx, expr);
+            if (!triggerMatch)
+                throw new Error(`No custom dropdown trigger found at ${triggerSelector}.`);
+            const frameContextId = triggerMatch.contextId;
             // Step 1: Detect the dropdown trigger element
-            const detection = await ctx.eval(`
+            const detection = await (0, frames_1.evalInFrameOrTop)(ctx, `
         (() => {
           const el = ${expr};
           if (!el) return { found: false };
@@ -515,12 +514,12 @@ async function executeAction(ctx, action) {
             triggerText: el.textContent?.trim().substring(0, 100) || '',
           };
         })()
-      `);
+      `, frameContextId);
             if (!detection?.found) {
                 throw new Error(`No custom dropdown trigger found at ${triggerSelector}. Use select_option for native <select> elements.`);
             }
             // Step 2: Snapshot existing options before opening, then click the trigger
-            const beforeSnapshot = await ctx.eval(`
+            const beforeSnapshot = await (0, frames_1.evalInFrameOrTop)(ctx, `
         (() => {
           const sels = [
             '[role="option"]', '[role="menuitem"]',
@@ -537,8 +536,8 @@ async function executeAction(ctx, action) {
           }
           return [...ids];
         })()
-      `) || [];
-            const { x, y } = await ctx.getElementCenter(triggerSelector);
+      `, frameContextId) || [];
+            const { x, y } = await (0, frames_1.getCenterInFrame)(ctx, triggerSelector);
             await moveCursorTo(ctx, x, y, '_default');
             await ctx.cdp('Input.dispatchMouseEvent', {
                 type: 'mousePressed', x, y, button: 'left', clickCount: 1, buttons: 1,
@@ -547,15 +546,15 @@ async function executeAction(ctx, action) {
             await ctx.cdp('Input.dispatchMouseEvent', {
                 type: 'mouseReleased', x, y, button: 'left', clickCount: 1,
             });
-            await ctx.eval(`(() => {
+            await (0, frames_1.evalInFrameOrTop)(ctx, `(() => {
         const el = document.elementFromPoint(${x}, ${y});
         if (el) el.click();
-      })()`).catch(() => { });
+      })()`, frameContextId).catch(() => { });
             // Wait for dropdown to render
             await ctx.sleep(300);
             // Step 3: Find and click the target option — only consider options
             // that appeared AFTER the click (scopes to this dropdown, not others)
-            const optionResult = await ctx.eval(`
+            const optionResult = await (0, frames_1.evalInFrameOrTop)(ctx, `
         (() => {
           ${exports.OPTION_MATCHER_JS}
           const target = ${JSON.stringify(targetValue)};
@@ -615,7 +614,7 @@ async function executeAction(ctx, action) {
           }
           return { found: false, available: available.slice(0, 20) };
         })()
-      `);
+      `, frameContextId);
             if (!optionResult?.found) {
                 const availableMsg = optionResult?.available?.length
                     ? ` Available: ${optionResult.available.join(', ')}`
@@ -628,7 +627,7 @@ async function executeAction(ctx, action) {
             // React-Select / Headless UI / Radix Select all update the trigger label
             // on selection. If the text is identical to the pre-click snapshot, the
             // click did not propagate to component state — likely a fiber/state issue.
-            const verification = await ctx.eval(`
+            const verification = await (0, frames_1.evalInFrameOrTop)(ctx, `
         (() => {
           const el = ${expr};
           if (!el) return { verified: false, currentText: '' };
@@ -636,7 +635,7 @@ async function executeAction(ctx, action) {
           const before = ${JSON.stringify(detection.triggerText)};
           return { verified: currentText !== before, currentText };
         })()
-      `);
+      `, frameContextId);
             if (verification?.verified) {
                 return `Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector}`;
             }
@@ -661,7 +660,7 @@ async function executeAction(ctx, action) {
             let frameContextId = null;
             // Step 2: If top frame has no match, walk child frames in DFS order.
             if (!objectId) {
-                const match = await findElementInFrames(ctx, selectorExpr);
+                const match = await (0, frames_1.findElementInFrames)(ctx, selectorExpr);
                 if (!match) {
                     throw new Error(`Element not found in any frame: ${action.selector}`);
                 }
@@ -699,14 +698,23 @@ async function executeAction(ctx, action) {
         case 'force_pseudo_state': {
             const pseudoStates = action.pseudoStates || [];
             const doc = await ctx.cdp('DOM.getDocument', {});
-            const nodeResult = await ctx.cdp('DOM.querySelector', {
+            const topResult = await ctx.cdp('DOM.querySelector', {
                 nodeId: doc.root.nodeId,
                 selector: action.selector,
             });
-            if (!nodeResult.nodeId)
+            let nodeId = topResult.nodeId;
+            if (!nodeId) {
+                const selectorExpr = ctx.getSelectorExpression(action.selector);
+                const match = await (0, frames_1.findElementInFrames)(ctx, selectorExpr);
+                if (!match)
+                    throw new Error(`Element not found: ${action.selector}`);
+                const req = await ctx.cdp('DOM.requestNode', { objectId: match.objectId });
+                nodeId = req.nodeId;
+            }
+            if (!nodeId)
                 throw new Error(`Element not found: ${action.selector}`);
             await ctx.cdp('CSS.forcePseudoState', {
-                nodeId: nodeResult.nodeId,
+                nodeId,
                 forcedPseudoClasses: pseudoStates,
             });
             return `Forced pseudo-states [${pseudoStates.join(', ')}] on ${action.selector}`;

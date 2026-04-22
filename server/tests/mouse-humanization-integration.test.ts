@@ -33,8 +33,13 @@ function createMockCtx(): ToolContext {
       }),
     } as any,
     connectionManager: null,
-    cdp: vi.fn().mockResolvedValue({}),
-    eval: vi.fn().mockResolvedValue(undefined),
+    cdp: vi.fn().mockImplementation(async (method: string, params: any) => {
+      if (method === 'Runtime.evaluate' && (params == null || params.contextId === undefined)) {
+        return { result: { objectId: 'top-obj' } };
+      }
+      return {};
+    }),
+    eval: vi.fn().mockResolvedValue({ focused: true, scrolled: true, cleared: true, selected: true, optionText: 'ok', verified: true, found: true }),
     sleep: vi.fn().mockResolvedValue(undefined),
     getElementCenter: vi.fn().mockResolvedValue({ x: 50, y: 50 }),
     getSelectorExpression: vi.fn((s) => `document.querySelector("${s}")`),
