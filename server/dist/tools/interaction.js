@@ -13,70 +13,13 @@
  * @module tools/interaction
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.OPTION_MATCHER_JS = void 0;
 exports.onInteract = onInteract;
 const frames_1 = require("./frames");
 const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const logger_1 = require("../logger");
+const option_matcher_1 = require("./option-matcher");
 const log = (0, logger_1.createLog)('[Interact]');
-/**
- * Pure-JS option matcher used by `select_custom`.
- *
- * Inlined into the page-context eval AND independently unit-tested via
- * `new Function(OPTION_MATCHER_JS + '...')`. Both call sites share the same
- * source string so behavior cannot drift.
- *
- * Match strategy (lowest score = best match):
- *   0 — exact normalized match (whitespace-collapsed, case-insensitive)
- *   1 — alphanumeric-only equality (ignores all spaces/punctuation)
- *   2 — candidate text/value startsWith target
- *   3 — alphanumeric-only startsWith
- *   4 — candidate includes target as substring
- *   5 — alphanumeric-only substring
- *
- * Tie-breaker at the same score: shortest candidate text wins (most specific).
- *
- * Designed to recover from real-world ATS mismatches like
- *   target "United States" vs option "United States +1"
- *   target "United States +1" vs option "United States+1" (no space)
- *
- * Returns the index of the best candidate, or -1 if no match.
- */
-exports.OPTION_MATCHER_JS = `
-function matchOption(target, candidates) {
-  if (!target || !candidates || candidates.length === 0) return -1;
-  var norm = function (s) { return (s || '').toLowerCase().replace(/\\s+/g, ' ').trim(); };
-  var alnum = function (s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); };
-  var t = norm(target);
-  var ta = alnum(target);
-  if (!t && !ta) return -1;
-  var best = -1;
-  var bestScore = 999;
-  var bestLen = Infinity;
-  for (var i = 0; i < candidates.length; i++) {
-    var c = candidates[i] || {};
-    var text = norm(c.text);
-    var value = norm(c.value);
-    var textA = alnum(c.text);
-    var valueA = alnum(c.value);
-    var score = 999;
-    if (t && (text === t || value === t)) score = 0;
-    else if (ta && (textA === ta || valueA === ta)) score = 1;
-    else if (t && (text.startsWith(t) || value.startsWith(t))) score = 2;
-    else if (ta && (textA.startsWith(ta) || valueA.startsWith(ta))) score = 3;
-    else if (t && (text.includes(t) || value.includes(t))) score = 4;
-    else if (ta && (textA.includes(ta) || valueA.includes(ta))) score = 5;
-    var len = (c.text || '').length;
-    if (score < bestScore || (score === bestScore && len < bestLen)) {
-      bestScore = score;
-      best = i;
-      bestLen = len;
-    }
-  }
-  return bestScore < 999 ? best : -1;
-}
-`;
 /**
  * Detect tabs spawned by a click action (window.open, target="_blank", etc.).
  * Non-blocking — errors are swallowed so the click response always succeeds.
@@ -556,7 +499,7 @@ async function executeAction(ctx, action) {
             // that appeared AFTER the click (scopes to this dropdown, not others)
             const optionResult = await (0, frames_1.evalInFrameOrTop)(ctx, `
         (() => {
-          ${exports.OPTION_MATCHER_JS}
+          ${option_matcher_1.OPTION_MATCHER_JS}
           const target = ${JSON.stringify(targetValue)};
           const beforeIds = new Set(${JSON.stringify(beforeSnapshot)});
 
