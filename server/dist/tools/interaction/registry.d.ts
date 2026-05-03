@@ -1,4 +1,4 @@
-import type { ToolContext } from '../types';
+import type { ToolContext } from '../lib/types';
 import type { ActionHandler } from './types';
 export declare function registerAction(handler: ActionHandler): void;
 export declare function executeAction(ctx: ToolContext, action: any): Promise<string>;

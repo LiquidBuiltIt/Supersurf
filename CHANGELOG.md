@@ -6,6 +6,21 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- security: `secure_eval` graduated from experiment to a default-on protection. Three-layer RCE defense (AST static analysis → extension Proxy membrane → page-context Proxy wrapper) now runs on every `browser_evaluate` call without per-session opt-in. Toggling via `experimental_features` returns an explicit error directing operators to the new opt-out. Disable via `--disable-secure-eval` CLI flag or `SUPERSURF_DISABLE_SECURE_EVAL=1` in the server env (not recommended)
+- feat: sharpened `browser_evaluate` schema — explicit "NOT for" list redirecting agents to `browser_navigate`, `browser_storage`, `browser_fill_form`/`browser_interact`, `browser_network_requests`. `readOnlyHint` flipped to `true` and title now reads "Evaluate JS (read-only)"
+- fix: `browser_fill_form` now walks child frames when a selector misses the top frame — same DFS isolated-world pattern v1.10.0 added to `browser_interact`. Closes the iframe-nested form-field gap (52% of active fill_form errors in the audit logs) on iCIMS, embedded form-builders, and payment widgets
+- fix: digit-leading element IDs (e.g. Ashby's `#883a762f-8c9b-...` UUIDs) are now transparently rewritten to `[id="..."]` form before reaching `document.querySelector`. CSS forbids ID identifiers that start with a digit — page-internal querySelector throws `SyntaxError: not a valid selector` — but Ashby (and others) emit them anyway. Closes 36% of active fill_form errors
+
+## 1.10.1 — 2026-05-01
+
+- chore: internal refactor — split `tools.ts` into `tools/lib/` (shared primitives: cdp, frames, sandbox, element-resolver, result-formatter, dispatcher, types) and split `tools/interaction.ts` into per-action files. No behavior change
+
+## 1.10.0 — 2026-04-22
+
+- feat: `browser_interact` actions with a `selector` now auto-fall-back to child frames on top-frame miss — DFS-walks the frame tree via `Page.createIsolatedWorld` and resolves elements in iframe-local coords back to top-frame viewport coords. Eliminates "Element not found" failures on iframe-nested elements (iCIMS, embedded form-builders, payment widgets) without forcing agents to think about frames
+
+## 1.9.3 — 2026-04-17
+
 - feat: `browser_evaluate` requires a `purpose` parameter — a free-text field where the agent explains why evaluate is needed instead of a dedicated tool (`browser_lookup`, `browser_extract_content`, `browser_interact`, `browser_fill_form`, `browser_navigate`, `browser_get_element_styles`). Captured in the audit log for intent analysis. Missing/empty purpose is rejected before dispatch
 - feat: contextual tip suppression — if a tip fires 3 consecutive times for the same (session, tool, tip_id), it is suppressed on subsequent calls until that tool is called without triggering it (per-tip reset). Stops high-volume repeat coaching (the `browser_lookup` tip fired 261 times in the recent job-search sessions with a 2% follow-through rate) from becoming wallpaper. Counters clear on `disconnect`
 

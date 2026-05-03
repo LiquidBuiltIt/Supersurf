@@ -16,7 +16,7 @@
  * - {@link callExperimentalTool} — route experimental tool calls to handlers
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.experimentRegistry = exports.wrapWithPageProxy = exports.analyzeCode = exports.formatDiffSection = exports.calculateConfidence = exports.diffSnapshots = void 0;
+exports.experimentRegistry = exports.formatDiffSection = exports.calculateConfidence = exports.diffSnapshots = void 0;
 exports.applyInitialState = applyInitialState;
 exports.getExperimentalToolSchemas = getExperimentalToolSchemas;
 exports.callExperimentalTool = callExperimentalTool;
@@ -24,12 +24,9 @@ var page_diffing_1 = require("./page-diffing");
 Object.defineProperty(exports, "diffSnapshots", { enumerable: true, get: function () { return page_diffing_1.diffSnapshots; } });
 Object.defineProperty(exports, "calculateConfidence", { enumerable: true, get: function () { return page_diffing_1.calculateConfidence; } });
 Object.defineProperty(exports, "formatDiffSection", { enumerable: true, get: function () { return page_diffing_1.formatDiffSection; } });
-var secure_eval_1 = require("./secure-eval");
-Object.defineProperty(exports, "analyzeCode", { enumerable: true, get: function () { return secure_eval_1.analyzeCode; } });
-Object.defineProperty(exports, "wrapWithPageProxy", { enumerable: true, get: function () { return secure_eval_1.wrapWithPageProxy; } });
 const storage_inspection_1 = require("./storage-inspection");
 /** All recognized session-toggleable experiment names. */
-const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization', 'secure_eval'];
+const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization'];
 /**
  * Cache-backed IPC proxy for experiment state.
  *

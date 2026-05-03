@@ -1,4 +1,4 @@
-import type { ToolContext } from '../types';
+import type { ToolContext } from '../lib/types';
 export declare function getViewportSize(ctx: ToolContext): Promise<{
     width: number;
     height: number;

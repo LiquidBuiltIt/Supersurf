@@ -1,6 +1,6 @@
 {
   "name": "supersurf",
-  "version": "1.10.1",
+  "version": "1.11.0",
   "private": true,
   "description": "MCP browser automation for autonomous AI agents",
   "license": "Apache-2.0",
@@ -27,6 +27,6 @@
     "cws.auth": "npx tsx scripts/cws.auth.ts",
     "cws.publish": "npx tsx scripts/cws.publish.ts",
     "publish": "npx tsx scripts/publish.ts",
-    "tree": "find ./{shared,extension,server,daemon} -type f -name '*.ts' ! -path '*/node_modules/*' ! -path '*/dist/*' ! -path '*/tests/*' | sort"
+    "tree": "npx tsx scripts/tree.ts"
   }
 }

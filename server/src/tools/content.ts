@@ -9,7 +9,7 @@
  * @module tools/content
  */
 
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 
 /**
  * Coalesce adjacent `InlineTextBox` siblings under the same parent into a single

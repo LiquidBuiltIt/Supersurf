@@ -13,7 +13,7 @@
  * - {@link storageInspectionSchema} — MCP tool schema for browser_storage
  * - {@link onBrowserStorage} — handler that validates, gates, and executes storage ops
  */
-import type { ToolSchema, ToolContext } from '../tools/types';
+import type { ToolSchema, ToolContext } from '../tools/lib/types';
 export declare const storageInspectionSchema: ToolSchema;
 /**
  * Handle a `browser_storage` tool call.

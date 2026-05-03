@@ -1,5 +1,5 @@
 // server/src/tools/interaction/types.ts
-import type { ToolContext } from '../types';
+import type { ToolContext } from '../lib/types';
 
 export interface ActionHandler {
   /** Action name as used in browser_interact's `actions[].type` field. */

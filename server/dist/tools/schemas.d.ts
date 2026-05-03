@@ -12,7 +12,7 @@
  *
  * @module tools/schemas
  */
-import type { ToolSchema } from './types';
+import type { ToolSchema } from './lib/types';
 /** Returns all core (non-experimental) tool schemas. */
 export declare function getToolSchemas(): ToolSchema[];
 //# sourceMappingURL=schemas.d.ts.map

@@ -11,13 +11,17 @@
  *
  * @module tools/forms
  */
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 /**
  * Set values on multiple form fields at once.
  *
  * Handles input, textarea, select (single and multi), checkbox, and radio
  * elements. Uses native prototype setters to bypass framework-managed
  * value properties, then fires input + change events.
+ *
+ * Auto-falls-back to child frames when a selector doesn't resolve in the
+ * top frame — mirrors the v1.10.0 `browser_interact` iframe-walk pattern
+ * (see `tools/lib/frames.ts`).
  *
  * @param args - `{ fields: Array<{ selector: string, value: string }> }`
  */

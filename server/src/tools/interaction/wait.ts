@@ -1,5 +1,5 @@
 import { registerAction } from './registry';
-import { resolveInFrames } from '../frames';
+import { resolveInFrames } from '../lib/frames';
 
 registerAction({
   name: 'wait',

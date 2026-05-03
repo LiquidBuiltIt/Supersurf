@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onFillForm, onDrag, onSecureFill } from '../src/tools/forms';
-import type { ToolContext } from '../src/tools/types';
+import type { ToolContext } from '../src/tools/lib/types';
 
 function createMockCtx(): ToolContext {
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
     connectionManager: null,
-    cdp: vi.fn().mockResolvedValue({}),
+    // Default cdp mock simulates a top-frame happy path for resolveInFrames:
+    // Runtime.evaluate returns an objectId so onFillForm proceeds past resolution.
+    cdp: vi.fn().mockImplementation((method: string) => {
+      if (method === 'Runtime.evaluate') {
+        return Promise.resolve({ result: { objectId: 'top-frame-object-id' } });
+      }
+      return Promise.resolve({});
+    }),
     eval: vi.fn().mockResolvedValue(undefined),
     sleep: vi.fn().mockResolvedValue(undefined),
     getElementCenter: vi.fn().mockResolvedValue({ x: 100, y: 100 }),

@@ -14,7 +14,7 @@
  * @module tools/styles
  */
 
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 
 /** Strip content hashes from CSS filenames: `frontend-abc123.css` → `frontend.css` */
 function cleanCSSFilename(href: string): string {

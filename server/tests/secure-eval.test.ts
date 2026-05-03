@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { analyzeCode, wrapWithPageProxy } from '../src/experimental/secure-eval';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { analyzeCode, wrapWithPageProxy } from '../src/tools/browser_evaluate/secure-eval';
 import { experimentRegistry } from '../src/experimental/index';
 import { BrowserBridge } from '../src/tools';
 
@@ -637,7 +637,7 @@ function createMockConnectionManager() {
   } as any;
 }
 
-describe('browser_evaluate with secure_eval experiment', () => {
+describe('browser_evaluate with secure_eval (default-on, opt-out via env)', () => {
   let bridge: BrowserBridge;
   let mockExt: ReturnType<typeof createMockExt>;
   let mockCM: ReturnType<typeof createMockConnectionManager>;
@@ -645,13 +645,19 @@ describe('browser_evaluate with secure_eval experiment', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     experimentRegistry.reset();
+    delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
     mockExt = createMockExt();
     mockCM = createMockConnectionManager();
     bridge = new BrowserBridge({}, mockExt);
     bridge.initialize({}, {}, mockCM);
   });
 
-  it('allows code through when experiment is disabled', async () => {
+  afterEach(() => {
+    delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
+  });
+
+  it('allows code through when SUPERSURF_DISABLE_SECURE_EVAL is set', async () => {
+    process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
     const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "fetch('/api')",
     });
@@ -659,8 +665,7 @@ describe('browser_evaluate with secure_eval experiment', () => {
     expect(result.isError).toBeUndefined();
   });
 
-  it('blocks dangerous code when experiment is enabled', async () => {
-    experimentRegistry.enable('secure_eval');
+  it('blocks dangerous code by default', async () => {
     const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "fetch('/api')",
     });
@@ -670,8 +675,7 @@ describe('browser_evaluate with secure_eval experiment', () => {
     expect(result.content[0].text).toContain('blocked API');
   });
 
-  it('allows safe code when experiment is enabled', async () => {
-    experimentRegistry.enable('secure_eval');
+  it('allows safe code by default', async () => {
     const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "document.querySelector('h1').textContent",
     });
@@ -680,7 +684,6 @@ describe('browser_evaluate with secure_eval experiment', () => {
   });
 
   it('blocks via function arg too', async () => {
-    experimentRegistry.enable('secure_eval');
     const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       function: "fetch('/api')",
     });
@@ -689,7 +692,6 @@ describe('browser_evaluate with secure_eval experiment', () => {
   });
 
   it('returns rawResult error format when blocked', async () => {
-    experimentRegistry.enable('secure_eval');
     const result = await bridge.callTool(
       'browser_evaluate',
       { purpose: 'test', expression: "fetch('/api')" },
@@ -797,7 +799,7 @@ describe('wrapWithPageProxy', () => {
 
 // ── Three-layer integration tests ────────────────────────────
 
-describe('three-layer secure_eval flow', () => {
+describe('three-layer secure_eval flow (default-on)', () => {
   let bridge: BrowserBridge;
   let mockExt: ReturnType<typeof createMockExt>;
   let mockCM: ReturnType<typeof createMockConnectionManager>;
@@ -805,21 +807,24 @@ describe('three-layer secure_eval flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     experimentRegistry.reset();
+    delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
     mockExt = createMockExt();
     mockCM = createMockConnectionManager();
     bridge = new BrowserBridge({}, mockExt);
     bridge.initialize({}, {}, mockCM);
   });
 
+  afterEach(() => {
+    delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
+  });
+
   it('Layer 1 stops before Layer 2 for known dangerous code', async () => {
-    experimentRegistry.enable('secure_eval');
     await bridge.callTool('browser_evaluate', { purpose: 'test', expression: "fetch('/api')" });
     // Layer 1 blocks — sendCmd never called
     expect(mockExt.sendCmd).not.toHaveBeenCalled();
   });
 
   it('Layer 2 blocks code that passes Layer 1', async () => {
-    experimentRegistry.enable('secure_eval');
     // Mock validateEval to return unsafe
     mockExt.sendCmd.mockImplementation(async (cmd: string) => {
       if (cmd === 'validateEval') {
@@ -841,7 +846,6 @@ describe('three-layer secure_eval flow', () => {
   });
 
   it('Layer 3 sends prewrapped: true to evaluate', async () => {
-    experimentRegistry.enable('secure_eval');
     // Mock validateEval as safe, evaluate returns normally
     mockExt.sendCmd.mockImplementation(async (cmd: string) => {
       if (cmd === 'validateEval') return { safe: true };
@@ -859,7 +863,6 @@ describe('three-layer secure_eval flow', () => {
   });
 
   it('Layer 3 catches page proxy errors', async () => {
-    experimentRegistry.enable('secure_eval');
     // Mock validateEval as safe, evaluate throws with [secure_eval] prefix
     mockExt.sendCmd.mockImplementation(async (cmd: string) => {
       if (cmd === 'validateEval') return { safe: true };
@@ -877,7 +880,6 @@ describe('three-layer secure_eval flow', () => {
   });
 
   it('non-secure_eval errors bubble up normally', async () => {
-    experimentRegistry.enable('secure_eval');
     mockExt.sendCmd.mockImplementation(async (cmd: string) => {
       if (cmd === 'validateEval') return { safe: true };
       if (cmd === 'evaluate') throw new Error('ReferenceError: x is not defined');
@@ -895,7 +897,6 @@ describe('three-layer secure_eval flow', () => {
   });
 
   it('gracefully handles extension without validateEval support', async () => {
-    experimentRegistry.enable('secure_eval');
     // Mock validateEval to throw (extension doesn't support it)
     mockExt.sendCmd.mockImplementation(async (cmd: string) => {
       if (cmd === 'validateEval') throw new Error('Unknown command: validateEval');
@@ -911,7 +912,8 @@ describe('three-layer secure_eval flow', () => {
     expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.anything());
   });
 
-  it('passes through without wrapping when experiment is disabled', async () => {
+  it('passes through without wrapping when SUPERSURF_DISABLE_SECURE_EVAL is set', async () => {
+    process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
     const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "fetch('/api')",
     });

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onInteract } from '../src/tools/interaction';
 import { OPTION_MATCHER_JS } from '../src/tools/interaction/option-matcher';
-import type { ToolContext } from '../src/tools/types';
+import type { ToolContext } from '../src/tools/lib/types';
 
 // Build a node-callable version of the page-context matcher.
 // This lets us test the same JS string that gets inlined into select_custom.

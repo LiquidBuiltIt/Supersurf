@@ -8,11 +8,11 @@
  * @module tools/downloads
  */
 
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 import fs from 'fs';
 import path from 'path';
 import { createLog } from '../logger';
-import { sandboxPath } from './sandbox';
+import { sandboxPath } from './lib/sandbox';
 
 const log = createLog('[Downloads]');
 

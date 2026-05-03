@@ -10,20 +10,20 @@
  */
 
 import type { IExtensionTransport } from './bridge';
-import type { ToolSchema, ToolContext } from './tools/types';
+import type { ToolSchema, ToolContext } from './tools/lib/types';
 import { createLog } from './logger';
 import { AuditLogger } from './audit-logger';
 import { getExperimentalToolSchemas, experimentRegistry } from './experimental/index';
 
 import { getToolSchemas } from './tools/schemas';
-import { cdp as cdpFn, evalExpr as evalFn } from './tools/cdp';
+import { cdp as cdpFn, evalExpr as evalFn } from './tools/lib/cdp';
 import {
   getElementCenter,
   getSelectorExpression,
   findAlternativeSelectors,
-} from './tools/element-resolver';
-import { formatResult, formatError } from './tools/result-formatter';
-import { dispatchTool } from './tools/dispatcher';
+} from './tools/lib/element-resolver';
+import { formatResult, formatError } from './tools/lib/result-formatter';
+import { dispatchTool } from './tools/lib/dispatcher';
 
 const log = createLog('[Bridge]');
 

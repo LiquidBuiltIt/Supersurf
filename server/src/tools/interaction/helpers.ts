@@ -1,5 +1,5 @@
 // server/src/tools/interaction/helpers.ts
-import type { ToolContext } from '../types';
+import type { ToolContext } from '../lib/types';
 import { experimentRegistry } from '../../experimental/index';
 import { generateMovement } from '../../experimental/mouse-humanization/index';
 import { createLog } from '../../logger';

@@ -279,7 +279,7 @@ describe('AuditLogger', () => {
       params: { action: 'click' },
       result: 'ok',
       duration_ms: 42,
-      experiments: { page_diffing: true, smart_waiting: false, mouse_humanization: true, secure_eval: false, storage_inspection: false },
+      experiments: { page_diffing: true, smart_waiting: false, mouse_humanization: true, storage_inspection: false },
     });
 
     const content = fs.readFileSync(logger.getPath(), 'utf8');
@@ -288,7 +288,6 @@ describe('AuditLogger', () => {
       page_diffing: true,
       smart_waiting: false,
       mouse_humanization: true,
-      secure_eval: false,
       storage_inspection: false,
     });
   });

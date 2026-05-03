@@ -10,7 +10,7 @@
  * @module tools/navigation
  */
 
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 import { experimentRegistry } from '../experimental/index';
 
 /**

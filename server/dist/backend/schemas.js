@@ -70,8 +70,7 @@ function getConnectionToolSchemas() {
                 '- **page_diffing**: After browser_interact, returns only DOM changes instead of requiring a full re-read. Includes a confidence score.\n' +
                 '- **smart_waiting**: Replaces fixed navigation delays with adaptive DOM stability + network idle detection.\n' +
                 '- **storage_inspection**: Enables the `browser_storage` tool for inspecting/modifying localStorage and sessionStorage.\n' +
-                '- **mouse_humanization**: Replaces instant cursor teleportation with human-like Bezier trajectories, overshoot correction, and idle micro-movements.\n' +
-                '- **secure_eval**: Analyzes JavaScript in browser_evaluate for dangerous patterns (network calls, storage access, code injection, obfuscation) via AST parsing. Blocks unsafe code before execution.',
+                '- **mouse_humanization**: Replaces instant cursor teleportation with human-like Bezier trajectories, overshoot correction, and idle micro-movements.',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -79,7 +78,6 @@ function getConnectionToolSchemas() {
                     smart_waiting: { type: 'boolean', description: 'Enable/disable smart waiting experiment' },
                     storage_inspection: { type: 'boolean', description: 'Enable/disable storage inspection experiment' },
                     mouse_humanization: { type: 'boolean', description: 'Enable/disable mouse humanization experiment' },
-                    secure_eval: { type: 'boolean', description: 'Enable/disable secure eval experiment' },
                 },
             },
             annotations: {

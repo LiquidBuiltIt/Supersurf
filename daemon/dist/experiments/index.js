@@ -16,7 +16,6 @@ const AVAILABLE_EXPERIMENTS = [
     'smart_waiting',
     'storage_inspection',
     'mouse_humanization',
-    'secure_eval',
 ];
 const debugLog = (...args) => {
     const logger = global.DAEMON_LOGGER;

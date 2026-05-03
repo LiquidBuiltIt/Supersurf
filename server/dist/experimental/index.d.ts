@@ -16,9 +16,7 @@
  */
 export { diffSnapshots, calculateConfidence, formatDiffSection } from './page-diffing';
 export type { PageState, DiffResult } from './page-diffing';
-export { analyzeCode, wrapWithPageProxy } from './secure-eval';
-export type { AnalysisResult } from './secure-eval';
-import type { ToolSchema, ToolContext } from '../tools/types';
+import type { ToolSchema, ToolContext } from '../tools/lib/types';
 import type { IExtensionTransport } from '../bridge';
 /**
  * Cache-backed IPC proxy for experiment state.

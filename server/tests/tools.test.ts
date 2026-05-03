@@ -113,9 +113,17 @@ describe('BrowserBridge', () => {
     });
 
     it('dispatches browser_evaluate to extension', async () => {
-      mockExt.sendCmd.mockResolvedValue('42');
-      await bridge.callTool('browser_evaluate', { expression: '1+1', purpose: 'arithmetic probe' });
-      expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.objectContaining({ expression: '1+1' }));
+      // Disable secure_eval for this dispatch test — it only verifies the
+      // browser_evaluate tool reaches the `evaluate` extension command.
+      // (secure_eval-on tests live in secure-eval.test.ts.)
+      process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
+      try {
+        mockExt.sendCmd.mockResolvedValue('42');
+        await bridge.callTool('browser_evaluate', { expression: '1+1', purpose: 'arithmetic probe' });
+        expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.objectContaining({ expression: '1+1' }));
+      } finally {
+        delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
+      }
     });
 
     it('dispatches browser_window to extension', async () => {

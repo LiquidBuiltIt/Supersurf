@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const registry_1 = require("./registry");
-const frames_1 = require("../frames");
+const frames_1 = require("../lib/frames");
 (0, registry_1.registerAction)({
     name: 'wait',
     async run(ctx, action) {

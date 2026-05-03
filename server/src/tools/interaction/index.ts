@@ -12,7 +12,7 @@
  * @module tools/interaction
  */
 
-import type { ToolContext } from '../types';
+import type { ToolContext } from '../lib/types';
 import { experimentRegistry, diffSnapshots, calculateConfidence, formatDiffSection } from '../../experimental/index';
 import { executeAction } from './registry';
 

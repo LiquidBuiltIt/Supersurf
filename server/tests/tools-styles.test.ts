@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onGetElementStyles } from '../src/tools/styles';
-import type { ToolContext } from '../src/tools/types';
+import type { ToolContext } from '../src/tools/lib/types';
 
 function createMockCtx(): ToolContext {
   return {

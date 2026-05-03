@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onNetworkRequests, onConsoleMessages } from '../src/tools/network';
-import type { ToolContext } from '../src/tools/types';
+import type { ToolContext } from '../src/tools/lib/types';
 
 function createMockCtx(): ToolContext {
   return {

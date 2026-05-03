@@ -1,5 +1,5 @@
 // server/src/tools/interaction/registry.ts
-import type { ToolContext } from '../types';
+import type { ToolContext } from '../lib/types';
 import type { ActionHandler } from './types';
 
 const registry = new Map<string, ActionHandler>();

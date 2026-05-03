@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { findElementInFrames, getCenterInFrame } from '../src/tools/frames';
-import type { ToolContext } from '../src/tools/types';
+import { findElementInFrames, getCenterInFrame } from '../src/tools/lib/frames';
+import type { ToolContext } from '../src/tools/lib/types';
 
 function mockCtx(cdpImpl: (method: string, params: any) => Promise<any>): ToolContext {
   return {
@@ -67,7 +67,7 @@ describe('findElementInFrames', () => {
   });
 });
 
-import { resolveInFrames } from '../src/tools/frames';
+import { resolveInFrames } from '../src/tools/lib/frames';
 
 describe('resolveInFrames', () => {
   it('returns top-frame result with contextId=null and frameId=null when top-frame eval finds the element', async () => {
@@ -109,7 +109,7 @@ describe('resolveInFrames', () => {
   });
 });
 
-import { evalInFrameOrTop } from '../src/tools/frames';
+import { evalInFrameOrTop } from '../src/tools/lib/frames';
 
 describe('evalInFrameOrTop', () => {
   it('uses ctx.eval (default context) when contextId is null', async () => {

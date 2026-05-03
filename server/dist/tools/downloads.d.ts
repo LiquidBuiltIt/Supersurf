@@ -7,7 +7,7 @@
  *
  * @module tools/downloads
  */
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 /**
  * Download a file from a URL via the browser, optionally moving it to a destination path.
  *

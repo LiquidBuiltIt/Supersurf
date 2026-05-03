@@ -234,7 +234,12 @@ program
   .option('--port <number>', 'WebSocket server port (default: 5555)', parseInt)
   .option('--child', 'Internal: child process spawned by wrapper')
   .option('--script-mode', 'JSON-RPC over stdio for automation scripts')
+  .option('--disable-secure-eval', 'Disable secure_eval RCE protection on browser_evaluate (not recommended — equivalent to SUPERSURF_DISABLE_SECURE_EVAL=1)')
   .action(async (options) => {
+    if (options.disableSecureEval) {
+      process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
+    }
+
     if (options.scriptMode) {
       loadDotenv(process.cwd());
       const config = resolveConfig(options);

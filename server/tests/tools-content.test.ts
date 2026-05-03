@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onSnapshot, onLookup, onExtractContent } from '../src/tools/content';
-import type { ToolContext } from '../src/tools/types';
+import type { ToolContext } from '../src/tools/lib/types';
 
 function createMockCtx(): ToolContext {
   return {

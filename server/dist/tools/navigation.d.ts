@@ -9,7 +9,7 @@
  *
  * @module tools/navigation
  */
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 /**
  * Manage browser tabs: list, create, attach (with optional stealth), or close.
  * Updates ConnectionManager metadata on attach/close to keep status headers accurate.

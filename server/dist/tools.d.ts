@@ -9,7 +9,7 @@
  * @module tools
  */
 import type { IExtensionTransport } from './bridge';
-import type { ToolSchema } from './tools/types';
+import type { ToolSchema } from './tools/lib/types';
 import { AuditLogger } from './audit-logger';
 /**
  * Lifecycle wrapper for browser tool execution. Created by

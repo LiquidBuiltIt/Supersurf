@@ -50,15 +50,15 @@ describe('DaemonExperimentRegistry', () => {
     });
 
     it('returns true after enabling', () => {
-      registry.toggle('s', 'secure_eval', true);
-      expect(registry.isEnabled('s', 'secure_eval')).toBe(true);
+      registry.toggle('s', 'mouse_humanization', true);
+      expect(registry.isEnabled('s', 'mouse_humanization')).toBe(true);
     });
 
     it('respects defaults from applyDefaults', () => {
       registry.applyDefaults(['page_diffing', 'smart_waiting']);
       expect(registry.isEnabled('fresh-session', 'page_diffing')).toBe(true);
       expect(registry.isEnabled('fresh-session', 'smart_waiting')).toBe(true);
-      expect(registry.isEnabled('fresh-session', 'secure_eval')).toBe(false);
+      expect(registry.isEnabled('fresh-session', 'mouse_humanization')).toBe(false);
     });
   });
 
@@ -75,7 +75,6 @@ describe('DaemonExperimentRegistry', () => {
         smart_waiting: false,
         storage_inspection: false,
         mouse_humanization: true,
-        secure_eval: false,
       });
     });
 
@@ -173,23 +172,27 @@ describe('DaemonExperimentRegistry', () => {
   describe('isAvailable()', () => {
     it('returns true for known experiments', () => {
       expect(registry.isAvailable('page_diffing')).toBe(true);
-      expect(registry.isAvailable('secure_eval')).toBe(true);
+      expect(registry.isAvailable('mouse_humanization')).toBe(true);
     });
 
     it('returns false for unknown experiments', () => {
       expect(registry.isAvailable('warp_drive')).toBe(false);
     });
+
+    it('returns false for graduated experiments', () => {
+      expect(registry.isAvailable('secure_eval')).toBe(false); // graduated in v1.11.0
+    });
   });
 
   describe('listAvailable()', () => {
-    it('returns all 5 experiment names', () => {
+    it('returns all 4 experiment names', () => {
       const available = registry.listAvailable();
-      expect(available).toHaveLength(5);
+      expect(available).toHaveLength(4);
       expect(available).toContain('page_diffing');
       expect(available).toContain('smart_waiting');
       expect(available).toContain('storage_inspection');
       expect(available).toContain('mouse_humanization');
-      expect(available).toContain('secure_eval');
+      expect(available).not.toContain('secure_eval');
     });
   });
 });

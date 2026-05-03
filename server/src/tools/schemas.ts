@@ -13,7 +13,7 @@
  * @module tools/schemas
  */
 
-import type { ToolSchema } from './types';
+import type { ToolSchema } from './lib/types';
 
 /** Returns all core (non-experimental) tool schemas. */
 export function getToolSchemas(): ToolSchema[] {
@@ -226,25 +226,35 @@ export function getToolSchemas(): ToolSchema[] {
     {
       name: 'browser_evaluate',
       description:
-        'Run JavaScript in the page context and return the result. ' +
-        'When the `secure_eval` experiment is enabled, code is analyzed for dangerous patterns ' +
-        '(network calls, storage access, code injection, obfuscation) and blocked if unsafe.',
+        'Run JavaScript in the page context for **read-only computation** and return the result. ' +
+        'Intended for things like reading element properties, computing values from page state, or pulling data the dedicated tools don\'t expose. ' +
+        '\n\n' +
+        '**This tool is NOT for:**\n' +
+        '- Network calls (use the page\'s own actions, or `browser_navigate` / `browser_network_requests` to inspect traffic)\n' +
+        '- Storage access (use `browser_storage`)\n' +
+        '- Form filling or DOM mutation (use `browser_fill_form` or `browser_interact`)\n' +
+        '- Navigation, click simulation, or scrolling (use `browser_navigate` / `browser_interact`)\n' +
+        '- Code injection, obfuscation, dynamic execution, or accessing dangerous primitives\n' +
+        '\n' +
+        '`secure_eval` is enabled by default and blocks the patterns above via AST analysis + a Proxy membrane. ' +
+        'If your code is blocked, refactor to use the dedicated tool — do not work around it. ' +
+        'Operators can opt out via `SUPERSURF_DISABLE_SECURE_EVAL=1` in the server env, but this defeats RCE protection.',
       inputSchema: {
         type: 'object',
         properties: {
-          function: { type: 'string', description: 'JavaScript function to execute' },
-          expression: { type: 'string', description: 'JavaScript expression to evaluate' },
+          function: { type: 'string', description: 'JavaScript function to execute. Must be read-only computation.' },
+          expression: { type: 'string', description: 'JavaScript expression to evaluate. Must be read-only computation.' },
           purpose: {
             type: 'string',
             description:
               'Required. Explain why evaluate is needed instead of a dedicated tool ' +
               '(browser_lookup, browser_extract_content, browser_interact, browser_fill_form, ' +
-              'browser_navigate, browser_get_element_styles). Logged for audit.',
+              'browser_navigate, browser_get_element_styles, browser_storage). Logged for audit.',
           },
         },
         required: ['purpose'],
       },
-      annotations: { title: 'Evaluate JS', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { title: 'Evaluate JS (read-only)', readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
 
     // ── Console ──

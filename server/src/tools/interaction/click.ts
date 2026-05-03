@@ -1,5 +1,5 @@
 import { registerAction } from './registry';
-import { getCenterInFrame, evalInFrameOrTop } from '../frames';
+import { getCenterInFrame, evalInFrameOrTop } from '../lib/frames';
 import { moveCursorTo, detectSpawnedTabs } from './helpers';
 import { experimentRegistry } from '../../experimental/index';
 

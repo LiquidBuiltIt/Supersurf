@@ -1,5 +1,5 @@
 import { registerAction } from './registry';
-import { resolveInFrames, evalInFrameOrTop } from '../frames';
+import { resolveInFrames, evalInFrameOrTop } from '../lib/frames';
 
 registerAction({
   name: 'scroll_to',

@@ -57,8 +57,8 @@ describe('ExperimentRegistry', () => {
       expect(available).toContain('smart_waiting');
       expect(available).toContain('storage_inspection');
       expect(available).toContain('mouse_humanization');
-      expect(available).toContain('secure_eval');
-      expect(available.length).toBe(5);
+      expect(available).not.toContain('secure_eval'); // graduated in v1.11.0
+      expect(available.length).toBe(4);
     });
   });
 
@@ -66,7 +66,7 @@ describe('ExperimentRegistry', () => {
     it('returns state map for all experiments', () => {
       experimentRegistry.enable('smart_waiting');
       const states = experimentRegistry.getStates();
-      expect(states).toEqual({ page_diffing: false, smart_waiting: true, storage_inspection: false, mouse_humanization: false, secure_eval: false });
+      expect(states).toEqual({ page_diffing: false, smart_waiting: true, storage_inspection: false, mouse_humanization: false });
     });
   });
 

@@ -1,19 +1,20 @@
 /**
- * Miscellaneous tool handlers — window, dialog, evaluate, verify, extensions, performance.
+ * Miscellaneous tool handlers — window, dialog, verify, extensions, performance.
  *
  * Groups smaller tools that don't warrant their own module:
  * - `browser_window`: Resize, minimize, maximize, close
  * - `browser_handle_dialog`: Accept/dismiss alerts, confirms, prompts
- * - `browser_evaluate`: Run JS in page context (with optional secure_eval 3-layer protection)
  * - `browser_verify_text_visible` / `browser_verify_element_visible`: Page assertions
  * - `browser_list_extensions`: Extension management
  * - `browser_performance_metrics`: Web Vitals + CDP performance data
  *
+ * `browser_evaluate` lives in its own home at `tools/browser_evaluate/` (along
+ * with the secure_eval AST analyzer + page-context wrapper).
+ *
  * @module tools/misc
  */
 
-import type { ToolContext } from './types';
-import { experimentRegistry, analyzeCode, wrapWithPageProxy } from '../experimental/index';
+import type { ToolContext } from './lib/types';
 
 /** Resize, close, minimize, or maximize the browser window. */
 export async function onWindow(ctx: ToolContext, args: any, options: any): Promise<any> {
@@ -37,103 +38,6 @@ export async function onDialog(ctx: ToolContext, args: any, options: any): Promi
 
   const result = await ctx.ext.sendCmd('dialog', {});
   return ctx.formatResult('browser_handle_dialog', result, options);
-}
-
-/**
- * Evaluate JavaScript in the page context.
- *
- * When the `secure_eval` experiment is enabled, code passes through three
- * security layers before execution:
- * 1. **Layer 1 — Static AST analysis** (~1ms): Blocks known dangerous patterns
- * 2. **Layer 2 — Service Worker Proxy membrane** (~10-20ms): Extension-side validation
- * 3. **Layer 3 — Page-context Proxy wrapper**: Runtime API access trapping
- *
- * @param args - `{ function?: string, expression?: string }`
- */
-export async function onEvaluate(ctx: ToolContext, args: any, options: any): Promise<any> {
-  const purpose = typeof args.purpose === 'string' ? args.purpose.trim() : '';
-  if (!purpose) {
-    return ctx.error(
-      '`browser_evaluate` requires a `purpose` parameter explaining why evaluate is needed ' +
-      'instead of a dedicated tool (browser_lookup, browser_extract_content, browser_interact, ' +
-      'browser_fill_form, browser_navigate, browser_get_element_styles).',
-      options
-    );
-  }
-
-  // Normalize function form to an IIFE expression so it actually executes.
-  // Without this wrap, an arrow function like `() => 42` parses as a bare
-  // function literal whose return value is discarded, yielding undefined.
-  const expression = args.function ? `(${args.function})()` : args.expression;
-  const code = expression;
-
-  if (code && experimentRegistry.isEnabled('secure_eval')) {
-    // Layer 1: Static AST analysis (~1ms)
-    const analysis = analyzeCode(code);
-    if (!analysis.safe) {
-      return ctx.error(
-        `Code blocked by \`secure_eval\` experiment.\n\n` +
-        `**Reason:** ${analysis.reason}\n\n` +
-        `Disable the experiment or refactor to use dedicated MCP tools.`,
-        options
-      );
-    }
-
-    // Layer 2: SW Proxy membrane (~10-20ms)
-    try {
-      const validation = await ctx.ext.sendCmd('validateEval', { code });
-      if (validation && validation.safe === false) {
-        return ctx.error(
-          `Code blocked by \`secure_eval\` experiment (membrane).\n\n` +
-          `**Reason:** ${validation.reason}\n\n` +
-          `Disable the experiment or refactor to use dedicated MCP tools.`,
-          options
-        );
-      }
-    } catch {
-      // Extension doesn't support validateEval — Layer 1+3 still cover
-    }
-
-    // Layer 3: Page-context Proxy wrapper
-    const wrapped = wrapWithPageProxy(code);
-    try {
-      const result = await ctx.ext.sendCmd('evaluate', {
-        expression: wrapped,
-        prewrapped: true,
-      });
-
-      if (options.rawResult) return result;
-      const text = result === undefined ? 'undefined'
-        : result === null ? 'null'
-        : typeof result === 'string' ? result
-        : JSON.stringify(result, null, 2);
-      return { content: [{ type: 'text', text }] };
-    } catch (err: any) {
-      const message = err?.message || '';
-      if (message.includes('[secure_eval]')) {
-        return ctx.error(
-          `Code blocked by \`secure_eval\` experiment (page proxy).\n\n` +
-          `**Reason:** ${message}\n\n` +
-          `Disable the experiment or refactor to use dedicated MCP tools.`,
-          options
-        );
-      }
-      throw err;
-    }
-  }
-
-  const result = await ctx.ext.sendCmd('evaluate', {
-    expression,
-  });
-
-  if (options.rawResult) return result;
-  const text = result === undefined ? 'undefined'
-    : result === null ? 'null'
-    : typeof result === 'string' ? result
-    : JSON.stringify(result, null, 2);
-  return {
-    content: [{ type: 'text', text }],
-  };
 }
 
 /** Assert that specific text is visible in the page body. Returns isError=true when not found. */

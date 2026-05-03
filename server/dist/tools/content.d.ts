@@ -8,7 +8,7 @@
  *
  * @module tools/content
  */
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 /**
  * Coalesce adjacent `InlineTextBox` siblings under the same parent into a single
  * text node. Chrome's AX tree splits long text runs into one `InlineTextBox` per

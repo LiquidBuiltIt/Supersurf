@@ -16,6 +16,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.onFillForm = onFillForm;
 exports.onDrag = onDrag;
 exports.onSecureFill = onSecureFill;
+const frames_1 = require("./lib/frames");
 const dotenv_1 = require("../dotenv");
 /**
  * Set values on multiple form fields at once.
@@ -24,6 +25,10 @@ const dotenv_1 = require("../dotenv");
  * elements. Uses native prototype setters to bypass framework-managed
  * value properties, then fires input + change events.
  *
+ * Auto-falls-back to child frames when a selector doesn't resolve in the
+ * top frame — mirrors the v1.10.0 `browser_interact` iframe-walk pattern
+ * (see `tools/lib/frames.ts`).
+ *
  * @param args - `{ fields: Array<{ selector: string, value: string }> }`
  */
 async function onFillForm(ctx, args, options) {
@@ -31,7 +36,11 @@ async function onFillForm(ctx, args, options) {
     const results = [];
     for (const field of fields) {
         const expr = ctx.getSelectorExpression(field.selector);
-        await ctx.eval(`
+        // Resolve top frame first, then DFS child frames on miss.
+        const match = await (0, frames_1.resolveInFrames)(ctx, expr);
+        if (!match)
+            throw new Error('Element not found: ' + field.selector);
+        const fillExpr = `
       (async () => {
         const el = ${expr};
         if (!el) throw new Error('Element not found: ' + ${JSON.stringify(field.selector)});
@@ -43,7 +52,10 @@ async function onFillForm(ctx, args, options) {
         el.focus();
 
         if (type === 'checkbox' || type === 'radio') {
-          el.checked = ${JSON.stringify(field.value)} === 'true' || ${JSON.stringify(field.value)} === true;
+          const checked = ${JSON.stringify(field.value)} === 'true' || ${JSON.stringify(field.value)} === true;
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked')?.set;
+          if (setter) setter.call(el, checked);
+          else el.checked = checked;
         } else if (tag === 'SELECT') {
           const options = Array.from(el.options);
           const target = ${JSON.stringify(field.value)};
@@ -75,16 +87,20 @@ async function onFillForm(ctx, args, options) {
         // Microtask yield — let React reconcile before change fires
         await Promise.resolve();
         el.dispatchEvent(new Event('change', { bubbles: true }));
+        // Microtask yield — let onChange handlers commit before blur fires
+        await Promise.resolve();
         // Blur triggers onBlur validation handlers
         el.dispatchEvent(new Event('blur', { bubbles: true }));
       })()
-    `);
+    `;
+        await (0, frames_1.evalInFrameOrTop)(ctx, fillExpr, match.contextId);
         // Post-action read-back: confirm the DOM value reflects what we set.
-        // NOTE: This catches loud failures (wrong selector, disabled input, rejected value)
-        // but does NOT catch React's silent value-tracker drift. See
-        // docs/research/2026-04-08-fill-form-react-state-investigation.md for the
-        // tracker failure mode and the deferred fiber-walk follow-up.
-        const verification = await ctx.eval(`
+        // Verification runs in the same frame context as the fill so iframe-nested
+        // fields read back correctly. NOTE: This catches loud failures (wrong
+        // selector, disabled input, rejected value) but does NOT catch React's
+        // silent value-tracker drift. See docs/research/2026-04-08-fill-form-react-state-investigation.md
+        // for the tracker failure mode and the deferred fiber-walk follow-up.
+        const verifExpr = `
       (() => {
         const el = ${expr};
         if (!el) return { verified: false, actual: null };
@@ -94,7 +110,8 @@ async function onFillForm(ctx, args, options) {
         const expected = ${JSON.stringify(String(field.value))};
         return { verified: actual === expected, actual };
       })()
-    `);
+    `;
+        const verification = await (0, frames_1.evalInFrameOrTop)(ctx, verifExpr, match.contextId);
         if (verification?.verified) {
             results.push(`✓ ${field.selector} = "${field.value}"`);
         }

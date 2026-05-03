@@ -1,5 +1,5 @@
 import { registerAction } from './registry';
-import { findElementInFrames } from '../frames';
+import { findElementInFrames } from '../lib/frames';
 
 registerAction({
   name: 'file_upload',

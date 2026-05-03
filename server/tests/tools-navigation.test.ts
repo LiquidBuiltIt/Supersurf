@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onBrowserTabs, onNavigate } from '../src/tools/navigation';
-import type { ToolContext } from '../src/tools/types';
+import type { ToolContext } from '../src/tools/lib/types';
 
 // Mock experimental registry
 vi.mock('../src/experimental/index', () => ({

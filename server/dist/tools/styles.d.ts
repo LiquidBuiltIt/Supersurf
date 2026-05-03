@@ -13,7 +13,7 @@
  *
  * @module tools/styles
  */
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 /**
  * Inspect computed and matched CSS rules for an element.
  *

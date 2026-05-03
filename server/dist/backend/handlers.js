@@ -328,6 +328,19 @@ async function onStatus(mgr, options = {}) {
  * and notifies the extension.
  */
 async function onExperimentalFeatures(mgr, args = {}, options = {}) {
+    // secure_eval graduated to a default-on protection in v1.11.0.
+    // Surface a clear error rather than silently ignoring the toggle.
+    if ('secure_eval' in args) {
+        const msg = '`secure_eval` graduated from experiment to a default-on protection in v1.11.0 and can no longer be toggled per-session. ' +
+            'To opt out (not recommended — this disables RCE protection on `browser_evaluate`), set `SUPERSURF_DISABLE_SECURE_EVAL=1` in the server environment.';
+        if (options.rawResult) {
+            return { success: false, error: 'secure_eval_graduated', message: msg };
+        }
+        return {
+            content: [{ type: 'text', text: mgr.statusHeader() + `### \`secure_eval\` Has Graduated\n\n${msg}` }],
+            isError: true,
+        };
+    }
     const keys = Object.keys(args).filter(k => index_1.experimentRegistry.listAvailable().includes(k));
     if (keys.length === 0) {
         const states = index_1.experimentRegistry.getStates();

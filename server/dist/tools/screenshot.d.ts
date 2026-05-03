@@ -12,7 +12,7 @@
  *
  * @module tools/screenshot
  */
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 /**
  * Capture a screenshot of the current page or a specific element/region.
  *

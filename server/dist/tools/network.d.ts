@@ -9,7 +9,7 @@
  *
  * @module tools/network
  */
-import type { ToolContext } from './types';
+import type { ToolContext } from './lib/types';
 /**
  * List, inspect, replay, or clear captured network requests.
  *

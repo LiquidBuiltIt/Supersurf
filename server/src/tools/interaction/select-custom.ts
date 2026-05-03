@@ -1,5 +1,5 @@
 import { registerAction } from './registry';
-import { resolveInFrames, evalInFrameOrTop, getCenterInFrame } from '../frames';
+import { resolveInFrames, evalInFrameOrTop, getCenterInFrame } from '../lib/frames';
 import { moveCursorTo } from './helpers';
 import { OPTION_MATCHER_JS } from './option-matcher';
 

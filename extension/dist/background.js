@@ -26,7 +26,7 @@ import { wrapWithUnwrap, shouldUnwrap } from './utils/unwrap.js';
 import { ExperimentalFeatures } from './experimental/index.js';
 import { waitForDOMStable } from './experimental/wait-for-ready.js';
 import { registerMouseHandlers, handleIdleDrift } from './experimental/mouse-humanization.js';
-import { registerSecureEvalHandlers } from './experimental/secure-eval/index.js';
+import { registerSecureEvalHandlers } from './security/secure-eval/index.js';
 import { SessionContext } from './session-context.js';
 import { DomainWhitelist } from './domain-whitelist.js';
 // chrome.debugger is a reserved word — access via bracket notation

@@ -1,5 +1,5 @@
 import { registerAction } from './registry';
-import { getCenterInFrame } from '../frames';
+import { getCenterInFrame } from '../lib/frames';
 import { moveCursorTo } from './helpers';
 
 registerAction({

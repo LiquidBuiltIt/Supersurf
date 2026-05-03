@@ -11,7 +11,7 @@
  *
  * @module tools/interaction
  */
-import type { ToolContext } from '../types';
+import type { ToolContext } from '../lib/types';
 import './mouse-move';
 import './mouse-click';
 import './press-key';

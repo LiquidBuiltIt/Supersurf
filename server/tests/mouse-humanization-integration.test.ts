@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onInteract } from '../src/tools/interaction';
-import type { ToolContext } from '../src/tools/types';
+import type { ToolContext } from '../src/tools/lib/types';
 import { experimentRegistry } from '../src/experimental/index';
 import { initSession, destroySession } from '../src/experimental/mouse-humanization/index';
 

@@ -15,10 +15,10 @@ const logger_1 = require("./logger");
 const audit_logger_1 = require("./audit-logger");
 const index_1 = require("./experimental/index");
 const schemas_1 = require("./tools/schemas");
-const cdp_1 = require("./tools/cdp");
-const element_resolver_1 = require("./tools/element-resolver");
-const result_formatter_1 = require("./tools/result-formatter");
-const dispatcher_1 = require("./tools/dispatcher");
+const cdp_1 = require("./tools/lib/cdp");
+const element_resolver_1 = require("./tools/lib/element-resolver");
+const result_formatter_1 = require("./tools/lib/result-formatter");
+const dispatcher_1 = require("./tools/lib/dispatcher");
 const log = (0, logger_1.createLog)('[Bridge]');
 /**
  * Lifecycle wrapper for browser tool execution. Created by

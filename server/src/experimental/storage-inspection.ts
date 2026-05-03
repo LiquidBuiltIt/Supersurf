@@ -14,7 +14,7 @@
  * - {@link onBrowserStorage} — handler that validates, gates, and executes storage ops
  */
 
-import type { ToolSchema, ToolContext } from '../tools/types';
+import type { ToolSchema, ToolContext } from '../tools/lib/types';
 import { experimentRegistry } from './index';
 
 export const storageInspectionSchema: ToolSchema = {
