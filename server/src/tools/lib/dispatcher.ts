@@ -8,7 +8,7 @@
 
 import type { ToolContext } from './types';
 import { createLog } from '../../logger';
-import { AuditLogger } from '../../audit-logger';
+import { UsageMetricsLogger } from '../../usage-metrics-logger';
 import { callExperimentalTool, experimentRegistry } from '../../experimental/index';
 import { getTip } from '../../tips';
 
@@ -31,12 +31,12 @@ import { maybeAppendScreenshot, formatError } from './result-formatter';
 
 const log = createLog('[Dispatch]');
 
-/** Side-channel data dispatchTool needs to write to (audit log + connection state). */
+/** Side-channel data dispatchTool needs to write to (usage-metrics log + connection state). */
 export interface DispatchEnv {
-  auditLogger: AuditLogger | null;
-  /** Used for the `session_id` field in audit entries. */
+  metricsLogger: UsageMetricsLogger | null;
+  /** Used for the `session_id` field in metrics entries. */
   clientId: string | null | undefined;
-  /** Read for the `url` field in audit entries (current attached tab URL). */
+  /** Read for the `url` field in metrics entries (current attached tab URL). */
   getCurrentUrl: () => string | undefined;
 }
 
@@ -121,13 +121,40 @@ export async function dispatchTool(
       );
     }
 
+    if (/Target crashed/i.test(msg)) {
+      return formatError(
+        'The browser tab\'s renderer process crashed.\n\n' +
+        '**What this means:** The page hit an unrecoverable error (out-of-memory, native crash, or a heavy DOM operation on a broken page like a `chrome-error://` interstitial). The tab is no longer usable.\n\n' +
+        '**Recovery:**\n' +
+        '1. Close the crashed tab with `browser_tabs` action `close`\n' +
+        '2. Open a fresh tab and re-navigate\n' +
+        '3. If this happened after `browser_evaluate` or `browser_lookup` on a failed page, check `browser_navigate` returned the expected URL — error pages can\'t be queried with heavy DOM selectors.',
+        options,
+      );
+    }
+
+    if (/CDP timeout: Runtime\.evaluate/i.test(msg)) {
+      return formatError(
+        'JavaScript evaluation in the page timed out (50s).\n\n' +
+        '**What this usually means:** The renderer is hung or recovering from a recent crash. Even trivial expressions like `() => 1` hang during the ~50s recovery window after a `Target crashed`.\n\n' +
+        '**Recovery:**\n' +
+        '1. Wait a few seconds, then retry once\n' +
+        '2. If the retry also times out, close the tab (`browser_tabs` action `close`) and open a fresh one\n' +
+        '3. Confirm the page actually loaded — `browser_evaluate` against a `chrome-error://` page or a hung navigation will time out repeatedly.',
+        options,
+      );
+    }
+
     return formatError(msg, options);
   } finally {
     const url = env.getCurrentUrl();
     const sessionId = env.clientId ?? 'unknown';
-    const tip = !options.rawResult ? getTip(name, args, callResult, callError, sessionId) : null;
+    const tipsEnabled = ctx.config?.get().tips ?? true;
+    const tip = (!options.rawResult && tipsEnabled)
+      ? getTip(name, args, callResult, callError, sessionId)
+      : null;
 
-    env.auditLogger?.write({
+    env.metricsLogger?.write({
       session_id: sessionId,
       tool: name,
       params: args,

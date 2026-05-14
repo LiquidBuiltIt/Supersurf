@@ -7,6 +7,7 @@
  * @module tools/types
  */
 import type { IExtensionTransport } from '../../bridge';
+import type { ConfigService } from 'shared';
 /**
  * MCP tool registration metadata.
  * Each schema is exposed to the AI agent as an available tool.
@@ -30,6 +31,8 @@ export interface ToolContext {
     ext: IExtensionTransport;
     /** Tracks connection state, attached tab, stealth mode, etc. */
     connectionManager: any;
+    /** Resolved ConfigService (CLI + env + file + defaults). Optional for legacy callers. */
+    config?: ConfigService;
     /** Send a Chrome DevTools Protocol command through the extension. */
     cdp(method: string, params?: any): Promise<any>;
     /** Evaluate a JS expression in the page context (via CDP Runtime.evaluate). */

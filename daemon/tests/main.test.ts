@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { HARDCODED_DEFAULTS } from 'shared';
 import { parseArgs, formatUptime, stopDaemon, PID_FILE, SOCK_FILE } from '../src/main';
 
 // Test the exported utility functions from main.ts without running the entry point
@@ -143,9 +144,9 @@ describe('Daemon main utilities', () => {
       expect(args.port).toBe(9999);
     });
 
-    it('defaults to port 5555', () => {
+    it('defaults to the hardcoded daemon port', () => {
       const args = parseArgs(['node', 'daemon']);
-      expect(args.port).toBe(5555);
+      expect(args.port).toBe(HARDCODED_DEFAULTS.daemon.port);
       expect(args.debug).toBe(false);
       expect(args.verbose).toBe(false);
       expect(args.command).toBeUndefined();

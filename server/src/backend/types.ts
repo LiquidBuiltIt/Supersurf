@@ -9,7 +9,8 @@
  */
 
 import type { IExtensionTransport } from '../bridge';
-import type { AuditLogger } from '../audit-logger';
+import type { UsageMetricsLogger } from '../usage-metrics-logger';
+import type { ConfigService } from 'shared';
 
 /** Server configuration resolved from CLI options and environment variables. */
 export interface BackendConfig {
@@ -17,6 +18,8 @@ export interface BackendConfig {
   port: number;
   server: { name: string; version: string };
   enabledExperiments?: string[];
+  /** Resolved ConfigService (CLI + env + file + defaults). Threaded into ToolContext. */
+  configService?: ConfigService;
 }
 
 /** Metadata for the currently attached browser tab. */
@@ -54,7 +57,7 @@ export interface ConnectionManagerAPI {
   clientId: string | null;
   connectedBrowserName: string | null;
   attachedTab: TabInfo | null;
-  auditLogger: AuditLogger | null;
+  metricsLogger: UsageMetricsLogger | null;
   daemonCapabilities: { profiles: boolean } | null;
   statusHeader(): string;
   notifyToolsListChanged(): Promise<void>;

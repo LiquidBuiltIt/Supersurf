@@ -1,10 +1,12 @@
 /**
  * Connection-level tool schema definitions.
  *
- * Defines MCP tool schemas for the four connection management tools (connect, disconnect,
- * status, experimental_features) and the debug-only reload tool. These are always
- * available regardless of connection state, unlike browser tools which require an
- * active extension connection.
+ * Defines MCP tool schemas for the three connection management tools (connect, disconnect,
+ * status) and the debug-only reload tool. These are always available regardless of
+ * connection state, unlike browser tools which require an active extension connection.
+ *
+ * Experiments are configured via `~/.supersurf/config.json` (auto-scaffolded on first
+ * daemon start) and require a daemon restart to take effect.
  *
  * @module backend/schemas
  * @exports getConnectionToolSchemas - Returns schemas for connection lifecycle tools
@@ -13,7 +15,7 @@
 
 import type { ToolSchema } from './types';
 
-/** Return MCP tool schemas for connect, disconnect, status, and experimental_features. */
+/** Return MCP tool schemas for connect, disconnect, and status. */
 export function getConnectionToolSchemas(): ToolSchema[] {
   return [
     {
@@ -67,30 +69,6 @@ export function getConnectionToolSchemas(): ToolSchema[] {
         openWorldHint: false,
       },
     },
-    {
-      name: 'experimental_features',
-      description:
-        'Toggle experimental features for this session. Available experiments:\n' +
-        '- **page_diffing**: After browser_interact, returns only DOM changes instead of requiring a full re-read. Includes a confidence score.\n' +
-        '- **smart_waiting**: Replaces fixed navigation delays with adaptive DOM stability + network idle detection.\n' +
-        '- **storage_inspection**: Enables the `browser_storage` tool for inspecting/modifying localStorage and sessionStorage.\n' +
-        '- **mouse_humanization**: Replaces instant cursor teleportation with human-like Bezier trajectories, overshoot correction, and idle micro-movements.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          page_diffing: { type: 'boolean', description: 'Enable/disable page diffing experiment' },
-          smart_waiting: { type: 'boolean', description: 'Enable/disable smart waiting experiment' },
-          storage_inspection: { type: 'boolean', description: 'Enable/disable storage inspection experiment' },
-          mouse_humanization: { type: 'boolean', description: 'Enable/disable mouse humanization experiment' },
-        },
-      },
-      annotations: {
-        title: 'Experimental features',
-        readOnlyHint: false,
-        destructiveHint: false,
-        openWorldHint: false,
-      },
-    },
   ];
 }
 
@@ -100,7 +78,7 @@ export function getProfileToolSchemas(): ToolSchema[] {
     {
       name: 'profile_create',
       description:
-        'Create a new isolated Chromium profile for browser automation. Each profile gets its own cookies, sessions, and state. Requires the `profiles` experiment enabled on the daemon (`SUPERSURF_EXPERIMENTS=profiles`).',
+        'Create a new isolated Chromium profile for browser automation. Each profile gets its own cookies, sessions, and state. Requires `experiments.profiles: true` in `~/.supersurf/config.json` and a daemon restart.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -126,7 +104,7 @@ export function getProfileToolSchemas(): ToolSchema[] {
     },
     {
       name: 'profile_list',
-      description: 'List all managed Chromium profiles with their running state. Requires the `profiles` experiment enabled on the daemon.',
+      description: 'List all managed Chromium profiles with their running state. Requires `experiments.profiles: true` in `~/.supersurf/config.json` and a daemon restart.',
       inputSchema: { type: 'object', properties: {}, required: [] },
       annotations: {
         title: 'List profiles',
@@ -138,7 +116,7 @@ export function getProfileToolSchemas(): ToolSchema[] {
     {
       name: 'profile_delete',
       description:
-        'Delete a managed Chromium profile and all its data. Cannot delete profiles with active sessions. Requires the `profiles` experiment enabled on the daemon.',
+        'Delete a managed Chromium profile and all its data. Cannot delete profiles with active sessions. Requires `experiments.profiles: true` in `~/.supersurf/config.json` and a daemon restart.',
       inputSchema: {
         type: 'object',
         properties: {

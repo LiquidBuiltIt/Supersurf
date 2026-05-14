@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConnectionManager, BackendConfig } from '../src/backend';
+import { ConfigService } from 'shared';
 
 // ---- Mocks ----
 
@@ -60,12 +61,15 @@ vi.mock('../src/daemon-spawn', () => ({
   getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
 }));
 
-// Mock AuditLogger
-const mockAuditWrite = vi.fn();
-const mockAuditGetPath = vi.fn().mockReturnValue('/tmp/audit.ndjson');
-vi.mock('../src/audit-logger', () => ({
-  AuditLogger: vi.fn(function () {
-    return { write: mockAuditWrite, getPath: mockAuditGetPath };
+// Mock UsageMetricsLogger
+const mockMetricsWrite = vi.fn();
+const mockMetricsGetPath = vi.fn().mockReturnValue('/tmp/metrics.ndjson');
+vi.mock('../src/usage-metrics-logger', () => ({
+  UsageMetricsLogger: vi.fn(function (this: any) {
+    this.filePath = '/tmp/metrics.ndjson';
+    this.write = mockMetricsWrite;
+    this.getPath = mockMetricsGetPath;
+    return this;
   }),
   redactParams: vi.fn((p: any) => p),
 }));
@@ -94,6 +98,11 @@ function makeConfig(overrides: Partial<BackendConfig> = {}): BackendConfig {
     debug: false,
     port: 5555,
     server: { name: 'supersurf', version: '0.1.0' },
+    configService: new ConfigService({
+      cli: {},
+      env: {},
+      file: { logging: { usage_metrics: true } },
+    }),
     ...overrides,
   };
 }
@@ -118,7 +127,7 @@ describe('ConnectionManager', () => {
     mockDaemonClientInstance.browser = 'chrome';
     mockDaemonClientInstance.onReconnect = null;
     mockDaemonClientInstance.onTabInfoUpdate = null;
-    mockAuditWrite.mockClear();
+    mockMetricsWrite.mockClear();
 
     backend = new ConnectionManager(makeConfig());
   });
@@ -336,37 +345,24 @@ describe('ConnectionManager', () => {
     });
   });
 
-  // ---- callTool('experimental_features') ----
+  // ---- callTool('experimental_features') removed in v2.0.0 ----
 
-  describe('callTool("experimental_features")', () => {
+  describe('callTool("experimental_features") removed in v2.0.0', () => {
     beforeEach(async () => {
       await backend.initialize(makeMockServer(), {});
     });
 
-    it('returns current states when no args', async () => {
-      const result = await backend.callTool('experimental_features', {}, { rawResult: true });
-      expect(result.success).toBe(true);
-      expect(result.experiments).toBeDefined();
-      expect(result.available).toContain('page_diffing');
-      expect(result.available).toContain('smart_waiting');
+    it('returns error for experimental_features call (removed in v2)', async () => {
+      const res = await backend.callTool('experimental_features', { page_diffing: true });
+      expect(res.isError).toBe(true);
+      expect(res.content[0].text).toMatch(/removed.*v2/i);
     });
 
-    it('toggles experiments on', async () => {
-      const { experimentRegistry } = await import('../src/experimental/index');
-      await backend.callTool('experimental_features', { page_diffing: true });
-      expect(experimentRegistry.toggle).toHaveBeenCalledWith('page_diffing', true);
-    });
-
-    it('toggles experiments off', async () => {
-      const { experimentRegistry } = await import('../src/experimental/index');
-      await backend.callTool('experimental_features', { smart_waiting: false });
-      expect(experimentRegistry.toggle).toHaveBeenCalledWith('smart_waiting', false);
-    });
-
-    it('ignores unknown experiment names', async () => {
-      const { experimentRegistry } = await import('../src/experimental/index');
-      await backend.callTool('experimental_features', { unknown_feature: true }, { rawResult: true });
-      expect(experimentRegistry.toggle).not.toHaveBeenCalled();
+    it('returns rawResult error for experimental_features call', async () => {
+      const res = await backend.callTool('experimental_features', { page_diffing: true }, { rawResult: true });
+      expect(res.success).toBe(false);
+      expect(res.error).toBe('removed');
+      expect(res.message).toMatch(/v2\.0\.0/);
     });
   });
 
@@ -707,13 +703,13 @@ describe('ConnectionManager', () => {
       await backend.initialize(makeMockServer(), {});
     });
 
-    it('connect creates an audit logger and logs the connect call', async () => {
-      const { AuditLogger } = await import('../src/audit-logger');
+    it('connect creates a metrics logger and logs the connect call', async () => {
+      const { UsageMetricsLogger } = await import('../src/usage-metrics-logger');
 
       await backend.callTool('connect', { client_id: 'audit-test' });
 
-      expect(AuditLogger).toHaveBeenCalledWith('audit-test');
-      expect(mockAuditWrite).toHaveBeenCalledWith(
+      expect(UsageMetricsLogger).toHaveBeenCalledWith('audit-test');
+      expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           session_id: 'audit-test',
           tool: 'connect',
@@ -724,11 +720,11 @@ describe('ConnectionManager', () => {
 
     it('disconnect logs to the audit logger', async () => {
       await backend.callTool('connect', { client_id: 'test' });
-      mockAuditWrite.mockClear();
+      mockMetricsWrite.mockClear();
 
       await backend.callTool('disconnect');
 
-      expect(mockAuditWrite).toHaveBeenCalledWith(
+      expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           tool: 'disconnect',
           result: 'ok',
@@ -738,11 +734,11 @@ describe('ConnectionManager', () => {
 
     it('status logs to the audit logger', async () => {
       await backend.callTool('connect', { client_id: 'test' });
-      mockAuditWrite.mockClear();
+      mockMetricsWrite.mockClear();
 
       await backend.callTool('status');
 
-      expect(mockAuditWrite).toHaveBeenCalledWith(
+      expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           tool: 'status',
           result: 'ok',
@@ -753,11 +749,11 @@ describe('ConnectionManager', () => {
     it('status includes attached tab url when available', async () => {
       await backend.callTool('connect', { client_id: 'test' });
       backend.setAttachedTab({ id: 1, index: 0, title: 'Ex', url: 'https://example.com/page' });
-      mockAuditWrite.mockClear();
+      mockMetricsWrite.mockClear();
 
       await backend.callTool('status');
 
-      expect(mockAuditWrite).toHaveBeenCalledWith(
+      expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           tool: 'status',
           url: 'https://example.com/page',
@@ -767,36 +763,22 @@ describe('ConnectionManager', () => {
 
     it('status omits url when no tab attached', async () => {
       await backend.callTool('connect', { client_id: 'test' });
-      mockAuditWrite.mockClear();
+      mockMetricsWrite.mockClear();
 
       await backend.callTool('status');
 
-      const entry = mockAuditWrite.mock.calls[0][0];
+      const entry = mockMetricsWrite.mock.calls[0][0];
       expect(entry.tool).toBe('status');
       expect(entry.url).toBeUndefined();
     });
 
-    it('experimental_features logs to the audit logger with params', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
-      mockAuditWrite.mockClear();
-
-      await backend.callTool('experimental_features', { page_diffing: true });
-
-      expect(mockAuditWrite).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tool: 'experimental_features',
-          params: { page_diffing: true },
-          result: 'ok',
-        })
-      );
-    });
 
     it('connect includes client metadata when clientInfo has name/version', async () => {
       await backend.initialize(makeMockServer(), { name: 'claude-desktop', version: '2.1.0' });
 
       await backend.callTool('connect', { client_id: 'meta-test' });
 
-      expect(mockAuditWrite).toHaveBeenCalledWith(
+      expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           tool: 'connect',
           client: { name: 'claude-desktop', version: '2.1.0' },
@@ -805,21 +787,21 @@ describe('ConnectionManager', () => {
     });
 
     it('failed connect still creates logger and logs the error', async () => {
-      const { AuditLogger } = await import('../src/audit-logger');
+      const { UsageMetricsLogger } = await import('../src/usage-metrics-logger');
       // Missing client_id triggers a validation error (not a throw)
       const result = await backend.callTool('connect', {}, { rawResult: true });
 
       expect(result.success).toBe(false);
       // Logger is NOT created when client_id is missing (no session to bind to)
       // But if client_id is present and the daemon fails:
-      mockAuditWrite.mockClear();
-      (AuditLogger as any).mockClear();
+      mockMetricsWrite.mockClear();
+      (UsageMetricsLogger as any).mockClear();
       mockDaemonClientInstance.start.mockRejectedValueOnce(new Error('Connection refused'));
 
       const result2 = await backend.callTool('connect', { client_id: 'fail-test' }, { rawResult: true });
       expect(result2.success).toBe(false);
-      expect(AuditLogger).toHaveBeenCalledWith('fail-test');
-      expect(mockAuditWrite).toHaveBeenCalledWith(
+      expect(UsageMetricsLogger).toHaveBeenCalledWith('fail-test');
+      expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           tool: 'connect',
           result: 'error',
@@ -839,10 +821,10 @@ describe('ConnectionManager', () => {
       expect(names).toContain('status');
     });
 
-    it('includes experimental_features tool', async () => {
+    it('does not advertise experimental_features tool (removed in v2)', async () => {
       const tools = await backend.listTools();
       const names = tools.map((t: any) => t.name);
-      expect(names).toContain('experimental_features');
+      expect(names).not.toContain('experimental_features');
     });
 
     it('includes browser tools from BrowserBridge', async () => {

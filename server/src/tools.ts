@@ -12,7 +12,7 @@
 import type { IExtensionTransport } from './bridge';
 import type { ToolSchema, ToolContext } from './tools/lib/types';
 import { createLog } from './logger';
-import { AuditLogger } from './audit-logger';
+import { UsageMetricsLogger } from './usage-metrics-logger';
 import { getExperimentalToolSchemas, experimentRegistry } from './experimental/index';
 
 import { getToolSchemas } from './tools/schemas';
@@ -31,7 +31,7 @@ const log = createLog('[Bridge]');
  * Lifecycle wrapper for browser tool execution. Created by
  * `backend/handlers.ts:onConnect` after the daemon transport is up;
  * `initialize()` wires in the MCP server, client metadata, connection
- * manager, and audit logger.
+ * manager, and (optional) usage-metrics logger.
  */
 export class BrowserBridge {
   private config: any;
@@ -39,7 +39,7 @@ export class BrowserBridge {
   private server: any = null;
   private clientInfo: any = {};
   private connectionManager: any = null;
-  private auditLogger: AuditLogger | null = null;
+  private metricsLogger: UsageMetricsLogger | null = null;
 
   constructor(config: any, ext: IExtensionTransport | null) {
     this.config = config;
@@ -50,12 +50,12 @@ export class BrowserBridge {
     server: any,
     clientInfo: any,
     connectionManager?: any,
-    auditLogger?: AuditLogger,
+    metricsLogger?: UsageMetricsLogger | null,
   ): Promise<void> {
     this.server = server;
     this.clientInfo = clientInfo;
     this.connectionManager = connectionManager;
-    this.auditLogger = auditLogger ?? new AuditLogger(connectionManager?.clientId ?? 'unknown');
+    this.metricsLogger = metricsLogger ?? null;
   }
 
   serverClosed(): void {
@@ -75,6 +75,7 @@ export class BrowserBridge {
     return {
       ext,
       connectionManager: this.connectionManager,
+      config: this.config?.configService,
       cdp: (method, params) => cdpFn(ext, method, params),
       eval: evalFnBound,
       sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
@@ -107,7 +108,7 @@ export class BrowserBridge {
         '3. Open the extension popup and verify it shows "Connected"',
         options,
       );
-      this.auditLogger?.write({
+      this.metricsLogger?.write({
         session_id: this.connectionManager?.clientId ?? 'unknown',
         tool: name,
         params: args,
@@ -120,7 +121,7 @@ export class BrowserBridge {
     }
 
     return await dispatchTool(this.buildContext(), name, args, options, {
-      auditLogger: this.auditLogger,
+      metricsLogger: this.metricsLogger,
       clientId: this.connectionManager?.clientId,
       getCurrentUrl: () => this.connectionManager?.getAttachedTab()?.url,
     });

@@ -20,6 +20,7 @@ export type { PageState, DiffResult } from './page-diffing';
 
 import type { ToolSchema, ToolContext } from '../tools/lib/types';
 import type { IExtensionTransport } from '../bridge';
+import type { Config } from 'shared';
 import { storageInspectionSchema, onBrowserStorage } from './storage-inspection';
 
 /** All recognized session-toggleable experiment names. */
@@ -50,7 +51,8 @@ class ExperimentRegistry {
 
   /**
    * Toggle an experiment. IPCs to daemon, then updates local cache.
-   * Use this from the experimental_features handler (async context).
+   * Reserved for programmatic use; v2 disables session-level toggling
+   * via MCP (experiments come from `~/.supersurf/config.json`).
    */
   async toggle(feature: string, enabled: boolean): Promise<void> {
     if (!this.isAvailable(feature)) {
@@ -124,15 +126,15 @@ class ExperimentRegistry {
 export const experimentRegistry = new ExperimentRegistry();
 
 /**
- * Pre-enable session features listed in the env var config.
- * Silently skips feature names that aren't in AVAILABLE_EXPERIMENTS.
+ * Pre-enable session features from a Config experiments snapshot.
+ * Silently skips feature names that aren't in AVAILABLE_EXPERIMENTS
+ * (notably `profiles`, which is a daemon-startup flag, not session-toggleable).
  * Fire-and-forget IPCs to daemon for each enabled experiment.
  */
-export function applyInitialState(config: { enabledExperiments?: string[] }): void {
-  if (!config.enabledExperiments) return;
-  for (const feature of config.enabledExperiments) {
-    if (experimentRegistry.isAvailable(feature)) {
-      experimentRegistry.enable(feature);
+export function applyInitialState(experiments: Config['experiments']): void {
+  for (const [name, enabled] of Object.entries(experiments)) {
+    if (enabled && experimentRegistry.isAvailable(name)) {
+      experimentRegistry.enable(name);
     }
   }
 }

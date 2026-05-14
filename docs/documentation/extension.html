@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chrome Extension — SuperSurf Docs</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1><a href="index.html">SuperSurf</a></h1>
+    <div class="tagline">internal documentation</div>
+    <nav>
+      <a href="index.html">Overview</a>
+      <div class="group-label">Architecture</div>
+      <a href="architecture.html">System Architecture</a>
+      <div class="group-label">Modules</div>
+      <a href="daemon.html">Daemon</a>
+      <a href="server.html">Server Core</a>
+      <a href="tools.html">Browser Tools</a>
+      <a href="extension.html" class="active">Chrome Extension</a>
+      <div class="group-label">Cross-cutting</div>
+      <a href="security.html">Trust Boundaries &amp; Security</a>
+    </nav>
+  </aside>
+  <main class="content">
+    <h1>Chrome Extension</h1>
+    <p class="lede">
+      The MV3 sideloaded extension is the only thing in SuperSurf that
+      actually touches the browser. It runs DOM work through content scripts
+      in an isolated world (invisible to page JavaScript) and reserves
+      <code>chrome.debugger</code> for screenshots, network interception, and
+      JS evaluation. Everything else &mdash; daemon, server, scheduler &mdash;
+      exists to feed JSON-RPC commands to this one process.
+    </p>
+
+    <div class="diagram">Daemon (ws://127.0.0.1:5555)
+       │
+       ▼  WebSocket (JSON-RPC 2.0)
+┌────────────────────────────────────────────────────────────────┐
+│  Service Worker (background.ts)                                │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────┐    │
+│  │ WebSocket    │  │ Command      │  │ chrome.alarms      │    │
+│  │ Connection   │──│ handlers x20 │  │ keepalive 30s      │    │
+│  │ (handshake)  │  │ (tabs/nav/…) │  │ ws-reconnect 5s    │    │
+│  └──────────────┘  └──────┬───────┘  └────────────────────┘    │
+│                           │                                    │
+│       ┌───────────────────┼──────────────────┐                 │
+│       ▼                   ▼                  ▼                 │
+│  chrome.* APIs      chrome.debugger    chrome.scripting        │
+│  (tabs, downloads,  (CDP: Network,     (MAIN-world inject:     │
+│   storage, alarms,   DOM, Page,         console capture,       │
+│   webRequest,        Runtime, CSS,      dialog overrides,      │
+│   webNavigation,     Performance,       secure_fill, page      │
+│   tabGroups,         Input)             state capture)         │
+│   management)                                                  │
+└────────────────────────────────────────────────────────────────┘
+       │                                            │
+       ▼                                            ▼
+┌──────────────────┐                      ┌──────────────────┐
+│ content-script.ts│                      │ Page DOM         │
+│ (isolated world, │   tech stack +       │ (40+ frameworks  │
+│  document_start) │◀──profile relay─────▶│  detected)       │
+└──────────────────┘                      └──────────────────┘</div>
+
+    <p>All extension source lives in <code>extension/src/</code>. The
+       package has zero runtime dependencies &mdash; only browser APIs.
+       Build target is ES2022 modules; imports use <code>.js</code> extensions
+       because the compiled output ships ES modules and Chrome resolves them
+       literally.</p>
+
+    <div class="toc">
+      <div class="toc-title">On this page</div>
+      <ul>
+        <li><a href="#overview">1. Overview &amp; MV3 model</a></li>
+        <li><a href="#manifest">2. Manifest &amp; permissions</a></li>
+        <li><a href="#background">3. Service worker</a></li>
+        <li><a href="#websocket">4. WebSocket connection</a></li>
+        <li><a href="#session-context">5. Session context</a></li>
+        <li><a href="#handlers">6. Command handlers</a></li>
+        <li><a href="#content-script">7. Content script</a></li>
+        <li><a href="#secure-fill">8. Secure-fill</a></li>
+        <li><a href="#whitelist">9. Domain whitelist</a></li>
+        <li><a href="#popup">10. Popup UI</a></li>
+        <li><a href="#utils">11. Utilities</a></li>
+        <li><a href="#experimental">12. Experimental subsystems</a></li>
+        <li><a href="#security">13. Security &mdash; secure_eval Layer 2</a></li>
+        <li><a href="#index">14. File-by-file index</a></li>
+      </ul>
+    </div>
+
+    <h2 id="overview">1. Overview &amp; MV3 model</h2>
+    <p>SuperSurf is a Manifest V3 extension. The MV3 service worker model
+       is the dominant constraint on every other design decision in this
+       package:</p>
+    <ul>
+      <li>Service workers are <strong>not</strong> persistent. Chrome
+          terminates them after ~30s of inactivity and reanimates them on
+          events.</li>
+      <li><code>setTimeout</code> and <code>setInterval</code> die when the
+          worker dies. Anything that needs to survive suspension must use
+          <code>chrome.alarms</code>.</li>
+      <li>All <code>chrome.*</code> event listeners must be registered at
+          the top level of <code>background.ts</code>, not inside async
+          callbacks. Otherwise the worker won&#39;t wake on the event the
+          listener was supposed to handle.</li>
+      <li>State that needs to survive suspension is mirrored to
+          <code>chrome.storage.session</code>, which is in-memory but
+          process-survival.</li>
+    </ul>
+
+    <div class="callout warn">
+      <strong>MV3 trap</strong>
+      Async IIFE initialization (the bottom half of <code>background.ts</code>)
+      runs only on first wake. Any listener registered <em>inside</em> the
+      IIFE will fail to fire if the worker was woken by that very event.
+      The fix is what <code>background.ts:46-119</code> does &mdash; lifecycle,
+      <code>tabs.onCreated</code>, <code>tabs.onUpdated</code>, and
+      <code>webNavigation.onBeforeNavigate</code> are all registered at the
+      module top level. The IIFE handles initialization-only work.
+    </div>
+
+    <h3>Content-script-first vs CDP</h3>
+    <p>Two privileged channels into the page exist: content scripts (isolated
+       world, invisible to page JS) and <code>chrome.debugger</code> (CDP
+       through the extension wrapper). SuperSurf&#39;s rule is fixed: DOM
+       reads/writes go through content scripts; CDP is reserved for the
+       things that genuinely require it &mdash; screenshots
+       (<code>Page.captureScreenshot</code>), network interception
+       (<code>Network.*</code> events), evaluation
+       (<code>Runtime.evaluate</code>), CSS inspection
+       (<code>CSS.*</code>), and mouse humanization
+       (<code>Input.dispatchMouseEvent</code>). Rationale lives in
+       <a href="architecture.html#principles">architecture &sect;7</a> and
+       in <code>knowledge/chat/supersurf-browser-automation.md</code>.</p>
+
+    <h2 id="manifest">2. Manifest &amp; permissions</h2>
+    <p>The manifest is at <code>extension/manifest.json</code>. Version is
+       kept in lockstep with the npm packages by
+       <code>scripts/version.bump.ts</code>.</p>
+
+    <table>
+      <thead><tr><th>Field</th><th>Value</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>manifest_version</code></td><td>3</td>
+            <td>MV2 deprecation deadline shipped Q1 2025; only MV3 sideloads on Chrome 136+.</td></tr>
+        <tr><td><code>background.service_worker</code></td><td><code>dist/background.js</code></td>
+            <td>Module-type worker (<code>type: "module"</code>) so ES imports resolve.</td></tr>
+        <tr><td><code>action.default_popup</code></td><td><code>dist/popup/popup.html</code></td>
+            <td>Toolbar popup &mdash; status, enable/disable, settings.</td></tr>
+        <tr><td><code>content_scripts</code></td>
+            <td><code>&lt;all_urls&gt;</code>, <code>document_start</code>, <code>all_frames: false</code></td>
+            <td>Tech-stack detection + profile registration relay. Top frame only &mdash; child frames are walked from the daemon side via <code>Page.createIsolatedWorld</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Permissions</h3>
+    <table>
+      <thead><tr><th>Permission</th><th>Used by</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>alarms</code></td><td><code>websocket.ts</code>, <code>background.ts</code></td>
+            <td>Reconnect + 30s keepalive + 24h whitelist refresh + mouse idle drift. Survives SW suspension.</td></tr>
+        <tr><td><code>cookies</code></td><td><code>websocket.ts:226</code></td>
+            <td>Profile fallback &mdash; reads <code>supersurf_profile</code> cookie set by daemon&#39;s <code>/register/&lt;name&gt;</code> page when <code>chrome.storage.local</code> is missing it.</td></tr>
+        <tr><td><code>debugger</code></td><td><code>background.ts</code></td>
+            <td>CDP for screenshots, network, evaluate, performance, mouse input. Triggers the &ldquo;... is debugging this browser&rdquo; banner.</td></tr>
+        <tr><td><code>activeTab</code>, <code>tabs</code></td><td><code>handlers/tabs.ts</code></td>
+            <td>Tab CRUD, attachment tracking, group isolation per session.</td></tr>
+        <tr><td><code>storage</code></td><td>everywhere</td>
+            <td><code>local</code> for settings + profile name; <code>session</code> for SessionContext write-through.</td></tr>
+        <tr><td><code>management</code></td><td><code>listExtensions</code> handler</td>
+            <td>Reports installed extensions (a positive human signal &mdash; sterile profiles look automated).</td></tr>
+        <tr><td><code>webRequest</code></td><td><code>handlers/network.ts</code></td>
+            <td>Tracks request lifecycle outside of CDP&#39;s detached debugger.</td></tr>
+        <tr><td><code>webNavigation</code></td><td><code>background.ts:91</code></td>
+            <td>Domain-whitelist enforcement on <code>onBeforeNavigate</code>.</td></tr>
+        <tr><td><code>scripting</code></td><td><code>handlers/console.ts</code>, <code>dialogs.ts</code>, <code>experimental/</code></td>
+            <td>Inject MAIN-world functions for console capture, dialog overrides, page state, secure_fill, smart waiting.</td></tr>
+        <tr><td><code>tabGroups</code></td><td><code>handlers/tabs.ts:36</code></td>
+            <td>Per-session tab isolation in multi-MCP-session mode &mdash; each session&#39;s tabs are colored and grouped.</td></tr>
+        <tr><td><code>downloads</code></td><td><code>handlers/downloads.ts</code></td>
+            <td>The <code>browser_download</code> tool.</td></tr>
+        <tr><td><code>host_permissions</code> = <code>&lt;all_urls&gt;</code></td><td>everywhere</td>
+            <td>Required for content-script injection on arbitrary sites. Combined with <code>webRequest</code> to read response headers.</td></tr>
+      </tbody>
+    </table>
+
+    <p>There is intentionally no <code>persistent: true</code> (MV3 forbids
+       it) and no <code>offscreen</code> permission. Anything that would need
+       a persistent doc &mdash; e.g. an <code>OffscreenDocument</code> for
+       sustained <code>fetch</code> &mdash; is instead handled by the daemon,
+       which has no SW lifecycle and runs as a normal Node.js process.</p>
+
+    <h2 id="background">3. Service worker (<code>background.ts</code>)</h2>
+    <p>The single largest file in the extension at ~680 lines. Acts as
+       coordinator for every other subsystem: WebSocket lifecycle, command
+       handler registry, CDP debugger lifecycle, tab buffer, alarm dispatch,
+       popup IPC.</p>
+
+    <h3>Module structure</h3>
+    <p>The file is split into two halves:</p>
+    <ol>
+      <li><strong>Top-level (lines 36-119)</strong> &mdash; chrome event listeners
+          that <em>must</em> be registered synchronously at module load.
+          These survive worker termination and wake the worker on events.</li>
+      <li><strong>Async IIFE (lines 122-683)</strong> &mdash; one-shot
+          initialization: create handler instances, wire injectors, fetch the
+          domain whitelist, register all the JSON-RPC command handlers, then
+          <code>await wsConnection.connect()</code>.</li>
+    </ol>
+
+    <h3>Top-level listeners</h3>
+    <table>
+      <thead><tr><th>Event</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>runtime.onInstalled</code> (<code>background.ts:46</code>)</td>
+            <td>On first install, opens <code>dist/pages/welcome.html</code>.</td></tr>
+        <tr><td><code>runtime.onStartup</code> (<code>background.ts:51</code>)</td>
+            <td>No-op body; existence forces SW activation on browser launch.</td></tr>
+        <tr><td><code>tabs.onCreated</code> (<code>background.ts:60</code>)</td>
+            <td>Fills <code>spawnedTabBuffer</code> &mdash; 10s rolling window of new tabs that the <code>drainSpawnedTabs</code> handler returns to detect popup-spawned tabs from clicks.</td></tr>
+        <tr><td><code>tabs.onUpdated</code> (<code>background.ts:70</code>)</td>
+            <td>Pushes <code>tab_info_update</code> notifications to the daemon when the attached tab&#39;s URL changes.</td></tr>
+        <tr><td><code>webNavigation.onBeforeNavigate</code> (<code>background.ts:91</code>)</td>
+            <td>Domain whitelist enforcement &mdash; reverts the tab to its previous URL if the destination isn&#39;t allowed, then notifies the server.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>CDP debugger lifecycle</h3>
+    <p>Defined at <code>background.ts:261-297</code>. Two helpers:</p>
+    <ul>
+      <li><code>ensureDebugger(tabId)</code> &mdash; idempotent attach.
+          Detaches first if currently attached to a different tab
+          (Chrome only allows one debugger per tab, but we hold one debugger
+          across many tabs by reattaching). Enables five domains:
+          <code>Network</code>, <code>DOM</code>, <code>CSS</code>,
+          <code>Runtime</code>, <code>Page</code>.</li>
+      <li><code>cdp(tabId, method, params, timeout=50000)</code> &mdash; auto-attaches,
+          then races <code>chromeDebugger.sendCommand</code> against a
+          50s timeout. Hangs are real &mdash; CDP commands occasionally never
+          complete and the timeout is the only way out.</li>
+    </ul>
+
+    <p>Note the bracket-notation hack on line 36:</p>
+    <pre><code>const chromeDebugger = (chrome as any)['debugger'] as ChromeDebugger;</code></pre>
+    <p><code>debugger</code> is a JS reserved word, so <code>chrome.debugger</code>
+       can&#39;t be referenced via dot syntax in TypeScript without
+       <code>any</code>-casting. Same hack appears in
+       <code>chrome.d.ts</code>.</p>
+
+    <h3>Command handler registry</h3>
+    <p>The IIFE registers ~20 command handlers via
+       <code>wsConnection.registerCommandHandler(method, fn)</code>. Each
+       corresponds to a JSON-RPC method the daemon dispatches.</p>
+
+    <table>
+      <thead><tr><th>Handler</th><th>Source</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>getTabs</code> / <code>createTab</code> / <code>selectTab</code> / <code>closeTab</code></td>
+            <td><code>background.ts:314-331</code> &rarr; <code>handlers/tabs.ts</code></td>
+            <td>Tab CRUD with session-group filtering.</td></tr>
+        <tr><td><code>sessionDisconnect</code></td>
+            <td><code>background.ts:334</code></td>
+            <td>Daemon notification &mdash; ungroups the session&#39;s tabs.</td></tr>
+        <tr><td><code>navigate</code></td>
+            <td><code>background.ts:342</code></td>
+            <td>URL / back / forward / reload. With <code>screenshot: true</code>, waits for <code>tabs.onUpdated status: 'complete'</code> + smart-wait or 1.5s, then captures via CDP in one round-trip.</td></tr>
+        <tr><td><code>forwardCDPCommand</code></td>
+            <td><code>background.ts:411</code></td>
+            <td>Generic CDP passthrough used by server-side tools (CSS inspection, accessibility tree).</td></tr>
+        <tr><td><code>evaluate</code></td>
+            <td><code>background.ts:421</code></td>
+            <td>Wraps user code with <code>'use strict'</code> (or skips when <code>params.prewrapped</code>, since secure_eval Layer 3&#39;s <code>with</code> requires sloppy mode). Optionally wraps with <code>wrapWithUnwrap</code> for bot-detection bypass.</td></tr>
+        <tr><td><code>snapshot</code></td>
+            <td><code>background.ts:458</code></td>
+            <td><code>Accessibility.getFullAXTree</code> via CDP.</td></tr>
+        <tr><td><code>screenshot</code></td>
+            <td><code>background.ts:464</code></td>
+            <td>JPEG q70 by default, optional clip rect.</td></tr>
+        <tr><td><code>consoleMessages</code> / <code>networkRequests</code> / <code>clearNetwork</code></td>
+            <td><code>background.ts:485-499</code></td>
+            <td>Read out the buffered logs maintained by ConsoleHandler / NetworkTracker.</td></tr>
+        <tr><td><code>dialog</code></td>
+            <td><code>background.ts:503</code></td>
+            <td>Configure dialog auto-handling or read pending dialog events.</td></tr>
+        <tr><td><code>window</code></td>
+            <td><code>background.ts:515</code></td>
+            <td>Resize / minimize / maximize / close via <code>chrome.windows</code>.</td></tr>
+        <tr><td><code>listExtensions</code></td>
+            <td><code>background.ts:540</code></td>
+            <td><code>chrome.management.getAll()</code> &mdash; also a positive human fingerprint.</td></tr>
+        <tr><td><code>performanceMetrics</code></td>
+            <td><code>background.ts:546</code></td>
+            <td><code>Performance.getMetrics</code> via CDP.</td></tr>
+        <tr><td><code>download</code></td>
+            <td><code>background.ts:553</code> &rarr; <code>handlers/downloads.ts</code></td>
+            <td>5-minute download monitor.</td></tr>
+        <tr><td><code>secure_fill</code></td>
+            <td><code>background.ts:560</code></td>
+            <td>MAIN-world inject &mdash; types char-by-char with 40-120ms jitter so React/Angular controlled inputs see real keydown/input/keyup sequences.</td></tr>
+        <tr><td><code>drainSpawnedTabs</code></td>
+            <td><code>background.ts:605</code></td>
+            <td>Pop-and-clear the rolling buffer of newly created tabs.</td></tr>
+        <tr><td><code>capturePageState</code> / <code>waitForReady</code></td>
+            <td><code>experimental/index.ts</code></td>
+            <td>Page diffing inputs; smart-waiting for navigation.</td></tr>
+        <tr><td><code>humanizedMouseMove</code> / <code>setHumanizationConfig</code> / <code>getViewportDimensions</code></td>
+            <td><code>experimental/mouse-humanization.ts</code></td>
+            <td>Bezier waypoint replay via <code>Input.dispatchMouseEvent</code>.</td></tr>
+        <tr><td><code>validateEval</code></td>
+            <td><code>security/secure-eval/index.ts</code></td>
+            <td>Layer 2 of secure_eval &mdash; runs agent code through the Proxy membrane.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Alarm dispatch</h3>
+    <p><code>chrome.alarms.onAlarm.addListener</code>
+       (<code>background.ts:161-178</code>) routes four alarms:</p>
+
+    <table>
+      <thead><tr><th>Alarm</th><th>Period</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>keepalive</code></td><td>30s</td>
+            <td>If <code>!wsConnection.isConnected</code>, calls <code>connect()</code>. Survives SW death.</td></tr>
+        <tr><td><code>ws-reconnect</code></td><td>oneshot, 5s after disconnect</td>
+            <td>Triggers <code>wsConnection.handleReconnectAlarm()</code>.</td></tr>
+        <tr><td><code>whitelist-refresh</code></td><td>24h</td>
+            <td>Refreshes Tranco list when whitelist is enabled.</td></tr>
+        <tr><td><code>mouse-idle-drift</code></td><td>10-30s random</td>
+            <td>Tiny 2-5px drift via CDP <code>Input.dispatchMouseEvent</code> when humanization is enabled.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Profile registration</h3>
+    <p>Two related <code>chrome.runtime.onMessage</code> listeners
+       (<code>background.ts:229-241</code>) and a
+       <code>chrome.storage.onChanged</code> listener
+       (<code>background.ts:245-253</code>) implement the profile flow:</p>
+    <ol>
+      <li>Daemon spawns Chromium with first-launch URL
+          <code>http://127.0.0.1:5555/register/&lt;name&gt;</code>.</li>
+      <li>That HTML page calls <code>window.postMessage({ __supersurf: true, action: 'register-profile', profile })</code>.</li>
+      <li>Content script
+          (<code>content-script.ts:37-52</code>) catches the postMessage and
+          forwards as <code>chrome.runtime.sendMessage({ type: 'profileRegister', profile })</code>
+          with up to 10 retries (the SW may not be ready on first install).</li>
+      <li>Background writes the name to <code>chrome.storage.local</code>
+          and closes the registration tab.</li>
+      <li>The <code>storage.onChanged</code> listener then triggers a
+          WebSocket disconnect/reconnect so the daemon&#39;s matchmaker can
+          bind this connection to the profile.</li>
+    </ol>
+
+    <h2 id="websocket">4. WebSocket connection (<code>connection/websocket.ts</code>)</h2>
+    <p><code>WebSocketConnection</code> is the JSON-RPC 2.0 client for the
+       daemon. Single connection, auto-reconnect via Chrome alarms,
+       command + notification handler maps populated by
+       <code>background.ts</code>.</p>
+
+    <h3>Lifecycle</h3>
+    <pre><code>connect()                                       (websocket.ts:112)
+  -> isExtensionEnabled()  storage.local.extensionEnabled !== false
+  -> getConnectionUrl()    ws://127.0.0.1:&lt;mcpPort|5555&gt;/extension
+  -> new WebSocket(url)
+  -> _handleOpen()         (websocket.ts:188)
+       send handshake { type, browser, version, buildTimestamp, profile? }
+disconnect()                                    (websocket.ts:154)
+  -> alarms.clear('ws-reconnect')
+  -> socket.close()
+  -> iconManager.setConnected(false)</code></pre>
+
+    <h3>Profile resolution</h3>
+    <p><code>_resolveProfile()</code> (<code>websocket.ts:216</code>) is
+       handshake-time profile lookup with a fallback chain:</p>
+    <ol>
+      <li><strong>Primary:</strong> <code>chrome.storage.local.supersurf_profile</code>.</li>
+      <li><strong>Fallback:</strong> <code>chrome.cookies.get</code> on
+          <code>http://127.0.0.1:&lt;mcpPort&gt;</code> for the
+          <code>supersurf_profile</code> cookie that the daemon&#39;s
+          registration page set with <code>SameSite=Lax</code>.
+          On hit, backfills <code>storage.local</code> for next time.</li>
+    </ol>
+    <p>This dual path is why the daemon&#39;s registration URL
+       <em>also</em> sets a cookie &mdash; if extension storage gets wiped
+       (force-killed Chromium, manual extension removal), the cookie is the
+       one source of truth that survives.</p>
+
+    <h3>Reconnect via Chrome alarms</h3>
+    <p>Why <code>chrome.alarms</code> and not <code>setTimeout</code>:</p>
+
+    <div class="callout danger">
+      <strong>Don&#39;t use setTimeout in MV3</strong>
+      Chrome can suspend the service worker before any pending
+      <code>setTimeout</code> fires. The reconnect callback would silently
+      vanish and the extension would never reconnect after a brief network
+      blip. <code>chrome.alarms</code> are owned by the browser and wake
+      the SW from cold sleep. SuperSurf uses
+      <code>alarms.create('ws-reconnect', { when: Date.now() + 5000 })</code>
+      with a <code>reconnectTimeout</code> guard flag to prevent stacking.
+    </div>
+
+    <h3>Message routing</h3>
+    <p><code>_handleMessage()</code> (<code>websocket.ts:248</code>) splits
+       inbound messages into three classes:</p>
+    <ul>
+      <li><code>error</code> field set: log and drop.</li>
+      <li>Notification (<code>method</code> set, no <code>id</code>): dispatch
+          to <code>notificationHandlers</code>. Special-cased
+          <code>authenticated</code> notifications populate
+          <code>projectName</code>.</li>
+      <li>Command (has <code>id</code> + <code>method</code>): look up
+          <code>commandHandlers</code>, await, attach a
+          <code>_recovery</code> note if <code>ensureAttachedTab()</code>
+          had to swap tabs mid-call, send back JSON-RPC response.</li>
+    </ul>
+
+    <h3>Tab recovery note</h3>
+    <p>The recovery-note plumbing
+       (<code>setRecoveryNoteProvider</code> at <code>websocket.ts:62</code>,
+        consumed at <code>websocket.ts:275-286</code>) lets
+       <code>TabHandlers.ensureAttachedTab()</code> (the auto-recovery path
+       when the attached tab is null or stale) attach a structured
+       <code>{reason, previousTabId, newTabId, url}</code> field to the
+       command response. This shows up in the agent&#39;s tool result so
+       the LLM sees that the attached tab silently changed.</p>
+
+    <h2 id="session-context">5. Session context (<code>session-context.ts</code>)</h2>
+    <p>Centralizes per-session state in one object. Replaces the prior
+       scattered approach where TabHandlers, IconManager, and
+       <code>background.ts</code> all owned their own copies of
+       &ldquo;attached tab&rdquo; and &ldquo;stealth mode.&rdquo;</p>
+
+    <h3>Multi-session vs single-client</h3>
+    <p>The daemon&#39;s scheduler injects a <code>_sessionId</code> into
+       every tab-scoped command, so the extension can isolate state per MCP
+       session. SessionContext supports both modes:</p>
+    <ul>
+      <li><strong>Multi-session:</strong>
+          <code>ctx.getSession('client-abc-123')</code> returns the named
+          session&#39;s state.</li>
+      <li><strong>Single-client (backwards compat):</strong>
+          <code>ctx.attachedTabId</code>, <code>ctx.stealthMode</code>,
+          <code>ctx.cursorPositions</code>, etc. delegate to the
+          <code>null</code>-keyed session
+          (<code>session-context.ts:170-203</code>).</li>
+    </ul>
+
+    <h3>State shape</h3>
+    <pre><code>interface SessionState {
+  attachedTabId: number | null;
+  stealthMode: boolean;
+  stealthTabs: Map&lt;number, boolean&gt;;          // per-tab override
+  cursorPositions: Map&lt;number, {x, y}&gt;;         // for mouse humanization continuity
+  humanizationConfig: { enabled: boolean };
+}</code></pre>
+
+    <h3>Persistence</h3>
+    <p>Every setter calls <code>persist()</code>, which write-throughs to
+       <code>chrome.storage.session</code> under
+       <code>__supersurf_session_state</code>. Maps serialize to
+       entry-arrays. On worker wake, <code>init()</code> calls
+       <code>rehydrate()</code> to restore. <code>clearStorage()</code> is
+       called on disable/disconnect so the keyspace doesn&#39;t grow
+       unbounded across enable/disable cycles in a long browser session.</p>
+
+    <h2 id="handlers">6. Command handlers</h2>
+    <p>Five handler classes under <code>extension/src/handlers/</code>.
+       Each is instantiated once in the IIFE and registered onto
+       <code>WebSocketConnection</code> by name.</p>
+
+    <h3>TabHandlers (<code>handlers/tabs.ts</code>)</h3>
+    <p>Tab CRUD with two non-obvious responsibilities:</p>
+    <ul>
+      <li><strong>Tab group isolation</strong> (<code>tabs.ts:225-305</code>):
+          Each MCP session gets a <code>chrome.tabGroups</code> group with
+          a rotating color from <code>GROUP_COLORS</code>. <code>selectTab</code>
+          refuses to attach to tabs in another session&#39;s group;
+          ungrouped tabs are claimed on first selection.
+          <code>handleSessionDisconnect</code> ungroups everything when the
+          MCP session ends.</li>
+      <li><strong><code>ensureAttachedTab()</code></strong>
+          (<code>tabs.ts:117-196</code>) &mdash; called at the top of every
+          tab-scoped handler. If <code>attachedTabId</code> is null or stale
+          (the tab was closed), it picks a recovery candidate (active tab in
+          current window &gt; any active tab &gt; last automatable tab),
+          updates state, and returns a <code>recovery</code> object that the
+          WebSocket layer attaches to the response as <code>_recovery</code>.</li>
+    </ul>
+
+    <h3>NetworkTracker (<code>handlers/network.ts</code>)</h3>
+    <p>500-entry FIFO ring buffer keyed by <code>requestId</code>. Tracks
+       four <code>chrome.webRequest</code> events:
+       <code>onBeforeRequest</code>, <code>onBeforeSendHeaders</code>,
+       <code>onCompleted</code>, <code>onErrorOccurred</code>. Headers are
+       flattened from Chrome&#39;s <code>[{name, value}]</code> form to a
+       plain object. The CDP-side tracker in <code>background.ts:182-218</code>
+       runs in parallel for cases where webRequest doesn&#39;t see the
+       request (e.g. the initial document load).</p>
+
+    <h3>ConsoleHandler (<code>handlers/console.ts</code>)</h3>
+    <p>1000-message FIFO buffer. Capture is via MAIN-world injection
+       (<code>scripting.executeScript({ world: 'MAIN' })</code>) that
+       monkey-patches <code>console.log/warn/error/info/debug</code>.
+       The patched methods <code>postMessage</code> back to the page,
+       <code>content-script.ts</code> relays to the SW, ConsoleHandler
+       buffers. Idempotent per tab via the
+       <code>__supersurfConsoleInjected</code> marker.</p>
+
+    <h3>DialogHandler (<code>handlers/dialogs.ts</code>)</h3>
+    <p>MAIN-world inject that overrides <code>window.alert</code>,
+       <code>window.confirm</code>, <code>window.prompt</code> with
+       non-blocking stubs. Each stub pushes a
+       <code>{type, message, response, timestamp}</code> entry to
+       <code>window.__supersurfDialogEvents</code> and returns the configured
+       value (<code>accept: true/false</code>, <code>promptText</code>).
+       Without this, page dialogs would block automation indefinitely.</p>
+
+    <h3>DownloadHandler (<code>handlers/downloads.ts</code>)</h3>
+    <p>Wraps <code>chrome.downloads.download</code> with a
+       <code>chrome.downloads.onChanged</code> listener that watches for
+       <code>state.current === 'complete'</code> or <code>'interrupted'</code>.
+       5-minute timeout. On success returns
+       <code>{filePath, fileSize, mimeType}</code> from
+       <code>downloads.search({id})</code>.</p>
+
+    <h2 id="content-script">7. Content script (<code>content-script.ts</code>)</h2>
+    <p>Injected at <code>document_start</code>, top frame only,
+       <code>&lt;all_urls&gt;</code>. Two responsibilities, both
+       <code>window.message</code>-driven:</p>
+
+    <h3>Console relay</h3>
+    <p>Listens for <code>{ __supersurfConsole: { level, text, timestamp } }</code>
+       postMessages from the MAIN-world console patch and forwards via
+       <code>chrome.runtime.sendMessage({type: 'console', ...})</code>. The
+       isolated-world content script is the bridge between MAIN-world page
+       context and the service worker.</p>
+
+    <h3>Profile registration relay</h3>
+    <p>Listens for
+       <code>{ __supersurf: true, action: 'register-profile', profile }</code>
+       from the daemon&#39;s <code>/register/&lt;name&gt;</code> HTML page,
+       forwards as
+       <code>{type: 'profileRegister', profile}</code> with up to 10
+       retries spaced 500ms apart (the SW may not be ready on first
+       install). See <a href="#background">&sect;3</a> for the receiving end.</p>
+
+    <h3>Tech stack detection</h3>
+    <p><code>detectTechStack()</code> (<code>content-script.ts:70</code>)
+       runs 1s after <code>DOMContentLoaded</code> and probes for ~40
+       frameworks/libraries. Output is sent as
+       <code>{type: 'techStack', data}</code> and surfaces in
+       <code>browser_tabs</code> output for each tab.</p>
+
+    <table>
+      <thead><tr><th>Category</th><th>Detected</th></tr></thead>
+      <tbody>
+        <tr><td>JS frameworks</td>
+            <td>React, Vue, Angular, Svelte, Next.js, Nuxt</td></tr>
+        <tr><td>Libraries</td>
+            <td>jQuery, Lodash, D3.js, Alpine.js, HTMX</td></tr>
+        <tr><td>CSS frameworks</td>
+            <td>Bootstrap, Tailwind, Bulma (via stylesheet href + characteristic class names)</td></tr>
+        <tr><td>Dev tools</td>
+            <td>Webpack, ES Modules</td></tr>
+        <tr><td>Heuristic flags</td>
+            <td><code>spa</code> (any SPA framework hit), <code>obfuscatedCSS</code> (&gt;30% of first 50 elements match the <code>ab_x9f2k</code> pattern &mdash; CSS Modules / Styled Components)</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="secure-fill">8. Secure-fill (<code>secure-fill.ts</code> + <code>background.ts:560</code>)</h2>
+    <p>Credential injection that never crosses the agent boundary:</p>
+    <ol>
+      <li>Agent calls <code>secure_fill</code> with an env var <em>name</em>
+          (e.g. <code>$LOGIN_PASSWORD</code>). The agent never sees the
+          value.</li>
+      <li>Server resolves the env var locally
+          (<code>server/src/dotenv.ts</code> + process env) and forwards
+          <code>{selector, value}</code> over the daemon socket.</li>
+      <li>Extension injects a MAIN-world function via
+          <code>chrome.scripting.executeScript({world: 'MAIN'})</code> with
+          <code>args: [selector, value]</code>.</li>
+      <li>The injected function types char-by-char with
+          <code>40 + Math.random() * 80</code>ms per keystroke
+          (~40-120ms range), dispatching the full
+          <code>focus &rarr; keydown &rarr; input &rarr; keyup &rarr; change</code>
+          event sequence per character.</li>
+    </ol>
+
+    <p>The standalone <code>secure-fill.ts</code> module is the
+       extracted/exported version; <code>background.ts</code> inlines an
+       equivalent function body inside <code>executeScript({func})</code>
+       because <code>executeScript</code> serializes the function and
+       captures no closures. Edits must stay in sync.</p>
+
+    <div class="callout info">
+      <strong>Why MAIN world</strong>
+      Isolated-world content scripts can&#39;t fire native input events
+      that page-level frameworks (React controlled inputs, Angular reactive
+      forms) listen on. MAIN world runs in the page&#39;s own context, so
+      framework input listeners actually fire and validation passes.
+    </div>
+
+    <h2 id="whitelist">9. Domain whitelist (<code>domain-whitelist.ts</code>)</h2>
+    <p>Optional safety rail that restricts automated navigation to the
+       Tranco top 100K domains. Off by default; toggled in the popup
+       Settings view.</p>
+
+    <h3>Design rules</h3>
+    <ul>
+      <li><strong>Passthrough on disabled / empty / special schemes</strong>
+          (<code>domain-whitelist.ts:102-110</code>). The whitelist must
+          never lock the user out of <code>about:blank</code> or
+          <code>chrome://</code>.</li>
+      <li><strong>Suffix-walk matching</strong>
+          (<code>domain-whitelist.ts:122-127</code>). For
+          <code>mail.google.com</code>, walks
+          <code>mail.google.com</code> &rarr; <code>google.com</code> &rarr;
+          stops before bare TLD. Whitelisting <code>google.com</code>
+          allows all subdomains.</li>
+      <li><strong>Cache for 24h in <code>chrome.storage.local</code></strong>
+          &mdash; keyed by <code>domainWhitelistData</code> +
+          <code>domainWhitelistLastFetch</code>. Refresh runs on the
+          <code>whitelist-refresh</code> alarm.</li>
+    </ul>
+
+    <h3>Tranco fetch + ZIP parsing</h3>
+    <p>The Tranco list ships as a ZIP-compressed CSV
+       (<code>https://tranco-list.eu/top-1m.csv.zip</code>). The extension
+       has zero runtime deps, so parsing is hand-rolled in
+       <code>_extractZip()</code> (<code>domain-whitelist.ts:194-237</code>):</p>
+    <ol>
+      <li>Read local file header with <code>DataView</code> at offsets
+          0/8/18/26/28 (signature, compression method, compressed size,
+          filename length, extra length).</li>
+      <li>If method 0 (stored), <code>TextDecoder</code> the bytes
+          directly.</li>
+      <li>If method 8 (deflate), pipe through
+          <code>new DecompressionStream('deflate-raw')</code>.</li>
+      <li>CSV parse: take first 100K lines, return
+          <code>line.split(',', 2)[1]</code>.</li>
+    </ol>
+    <p>Browser-native <code>DecompressionStream</code> is the trick that
+       avoids pulling in <code>pako</code> or another ZIP library.</p>
+
+    <h3>Enforcement</h3>
+    <p>The top-level <code>webNavigation.onBeforeNavigate</code> listener
+       in <code>background.ts:91</code> fires on the attached tab&#39;s
+       top-frame navigation. If the URL fails
+       <code>isDomainAllowed</code>, the listener calls
+       <code>chrome.tabs.update(tabId, {url: previousUrl || 'about:blank'})</code>
+       to revert, then notifies the server with
+       <code>notifications/navigation_blocked</code>.</p>
+
+    <h2 id="popup">10. Popup UI (<code>popup/</code>)</h2>
+    <p>Three files: <code>popup.html</code> (skeleton),
+       <code>popup.css</code>, and the TS pair
+       <code>popup.ts</code> + <code>popup.templates.ts</code>. Pattern is
+       deliberately framework-free &mdash; one mutable
+       <code>state</code> singleton, one <code>render()</code> that swaps
+       <code>innerHTML</code>, one <code>attachEventListeners()</code>
+       that re-binds.</p>
+
+    <h3>Two views</h3>
+    <ul>
+      <li><strong>Main</strong> (<code>renderMain</code>): connection
+          status dot (connecting / connected / disconnected), tab
+          automated flag, project name from the server&#39;s
+          <code>authenticated</code> notification, profile badge if a
+          managed profile is active, stealth indicator, enable/disable
+          toggle.</li>
+      <li><strong>Settings</strong> (<code>renderSettings</code>): MCP port
+          (default 5555), Debug Mode checkbox, Domain Whitelist checkbox.</li>
+    </ul>
+
+    <h3>Background IPC</h3>
+    <p><code>chrome.runtime.sendMessage</code> with one of:
+       <code>getStatus</code>, <code>enableExtension</code>,
+       <code>disableExtension</code>, <code>enableWhitelist</code>,
+       <code>disableWhitelist</code>, <code>getWhitelistStats</code>.
+       The popup also listens to <code>statusChanged</code> messages
+       (broadcast by the SW on connect/disconnect) and
+       <code>storage.onChanged</code> for live updates without polling.</p>
+
+    <h2 id="utils">11. Utilities (<code>utils/</code>)</h2>
+    <table>
+      <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>utils/logger.ts</code></td>
+            <td><code>Logger</code> with conditional <code>log()</code> gated on <code>storage.local.debugMode</code>; <code>logAlways()</code> for lifecycle events. Subscribes to <code>storage.onChanged</code> so toggling debug takes effect without reload.</td></tr>
+        <tr><td><code>utils/icons.ts</code></td>
+            <td><code>IconManager</code> &mdash; toolbar badge state. Shows a check on the attached tab (blue <code>#1c75bc</code> normally, dark <code>#333333</code> in stealth). Reacts to <code>tabs.onActivated</code> + <code>tabs.onRemoved</code> to keep the badge correct as the user switches tabs.</td></tr>
+        <tr><td><code>utils/unwrap.ts</code></td>
+            <td><code>shouldUnwrap()</code> + <code>wrapWithUnwrap()</code> &mdash; bot-detection bypass for code that calls <code>querySelector</code>, <code>getComputedStyle</code>, <code>getBoundingClientRect</code>, etc. Wraps user code in an IIFE that creates a hidden iframe, swaps <code>document</code>&#39;s patched methods for the iframe&#39;s native ones, executes user code, restores in <code>finally</code>. Counters page scripts (Akamai, PerimeterX, Cloudflare Turnstile) that monkey-patch DOM methods to fingerprint automation.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Chrome types (<code>types/chrome.d.ts</code>)</h3>
+    <p>Hand-rolled minimal type declarations for the Chrome APIs the
+       extension uses, instead of pulling in <code>@types/chrome</code>.
+       Covers <code>runtime</code>, <code>storage</code>, <code>tabs</code>,
+       <code>windows</code>, <code>tabGroups</code>, <code>scripting</code>,
+       <code>webRequest</code>, <code>webNavigation</code>,
+       <code>downloads</code>, <code>alarms</code>, <code>action</code>,
+       <code>management</code>, <code>cookies</code>, plus the standalone
+       <code>ChromeDebugger</code> interface (since <code>debugger</code> is
+       a JS reserved word and can&#39;t be a namespace member).</p>
+
+    <h2 id="experimental">12. Experimental subsystems (<code>experimental/</code>)</h2>
+
+    <h3><code>experimental/index.ts</code></h3>
+    <p>Registers <code>capturePageState</code> and <code>waitForReady</code>
+       command handlers. <code>waitForReady</code> races
+       <code>waitForDOMStable</code> (via <code>scripting.executeScript</code>)
+       against <code>pollNetworkIdle</code> (every 100ms, looking for a
+       quiet window of <code>idleMs</code>) against an overall timeout.</p>
+
+    <h3><code>experimental/capture-page-state.ts</code></h3>
+    <p>Self-contained injectable function that walks
+       <code>document.querySelectorAll('*')</code> and returns a
+       <code>PageState</code>: visible element count, deduped 200-char
+       text snippets, shadow-root count, iframe count, hidden-element
+       count, form values (passwords masked, checkboxes summarized as
+       <code>checked</code>/<code>unchecked</code>). Used by the server&#39;s
+       page-diffing experiment to compare snapshots before/after an action.</p>
+
+    <div class="callout warn">
+      <strong>No closures, no imports</strong>
+      <code>chrome.scripting.executeScript({func})</code> serializes the
+      function body via <code>toString()</code> and runs it in a fresh
+      page context. Imports, closure-captured variables, and TypeScript
+      enums silently break. Both <code>capturePageState</code> and
+      <code>waitForDOMStable</code> are intentionally written without
+      external references.
+    </div>
+
+    <h3><code>experimental/wait-for-ready.ts</code></h3>
+    <p>Mutation-observer-based DOM stability detector. Each mutation
+       resets a debounce timer; resolves when <code>stabilityMs</code>
+       elapse with no <code>childList</code>/<code>subtree</code>
+       mutations. Always resolves &mdash; never rejects.</p>
+
+    <h3><code>experimental/mouse-humanization.ts</code></h3>
+    <p>Three handlers:</p>
+    <ul>
+      <li><strong><code>humanizedMouseMove</code></strong>: replays
+          server-generated Bezier waypoints via
+          <code>cdp(tabId, 'Input.dispatchMouseEvent', {type: 'mouseMoved', x, y})</code>,
+          <code>await sleep(wp.delayMs)</code> between points. Stores last
+          position in <code>sessionContext.cursorPositions</code> for
+          path continuity.</li>
+      <li><strong><code>setHumanizationConfig</code></strong>: turns the
+          experiment on/off; on enable, schedules the
+          <code>mouse-idle-drift</code> alarm with 10-30s random delay.</li>
+      <li><strong><code>getViewportDimensions</code></strong>:
+          <code>Runtime.evaluate</code>s
+          <code>{width: window.innerWidth, height: window.innerHeight}</code>
+          so the server can clamp generated paths.</li>
+    </ul>
+    <p><code>handleIdleDrift()</code> is fired from the alarm dispatcher
+       in <code>background.ts:175</code>: if humanization is still enabled,
+       dispatch a 2-5px random drift and reschedule.</p>
+
+    <h2 id="security">13. Security &mdash; secure_eval Layer 2</h2>
+    <p>The extension hosts Layer 2 of the three-layer
+       <code>secure_eval</code> pipeline. Layer 1 (server-side AST analysis
+       via <code>acorn</code>) catches statically detectable patterns. Layer
+       2 (this) catches dynamic/runtime access by running agent code
+       against a deep Proxy membrane with no real DOM. Layer 3 is page-context
+       <code>Runtime.evaluate</code>.</p>
+
+    <p><code>security/secure-eval/index.ts</code> registers the
+       <code>validateEval</code> command. The handler builds a fresh
+       <code>Function</code> wrapped in
+       <code>with(membrane) { (function() { "use strict"; ...code... })(); }</code>
+       and runs it; any <code>Error</code> whose message starts with
+       <code>[secure_eval:membrane]</code> means the code reached a blocked
+       terminal (<code>fetch</code>, <code>eval</code>,
+       <code>localStorage</code>, <code>WebSocket</code>,
+       <code>XMLHttpRequest</code>, etc.) and the response is
+       <code>{safe: false, reason}</code>.</p>
+
+    <p>Graduated from experiment in v1.11.0. Full details &mdash; threat
+       model, blocked terminal list, why <code>with</code>-membrane works,
+       known bypasses &mdash; live in
+       <a href="security.html">Trust Boundaries &amp; Security</a>.</p>
+
+    <h2 id="index">14. File-by-file index</h2>
+    <table>
+      <thead><tr><th>File</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td><code>extension/manifest.json</code></td>
+            <td>MV3 manifest. Permissions, host permissions, content scripts, popup, icons.</td></tr>
+        <tr><td><code>extension/src/background.ts</code></td>
+            <td>Service worker. ~20 command handlers, CDP debugger lifecycle, alarm dispatch, popup IPC, profile registration, domain-whitelist enforcement.</td></tr>
+        <tr><td><code>extension/src/connection/websocket.ts</code></td>
+            <td>JSON-RPC 2.0 client to the daemon. Handshake, alarm-based reconnect, command/notification routing, recovery-note plumbing.</td></tr>
+        <tr><td><code>extension/src/session-context.ts</code></td>
+            <td>Centralized per-session state with <code>chrome.storage.session</code> write-through. Single-client convenience accessors delegate to a null-keyed session.</td></tr>
+        <tr><td><code>extension/src/handlers/tabs.ts</code></td>
+            <td>Tab CRUD, per-session tab-group isolation, <code>ensureAttachedTab()</code> auto-recovery, tech stack metadata.</td></tr>
+        <tr><td><code>extension/src/handlers/network.ts</code></td>
+            <td>500-entry FIFO ring buffer over <code>webRequest</code> lifecycle events.</td></tr>
+        <tr><td><code>extension/src/handlers/console.ts</code></td>
+            <td>1000-message buffer fed by MAIN-world console patch + content-script relay.</td></tr>
+        <tr><td><code>extension/src/handlers/dialogs.ts</code></td>
+            <td>MAIN-world override of <code>alert</code>/<code>confirm</code>/<code>prompt</code>; events buffered on <code>window.__supersurfDialogEvents</code>.</td></tr>
+        <tr><td><code>extension/src/handlers/downloads.ts</code></td>
+            <td><code>chrome.downloads.download</code> with completion monitor and 5-minute timeout.</td></tr>
+        <tr><td><code>extension/src/domain-whitelist.ts</code></td>
+            <td>Tranco top 100K loader; ZIP parsed via <code>DecompressionStream('deflate-raw')</code>; suffix-walk matching; 24h cache + alarm refresh.</td></tr>
+        <tr><td><code>extension/src/popup/popup.ts</code></td>
+            <td>Reactive state, render-on-mutation, runtime IPC + storage.onChanged listeners.</td></tr>
+        <tr><td><code>extension/src/popup/popup.templates.ts</code></td>
+            <td>Pure HTML template functions for main + settings views.</td></tr>
+        <tr><td><code>extension/src/content-script.ts</code></td>
+            <td>Console message relay, profile registration relay (with retries), tech stack detection (~40 frameworks/libraries).</td></tr>
+        <tr><td><code>extension/src/secure-fill.ts</code></td>
+            <td>Credential injection &mdash; types char-by-char with 40-120ms jitter and full keyboard event sequence. Standalone version of the inline body in <code>background.ts:560</code>.</td></tr>
+        <tr><td><code>extension/src/utils/logger.ts</code></td>
+            <td>Conditional debug logger gated on <code>storage.local.debugMode</code>.</td></tr>
+        <tr><td><code>extension/src/utils/icons.ts</code></td>
+            <td>Toolbar badge / title manager. Tracks attached tab and stealth state for visual feedback.</td></tr>
+        <tr><td><code>extension/src/utils/unwrap.ts</code></td>
+            <td>Bot-detection bypass &mdash; restores native <code>querySelector</code> et al. via a hidden iframe before user code runs.</td></tr>
+        <tr><td><code>extension/src/experimental/index.ts</code></td>
+            <td><code>capturePageState</code> + <code>waitForReady</code> handler registration; network-idle polling.</td></tr>
+        <tr><td><code>extension/src/experimental/capture-page-state.ts</code></td>
+            <td>Injectable DOM snapshot function. No closures, no imports.</td></tr>
+        <tr><td><code>extension/src/experimental/wait-for-ready.ts</code></td>
+            <td>Injectable MutationObserver-based stability detector.</td></tr>
+        <tr><td><code>extension/src/experimental/mouse-humanization.ts</code></td>
+            <td>Bezier waypoint replay, idle-drift alarm callback, viewport dimension read-out.</td></tr>
+        <tr><td><code>extension/src/security/secure-eval/index.ts</code></td>
+            <td>Layer 2 <code>validateEval</code> handler. Wraps agent code in <code>with(membrane)</code> + strict IIFE.</td></tr>
+        <tr><td><code>extension/src/security/secure-eval/membrane.ts</code></td>
+            <td>Recursive Proxy membrane. Blocks ~30 terminals (<code>fetch</code>, <code>eval</code>, <code>localStorage</code>, <code>Function</code>, <code>WebSocket</code>, <code>__proto__</code>, <code>constructor</code>, etc.).</td></tr>
+        <tr><td><code>extension/src/types/chrome.d.ts</code></td>
+            <td>Hand-rolled Chrome API type declarations. Replaces <code>@types/chrome</code> to keep zero runtime deps and a small TS surface.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="tldr">
+      <div class="tldr-label">TL;DR</div>
+      One MV3 service worker (<code>background.ts</code>), one WebSocket
+      to the daemon, ~20 JSON-RPC command handlers, a strict
+      content-script-first vs CDP split. Every async timer is a
+      <code>chrome.alarms</code> entry because MV3 kills
+      <code>setTimeout</code>. State persists through SW suspension via
+      <code>SessionContext</code> write-through to
+      <code>chrome.storage.session</code>. Profile binding flows from a
+      daemon HTML page &rarr; <code>postMessage</code> &rarr; content
+      script &rarr; SW &rarr; <code>storage.local</code> &rarr; reconnect
+      handshake, with a cookie fallback through <code>chrome.cookies</code>.
+      Zero runtime dependencies &mdash; even ZIP decompression of the
+      Tranco list uses native <code>DecompressionStream</code>.
+    </div>
+
+    <footer>
+      Source of truth: <code>extension/</code> in the repo.
+    </footer>
+  </main>
+</div>
+</body>
+</html>

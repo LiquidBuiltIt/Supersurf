@@ -12,11 +12,12 @@ vi.mock('../src/logger', () => ({
   createLog: () => (..._args: unknown[]) => {},
 }));
 
-// Mock audit logger to avoid filesystem writes during tests
-vi.mock('../src/audit-logger', () => ({
-  AuditLogger: class {
+// Mock usage-metrics logger to avoid filesystem writes during tests
+vi.mock('../src/usage-metrics-logger', () => ({
+  UsageMetricsLogger: class {
+    filePath = '/tmp/metrics-test.ndjson';
     write = vi.fn();
-    getPath = vi.fn().mockReturnValue('/tmp/audit-test.ndjson');
+    getPath = vi.fn().mockReturnValue('/tmp/metrics-test.ndjson');
   },
 }));
 

@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { analyzeCode, wrapWithPageProxy } from '../src/tools/browser_evaluate/secure-eval';
 import { experimentRegistry } from '../src/experimental/index';
 import { BrowserBridge } from '../src/tools';
+import { ConfigService } from 'shared';
+
+function makeConfigWithSecureEval(enabled: boolean) {
+  return new ConfigService({
+    cli: {},
+    env: {},
+    file: { security: { secure_eval: enabled } },
+  });
+}
 
 // Mock the logger
 vi.mock('../src/logger', () => ({
@@ -13,11 +22,12 @@ vi.mock('../src/logger', () => ({
   createLog: () => (..._args: unknown[]) => {},
 }));
 
-// Mock audit logger to avoid filesystem writes during tests
-vi.mock('../src/audit-logger', () => ({
-  AuditLogger: class {
+// Mock usage-metrics logger to avoid filesystem writes during tests
+vi.mock('../src/usage-metrics-logger', () => ({
+  UsageMetricsLogger: class {
+    filePath = '/tmp/metrics-test.ndjson';
     write = vi.fn();
-    getPath = vi.fn().mockReturnValue('/tmp/audit-test.ndjson');
+    getPath = vi.fn().mockReturnValue('/tmp/metrics-test.ndjson');
   },
 }));
 
@@ -656,9 +666,13 @@ describe('browser_evaluate with secure_eval (default-on, opt-out via env)', () =
     delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
   });
 
-  it('allows code through when SUPERSURF_DISABLE_SECURE_EVAL is set', async () => {
-    process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
-    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
+  it('allows code through when config.security.secure_eval is false', async () => {
+    const optedOutBridge = new BrowserBridge(
+      { configService: makeConfigWithSecureEval(false) },
+      mockExt,
+    );
+    optedOutBridge.initialize({}, {}, mockCM);
+    const result = await optedOutBridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "fetch('/api')",
     });
     expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.anything());
@@ -912,9 +926,13 @@ describe('three-layer secure_eval flow (default-on)', () => {
     expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.anything());
   });
 
-  it('passes through without wrapping when SUPERSURF_DISABLE_SECURE_EVAL is set', async () => {
-    process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
-    const result = await bridge.callTool('browser_evaluate', { purpose: 'test',
+  it('passes through without wrapping when config.security.secure_eval is false', async () => {
+    const optedOutBridge = new BrowserBridge(
+      { configService: makeConfigWithSecureEval(false) },
+      mockExt,
+    );
+    optedOutBridge.initialize({}, {}, mockCM);
+    const result = await optedOutBridge.callTool('browser_evaluate', { purpose: 'test',
       expression: "fetch('/api')",
     });
 

@@ -21,11 +21,19 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { Command } from 'commander';
 import { spawn } from 'child_process';
 import { PassThrough } from 'stream';
+import * as path from 'path';
+import * as os from 'os';
 
 import { ConnectionManager, BackendConfig } from './backend';
 import { getLogger, getRegistry, type DebugMode } from './logger';
 import { startScriptMode } from './stdio';
 import { loadDotenv } from './dotenv';
+import {
+  ConfigService,
+  loadJsonConfig,
+  loadEnvConfig,
+  type PartialConfig,
+} from 'shared';
 
 const { version: VERSION } = require('../package.json');
 
@@ -36,21 +44,46 @@ function parseDebugMode(value: unknown): DebugMode {
   return false;
 }
 
-/** Build a BackendConfig from CLI options and environment variables. */
-function resolveConfig(options: any): BackendConfig {
-  const envExperiments = process.env.SUPERSURF_EXPERIMENTS;
-  const enabledExperiments = envExperiments
-    ? envExperiments.split(',').map(s => s.trim()).filter(Boolean)
-    : [];
+/** Translate CLI options into a PartialConfig slice for ConfigService. */
+function cliToPartial(options: any): PartialConfig {
+  const out: PartialConfig = {};
+  if (options.port !== undefined) out.daemon = { port: Number(options.port) };
+  if (options.debug === true || options.debug === 'no_truncate' || (typeof options.debug === 'string' && options.debug && options.debug !== 'false')) {
+    out.logging = { debug: options.debug === 'no_truncate' ? 'no_truncate' : 'truncate' };
+  }
+  if (options.disableSecureEval) out.security = { secure_eval: false };
+  return out;
+}
 
+/** Build a ConfigService merging CLI + env + file inputs. */
+function buildConfig(options: any): ConfigService {
+  const configPath = process.env.SUPERSURF_CONFIG_FILE
+    || path.join(os.homedir(), '.supersurf', 'config.json');
+  const { config: fileCfg, warnings: fileWarn } = loadJsonConfig(configPath);
+  const { config: envCfg, warnings: envWarn } = loadEnvConfig(process.env);
+  for (const w of [...fileWarn, ...envWarn]) console.error(`[server] ${w}`);
+  return new ConfigService({
+    cli: cliToPartial(options),
+    env: envCfg,
+    file: fileCfg,
+    onWarn: (m) => console.error(`[server] ${m}`),
+  });
+}
+
+/** Build a BackendConfig from a resolved ConfigService snapshot. */
+function backendConfigFrom(configService: ConfigService): BackendConfig {
+  const c = configService.get();
   return {
-    debug: !!options.debug,
-    port: options.port || 5555,
+    debug: !!c.logging.debug,
+    port: c.daemon.port,
     server: {
       name: 'SuperSurf',
       version: VERSION,
     },
-    enabledExperiments,
+    enabledExperiments: Object.entries(c.experiments)
+      .filter(([k, v]) => v && k !== 'profiles')
+      .map(([k]) => k),
+    configService,
   };
 }
 
@@ -164,7 +197,13 @@ async function main(options: any): Promise<void> {
   // Load .env from cwd before anything reads process.env
   loadDotenv(process.cwd());
 
-  const debugMode = parseDebugMode(options.debug);
+  const configService = buildConfig(options);
+  const debugSetting = configService.get().logging.debug;
+  const debugMode: DebugMode = debugSetting === 'no_truncate'
+    ? 'no_truncate'
+    : debugSetting
+      ? 'truncate'
+      : false;
   (global as any).DEBUG_MODE = !!debugMode;
 
   const reg = getRegistry();
@@ -182,7 +221,7 @@ async function main(options: any): Promise<void> {
     }
   }
 
-  const config = resolveConfig(options);
+  const config = backendConfigFrom(configService);
   const backend = new ConnectionManager(config);
 
   if ((global as any).DEBUG_MODE) {
@@ -236,13 +275,10 @@ program
   .option('--script-mode', 'JSON-RPC over stdio for automation scripts')
   .option('--disable-secure-eval', 'Disable secure_eval RCE protection on browser_evaluate (not recommended — equivalent to SUPERSURF_DISABLE_SECURE_EVAL=1)')
   .action(async (options) => {
-    if (options.disableSecureEval) {
-      process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
-    }
-
     if (options.scriptMode) {
       loadDotenv(process.cwd());
-      const config = resolveConfig(options);
+      const configService = buildConfig(options);
+      const config = backendConfigFrom(configService);
       await startScriptMode(config);
       return;
     }

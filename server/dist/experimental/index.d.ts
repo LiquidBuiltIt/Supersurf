@@ -18,6 +18,7 @@ export { diffSnapshots, calculateConfidence, formatDiffSection } from './page-di
 export type { PageState, DiffResult } from './page-diffing';
 import type { ToolSchema, ToolContext } from '../tools/lib/types';
 import type { IExtensionTransport } from '../bridge';
+import type { Config } from 'shared';
 /**
  * Cache-backed IPC proxy for experiment state.
  *
@@ -34,7 +35,8 @@ declare class ExperimentRegistry {
     unbind(): void;
     /**
      * Toggle an experiment. IPCs to daemon, then updates local cache.
-     * Use this from the experimental_features handler (async context).
+     * Reserved for programmatic use; v2 disables session-level toggling
+     * via MCP (experiments come from `~/.supersurf/config.json`).
      */
     toggle(feature: string, enabled: boolean): Promise<void>;
     /**
@@ -60,13 +62,12 @@ declare class ExperimentRegistry {
 }
 export declare const experimentRegistry: ExperimentRegistry;
 /**
- * Pre-enable session features listed in the env var config.
- * Silently skips feature names that aren't in AVAILABLE_EXPERIMENTS.
+ * Pre-enable session features from a Config experiments snapshot.
+ * Silently skips feature names that aren't in AVAILABLE_EXPERIMENTS
+ * (notably `profiles`, which is a daemon-startup flag, not session-toggleable).
  * Fire-and-forget IPCs to daemon for each enabled experiment.
  */
-export declare function applyInitialState(config: {
-    enabledExperiments?: string[];
-}): void;
+export declare function applyInitialState(experiments: Config['experiments']): void;
 /** Collect schemas from all experimental tool modules */
 export declare function getExperimentalToolSchemas(): ToolSchema[];
 /**

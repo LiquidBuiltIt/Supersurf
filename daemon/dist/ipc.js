@@ -260,7 +260,7 @@ class IPCServer {
     /** Handle a profile IPC request directly (no scheduler round-trip). */
     async handleProfileRequest(sessionId, method, params) {
         if (!this.profileRegistry) {
-            throw new Error('Profile management is not enabled. Set SUPERSURF_EXPERIMENTS=profiles');
+            throw new Error('Profile management is not enabled on the daemon. Set `experiments.profiles: true` in `~/.supersurf/config.json` and restart the daemon.');
         }
         switch (method) {
             case 'profiles.create': {

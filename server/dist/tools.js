@@ -12,7 +12,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BrowserBridge = void 0;
 const logger_1 = require("./logger");
-const audit_logger_1 = require("./audit-logger");
 const index_1 = require("./experimental/index");
 const schemas_1 = require("./tools/schemas");
 const cdp_1 = require("./tools/lib/cdp");
@@ -24,7 +23,7 @@ const log = (0, logger_1.createLog)('[Bridge]');
  * Lifecycle wrapper for browser tool execution. Created by
  * `backend/handlers.ts:onConnect` after the daemon transport is up;
  * `initialize()` wires in the MCP server, client metadata, connection
- * manager, and audit logger.
+ * manager, and (optional) usage-metrics logger.
  */
 class BrowserBridge {
     config;
@@ -32,16 +31,16 @@ class BrowserBridge {
     server = null;
     clientInfo = {};
     connectionManager = null;
-    auditLogger = null;
+    metricsLogger = null;
     constructor(config, ext) {
         this.config = config;
         this.ext = ext;
     }
-    async initialize(server, clientInfo, connectionManager, auditLogger) {
+    async initialize(server, clientInfo, connectionManager, metricsLogger) {
         this.server = server;
         this.clientInfo = clientInfo;
         this.connectionManager = connectionManager;
-        this.auditLogger = auditLogger ?? new audit_logger_1.AuditLogger(connectionManager?.clientId ?? 'unknown');
+        this.metricsLogger = metricsLogger ?? null;
     }
     serverClosed() {
         log('Server closed');
@@ -57,6 +56,7 @@ class BrowserBridge {
         return {
             ext,
             connectionManager: this.connectionManager,
+            config: this.config?.configService,
             cdp: (method, params) => (0, cdp_1.cdp)(ext, method, params),
             eval: evalFnBound,
             sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
@@ -80,7 +80,7 @@ class BrowserBridge {
                 '1. Run `npx supersurf-daemon status` to check if the daemon is running\n' +
                 '2. Ensure the SuperSurf extension is loaded in Chrome (`chrome://extensions`)\n' +
                 '3. Open the extension popup and verify it shows "Connected"', options);
-            this.auditLogger?.write({
+            this.metricsLogger?.write({
                 session_id: this.connectionManager?.clientId ?? 'unknown',
                 tool: name,
                 params: args,
@@ -92,7 +92,7 @@ class BrowserBridge {
             return response;
         }
         return await (0, dispatcher_1.dispatchTool)(this.buildContext(), name, args, options, {
-            auditLogger: this.auditLogger,
+            metricsLogger: this.metricsLogger,
             clientId: this.connectionManager?.clientId,
             getCurrentUrl: () => this.connectionManager?.getAttachedTab()?.url,
         });

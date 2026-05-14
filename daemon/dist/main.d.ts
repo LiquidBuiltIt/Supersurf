@@ -27,6 +27,7 @@ declare function parseArgs(argv: string[]): {
     debug: boolean;
     verbose: boolean;
     command?: string;
+    portExplicit: boolean;
 };
 /** Format uptime seconds into human-readable string. */
 declare function formatUptime(seconds: number): string;

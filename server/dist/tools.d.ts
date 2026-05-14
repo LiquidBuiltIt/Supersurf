@@ -10,12 +10,12 @@
  */
 import type { IExtensionTransport } from './bridge';
 import type { ToolSchema } from './tools/lib/types';
-import { AuditLogger } from './audit-logger';
+import { UsageMetricsLogger } from './usage-metrics-logger';
 /**
  * Lifecycle wrapper for browser tool execution. Created by
  * `backend/handlers.ts:onConnect` after the daemon transport is up;
  * `initialize()` wires in the MCP server, client metadata, connection
- * manager, and audit logger.
+ * manager, and (optional) usage-metrics logger.
  */
 export declare class BrowserBridge {
     private config;
@@ -23,9 +23,9 @@ export declare class BrowserBridge {
     private server;
     private clientInfo;
     private connectionManager;
-    private auditLogger;
+    private metricsLogger;
     constructor(config: any, ext: IExtensionTransport | null);
-    initialize(server: any, clientInfo: any, connectionManager?: any, auditLogger?: AuditLogger): Promise<void>;
+    initialize(server: any, clientInfo: any, connectionManager?: any, metricsLogger?: UsageMetricsLogger | null): Promise<void>;
     serverClosed(): void;
     /** Return all registered tool schemas (core + experimental). */
     listTools(): Promise<ToolSchema[]>;

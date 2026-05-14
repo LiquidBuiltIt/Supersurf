@@ -1,0 +1,32 @@
+{
+  "name": "webdrive",
+  "version": "0.1.0",
+  "description": "Browser agent benchmark — real, hostile DOM patterns",
+  "license": "Apache-2.0",
+  "bin": {
+    "webdrive": "./bin/webdrive.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "challenges",
+    "manifest.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test.watch": "vitest"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

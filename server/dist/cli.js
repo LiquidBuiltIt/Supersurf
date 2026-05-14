@@ -15,6 +15,39 @@
  *
  * @module cli
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
@@ -22,10 +55,13 @@ const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
 const commander_1 = require("commander");
 const child_process_1 = require("child_process");
 const stream_1 = require("stream");
+const path = __importStar(require("path"));
+const os = __importStar(require("os"));
 const backend_1 = require("./backend");
 const logger_1 = require("./logger");
 const stdio_1 = require("./stdio");
 const dotenv_1 = require("./dotenv");
+const shared_1 = require("./shared");
 const { version: VERSION } = require('../package.json');
 /** Parse --debug value into a DebugMode. */
 function parseDebugMode(value) {
@@ -35,20 +71,47 @@ function parseDebugMode(value) {
         return 'truncate';
     return false;
 }
-/** Build a BackendConfig from CLI options and environment variables. */
-function resolveConfig(options) {
-    const envExperiments = process.env.SUPERSURF_EXPERIMENTS;
-    const enabledExperiments = envExperiments
-        ? envExperiments.split(',').map(s => s.trim()).filter(Boolean)
-        : [];
+/** Translate CLI options into a PartialConfig slice for ConfigService. */
+function cliToPartial(options) {
+    const out = {};
+    if (options.port !== undefined)
+        out.daemon = { port: Number(options.port) };
+    if (options.debug === true || options.debug === 'no_truncate' || (typeof options.debug === 'string' && options.debug && options.debug !== 'false')) {
+        out.logging = { debug: options.debug === 'no_truncate' ? 'no_truncate' : 'truncate' };
+    }
+    if (options.disableSecureEval)
+        out.security = { secure_eval: false };
+    return out;
+}
+/** Build a ConfigService merging CLI + env + file inputs. */
+function buildConfig(options) {
+    const configPath = process.env.SUPERSURF_CONFIG_FILE
+        || path.join(os.homedir(), '.supersurf', 'config.json');
+    const { config: fileCfg, warnings: fileWarn } = (0, shared_1.loadJsonConfig)(configPath);
+    const { config: envCfg, warnings: envWarn } = (0, shared_1.loadEnvConfig)(process.env);
+    for (const w of [...fileWarn, ...envWarn])
+        console.error(`[server] ${w}`);
+    return new shared_1.ConfigService({
+        cli: cliToPartial(options),
+        env: envCfg,
+        file: fileCfg,
+        onWarn: (m) => console.error(`[server] ${m}`),
+    });
+}
+/** Build a BackendConfig from a resolved ConfigService snapshot. */
+function backendConfigFrom(configService) {
+    const c = configService.get();
     return {
-        debug: !!options.debug,
-        port: options.port || 5555,
+        debug: !!c.logging.debug,
+        port: c.daemon.port,
         server: {
             name: 'SuperSurf',
             version: VERSION,
         },
-        enabledExperiments,
+        enabledExperiments: Object.entries(c.experiments)
+            .filter(([k, v]) => v && k !== 'profiles')
+            .map(([k]) => k),
+        configService,
     };
 }
 /**
@@ -141,7 +204,13 @@ function setupExitWatchdog(backend, server) {
 async function main(options) {
     // Load .env from cwd before anything reads process.env
     (0, dotenv_1.loadDotenv)(process.cwd());
-    const debugMode = parseDebugMode(options.debug);
+    const configService = buildConfig(options);
+    const debugSetting = configService.get().logging.debug;
+    const debugMode = debugSetting === 'no_truncate'
+        ? 'no_truncate'
+        : debugSetting
+            ? 'truncate'
+            : false;
     global.DEBUG_MODE = !!debugMode;
     const reg = (0, logger_1.getRegistry)();
     reg.debugMode = debugMode;
@@ -156,7 +225,7 @@ async function main(options) {
             logger.log('[cli] Custom port:', options.port);
         }
     }
-    const config = resolveConfig(options);
+    const config = backendConfigFrom(configService);
     const backend = new backend_1.ConnectionManager(config);
     if (global.DEBUG_MODE) {
         console.error(`[cli] Creating MCP Server v${VERSION}...`);
@@ -195,12 +264,10 @@ program
     .option('--script-mode', 'JSON-RPC over stdio for automation scripts')
     .option('--disable-secure-eval', 'Disable secure_eval RCE protection on browser_evaluate (not recommended — equivalent to SUPERSURF_DISABLE_SECURE_EVAL=1)')
     .action(async (options) => {
-    if (options.disableSecureEval) {
-        process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
-    }
     if (options.scriptMode) {
         (0, dotenv_1.loadDotenv)(process.cwd());
-        const config = resolveConfig(options);
+        const configService = buildConfig(options);
+        const config = backendConfigFrom(configService);
         await (0, stdio_1.startScriptMode)(config);
         return;
     }

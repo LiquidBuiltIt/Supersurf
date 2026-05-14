@@ -1,11 +1,21 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { onEvaluate } from '../src/tools/browser_evaluate';
 import type { ToolContext } from '../src/tools/lib/types';
+import { ConfigService } from 'shared';
 
 function createMockCtx(): ToolContext {
+  // These tests exercise the IIFE wrapping + result serialization path,
+  // not secure_eval. Inject a ConfigService with secure_eval disabled so
+  // calls reach `evaluate` directly with the unwrapped expression.
+  const config = new ConfigService({
+    cli: {},
+    env: {},
+    file: { security: { secure_eval: false } },
+  });
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({ success: true }) } as any,
     connectionManager: null,
+    config,
     cdp: vi.fn().mockResolvedValue({}),
     eval: vi.fn().mockResolvedValue(undefined),
     sleep: vi.fn().mockResolvedValue(undefined),
@@ -19,17 +29,6 @@ function createMockCtx(): ToolContext {
 
 describe('onEvaluate()', () => {
   const P = 'probing page state for custom case';
-
-  // These tests exercise the IIFE wrapping + result serialization path,
-  // not secure_eval. Disable secure_eval so calls reach `evaluate` directly
-  // with the unwrapped expression we're asserting against.
-  beforeEach(() => {
-    process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
-  });
-
-  afterEach(() => {
-    delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
-  });
 
   it('rejects when purpose is missing', async () => {
     const ctx = createMockCtx();

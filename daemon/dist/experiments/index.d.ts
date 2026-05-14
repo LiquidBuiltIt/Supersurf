@@ -7,18 +7,29 @@
  *
  * @module experiments/index
  */
+import type { Config } from 'shared';
+export interface DaemonExperimentRegistryOptions {
+    /** Resolved experiments snapshot from ConfigService. */
+    defaults?: Config['experiments'];
+}
 /**
  * Per-session experiment state registry.
  *
  * Stores which experiments each MCP session has enabled. Sessions that haven't
- * explicitly toggled anything inherit from env var defaults (SUPERSURF_EXPERIMENTS).
+ * explicitly toggled anything inherit from defaults injected at construction
+ * time (from ConfigService, which merges file + env + CLI inputs).
  */
 export declare class DaemonExperimentRegistry {
     /** sessionId → Set of enabled experiment names */
     private _sessions;
-    /** Experiments pre-enabled via SUPERSURF_EXPERIMENTS env var */
+    /** Experiments pre-enabled by injected config snapshot. */
     private _defaults;
-    /** Apply environment-variable defaults. Called once at daemon startup. */
+    constructor(opts?: DaemonExperimentRegistryOptions);
+    /**
+     * Apply experiment defaults. Retained for backwards compatibility with
+     * call sites that supply a string list (e.g., tests). New code should
+     * inject defaults via the constructor.
+     */
     applyDefaults(experiments: string[]): void;
     /**
      * Toggle an experiment for a session.

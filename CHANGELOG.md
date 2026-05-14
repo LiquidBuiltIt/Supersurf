@@ -4,8 +4,21 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
-## Unreleased
+## 2.0.0 — 2026-05-13
 
+- **BREAKING: feat**: 3-layer ConfigService — CLI flag > env var > `~/.supersurf/config.json` > hardcoded defaults. Daemon auto-scaffolds `~/.supersurf/config.json` on first run with safe defaults. ConfigService lives in the `shared/` workspace so daemon and server consume one source of truth
+- **BREAKING: feat**: `experimental_features` MCP tool removed. Experiments are now opted into via `~/.supersurf/config.json` and require a daemon restart. Rationale: audit-log data showed 4 of 5 historical callers used it once at startup; the remaining call sites became impossible after `secure_eval` graduated in v1.11.0
+- **BREAKING: feat**: `AuditLogger` → `UsageMetricsLogger` rename. New session files are written as `metrics-{sessionId}-{ts}.ndjson` (was `audit-{sessionId}-{ts}.ndjson`). Older sessions remain at the old path; the usage-data-audit skill globs both prefixes
+- **BREAKING: feat**: usage-metrics logging is now gated by `config.logging.usage_metrics`. Hardcoded default is `false`, scaffolded `~/.supersurf/config.json` default is `true` — operators who never touch config still get telemetry; operators with a config file opt in explicitly by leaving the default
+- feat: `experiments.profiles` is now a first-class config key (equivalent to the legacy `SUPERSURF_EXPERIMENTS=profiles` env var, which still works as a fallback). Daemon-startup flag only — not session-toggleable. Profile tool descriptions and error messages now direct operators to edit `config.json` rather than set env vars
+- feat: new env vars `SUPERSURF_CONFIG_FILE` (path override) and `SUPERSURF_DEBUG` (alias for `--debug`)
+- chore: CLAUDE.md updated for v2 architecture
+- chore: usage-data-audit skill updated to glob both `metrics-*.ndjson` and legacy `audit-*.ndjson`
+
+## 1.11.0 — 2026-05-03
+
+- fix: rewrote two confusing CDP error strings agents kept hitting after a page failed to load. `Target crashed` and `CDP timeout: Runtime.evaluate (50000ms)` now expand into self-explanatory messages with recovery steps — close the tab, reopen, do not retry heavy DOM queries on the dead page. Surfaced by an audit-log review where agents repeatedly retried `browser_evaluate` against a hung renderer for ~10 calls before giving up
+- fix: `browser_navigate` (url + reload) now detects Chrome's error interstitial (`body.className === 'neterror'` or `chrome-error://` location) after the wait and returns a clear error instead of a silent success. Previously the response said the navigate succeeded — but the page never actually loaded, and the next heavy DOM query crashed the renderer
 - security: `secure_eval` graduated from experiment to a default-on protection. Three-layer RCE defense (AST static analysis → extension Proxy membrane → page-context Proxy wrapper) now runs on every `browser_evaluate` call without per-session opt-in. Toggling via `experimental_features` returns an explicit error directing operators to the new opt-out. Disable via `--disable-secure-eval` CLI flag or `SUPERSURF_DISABLE_SECURE_EVAL=1` in the server env (not recommended)
 - feat: sharpened `browser_evaluate` schema — explicit "NOT for" list redirecting agents to `browser_navigate`, `browser_storage`, `browser_fill_form`/`browser_interact`, `browser_network_requests`. `readOnlyHint` flipped to `true` and title now reads "Evaluate JS (read-only)"
 - fix: `browser_fill_form` now walks child frames when a selector misses the top frame — same DFS isolated-world pattern v1.10.0 added to `browser_interact`. Closes the iframe-nested form-field gap (52% of active fill_form errors in the audit logs) on iCIMS, embedded form-builders, and payment widgets

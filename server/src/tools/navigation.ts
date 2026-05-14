@@ -13,6 +13,29 @@
 import type { ToolContext } from './lib/types';
 import { experimentRegistry } from '../experimental/index';
 
+async function checkChromeError(ctx: ToolContext): Promise<string | null> {
+  try {
+    const raw = await ctx.eval(
+      'JSON.stringify({bodyClass: document.body?.className || "", href: location.href})',
+    );
+    const { bodyClass, href } = JSON.parse(raw);
+    if (bodyClass === 'neterror' || (typeof href === 'string' && href.startsWith('chrome-error://'))) {
+      return (
+        'Navigation succeeded but the page did not load — Chrome displayed an error interstitial ' +
+        '(likely network failure, DNS error, or the request was blocked).\n\n' +
+        '**Important:** DOM queries against this page can crash the renderer process. Do NOT run ' +
+        '`browser_evaluate`, `browser_lookup`, or `browser_snapshot` here — they may hang for ~50s ' +
+        'or return `Target crashed`.\n\n' +
+        '**Recovery:** Verify network/firewall settings, re-check the URL, or close this tab ' +
+        '(`browser_tabs` action `close`) and retry from a fresh tab.'
+      );
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Manage browser tabs: list, create, attach (with optional stealth), or close.
  * Updates ConnectionManager metadata on attach/close to keep status headers accurate.
@@ -95,6 +118,8 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
           await ctx.sleep(1500);
         }
       }
+      const errMsg = await checkChromeError(ctx);
+      if (errMsg) return ctx.error(errMsg, options);
       break;
     }
     case 'back':
@@ -119,7 +144,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
       }
       result = { success: true, action: 'forward', url: await ctx.eval('window.location.href') };
       break;
-    case 'reload':
+    case 'reload': {
       result = await ctx.ext.sendCmd('navigate', { action: 'reload' });
       // === EXPERIMENTAL: smart waiting ===
       if (experimentRegistry.isEnabled('smart_waiting')) {
@@ -128,7 +153,10 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
       } else {
         await ctx.sleep(1500);
       }
+      const errMsg = await checkChromeError(ctx);
+      if (errMsg) return ctx.error(errMsg, options);
       break;
+    }
     default:
       return ctx.error(`Unknown navigate action: ${action}`, options);
   }

@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daemon — SuperSurf Docs</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1><a href="index.html">SuperSurf</a></h1>
+    <div class="tagline">internal documentation</div>
+    <nav>
+      <a href="index.html">Overview</a>
+      <div class="group-label">Architecture</div>
+      <a href="architecture.html">System Architecture</a>
+      <div class="group-label">Modules</div>
+      <a href="daemon.html" class="active">Daemon</a>
+      <a href="server.html">Server Core</a>
+      <a href="tools.html">Browser Tools</a>
+      <a href="extension.html">Chrome Extension</a>
+      <div class="group-label">Cross-cutting</div>
+      <a href="security.html">Trust Boundaries &amp; Security</a>
+    </nav>
+  </aside>
+  <main class="content">
+    <h1>Daemon</h1>
+    <p class="lede">
+      The standalone coordinator process. Owns the single Chrome extension
+      WebSocket (or pool of them when profiles are enabled) and multiplexes
+      JSON-RPC tool calls from any number of MCP server sessions. This is what
+      lets multiple agents share one browser without stepping on each other's tabs.
+    </p>
+
+    <div class="diagram">MCP servers (N)  ──Unix socket──▶  Daemon  ──WebSocket(:5555)──▶  Chrome extension(s)
+                                     │
+                                     ├─ SessionRegistry      (per-session tab ownership)
+                                     ├─ RequestScheduler     (round-robin queue)
+                                     ├─ ExtensionBridge + Matchmaker  (connection pool)
+                                     ├─ ProfileRegistry      (managed Chromium profiles)
+                                     └─ DaemonExperimentRegistry (per-session experiments)</div>
+
+    <p>All daemon source lives in <code>daemon/src/</code>. The package
+       (<code>supersurf-daemon</code>) depends only on <code>ws</code> and the
+       workspace-local <code>shared</code> package.</p>
+
+    <div class="toc">
+      <div class="toc-title">On this page</div>
+      <ul>
+        <li><a href="#entry">1. Entry point &amp; process lifecycle</a></li>
+        <li><a href="#ipc">2. IPC layer</a></li>
+        <li><a href="#bridge">3. Extension bridge</a></li>
+        <li><a href="#scheduler">4. Scheduler</a></li>
+        <li><a href="#sessions">5. Session management</a></li>
+        <li><a href="#profiles">6. Profiles subsystem</a></li>
+        <li><a href="#experiments">7. Experiments subsystem</a></li>
+        <li><a href="#tests">8. Test coverage</a></li>
+        <li><a href="#troubleshooting">9. Known troubleshooting</a></li>
+      </ul>
+    </div>
+
+    <h2 id="entry">1. Entry point and process lifecycle</h2>
+    <p>The shebang-prefixed <code>daemon/src/main.ts</code> is the daemon binary.
+       It handles CLI parsing, PID/socket file management, idle timeout, signal
+       handling, and wiring up every other subsystem.</p>
+
+    <h3>Filesystem layout</h3>
+    <p>The daemon owns <code>~/.supersurf/</code>:</p>
+    <table>
+      <thead><tr><th>Path</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>~/.supersurf/daemon.pid</code></td><td>PID of the running daemon. Used for liveness checks and stop.</td></tr>
+        <tr><td><code>~/.supersurf/daemon.sock</code></td><td>Unix domain socket — IPC entry point for MCP servers.</td></tr>
+        <tr><td><code>~/.supersurf/logs/daemon.log</code></td><td>Always-on <code>FileLogger</code> output.</td></tr>
+        <tr><td><code>~/.supersurf/daemon/managed-pids.jsonl</code></td><td>Append-only spawn/kill log for orphan recovery.</td></tr>
+        <tr><td><code>~/.supersurf/profiles/&lt;name&gt;/</code></td><td>Per-profile data dir (only when profiles enabled).</td></tr>
+        <tr><td><code>~/.supersurf/extension/</code></td><td>Cached extension bundle for managed Chromium.</td></tr>
+      </tbody>
+    </table>
+    <p>Constants are defined at <code>daemon/src/main.ts:37-41</code>:</p>
+    <pre><code>const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
+const PID_FILE      = path.join(SUPERSURF_DIR, 'daemon.pid');
+const SOCK_FILE     = path.join(SUPERSURF_DIR, 'daemon.sock');
+const LOG_FILE      = path.join(SUPERSURF_DIR, 'logs', 'daemon.log');
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes</code></pre>
+
+    <h3>CLI subcommands</h3>
+    <table>
+      <thead><tr><th>Subcommand</th><th>Behavior</th></tr></thead>
+      <tbody>
+        <tr><td><code>start</code> (default)</td><td>Self-daemonize: re-spawn detached and exit parent.</td></tr>
+        <tr><td><code>stop</code></td><td>SIGTERM the PID, escalate to SIGKILL after 5s, clean up files.</td></tr>
+        <tr><td><code>restart</code></td><td><code>stopDaemon()</code> then start fresh.</td></tr>
+        <tr><td><code>status [--verbose]</code></td><td>Connect to socket and pretty-print daemon state.</td></tr>
+        <tr><td><code>observe</code></td><td><code>tail -f</code> the daemon log file.</td></tr>
+      </tbody>
+    </table>
+    <p>Self-daemonization is implemented by <code>daemonize()</code>
+       (<code>daemon/src/main.ts:532</code>): re-spawn
+       <code>process.execPath __filename ...args --_daemonized</code> with
+       <code>detached: true, stdio: 'ignore'</code>, then <code>child.unref()</code>
+       and <code>process.exit(0)</code>. The <code>--_daemonized</code> flag tells
+       the child to actually run <code>main()</code> instead of forking again.</p>
+
+    <h3>PID file management</h3>
+    <p><code>writePidFile()</code>, <code>cleanStaleFiles()</code>,
+       <code>cleanupFiles()</code>, and <code>isProcessAlive()</code>
+       (<code>daemon/src/main.ts:287-327</code>) handle the lifecycle.
+       <code>isProcessAlive(pid)</code> uses the <code>process.kill(pid, 0)</code>
+       no-op signal trick. On startup the daemon:</p>
+    <ol>
+      <li>Ensures <code>~/.supersurf/</code> exists.</li>
+      <li>Calls <code>cleanStaleFiles()</code> to remove PID/sock files left by a crashed previous instance.</li>
+      <li>If a PID file points at a <em>live</em> process, prints
+          <em>&ldquo;Daemon already running&rdquo;</em> and exits with code 1.</li>
+      <li>Otherwise writes its own PID to <code>PID_FILE</code>.</li>
+    </ol>
+
+    <h3>Idle timeout</h3>
+    <p>A single <code>idleTimer</code> (<code>daemon/src/main.ts:435-450</code>) fires
+       after 10 minutes with no sessions:</p>
+    <pre><code>ipc.setSessionCountCallback((count: number) => {
+  if (count === 0) startIdleTimer();
+  else resetIdleTimer();
+});</code></pre>
+    <p>When the timer fires, <code>shutdown()</code> is called.</p>
+
+    <h3>Signal handlers and graceful shutdown</h3>
+    <p><code>SIGTERM</code> and <code>SIGINT</code> are both wired to the same
+       async <code>shutdown()</code> (<code>daemon/src/main.ts:464</code>). The
+       <code>shuttingDown</code> flag prevents re-entry. <code>shutdown()</code>:</p>
+    <ol>
+      <li>Cancels the idle timer.</li>
+      <li>If profiles are enabled, iterates every profile in <code>ProfileRegistry</code>,
+          sends SIGTERM to its running PID (if any), and writes a <code>kill</code>
+          entry to <code>managed-pids.jsonl</code>.</li>
+      <li>Calls <code>scheduler.drainAll()</code> to reject every queued request with
+          <em>&ldquo;Daemon shutting down&rdquo;</em>.</li>
+      <li>Awaits <code>ipc.stop()</code> and <code>bridge.stop()</code>.</li>
+      <li>Calls <code>cleanupFiles()</code> to remove PID and socket files.</li>
+      <li><code>process.exit(0)</code>.</li>
+    </ol>
+    <p>Note: there is no explicit SIGHUP handler &mdash; only SIGTERM/SIGINT.</p>
+
+    <h3>Spawning from the server</h3>
+    <p>The server's <code>daemon-spawn.ts</code> calls <code>ensureDaemon()</code>,
+       which checks <code>isDaemonRunning()</code> (PID file + liveness probe). If
+       the daemon isn&#39;t up, it spawns the npm-linked <code>supersurf-daemon</code>
+       binary and polls for the socket file. The first server to call
+       <code>connect</code> brings the daemon up; subsequent servers attach to the
+       existing socket.</p>
+
+    <h3>Profiles bootstrap</h3>
+    <p>When <code>SUPERSURF_EXPERIMENTS=profiles</code> is set,
+       <code>main()</code> (<code>daemon/src/main.ts:402-429</code>) does extra setup
+       before the IPC server starts:</p>
+    <ol>
+      <li>Ensures <code>~/.supersurf/daemon/</code> exists for the PID log.</li>
+      <li>Awaits <code>ensureExtension()</code> to download/refresh the extension
+          bundle from GitHub.</li>
+      <li>Constructs the <code>ProfileRegistry</code> rooted at
+          <code>~/.supersurf/profiles/</code>.</li>
+      <li>Reads <code>managed-pids.jsonl</code> via <code>replayPidLog()</code>,
+          computes orphans (<code>findOrphanPids</code>), and SIGTERMs them via
+          <code>killOrphanPids()</code>.</li>
+      <li>Truncates the PID log.</li>
+    </ol>
+    <p>This orphan-cleanup pass is the daemon&#39;s only crash-recovery mechanism
+       for managed Chromium.</p>
+
+    <h2 id="ipc">2. IPC layer (<code>daemon/src/ipc.ts</code>)</h2>
+
+    <h3>Socket and protocol</h3>
+    <p>The Unix domain socket lives at <code>~/.supersurf/daemon.sock</code>.
+       <code>IPCServer.start()</code> calls
+       <code>net.createServer().listen(socketPath)</code>. Each MCP server connects,
+       completes a handshake, then upgrades to NDJSON JSON-RPC 2.0.</p>
+
+    <h3>Handshake protocol</h3>
+    <pre><code>1. MCP server  ─▶  daemon : { type: "session_register", sessionId: "..." }\n
+2. daemon      ─▶  MCP    : { type: "session_ack",
+                              browser: "chrome",
+                              buildTimestamp: "...",
+                              capabilities: { profiles: bool } }\n
+   (or)        ─▶  MCP    : { type: "session_reject", reason: "..." }\n
+3. ...steady-state JSON-RPC 2.0 over NDJSON...</code></pre>
+
+    <p>Notable details from <code>IPCServer.handleConnection()</code>:</p>
+    <ul>
+      <li>The pre-handshake connection accepts a <code>daemon_status</code> query
+          (used by <code>supersurf-daemon status</code>) without auth and closes
+          immediately after the response.</li>
+      <li>Duplicate <code>sessionId</code>s are rejected with
+          <em>&ldquo;Session ID already in use&rdquo;</em>.</li>
+      <li>After successful handshake the session is added to
+          <code>SessionRegistry</code> and <code>RequestScheduler</code>, and
+          <code>setSessionCountCallback</code> is invoked.</li>
+    </ul>
+
+    <h3>Capabilities negotiation</h3>
+    <p>The <code>session_ack</code> includes
+       <code>capabilities: { profiles: !!this.profileRegistry }</code>. The server's
+       <code>DaemonClient</code> parses this and stores it as
+       <code>daemonCapabilities</code> so the backend can decide whether to expose
+       profile-related MCP tools.</p>
+
+    <h3>Request routing</h3>
+    <p><code>handleRequest()</code> (<code>daemon/src/ipc.ts:229</code>) is the
+       dispatcher. It validates JSON-RPC 2.0 shape, then routes by method:</p>
+    <table>
+      <thead><tr><th>Method namespace</th><th>Routed to</th><th>Skips scheduler?</th></tr></thead>
+      <tbody>
+        <tr><td><code>profiles.*</code></td><td><code>handleProfileRequest()</code></td><td>yes — direct</td></tr>
+        <tr><td><code>experiments.*</code></td><td><code>handleExperimentRequest()</code></td><td>yes — direct</td></tr>
+        <tr><td>anything else</td><td><code>scheduler.enqueue()</code></td><td>no — round-robin queued</td></tr>
+      </tbody>
+    </table>
+    <p><code>isProfileMethod()</code> and <code>isExperimentMethod()</code>
+       (<code>daemon/src/profiles/types.ts:52</code>,
+        <code>daemon/src/experiments/types.ts:20</code>) are the membership tests.
+       Methods themselves: <code>profiles.create</code>, <code>profiles.list</code>,
+       <code>profiles.delete</code>, <code>profiles.connect</code>,
+       <code>experiments.toggle</code>, <code>experiments.get</code>,
+       <code>experiments.getOne</code>.</p>
+
+    <h3>Session disconnect cleanup</h3>
+    <p>When the IPC socket closes
+       (<code>daemon/src/ipc.ts:182-220</code>):</p>
+    <ol>
+      <li><code>scheduler.removeSession()</code> rejects queued requests for the session.</li>
+      <li><code>sessions.remove()</code> and <code>experiments.deleteSession()</code> clear state.</li>
+      <li>The extension is notified via a <code>sessionDisconnect</code>
+          JSON-RPC notification so it can ungroup the session&#39;s tabs.</li>
+      <li><strong>If the session was bound to a profile</strong>: the daemon
+          checks whether any other sessions still reference that profile. If not,
+          it SIGTERMs the Chromium PID and writes a <code>kill</code> log entry &mdash;
+          managed Chromium dies as soon as the last consumer leaves.</li>
+    </ol>
+
+    <h3>Profile request handler</h3>
+    <p><code>handleProfileRequest()</code> (<code>daemon/src/ipc.ts:316-411</code>)
+       gates all profile methods behind <code>profileRegistry !== null</code>.
+       The most interesting branch is <code>profiles.connect</code>:</p>
+    <ol>
+      <li>Verify the profile exists.</li>
+      <li>If Chromium isn&#39;t running, queue a bootstrap via
+          <code>matchmaker.enqueueBootstrap()</code>. Inside the queued task:
+          double-check (under serialization), add to <code>pendingSpawns</code>,
+          call <code>spawnChromium()</code>, attach an <code>exit</code> listener
+          that clears the running PID and writes a <code>kill</code> log entry.</li>
+      <li>Call <code>matchmaker.requestMatch(profile, 90000)</code> and await the
+          matching extension connection (90s ceiling).</li>
+      <li>If this was the first launch (<code>!isInitialized</code>), call
+          <code>markInitialized()</code>.</li>
+      <li>Bind the session to the profile via
+          <code>sessions.setProfileId()</code>.</li>
+      <li>Apply per-profile experiment defaults from <code>ProfileConfig.experiments</code>.</li>
+    </ol>
+
+    <h2 id="bridge">3. Extension bridge (<code>daemon/src/extension-bridge.ts</code>)</h2>
+
+    <h3>HTTP + WebSocket server</h3>
+    <p><code>ExtensionBridge.start()</code>
+       (<code>daemon/src/extension-bridge.ts:86</code>) creates an
+       <code>http.Server</code> on <code>127.0.0.1:5555</code> (default) and
+       attaches a <code>WebSocketServer</code> to it via <code>ws</code>. The HTTP
+       layer exists for one reason: <strong>profile registration pages</strong>.</p>
+
+    <h3>Registration HTTP endpoint</h3>
+    <p>When <code>profilesEnabled</code>, <code>GET /register/&lt;name&gt;</code>
+       (regex <code>^/register/([a-z0-9][a-z0-9-]*)$</code>) responds with a tiny
+       HTML page that uses <code>window.postMessage</code> to send
+       <code>{ __supersurf: true, action: 'register-profile', profile: &lt;name&gt; }</code>.
+       The content script in the extension picks this up and announces the profile
+       back over WebSocket. The response also sets a cookie:</p>
+    <pre><code>Set-Cookie: supersurf_profile=&lt;name&gt;; Path=/; SameSite=Lax</code></pre>
+    <p>This cookie is the failsafe for profile re-attachment: even if
+       <code>chrome.storage.local</code> is wiped, the next WebSocket upgrade
+       carries the cookie and the bridge can pull the profile name out of it
+       (<code>daemon/src/extension-bridge.ts:135-143</code>).</p>
+
+    <h3>Single-connection vs pooled mode</h3>
+    <ul>
+      <li><strong><code>profilesEnabled = false</code></strong> (default): the bridge
+          rejects any new connection while one already exists, sending a JSON-RPC
+          error <code>-32001 &quot;Another browser is already connected. Only one
+          browser at a time.&quot;</code> and closing with WebSocket code 1008
+          after 100ms.</li>
+      <li><strong><code>profilesEnabled = true</code></strong>: every connection is
+          added to the <code>Matchmaker</code> pool and matched by profile name.</li>
+    </ul>
+
+    <h3>Connection setup</h3>
+    <p>For each accepted WebSocket
+       (<code>daemon/src/extension-bridge.ts:114-174</code>):</p>
+    <ol>
+      <li>Cookie is parsed for <code>supersurf_profile=&lt;name&gt;</code>.</li>
+      <li>A <code>PooledConnection</code> is constructed:
+          <code>{ ws, profile, browser, buildTimestamp, pingInterval, inflight }</code>.</li>
+      <li>A 10s <code>ping</code> keep-alive interval is started.</li>
+      <li>The connection is added to the matchmaker pool (which immediately tries
+          to satisfy any pending matches).</li>
+    </ol>
+
+    <h3>Message handling</h3>
+    <p><code>handleMessage()</code> recognizes four kinds of inbound messages:</p>
+    <ul>
+      <li><strong>JSON-RPC responses</strong> (<code>id !== undefined &amp;&amp; !method</code>) &mdash;
+          looked up in <code>conn.inflight</code>, resolved or rejected. If the
+          result includes a <code>currentTab</code> field, <code>onTabInfoUpdate</code>
+          is fired (piggyback tab tracking).</li>
+      <li><strong><code>type: 'handshake'</code></strong> &mdash; extracts
+          <code>browser</code>, <code>buildTimestamp</code>, and any
+          <code>profile</code> field. Updates the matchmaker connection state.</li>
+      <li><strong><code>profile_announce</code> notifications</strong> &mdash; the
+          extension announces its profile post-registration (no JSON-RPC id).</li>
+      <li><strong>Tab-info notifications</strong>
+          (<code>notifications/tab_info_update</code>) &mdash; fires
+          <code>onTabInfoUpdate</code> callback.</li>
+    </ul>
+
+    <h3>Outbound commands</h3>
+    <p>Two send methods:</p>
+    <ul>
+      <li><code>sendCmd(method, params, timeout)</code> &mdash; for unmanaged
+          (single-connection) callers; goes to
+          <code>matchmaker.getConnectionForProfile(null)</code>.</li>
+      <li><code>sendCmdToProfile(profile, method, params, timeout)</code> &mdash;
+          picks the correct pooled connection; throws if no extension matches the profile.</li>
+    </ul>
+    <p>Both delegate to <code>Matchmaker.sendCmd()</code> which handles correlation
+       IDs and timeouts.</p>
+
+    <h2 id="scheduler">4. Scheduler (<code>daemon/src/scheduler.ts</code>)</h2>
+    <p><code>RequestScheduler</code> is the single drain loop that serializes every
+       command going to the extension. It enforces fairness across sessions and
+       prevents tab-ownership violations.</p>
+
+    <h3>Method classification</h3>
+    <p>Three <code>Set&lt;string&gt;</code> constants partition the JSON-RPC method namespace
+       (<code>daemon/src/scheduler.ts:23-33</code>):</p>
+    <ul>
+      <li><code>TAB_CLAIM_METHODS = { selectTab, createTab }</code> &mdash; a session is claiming/attaching a tab.</li>
+      <li><code>TAB_RELEASE_METHODS = { closeTab }</code> &mdash; a session is giving up a tab.</li>
+      <li><code>TAB_SCOPED_METHODS = { navigate, snapshot, evaluate, screenshot, consoleMessages, networkRequests, clearNetwork, performanceMetrics, waitForReady, capturePageState, forwardCDPCommand, window, dialog, listExtensions, secure_fill }</code>
+          &mdash; must be executed on the session&#39;s attached tab.</li>
+    </ul>
+
+    <h3>Round-robin pick</h3>
+    <p><code>pickNextRequest()</code> walks <code>sessionOrder</code> starting from
+       <code>currentSessionIdx</code>, returning the first non-empty queue&#39;s
+       head, and advances the index. This guarantees fairness &mdash; no session can
+       monopolize the loop.</p>
+
+    <h3>Auto context-switching</h3>
+    <p>For tab-scoped methods, before executing, the scheduler checks whether the
+       session&#39;s <code>attachedTabId</code> matches the extension&#39;s
+       currently-active tab (tracked per profile in <code>currentExtensionTabIds</code>).
+       If they differ, an internal <code>selectTab</code> is sent first, then the
+       actual command. The injected <code>_sessionId</code> parameter lets the
+       extension keep tab groups isolated per session.</p>
+
+    <h3>Tab ownership enforcement</h3>
+    <p>Before executing <code>selectTab</code> or <code>closeTab</code> against a
+       <code>tabId</code>, the scheduler checks
+       <code>sessions.findTabOwner(tabId)</code>. If another session owns it, the
+       request is rejected with
+       <code>&quot;Tab N is owned by session &lsquo;X&rsquo;. Cannot attach/close.&quot;</code></p>
+
+    <h3>Profile-aware routing</h3>
+    <p><code>executeRequest()</code> reads <code>sessions.getProfileId(sessionId)</code>
+       and routes via <code>bridge.sendCmdToProfile(profileId, ...)</code> when
+       set, else falls back to <code>bridge.sendCmd(...)</code>. The current-tab
+       tracking map <code>currentExtensionTabIds: Map&lt;string|null, number|null&gt;</code>
+       is keyed by profile so each managed Chromium has its own context-switch state.</p>
+
+    <h3><code>getTabs</code> filtering</h3>
+    <p>When <code>getTabs</code> returns, the scheduler filters out tabs owned by
+       <em>other</em> sessions so an agent only sees tabs it can legally touch.
+       Handles both <code>{ tabs: [...] }</code> and bare-array result shapes.</p>
+
+    <h3>Drain on shutdown</h3>
+    <p><code>drainAll()</code> rejects every queued request with
+       <em>&ldquo;Daemon shutting down&rdquo;</em> and clears state &mdash; called
+       from <code>main.ts</code>&#39;s <code>shutdown()</code>.</p>
+
+    <h2 id="sessions">5. Session management</h2>
+    <p><code>SessionRegistry</code> is a thin <code>Map&lt;string, DaemonSession&gt;</code>
+       with helpers. The session shape (<code>daemon/src/types.ts:10</code>):</p>
+    <pre><code>export interface DaemonSession {
+  sessionId: string;
+  socket: net.Socket;
+  ownedTabs: Set&lt;number&gt;;
+  attachedTabId: number | null;
+  groupId: number | null;
+  profileId: string | null;
+}</code></pre>
+    <p>Notable methods:</p>
+    <ul>
+      <li><code>add(id, socket)</code> returns <code>false</code> if the ID is taken (collision-safe).</li>
+      <li><code>setAttachedTabId / getAttachedTabId</code> &mdash; current focus.</li>
+      <li><code>addOwnedTab / removeOwnedTab / findTabOwner</code> &mdash; ownership index.</li>
+      <li><code>setProfileId / getProfileId / getSessionsForProfile</code> &mdash; profile bindings.</li>
+      <li><code>getOtherOwnedTabIds(sessionId)</code> &mdash; used by <code>getTabs</code> filter.</li>
+    </ul>
+
+    <h2 id="profiles">6. Profiles subsystem</h2>
+    <p>Profiles are off by default. The whole subsystem only initializes when the
+       <code>profiles</code> experiment is in <code>SUPERSURF_EXPERIMENTS</code>.</p>
+    <table>
+      <thead><tr><th>File</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td><code>types.ts</code></td><td><code>ProfileConfig</code>, <code>PooledConnection</code>, <code>PendingMatch</code>, <code>PidLogEntry</code>. <code>isProfileMethod()</code> routing test.</td></tr>
+        <tr><td><code>registry.ts</code></td><td>CRUD for <code>~/.supersurf/profiles/&lt;name&gt;/</code>. Name validation, initialized state, in-memory running PIDs.</td></tr>
+        <tr><td><code>matchmaker.ts</code></td><td>Connection pool. Pending matches, poaching prevention, bootstrap queue.</td></tr>
+        <tr><td><code>chrome.ts</code></td><td>Chromium binary discovery, <code>spawnChromium()</code>, <code>managed-pids.jsonl</code> log helpers.</td></tr>
+        <tr><td><code>extension-source.ts</code></td><td>Downloads/caches the extension bundle from GitHub.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>ProfileRegistry</h3>
+    <p>Constructor takes a directory (typically <code>~/.supersurf/profiles/</code>)
+       and <code>mkdir -p</code>s it. Per-profile layout:</p>
+    <pre><code>~/.supersurf/profiles/&lt;name&gt;/
+├── supersurf.json      # ProfileConfig
+└── chrome-data/        # Chromium --user-data-dir</code></pre>
+    <p>Name validation:</p>
+    <pre><code>const RESERVED_NAMES = new Set(['false', 'true', 'null', '']);
+const NAME_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;</code></pre>
+    <p>Names must be lowercase alphanumeric + hyphens, max 32 chars, no leading
+       hyphen, and not in the reserved set. This matters because the name is
+       interpolated into URLs (<code>/register/&lt;name&gt;</code>) and cookie values.</p>
+    <p><strong>Lifecycle methods:</strong></p>
+    <ul>
+      <li><code>create(name, experiments?)</code> &mdash; validates, creates dirs, writes config.</li>
+      <li><code>list()</code> &mdash; directory scan, includes computed <code>running</code> flag.</li>
+      <li><code>get(name)</code> &mdash; reads <code>supersurf.json</code>.</li>
+      <li><code>delete(name, sessions)</code> &mdash; refuses if any session is bound to the profile;
+          otherwise SIGTERMs the running PID and <code>rm -rf</code>s the directory.</li>
+      <li><code>markInitialized(name)</code> / <code>isInitialized(name)</code> &mdash; first-launch gate.</li>
+      <li><code>setRunningPid / clearRunningPid / getRunningPid / isRunning</code> &mdash; in-memory PID tracking.
+          <code>isRunning</code> does a live <code>process.kill(pid, 0)</code> check and self-cleans dead entries.</li>
+    </ul>
+
+    <h3>Matchmaker</h3>
+    <p>The matchmaker is the heart of profile-aware connection management.</p>
+    <pre><code>class Matchmaker {
+  private pool: Map&lt;WebSocket, PooledConnection&gt;;
+  private pendingMatches: PendingMatch[];
+  pendingSpawns: Set&lt;string&gt;;
+  private bootstrapQueue: Promise&lt;void&gt; = Promise.resolve();
+}</code></pre>
+
+    <h4>Connection pool</h4>
+    <p><code>addConnection</code> / <code>removeConnection</code> /
+       <code>updateProfile</code> mutate the pool and call
+       <code>tryResolvePendingMatches()</code> to satisfy any waiting agents.
+       <code>removeConnection</code> drains all in-flight requests with
+       <em>&ldquo;Extension disconnected&rdquo;</em> and clears the keep-alive ping.</p>
+
+    <h4>Match resolution</h4>
+    <p><code>requestMatch(profile, timeoutMs)</code> (default 60s):</p>
+    <ol>
+      <li>Try <code>findMatch(profile)</code> for an immediate hit.</li>
+      <li>Otherwise queue a <code>PendingMatch</code>. When a new connection arrives or a profile is updated, the queue is rechecked.</li>
+    </ol>
+    <p><code>findMatch(profile)</code> has two modes:</p>
+    <ul>
+      <li><code>profile === null</code> (unmanaged): blocked while
+          <code>pendingSpawns.size &gt; 0</code> &mdash; this is the
+          <strong>poaching prevention</strong>. Without it, an unmanaged caller
+          could grab the WebSocket of a Chromium that was spawned for a profile but
+          hadn&#39;t announced its profile yet.</li>
+      <li><code>profile === 'foo'</code>: direct lookup of any open connection with
+          <code>conn.profile === 'foo'</code>.</li>
+    </ul>
+
+    <h4>Bootstrap queue</h4>
+    <p><code>enqueueBootstrap(fn)</code> chains operations onto a serial promise
+       queue. The IPC layer uses this to ensure that two concurrent
+       <code>profiles.connect</code> calls for the <em>same</em> uninitialized
+       profile don&#39;t both spawn Chromium. Inside the queued function, the
+       caller does a double-check
+       (<code>if (registry.isRunning(profile)) return;</code>) before spawning.</p>
+
+    <h4>Sending commands</h4>
+    <p><code>sendCmd(conn, method, params, timeout)</code> builds a JSON-RPC 2.0
+       request with an 8-char UUID id, stores resolve/reject in
+       <code>conn.inflight</code>, sends, and starts a 30s default timeout.</p>
+
+    <h3><code>chrome.ts</code> — process management</h3>
+
+    <h4>Binary discovery</h4>
+    <p>Checks these paths in order, then falls back to <code>which</code>:</p>
+    <pre><code>/opt/homebrew/bin/chromium
+/usr/local/bin/chromium
+/usr/bin/chromium
+/usr/bin/chromium-browser</code></pre>
+    <p>If none exist, <code>findChromiumBinary()</code> returns <code>null</code> and
+       <code>spawnChromium()</code> throws with
+       <em>&ldquo;Chromium not found — install via brew install chromium&rdquo;</em>.</p>
+
+    <h4><code>spawnChromium(profileName, extensionDir, port, isFirstLaunch)</code></h4>
+    <pre><code>&lt;binary&gt; \
+  --user-data-dir=~/.supersurf/profiles/&lt;name&gt;/chrome-data \
+  --load-extension=&lt;extensionDir&gt; \
+  --no-first-run \
+  --no-default-browser-check \
+  --use-mock-keychain \
+  [http://127.0.0.1:&lt;port&gt;/register/&lt;name&gt;]   # only on first launch</code></pre>
+    <p>Spawned with <code>detached: true, stdio: 'ignore'</code>, then
+       <code>child.unref()</code> so the daemon doesn&#39;t block on it.</p>
+
+    <h4>PID log (crash recovery)</h4>
+    <p><code>managed-pids.jsonl</code> is the daemon&#39;s append-only log of
+       spawn/kill events. Helpers:</p>
+    <ul>
+      <li><code>appendPidLog(entry)</code> &mdash; append one
+          <code>{ action, profile, pid, ts }</code> line.</li>
+      <li><code>replayPidLog()</code> &mdash; read all entries.</li>
+      <li><code>findOrphanPids(entries)</code> &mdash; replay events, return PIDs
+          that were spawned but never killed.</li>
+      <li><code>killOrphanPids(pids)</code> &mdash; SIGTERM each and log a kill entry.</li>
+      <li><code>truncatePidLog()</code> &mdash; wipe after recovery.</li>
+    </ul>
+    <p>The daemon runs the orphan-cleanup pass exactly once at startup (when
+       profiles are enabled), then truncates the log.</p>
+
+    <h3><code>extension-source.ts</code></h3>
+    <p>Downloads the SuperSurf extension from GitHub releases
+       (<code>LiquidBuiltIt/Supersurf</code>) and caches to
+       <code>~/.supersurf/extension/</code>. <code>ensureExtension()</code>:</p>
+    <ul>
+      <li>Not cached: <code>pullExtension()</code> (mandatory &mdash; first-run blocking).</li>
+      <li>Cached: query GitHub for the latest tag and re-pull only if the version
+          differs. Network failures fall through silently &mdash; the cached
+          version is used.</li>
+    </ul>
+    <p><code>pullExtension()</code> downloads
+       <code>https://github.com/.../archive/refs/tags/&lt;tag&gt;.tar.gz</code> to a
+       <code>mkdtempSync</code> temp dir, extracts only <code>*/extension/</code>
+       via <code>tar xzf --strip-components=1</code>, then flattens the nested
+       <code>extension/</code> directory. <code>getExtensionDir()</code> returns
+       the cache path for <code>spawnChromium()</code> to pass via
+       <code>--load-extension</code>.</p>
+
+    <h2 id="experiments">7. Experiments subsystem</h2>
+    <p><code>DaemonExperimentRegistry</code>
+       (<code>experiments/index.ts</code>) is the source of truth for which
+       experiments each session has enabled. The MCP server caches this locally
+       but reads/writes go through IPC.</p>
+
+    <h3>Available experiments</h3>
+    <pre><code>const AVAILABLE_EXPERIMENTS = [
+  'page_diffing',
+  'smart_waiting',
+  'storage_inspection',
+  'mouse_humanization',
+] as const;</code></pre>
+    <p>Note that <code>profiles</code> is <strong>not</strong> in this list &mdash;
+       it is a daemon-startup-only flag via <code>SUPERSURF_EXPERIMENTS</code>, not
+       a per-session toggle.</p>
+
+    <h3>Per-session state</h3>
+    <p>Each session has its own <code>Set&lt;string&gt;</code> of enabled experiment
+       names, lazily initialized from <code>_defaults</code> on first
+       <code>toggle()</code> call. <code>_defaults</code> is populated once at
+       startup via <code>applyDefaults(envExpNames)</code>.</p>
+
+    <h3>IPC methods</h3>
+    <table>
+      <thead><tr><th>Method</th><th>Behavior</th></tr></thead>
+      <tbody>
+        <tr><td><code>experiments.toggle</code></td><td>Sets enabled/disabled for <code>(sessionId, experiment)</code>, throws on unknown experiment name.</td></tr>
+        <tr><td><code>experiments.get</code></td><td>Returns <code>Record&lt;string, boolean&gt;</code> of every available experiment for the session.</td></tr>
+        <tr><td><code>experiments.getOne</code></td><td>Returns <code>{ experiment, enabled }</code> for a single experiment.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Env var defaults</h3>
+    <p><code>SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,profiles</code>
+       enables those at startup. <code>main.ts</code> parses the comma-separated
+       list, calls <code>experiments.applyDefaults(...)</code> (which silently
+       ignores <code>profiles</code> because it&#39;s not in the available list),
+       and uses <code>envExpNames.includes('profiles')</code> to decide whether to
+       bring up the profile subsystem.</p>
+
+    <h3>Profile-bound defaults</h3>
+    <p>When a session calls <code>profiles.connect</code>, the IPC handler reads
+       <code>ProfileConfig.experiments</code> and toggles them on for that session.
+       This is how a profile can carry &ldquo;always enable mouse_humanization&rdquo;
+       semantics across sessions.</p>
+
+    <h2 id="tests">8. Test coverage</h2>
+    <p>Vitest unit tests cover every daemon module. <code>main.test.ts</code>
+       exercises PID file lifecycle, <code>parseArgs</code>,
+       <code>formatUptime</code>, and <code>stopDaemon</code> cleanup.
+       <code>ipc.test.ts</code> connects real sockets against a mocked bridge and
+       verifies the handshake, NDJSON routing, session disconnect, concurrent
+       sessions, profile/experiment IPC routing, and the capabilities header.
+       <code>scheduler.test.ts</code> covers round-robin fairness, tab ownership
+       rejection, auto context-switch, and the <code>getTabs</code> filter.
+       <code>session.test.ts</code> covers SessionRegistry CRUD, ownership
+       tracking, and profile bindings. <code>experiments.test.ts</code> covers
+       per-session isolation, default inheritance, env var defaults, and IPC
+       behavior. The <code>profiles/</code> test directory has unit tests for
+       <code>types</code>, <code>registry</code>, <code>chrome</code>,
+       <code>extension-source</code>, and <code>matchmaker</code>.</p>
+
+    <h2 id="troubleshooting">9. Known troubleshooting — <code>profiles.connect</code> timeout</h2>
+    <p>If a managed profile&#39;s <code>chrome.storage.local</code> loses its
+       <code>supersurf_profile</code> key (force-killed Chromium, manually removed
+       extension, Chrome corruption), the extension reconnects as
+       <code>unmanaged</code>. The matchmaker can&#39;t satisfy
+       <code>requestMatch(profile)</code> and the IPC handler eventually times out
+       after 90s. The fix is to relaunch Chromium with the registration URL so the
+       cookie + content-script path re-sets the storage key:</p>
+    <pre><code>pkill -f "chromium.*PROFILE_NAME/chrome-data"
+/opt/homebrew/bin/chromium \
+  --user-data-dir=~/.supersurf/profiles/PROFILE_NAME/chrome-data \
+  --load-extension=~/.supersurf/extension \
+  --no-first-run --no-default-browser-check --use-mock-keychain \
+  "http://127.0.0.1:5555/register/PROFILE_NAME"</code></pre>
+    <p>A long-term fix (always opening the registration URL on every spawn, or
+       falling back to <code>chrome.cookies</code> reads) is pending.</p>
+
+    <footer>
+      Source of truth: <code>daemon/src/</code> in the repo.
+    </footer>
+  </main>
+</div>
+</body>
+</html>

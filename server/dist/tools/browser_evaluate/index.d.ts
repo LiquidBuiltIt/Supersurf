@@ -6,8 +6,9 @@
  * in `./secure-eval`. Layer 2 (Service Worker membrane) lives extension-side
  * at `extension/src/security/secure-eval/`.
  *
- * `secure_eval` is on by default. Opt out with `SUPERSURF_DISABLE_SECURE_EVAL=1`
- * or the `--disable-secure-eval` server CLI flag.
+ * `secure_eval` is on by default. Opt out by setting `security.secure_eval: false`
+ * in `~/.supersurf/config.json` (and restarting the daemon), via the
+ * `--disable-secure-eval` server CLI flag, or `SUPERSURF_DISABLE_SECURE_EVAL=1`.
  *
  * @module tools/browser_evaluate/index
  */

@@ -11,11 +11,12 @@ vi.mock('../src/logger', () => ({
   createLog: () => (..._args: unknown[]) => {},
 }));
 
-// Mock audit logger to avoid filesystem writes during tests
-vi.mock('../src/audit-logger', () => ({
-  AuditLogger: class {
+// Mock usage-metrics logger to avoid filesystem writes during tests
+vi.mock('../src/usage-metrics-logger', () => ({
+  UsageMetricsLogger: class {
+    filePath = '/tmp/metrics-test.ndjson';
     write = vi.fn();
-    getPath = vi.fn().mockReturnValue('/tmp/audit-test.ndjson');
+    getPath = vi.fn().mockReturnValue('/tmp/metrics-test.ndjson');
   },
 }));
 
@@ -116,14 +117,15 @@ describe('BrowserBridge', () => {
       // Disable secure_eval for this dispatch test — it only verifies the
       // browser_evaluate tool reaches the `evaluate` extension command.
       // (secure_eval-on tests live in secure-eval.test.ts.)
-      process.env.SUPERSURF_DISABLE_SECURE_EVAL = '1';
-      try {
-        mockExt.sendCmd.mockResolvedValue('42');
-        await bridge.callTool('browser_evaluate', { expression: '1+1', purpose: 'arithmetic probe' });
-        expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.objectContaining({ expression: '1+1' }));
-      } finally {
-        delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
-      }
+      const { ConfigService } = await import('shared');
+      const optedOutBridge = new BrowserBridge(
+        { configService: new ConfigService({ cli: {}, env: {}, file: { security: { secure_eval: false } } }) },
+        mockExt,
+      );
+      optedOutBridge.initialize({}, {}, mockCM);
+      mockExt.sendCmd.mockResolvedValue('42');
+      await optedOutBridge.callTool('browser_evaluate', { expression: '1+1', purpose: 'arithmetic probe' });
+      expect(mockExt.sendCmd).toHaveBeenCalledWith('evaluate', expect.objectContaining({ expression: '1+1' }));
     });
 
     it('dispatches browser_window to extension', async () => {
@@ -158,6 +160,22 @@ describe('BrowserBridge', () => {
       const result = await bridge.callTool('browser_snapshot');
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('extension conflict');
+    });
+
+    it('rewrites "Target crashed" with renderer-crash recovery guidance', async () => {
+      mockExt.sendCmd.mockRejectedValue(new Error('Target crashed'));
+      const result = await bridge.callTool('browser_snapshot');
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('renderer process crashed');
+      expect(result.content[0].text).toContain('browser_tabs');
+    });
+
+    it('rewrites "CDP timeout: Runtime.evaluate" with hang/recovery guidance', async () => {
+      mockExt.sendCmd.mockRejectedValue(new Error('CDP timeout: Runtime.evaluate (50000ms)'));
+      const result = await bridge.callTool('browser_snapshot');
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('JavaScript evaluation');
+      expect(result.content[0].text).toContain('timed out');
     });
 
     it('returns rawResult error format', async () => {
@@ -208,9 +226,10 @@ describe('BrowserBridge', () => {
 
   describe('inline screenshot', () => {
     it('appends image block when screenshot=true on eligible tool', async () => {
-      // First call: navigate handler, second call: screenshot capture
+      // First call: navigate handler, second: chrome-error probe (Runtime.evaluate), third: screenshot capture
       mockExt.sendCmd
         .mockResolvedValueOnce({ success: true })
+        .mockResolvedValueOnce({ result: { value: JSON.stringify({ bodyClass: 'home', href: 'https://example.com/' }) } })
         .mockResolvedValueOnce({ data: 'fakeBase64Data', mimeType: 'image/jpeg' });
 
       const result = await bridge.callTool('browser_navigate', {

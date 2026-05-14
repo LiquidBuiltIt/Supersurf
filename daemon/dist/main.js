@@ -53,11 +53,14 @@ exports.PID_FILE = PID_FILE;
 const SOCK_FILE = path_1.default.join(SUPERSURF_DIR, 'daemon.sock');
 exports.SOCK_FILE = SOCK_FILE;
 const LOG_FILE = path_1.default.join(SUPERSURF_DIR, 'logs', 'daemon.log');
-const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+// Retained as a backwards-compatible export; runtime now reads the live value
+// from ConfigService (cfg.get().daemon.idle_timeout_ms).
+const IDLE_TIMEOUT_MS = shared_1.HARDCODED_DEFAULTS.daemon.idle_timeout_ms;
 exports.IDLE_TIMEOUT_MS = IDLE_TIMEOUT_MS;
 // ─── CLI Parsing ──────────────────────────────────────────────
 function parseArgs(argv) {
-    let port = 5555;
+    let port = shared_1.HARDCODED_DEFAULTS.daemon.port;
+    let portExplicit = false;
     let debug = false;
     let verbose = false;
     let command;
@@ -68,6 +71,7 @@ function parseArgs(argv) {
                 console.error('Invalid port number');
                 process.exit(1);
             }
+            portExplicit = true;
             i++;
         }
         else if (argv[i] === '--debug') {
@@ -92,7 +96,7 @@ function parseArgs(argv) {
             command = 'observe';
         }
     }
-    return { port, debug, verbose, command };
+    return { port, debug, verbose, command, portExplicit };
 }
 // ─── Status Command ──────────────────────────────────────────
 /** Query the daemon over the Unix socket for live state. */
@@ -358,7 +362,7 @@ function cleanupFiles() {
 }
 // ─── Main ──────────────────────────────────────────────────────
 async function main() {
-    const { port, debug, verbose, command } = parseArgs(process.argv);
+    const { port: cliPort, debug, verbose, command, portExplicit } = parseArgs(process.argv);
     if (command === 'status') {
         await printStatus(verbose);
         return;
@@ -375,6 +379,26 @@ async function main() {
         observe();
         return;
     }
+    // Initialize ConfigService — scaffold ~/.supersurf/config.json on first run,
+    // then merge CLI (port) + env + file inputs into a single resolved snapshot.
+    const configPath = process.env.SUPERSURF_CONFIG_FILE
+        || path_1.default.join(os_1.default.homedir(), '.supersurf', 'config.json');
+    const scaffold = (0, shared_1.ensureConfigFile)(configPath);
+    if (scaffold.created) {
+        console.log(`[daemon] Scaffolded default config at ${configPath}`);
+    }
+    const { config: fileCfg, warnings: fileWarn } = (0, shared_1.loadJsonConfig)(configPath);
+    const { config: envCfg, warnings: envWarn } = (0, shared_1.loadEnvConfig)(process.env);
+    for (const w of [...fileWarn, ...envWarn])
+        console.warn(`[daemon] ${w}`);
+    const cfg = new shared_1.ConfigService({
+        cli: portExplicit ? { daemon: { port: cliPort } } : {},
+        env: envCfg,
+        file: fileCfg,
+        onWarn: (m) => console.warn(`[daemon] ${m}`),
+    });
+    const port = cfg.get().daemon.port;
+    const idleTimeoutMs = cfg.get().daemon.idle_timeout_ms;
     // Initialize logger — always enabled for core events
     const logger = new shared_1.FileLogger(LOG_FILE);
     logger.enable();
@@ -399,20 +423,19 @@ async function main() {
     }
     // Write PID file
     writePidFile();
-    // Pre-enable experiments from env var (e.g. SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting)
-    const envExperiments = process.env.SUPERSURF_EXPERIMENTS;
-    const envExpNames = envExperiments
-        ? envExperiments.split(',').map(s => s.trim()).filter(Boolean)
-        : [];
-    const profilesEnabled = envExpNames.includes('profiles');
+    // Experiment defaults come from the resolved config snapshot (file + env merged).
+    const expSnapshot = cfg.get().experiments;
+    const profilesEnabled = expSnapshot.profiles;
     // Initialize components
     const bridge = new extension_bridge_1.ExtensionBridge(port, '127.0.0.1', profilesEnabled);
     const sessions = new session_1.SessionRegistry();
     const scheduler = new scheduler_1.RequestScheduler(bridge, sessions);
-    const experiments = new index_1.DaemonExperimentRegistry();
-    if (envExpNames.length > 0) {
-        experiments.applyDefaults(envExpNames);
-        logger.log(`[Daemon] Experiment defaults: ${envExpNames.join(', ')}`);
+    const experiments = new index_1.DaemonExperimentRegistry({ defaults: expSnapshot });
+    const enabledDefaults = Object.entries(expSnapshot)
+        .filter(([, v]) => v === true)
+        .map(([k]) => k);
+    if (enabledDefaults.length > 0) {
+        logger.log(`[Daemon] Experiment defaults: ${enabledDefaults.join(', ')}`);
     }
     // Profile management setup
     let profileRegistry = null;
@@ -440,7 +463,7 @@ async function main() {
     }
     const version = getVersion();
     const ipc = new ipc_1.IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, { port, version }, profileRegistry);
-    // Idle timeout: exit after 10 minutes with no sessions
+    // Idle timeout: exit after the configured idle window with no sessions
     let idleTimer = null;
     function resetIdleTimer() {
         if (idleTimer) {
@@ -451,9 +474,9 @@ async function main() {
     function startIdleTimer() {
         resetIdleTimer();
         idleTimer = setTimeout(() => {
-            logger.log('[Daemon] Idle timeout — no sessions for 10 minutes, exiting');
+            logger.log(`[Daemon] Idle timeout — no sessions for ${idleTimeoutMs}ms, exiting`);
             shutdown();
-        }, IDLE_TIMEOUT_MS);
+        }, idleTimeoutMs);
     }
     ipc.setSessionCountCallback((count) => {
         logger.log(`[Daemon] Session count: ${count}`);

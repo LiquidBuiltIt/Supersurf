@@ -20,7 +20,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { IExtensionTransport } from './bridge';
-import { AuditLogger } from './audit-logger';
+import { UsageMetricsLogger } from './usage-metrics-logger';
 import { createLog } from './logger';
 
 // Re-export types so existing imports from './backend' still work
@@ -29,7 +29,7 @@ import type { BackendConfig, TabInfo, BackendState, ToolSchema, ConnectionManage
 
 import { buildStatusHeader } from './backend/status';
 import { getConnectionToolSchemas, getDebugToolSchema, getProfileToolSchemas } from './backend/schemas';
-import { onConnect, onDisconnect, onStatus, onExperimentalFeatures, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete } from './backend/handlers';
+import { onConnect, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete } from './backend/handlers';
 
 const log = createLog('[Conn]');
 
@@ -59,7 +59,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
   connectedBrowserName: string | null = null;
   attachedTab: TabInfo | null = null;
   stealthMode: boolean = false;
-  auditLogger: AuditLogger | null = null;
+  metricsLogger: UsageMetricsLogger | null = null;
   daemonCapabilities: { profiles: boolean } | null = null;
   server: Server | null = null;
   clientInfo: Record<string, unknown> = {};
@@ -129,17 +129,38 @@ export class ConnectionManager implements ConnectionManagerAPI {
   ): Promise<any> {
     log(`callTool(${name}) — state: ${this.state}`);
 
+    // Deprecation stub for experimental_features (removed in v2.0.0).
+    // Returns a clear error pointing the agent at the new config file.
+    if (name === 'experimental_features') {
+      if (options.rawResult) {
+        return {
+          success: false,
+          error: 'removed',
+          message: 'experimental_features was removed in v2.0.0 — edit ~/.supersurf/config.json instead',
+        };
+      }
+      return {
+        content: [{
+          type: 'text',
+          text: '### Tool removed in v2.0.0\n\n`experimental_features` was retired. Edit `~/.supersurf/config.json` (auto-scaffolded on first daemon start) and restart the daemon.',
+        }],
+        isError: true,
+      };
+    }
+
     const start = Date.now();
 
     const BACKEND_TOOLS = new Set([
-      'connect', 'disconnect', 'status', 'experimental_features', 'reload_mcp',
+      'connect', 'disconnect', 'status', 'reload_mcp',
       'profile_create', 'profile_list', 'profile_delete',
     ]);
 
     if (BACKEND_TOOLS.has(name)) {
-      // Create audit logger on connect (before handler, so it captures the connect call itself)
-      if (name === 'connect' && !this.auditLogger && rawArguments.client_id) {
-        this.auditLogger = new AuditLogger(String(rawArguments.client_id));
+      // Create metrics logger on connect, gated by config.logging.usage_metrics.
+      // The logger captures the connect call itself, so this must run before the handler.
+      const metricsEnabled = this.config.configService?.get().logging.usage_metrics ?? false;
+      if (name === 'connect' && !this.metricsLogger && rawArguments.client_id && metricsEnabled) {
+        this.metricsLogger = new UsageMetricsLogger(String(rawArguments.client_id));
       }
 
       let result: any;
@@ -153,9 +174,6 @@ export class ConnectionManager implements ConnectionManagerAPI {
             break;
           case 'status':
             result = await onStatus(this, options);
-            break;
-          case 'experimental_features':
-            result = await onExperimentalFeatures(this, rawArguments, options);
             break;
           case 'reload_mcp':
             result = onReloadMCP(this, options);
@@ -171,7 +189,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
           }
         }
 
-        // Audit log the backend tool call
+        // Usage-metrics log the backend tool call
         const isError = result?.isError === true || result?.success === false;
         const entry: any = {
           session_id: this.clientId || 'unknown',
@@ -195,11 +213,11 @@ export class ConnectionManager implements ConnectionManagerAPI {
             };
           }
         }
-        this.auditLogger?.write(entry);
+        this.metricsLogger?.write(entry);
 
         return result;
       } catch (err: any) {
-        // Audit log the error
+        // Usage-metrics log the error
         const entry: any = {
           session_id: this.clientId || 'unknown',
           tool: name,
@@ -217,7 +235,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
             };
           }
         }
-        this.auditLogger?.write(entry);
+        this.metricsLogger?.write(entry);
         throw err;
       }
     }

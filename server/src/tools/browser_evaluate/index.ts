@@ -6,8 +6,9 @@
  * in `./secure-eval`. Layer 2 (Service Worker membrane) lives extension-side
  * at `extension/src/security/secure-eval/`.
  *
- * `secure_eval` is on by default. Opt out with `SUPERSURF_DISABLE_SECURE_EVAL=1`
- * or the `--disable-secure-eval` server CLI flag.
+ * `secure_eval` is on by default. Opt out by setting `security.secure_eval: false`
+ * in `~/.supersurf/config.json` (and restarting the daemon), via the
+ * `--disable-secure-eval` server CLI flag, or `SUPERSURF_DISABLE_SECURE_EVAL=1`.
  *
  * @module tools/browser_evaluate/index
  */
@@ -42,7 +43,8 @@ export async function onEvaluate(ctx: ToolContext, args: any, options: any): Pro
   const expression = args.function ? `(${args.function})()` : args.expression;
   const code = expression;
 
-  if (code && !process.env.SUPERSURF_DISABLE_SECURE_EVAL) {
+  const secureEvalEnabled = ctx.config?.get().security.secure_eval ?? true;
+  if (code && secureEvalEnabled) {
     // Layer 1: Static AST analysis (~1ms)
     const analysis = analyzeCode(code);
     if (!analysis.safe) {
@@ -52,7 +54,7 @@ export async function onEvaluate(ctx: ToolContext, args: any, options: any): Pro
         `\`browser_evaluate\` is for read-only computation only. ` +
         `For network calls, storage access, navigation, form filling, or DOM mutation, use the dedicated MCP tools ` +
         `(browser_navigate, browser_fill_form, browser_interact, browser_storage, browser_network_requests). ` +
-        `If you genuinely need this primitive, set \`SUPERSURF_DISABLE_SECURE_EVAL=1\` in the server env.`,
+        `If you genuinely need this primitive, set \`security.secure_eval: false\` in \`~/.supersurf/config.json\` (and restart the daemon), or \`SUPERSURF_DISABLE_SECURE_EVAL=1\` in the server env.`,
         options
       );
     }
@@ -65,7 +67,7 @@ export async function onEvaluate(ctx: ToolContext, args: any, options: any): Pro
           `Code blocked by \`secure_eval\` (membrane).\n\n` +
           `**Reason:** ${validation.reason}\n\n` +
           `\`browser_evaluate\` is for read-only computation only. Use a dedicated MCP tool, ` +
-          `or set \`SUPERSURF_DISABLE_SECURE_EVAL=1\` in the server env.`,
+          `or set \`security.secure_eval: false\` in \`~/.supersurf/config.json\` (and restart the daemon).`,
           options
         );
       }
@@ -94,7 +96,7 @@ export async function onEvaluate(ctx: ToolContext, args: any, options: any): Pro
           `Code blocked by \`secure_eval\` (page proxy).\n\n` +
           `**Reason:** ${message}\n\n` +
           `\`browser_evaluate\` is for read-only computation only. Use a dedicated MCP tool, ` +
-          `or set \`SUPERSURF_DISABLE_SECURE_EVAL=1\` in the server env.`,
+          `or set \`security.secure_eval: false\` in \`~/.supersurf/config.json\` (and restart the daemon).`,
           options
         );
       }

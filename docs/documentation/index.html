@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SuperSurf — Documentation</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1><a href="index.html">SuperSurf</a></h1>
+    <div class="tagline">internal documentation</div>
+    <nav>
+      <a href="index.html" class="active">Overview</a>
+      <div class="group-label">Architecture</div>
+      <a href="architecture.html">System Architecture</a>
+      <div class="group-label">Modules</div>
+      <a href="daemon.html">Daemon</a>
+      <a href="server.html">Server Core</a>
+      <a href="tools.html">Browser Tools</a>
+      <a href="extension.html">Chrome Extension</a>
+      <div class="group-label">Cross-cutting</div>
+      <a href="security.html">Trust Boundaries &amp; Security</a>
+    </nav>
+  </aside>
+  <main class="content">
+    <h1>SuperSurf — Internal Documentation</h1>
+    <p class="lede">
+      A four-process MCP browser automation system. The headline trick:
+      drive Chrome through a sideloaded extension instead of raw CDP, so
+      the agent operates inside the user's real, lived-in browser profile
+      while staying invisible to anti-bot systems that fingerprint Puppeteer
+      and Playwright.
+    </p>
+
+    <div class="callout info">
+      <strong>Reading order</strong>
+      Start with <a href="architecture.html">System Architecture</a> for the 30,000-foot view.
+      Then dip into individual modules. The <a href="security.html">Trust Boundaries &amp; Security</a>
+      page is the most important read for anyone touching <code>browser_evaluate</code>,
+      <code>secure_fill</code>, audit logs, or the domain whitelist.
+    </div>
+
+    <h2>The four processes at a glance</h2>
+    <div class="diagram">AI Agent  ──stdio (MCP)──▶  MCP Server  ──Unix socket──▶  Daemon  ──WS:5555──▶  Chrome Extension
+                                                       (multiplexes N
+                                                        sessions ↔ 1+
+                                                        browser)</div>
+
+    <table>
+      <thead>
+        <tr><th>Process</th><th>Package</th><th>Role</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>MCP Server</strong></td>
+          <td><code>supersurf-mcp</code></td>
+          <td>One per AI client. Translates MCP tool calls into JSON-RPC and forwards them to the daemon.
+            Hosts the audit logger, AST analyzer (<code>secure_eval</code> Layer 1), and tool dispatch.</td>
+        </tr>
+        <tr>
+          <td><strong>Daemon</strong></td>
+          <td><code>supersurf-daemon</code></td>
+          <td>Long-lived multiplexer. Owns the Chrome extension WebSocket(s), enforces tab ownership,
+            schedules round-robin across sessions. Optionally manages multiple Chromium profiles.</td>
+        </tr>
+        <tr>
+          <td><strong>Chrome Extension</strong></td>
+          <td><code>extension/</code> (CWS + sideload)</td>
+          <td>MV3 service worker + content scripts. Performs DOM work in an isolated world undetectable
+            by page JS. Hosts <code>secure_eval</code> Layer 2 (Proxy membrane) and the domain whitelist.</td>
+        </tr>
+        <tr>
+          <td><strong>Shared</strong></td>
+          <td><code>shared/</code> (workspace-only)</td>
+          <td>Zero-runtime-dep utilities (logger, types). Inlined into the published artifacts at build time.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Documentation Map</h2>
+
+    <h3><a href="architecture.html">System Architecture</a></h3>
+    <p>The top-level view: what SuperSurf is, the four-process data path,
+       connection lifecycle, build system, CLI surface, on-disk layout under
+       <code>~/.supersurf/</code>, and the design principles that constrain
+       almost every decision in the codebase.</p>
+
+    <h3><a href="daemon.html">Daemon</a></h3>
+    <p>The standalone coordinator. Process lifecycle, Unix socket IPC,
+       extension WebSocket bridge, request scheduler, session registry,
+       profile subsystem (managed Chromium), and experiments registry.</p>
+
+    <h3><a href="server.html">Server Core</a></h3>
+    <p>Everything in <code>server/src/</code> except the browser tools:
+       CLI entry, connection state machine, daemon transport, audit logger,
+       tips registry, dotenv loader, script mode, and logging.</p>
+
+    <h3><a href="tools.html">Browser Tools Reference</a></h3>
+    <p>Per-tool reference for every MCP tool an agent can call:
+       navigation, interaction, content extraction, forms, network, screenshots,
+       evaluate, plus experimental features (mouse humanization, page diffing,
+       storage inspection).</p>
+
+    <h3><a href="extension.html">Chrome Extension</a></h3>
+    <p>The MV3 service worker, WebSocket client, command handlers (tabs, network,
+       console, dialogs, downloads), session context, popup UI, content script,
+       and utility modules.</p>
+
+    <h3><a href="security.html">Trust Boundaries &amp; Security</a> <span class="tag warn">read this</span></h3>
+    <p>The trust model, two-layer <code>secure_eval</code> defense (server-side AST
+       analyzer + extension Proxy membrane), <code>secure_fill</code> credential
+       injection, audit logging redaction, domain whitelist, profile isolation,
+       content-script anti-bot posture, and an explicit list of what the system
+       does <em>not</em> defend against.</p>
+
+    <h2>Quick command reference</h2>
+    <pre><code># Build everything
+npm run build
+
+# Dev server with hot reload
+npm run dev.server
+
+# Run all tests
+npm run test
+
+# Bump version across packages, commit
+npm run version.bump patch
+
+# Publish (npm + Chrome Web Store, owns git tagging)
+npm run publish
+
+# Daemon control
+supersurf-daemon status [--verbose]
+supersurf-daemon restart
+supersurf-daemon observe   # tail the log</code></pre>
+
+    <h2>Where things live on disk</h2>
+    <pre><code>~/.supersurf/
+├── daemon.pid                         # PID of the running daemon
+├── daemon.sock                        # Unix socket — server↔daemon IPC
+├── logs/
+│   ├── daemon.log                     # always-on daemon log
+│   ├── server.log                     # debug-mode only
+│   └── sessions/
+│       ├── supersurf-debug-*.log      # per-session debug logs
+│       └── audit-*.ndjson             # ALWAYS-ON audit trail
+├── extension/                         # cached extension (profiles experiment)
+└── profiles/&lt;name&gt;/chrome-data/       # Chromium --user-data-dir per profile</code></pre>
+
+    <footer>
+      Generated by parallel research agents · last reviewed 2026-05-05<br>
+      Source of truth lives in code under <code>/Users/jahcrispy646/Projects/Github/supersurf</code>.
+    </footer>
+  </main>
+</div>
+</body>
+</html>

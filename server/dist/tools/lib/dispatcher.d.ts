@@ -1,11 +1,11 @@
 import type { ToolContext } from './types';
-import { AuditLogger } from '../../audit-logger';
-/** Side-channel data dispatchTool needs to write to (audit log + connection state). */
+import { UsageMetricsLogger } from '../../usage-metrics-logger';
+/** Side-channel data dispatchTool needs to write to (usage-metrics log + connection state). */
 export interface DispatchEnv {
-    auditLogger: AuditLogger | null;
-    /** Used for the `session_id` field in audit entries. */
+    metricsLogger: UsageMetricsLogger | null;
+    /** Used for the `session_id` field in metrics entries. */
     clientId: string | null | undefined;
-    /** Read for the `url` field in audit entries (current attached tab URL). */
+    /** Read for the `url` field in metrics entries (current attached tab URL). */
     getCurrentUrl: () => string | undefined;
 }
 /**

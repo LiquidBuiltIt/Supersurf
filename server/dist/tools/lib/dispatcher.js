@@ -131,13 +131,32 @@ async function dispatchTool(ctx, name, args, options, env) {
                 '**Common culprits:** iCloud Passwords, password managers, or other DevTools extensions.\n' +
                 'Try disabling other extensions at `chrome://extensions` and retry.', options);
         }
+        if (/Target crashed/i.test(msg)) {
+            return (0, result_formatter_1.formatError)('The browser tab\'s renderer process crashed.\n\n' +
+                '**What this means:** The page hit an unrecoverable error (out-of-memory, native crash, or a heavy DOM operation on a broken page like a `chrome-error://` interstitial). The tab is no longer usable.\n\n' +
+                '**Recovery:**\n' +
+                '1. Close the crashed tab with `browser_tabs` action `close`\n' +
+                '2. Open a fresh tab and re-navigate\n' +
+                '3. If this happened after `browser_evaluate` or `browser_lookup` on a failed page, check `browser_navigate` returned the expected URL — error pages can\'t be queried with heavy DOM selectors.', options);
+        }
+        if (/CDP timeout: Runtime\.evaluate/i.test(msg)) {
+            return (0, result_formatter_1.formatError)('JavaScript evaluation in the page timed out (50s).\n\n' +
+                '**What this usually means:** The renderer is hung or recovering from a recent crash. Even trivial expressions like `() => 1` hang during the ~50s recovery window after a `Target crashed`.\n\n' +
+                '**Recovery:**\n' +
+                '1. Wait a few seconds, then retry once\n' +
+                '2. If the retry also times out, close the tab (`browser_tabs` action `close`) and open a fresh one\n' +
+                '3. Confirm the page actually loaded — `browser_evaluate` against a `chrome-error://` page or a hung navigation will time out repeatedly.', options);
+        }
         return (0, result_formatter_1.formatError)(msg, options);
     }
     finally {
         const url = env.getCurrentUrl();
         const sessionId = env.clientId ?? 'unknown';
-        const tip = !options.rawResult ? (0, tips_1.getTip)(name, args, callResult, callError, sessionId) : null;
-        env.auditLogger?.write({
+        const tipsEnabled = ctx.config?.get().tips ?? true;
+        const tip = (!options.rawResult && tipsEnabled)
+            ? (0, tips_1.getTip)(name, args, callResult, callError, sessionId)
+            : null;
+        env.metricsLogger?.write({
             session_id: sessionId,
             tool: name,
             params: args,

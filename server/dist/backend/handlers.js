@@ -50,7 +50,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.onConnect = onConnect;
 exports.onDisconnect = onDisconnect;
 exports.onStatus = onStatus;
-exports.onExperimentalFeatures = onExperimentalFeatures;
 exports.onProfileCreate = onProfileCreate;
 exports.onProfileList = onProfileList;
 exports.onProfileDelete = onProfileDelete;
@@ -159,7 +158,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         index_1.experimentRegistry.bind(client);
         const BB = await getBrowserBridge();
         mgr.bridge = new BB(mgr.config, mgr.extensionServer);
-        await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr, mgr.auditLogger);
+        await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr, mgr.metricsLogger);
         mgr.state = 'active';
         mgr.connectedBrowserName = client.browser;
         // Store daemon capabilities
@@ -169,13 +168,14 @@ async function onConnect(mgr, args = {}, options = {}) {
             log('Connecting to profile:', args.profile);
             await client.sendCmd('profiles.connect', { profile: args.profile }, 90000);
         }
-        // Pre-enable session features from env var (fire-and-forget IPC to daemon)
-        (0, index_1.applyInitialState)(mgr.config);
+        // Pre-enable session features from resolved config (fire-and-forget IPC to daemon)
+        if (mgr.config.configService) {
+            (0, index_1.applyInitialState)(mgr.config.configService.get().experiments);
+        }
         // Notify MCP client that tool list changed
         mgr.notifyToolsListChanged().catch((err) => log('Error sending notification:', err));
-        // Notify client about available experimental features
-        mgr.sendLogNotification('info', 'SuperSurf experimental features available: page_diffing (reduces token cost by returning DOM diffs instead of full re-reads), smart_waiting (adaptive DOM stability detection), mouse_humanization (human-like cursor trajectories with overshoot correction). ' +
-            'Use the experimental_features tool to toggle them, or set SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization in your environment to pre-enable on startup.', 'experiments').catch(() => { });
+        // Notify client about experiment configuration path
+        mgr.sendLogNotification('info', 'SuperSurf experiments are toggled via ~/.supersurf/config.json (auto-scaffolded on first daemon start). Restart the daemon after edits.', 'experiments').catch(() => { });
         if (options.rawResult) {
             return {
                 success: true,
@@ -321,75 +321,6 @@ async function onStatus(mgr, options = {}) {
         content: [{ type: 'text', text: mgr.statusHeader() + statusText }],
     };
 }
-// ─── Experimental Features ───────────────────────────────────
-/**
- * Toggle experimental features. With no recognized keys, lists current states.
- * For mouse_humanization, also initializes/destroys the humanization session
- * and notifies the extension.
- */
-async function onExperimentalFeatures(mgr, args = {}, options = {}) {
-    // secure_eval graduated to a default-on protection in v1.11.0.
-    // Surface a clear error rather than silently ignoring the toggle.
-    if ('secure_eval' in args) {
-        const msg = '`secure_eval` graduated from experiment to a default-on protection in v1.11.0 and can no longer be toggled per-session. ' +
-            'To opt out (not recommended — this disables RCE protection on `browser_evaluate`), set `SUPERSURF_DISABLE_SECURE_EVAL=1` in the server environment.';
-        if (options.rawResult) {
-            return { success: false, error: 'secure_eval_graduated', message: msg };
-        }
-        return {
-            content: [{ type: 'text', text: mgr.statusHeader() + `### \`secure_eval\` Has Graduated\n\n${msg}` }],
-            isError: true,
-        };
-    }
-    const keys = Object.keys(args).filter(k => index_1.experimentRegistry.listAvailable().includes(k));
-    if (keys.length === 0) {
-        const states = index_1.experimentRegistry.getStates();
-        if (options.rawResult) {
-            return { success: true, experiments: states, available: index_1.experimentRegistry.listAvailable() };
-        }
-        return {
-            content: [{
-                    type: 'text',
-                    text: mgr.statusHeader() +
-                        `### Experimental Features\n\n` +
-                        Object.entries(states).map(([k, v]) => `- **${k}**: ${v ? 'enabled' : 'disabled'}`).join('\n') +
-                        `\n\nPass \`{ "feature_name": true/false }\` to toggle.`,
-                }],
-        };
-    }
-    for (const key of keys) {
-        const value = args[key];
-        if (typeof value === 'boolean') {
-            await index_1.experimentRegistry.toggle(key, value);
-            if (key === 'mouse_humanization') {
-                if (value) {
-                    (0, index_2.initSession)('_default');
-                    if (mgr.extensionServer) {
-                        mgr.extensionServer.sendCmd('setHumanizationConfig', { enabled: true }).catch(() => { });
-                    }
-                }
-                else {
-                    (0, index_2.destroySession)('_default');
-                    if (mgr.extensionServer) {
-                        mgr.extensionServer.sendCmd('setHumanizationConfig', { enabled: false }).catch(() => { });
-                    }
-                }
-            }
-        }
-    }
-    const states = index_1.experimentRegistry.getStates();
-    if (options.rawResult) {
-        return { success: true, experiments: states };
-    }
-    return {
-        content: [{
-                type: 'text',
-                text: mgr.statusHeader() +
-                    `### Experimental Features Updated\n\n` +
-                    Object.entries(states).map(([k, v]) => `- **${k}**: ${v ? 'enabled' : 'disabled'}`).join('\n'),
-            }],
-    };
-}
 /**
  * Execute a callback with a daemon connection. Reuses the existing extensionServer
  * if connected, otherwise spawns the daemon (if needed) and creates a temporary
@@ -422,7 +353,7 @@ async function withDaemonConnection(mgr, fn) {
 /** Guard: check that daemon supports profiles. Returns error response or null. */
 function checkProfileCapability(client, options) {
     if (!client.capabilities?.profiles) {
-        const msg = 'Profile management is not enabled on the daemon. Set `SUPERSURF_EXPERIMENTS=profiles` in your environment and restart the session.';
+        const msg = 'Profile management is not enabled on the daemon. Set `experiments.profiles: true` in `~/.supersurf/config.json` (auto-scaffolded on first daemon start) and restart the daemon.';
         return options.rawResult
             ? { success: false, error: 'profiles_not_enabled', message: msg }
             : { content: [{ type: 'text', text: msg }], isError: true };

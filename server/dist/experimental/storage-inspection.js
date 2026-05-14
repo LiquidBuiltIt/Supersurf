@@ -65,7 +65,7 @@ exports.storageInspectionSchema = {
 async function onBrowserStorage(ctx, args, options = {}) {
     if (!index_1.experimentRegistry.isEnabled('storage_inspection')) {
         return ctx.error('The `storage_inspection` experiment is not enabled. ' +
-            'Use the `experimental_features` tool to enable it first.', options);
+            'Edit `~/.supersurf/config.json` (set `experiments.storage_inspection: true`) and restart the daemon.', options);
     }
     const storageType = args.type;
     const action = args.action;

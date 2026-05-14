@@ -1,0 +1,13 @@
+{
+  "version": "0.1.0",
+  "suites": {
+    "v1-foundation": {
+      "description": "Domain 1 vanilla challenges to pressure-test the page contract.",
+      "challenges": [
+        "challenge-course/01-nested-iframe",
+        "challenge-course/02-custom-dropdown",
+        "challenge-course/03-shadow-dom"
+      ]
+    }
+  }
+}

@@ -33,14 +33,6 @@ export declare function onDisconnect(mgr: ConnectionManagerAPI, options?: {
 export declare function onStatus(mgr: ConnectionManagerAPI, options?: {
     rawResult?: boolean;
 }): Promise<any>;
-/**
- * Toggle experimental features. With no recognized keys, lists current states.
- * For mouse_humanization, also initializes/destroys the humanization session
- * and notifies the extension.
- */
-export declare function onExperimentalFeatures(mgr: ConnectionManagerAPI, args?: Record<string, unknown>, options?: {
-    rawResult?: boolean;
-}): Promise<any>;
 /** Create a new managed Chromium profile. */
 export declare function onProfileCreate(mgr: ConnectionManagerAPI, args?: Record<string, unknown>, options?: {
     rawResult?: boolean;

@@ -119,4 +119,35 @@ describe('onNavigate()', () => {
       smartWait: false, // experiments are mocked as disabled
     }));
   });
+
+  it('returns error when post-navigate page is a chrome-error interstitial (neterror bodyClass)', async () => {
+    (ctx.eval as any).mockResolvedValue(JSON.stringify({ bodyClass: 'neterror', href: 'https://blocked.example.com/' }));
+    await onNavigate(ctx, { action: 'url', url: 'https://blocked.example.com/' }, {});
+    expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('Chrome displayed an error interstitial'), expect.anything());
+  });
+
+  it('returns error when post-navigate location is chrome-error://', async () => {
+    (ctx.eval as any).mockResolvedValue(JSON.stringify({ bodyClass: '', href: 'chrome-error://chromewebdata/' }));
+    await onNavigate(ctx, { action: 'url', url: 'https://broken.example.com/' }, {});
+    expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('Chrome displayed an error interstitial'), expect.anything());
+  });
+
+  it('does not flag a normal page as a chrome-error', async () => {
+    (ctx.eval as any).mockResolvedValue(JSON.stringify({ bodyClass: 'page home', href: 'https://example.com/' }));
+    await onNavigate(ctx, { action: 'url', url: 'https://example.com/' }, {});
+    expect(ctx.error).not.toHaveBeenCalled();
+  });
+
+  it('flags chrome-error after reload', async () => {
+    (ctx.eval as any).mockResolvedValue(JSON.stringify({ bodyClass: 'neterror', href: 'https://gone.example.com/' }));
+    await onNavigate(ctx, { action: 'reload' }, {});
+    expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('Chrome displayed an error interstitial'), expect.anything());
+  });
+
+  it('does not crash when chrome-error probe throws', async () => {
+    (ctx.eval as any).mockRejectedValue(new Error('eval failed'));
+    const result = await onNavigate(ctx, { action: 'url', url: 'https://example.com/' }, {});
+    expect(ctx.error).not.toHaveBeenCalled();
+    expect(result).toBeDefined();
+  });
 });

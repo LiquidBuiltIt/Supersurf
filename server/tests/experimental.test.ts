@@ -89,19 +89,38 @@ describe('applyInitialState()', () => {
   });
 
   it('pre-enables session experiments from config', () => {
-    applyInitialState({ enabledExperiments: ['page_diffing', 'smart_waiting'] });
+    applyInitialState({
+      page_diffing: true,
+      smart_waiting: true,
+      storage_inspection: false,
+      mouse_humanization: false,
+      profiles: false,
+    });
     expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
     expect(experimentRegistry.isEnabled('smart_waiting')).toBe(true);
   });
 
   it('silently skips unknown experiment names not in AVAILABLE_EXPERIMENTS', () => {
-    applyInitialState({ enabledExperiments: ['unknown_feature', 'page_diffing'] });
+    applyInitialState({
+      page_diffing: true,
+      smart_waiting: false,
+      storage_inspection: false,
+      mouse_humanization: false,
+      // profiles is not session-toggleable — applyInitialState filters it via isAvailable
+      profiles: true,
+    });
     expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
-    // unknown_feature doesn't throw — just skipped
+    expect(experimentRegistry.isEnabled('profiles')).toBe(false);
   });
 
-  it('does nothing when no config', () => {
-    applyInitialState({});
+  it('does nothing when all experiments disabled', () => {
+    applyInitialState({
+      page_diffing: false,
+      smart_waiting: false,
+      storage_inspection: false,
+      mouse_humanization: false,
+      profiles: false,
+    });
     expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
   });
 });

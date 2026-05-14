@@ -48,7 +48,8 @@ class ExperimentRegistry {
     }
     /**
      * Toggle an experiment. IPCs to daemon, then updates local cache.
-     * Use this from the experimental_features handler (async context).
+     * Reserved for programmatic use; v2 disables session-level toggling
+     * via MCP (experiments come from `~/.supersurf/config.json`).
      */
     async toggle(feature, enabled) {
         if (!this.isAvailable(feature)) {
@@ -112,16 +113,15 @@ class ExperimentRegistry {
 }
 exports.experimentRegistry = new ExperimentRegistry();
 /**
- * Pre-enable session features listed in the env var config.
- * Silently skips feature names that aren't in AVAILABLE_EXPERIMENTS.
+ * Pre-enable session features from a Config experiments snapshot.
+ * Silently skips feature names that aren't in AVAILABLE_EXPERIMENTS
+ * (notably `profiles`, which is a daemon-startup flag, not session-toggleable).
  * Fire-and-forget IPCs to daemon for each enabled experiment.
  */
-function applyInitialState(config) {
-    if (!config.enabledExperiments)
-        return;
-    for (const feature of config.enabledExperiments) {
-        if (exports.experimentRegistry.isAvailable(feature)) {
-            exports.experimentRegistry.enable(feature);
+function applyInitialState(experiments) {
+    for (const [name, enabled] of Object.entries(experiments)) {
+        if (enabled && exports.experimentRegistry.isAvailable(name)) {
+            exports.experimentRegistry.enable(name);
         }
     }
 }

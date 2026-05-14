@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { AuditLogger, redactParams } from '../src/audit-logger';
+import { UsageMetricsLogger, redactParams } from '../src/usage-metrics-logger';
 
 let tempDir: string;
 
 beforeEach(() => {
-  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'supersurf-audit-test-'));
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'supersurf-metrics-test-'));
 });
 
 afterEach(() => {
@@ -68,27 +68,33 @@ describe('redactParams', () => {
   });
 });
 
-describe('AuditLogger', () => {
-  it('creates audit file in the correct directory', () => {
-    const logger = new AuditLogger('test-session', tempDir);
+describe('UsageMetricsLogger', () => {
+  it('writes to metrics-* file path (not audit-*)', () => {
+    const logger = new UsageMetricsLogger('test-session', tempDir);
+    expect(logger.filePath).toMatch(/metrics-test-session-/);
+    expect(logger.filePath).not.toMatch(/audit-/);
+  });
+
+  it('creates metrics file in the correct directory', () => {
+    const logger = new UsageMetricsLogger('test-session', tempDir);
     const logPath = logger.getPath();
 
     expect(logPath).toContain(tempDir);
-    expect(logPath).toContain('audit-test-session-');
+    expect(logPath).toContain('metrics-test-session-');
     expect(logPath).toMatch(/\.ndjson$/);
   });
 
   it('sanitizes session ID in filename', () => {
-    const logger = new AuditLogger('bad/session:name.here', tempDir);
+    const logger = new UsageMetricsLogger('bad/session:name.here', tempDir);
     const logPath = logger.getPath();
 
     expect(path.basename(logPath)).not.toContain('/');
     expect(path.basename(logPath)).not.toContain(':');
-    expect(logPath).toContain('audit-bad_session_name_here-');
+    expect(logPath).toContain('metrics-bad_session_name_here-');
   });
 
   it('writes valid JSON lines', () => {
-    const logger = new AuditLogger('json-test', tempDir);
+    const logger = new UsageMetricsLogger('json-test', tempDir);
 
     logger.write({
       session_id: 'json-test',
@@ -123,7 +129,7 @@ describe('AuditLogger', () => {
   });
 
   it('includes ISO timestamp', () => {
-    const logger = new AuditLogger('ts-test', tempDir);
+    const logger = new UsageMetricsLogger('ts-test', tempDir);
 
     logger.write({
       session_id: 'ts-test',
@@ -139,7 +145,7 @@ describe('AuditLogger', () => {
   });
 
   it('logs error result with error message', () => {
-    const logger = new AuditLogger('error-test', tempDir);
+    const logger = new UsageMetricsLogger('error-test', tempDir);
 
     logger.write({
       session_id: 'error-test',
@@ -157,7 +163,7 @@ describe('AuditLogger', () => {
   });
 
   it('redacts sensitive fields in written entries', () => {
-    const logger = new AuditLogger('redact-test', tempDir);
+    const logger = new UsageMetricsLogger('redact-test', tempDir);
 
     logger.write({
       session_id: 'redact-test',
@@ -175,7 +181,7 @@ describe('AuditLogger', () => {
   });
 
   it('strips data fields from written entries', () => {
-    const logger = new AuditLogger('strip-test', tempDir);
+    const logger = new UsageMetricsLogger('strip-test', tempDir);
 
     logger.write({
       session_id: 'strip-test',
@@ -192,7 +198,7 @@ describe('AuditLogger', () => {
   });
 
   it('includes url when provided', () => {
-    const logger = new AuditLogger('url-test', tempDir);
+    const logger = new UsageMetricsLogger('url-test', tempDir);
 
     logger.write({
       session_id: 'url-test',
@@ -209,7 +215,7 @@ describe('AuditLogger', () => {
   });
 
   it('omits url when not provided', () => {
-    const logger = new AuditLogger('no-url-test', tempDir);
+    const logger = new UsageMetricsLogger('no-url-test', tempDir);
 
     logger.write({
       session_id: 'no-url-test',
@@ -225,7 +231,7 @@ describe('AuditLogger', () => {
   });
 
   it('includes tip field when provided', () => {
-    const logger = new AuditLogger('test', tempDir);
+    const logger = new UsageMetricsLogger('test', tempDir);
     logger.write({
       session_id: 'test',
       tool: 'browser_evaluate',
@@ -241,7 +247,7 @@ describe('AuditLogger', () => {
   });
 
   it('omits tip field when null', () => {
-    const logger = new AuditLogger('test', tempDir);
+    const logger = new UsageMetricsLogger('test', tempDir);
     logger.write({
       session_id: 'test',
       tool: 'browser_tabs',
@@ -256,7 +262,7 @@ describe('AuditLogger', () => {
   });
 
   it('includes client field when provided', () => {
-    const logger = new AuditLogger('test', tempDir);
+    const logger = new UsageMetricsLogger('test', tempDir);
     logger.write({
       session_id: 'test',
       tool: 'connect',
@@ -272,7 +278,7 @@ describe('AuditLogger', () => {
   });
 
   it('includes experiments snapshot when provided', () => {
-    const logger = new AuditLogger('test', tempDir);
+    const logger = new UsageMetricsLogger('test', tempDir);
     logger.write({
       session_id: 'test',
       tool: 'browser_interact',
@@ -293,7 +299,7 @@ describe('AuditLogger', () => {
   });
 
   it('omits client and experiments when not provided', () => {
-    const logger = new AuditLogger('test', tempDir);
+    const logger = new UsageMetricsLogger('test', tempDir);
     logger.write({
       session_id: 'test',
       tool: 'browser_snapshot',

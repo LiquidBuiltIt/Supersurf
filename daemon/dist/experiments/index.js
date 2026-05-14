@@ -26,14 +26,29 @@ const debugLog = (...args) => {
  * Per-session experiment state registry.
  *
  * Stores which experiments each MCP session has enabled. Sessions that haven't
- * explicitly toggled anything inherit from env var defaults (SUPERSURF_EXPERIMENTS).
+ * explicitly toggled anything inherit from defaults injected at construction
+ * time (from ConfigService, which merges file + env + CLI inputs).
  */
 class DaemonExperimentRegistry {
     /** sessionId → Set of enabled experiment names */
     _sessions = new Map();
-    /** Experiments pre-enabled via SUPERSURF_EXPERIMENTS env var */
+    /** Experiments pre-enabled by injected config snapshot. */
     _defaults = new Set();
-    /** Apply environment-variable defaults. Called once at daemon startup. */
+    constructor(opts = {}) {
+        if (opts.defaults) {
+            for (const [name, enabled] of Object.entries(opts.defaults)) {
+                if (enabled && this.isAvailable(name)) {
+                    this._defaults.add(name);
+                    debugLog(`Default enabled: ${name}`);
+                }
+            }
+        }
+    }
+    /**
+     * Apply experiment defaults. Retained for backwards compatibility with
+     * call sites that supply a string list (e.g., tests). New code should
+     * inject defaults via the constructor.
+     */
     applyDefaults(experiments) {
         for (const exp of experiments) {
             if (this.isAvailable(exp)) {

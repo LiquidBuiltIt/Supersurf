@@ -53,7 +53,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConnectionManager = void 0;
-const audit_logger_1 = require("./audit-logger");
+const usage_metrics_logger_1 = require("./usage-metrics-logger");
 const logger_1 = require("./logger");
 const status_1 = require("./backend/status");
 const schemas_1 = require("./backend/schemas");
@@ -83,7 +83,7 @@ class ConnectionManager {
     connectedBrowserName = null;
     attachedTab = null;
     stealthMode = false;
-    auditLogger = null;
+    metricsLogger = null;
     daemonCapabilities = null;
     server = null;
     clientInfo = {};
@@ -135,15 +135,35 @@ class ConnectionManager {
      */
     async callTool(name, rawArguments = {}, options = {}) {
         log(`callTool(${name}) — state: ${this.state}`);
+        // Deprecation stub for experimental_features (removed in v2.0.0).
+        // Returns a clear error pointing the agent at the new config file.
+        if (name === 'experimental_features') {
+            if (options.rawResult) {
+                return {
+                    success: false,
+                    error: 'removed',
+                    message: 'experimental_features was removed in v2.0.0 — edit ~/.supersurf/config.json instead',
+                };
+            }
+            return {
+                content: [{
+                        type: 'text',
+                        text: '### Tool removed in v2.0.0\n\n`experimental_features` was retired. Edit `~/.supersurf/config.json` (auto-scaffolded on first daemon start) and restart the daemon.',
+                    }],
+                isError: true,
+            };
+        }
         const start = Date.now();
         const BACKEND_TOOLS = new Set([
-            'connect', 'disconnect', 'status', 'experimental_features', 'reload_mcp',
+            'connect', 'disconnect', 'status', 'reload_mcp',
             'profile_create', 'profile_list', 'profile_delete',
         ]);
         if (BACKEND_TOOLS.has(name)) {
-            // Create audit logger on connect (before handler, so it captures the connect call itself)
-            if (name === 'connect' && !this.auditLogger && rawArguments.client_id) {
-                this.auditLogger = new audit_logger_1.AuditLogger(String(rawArguments.client_id));
+            // Create metrics logger on connect, gated by config.logging.usage_metrics.
+            // The logger captures the connect call itself, so this must run before the handler.
+            const metricsEnabled = this.config.configService?.get().logging.usage_metrics ?? false;
+            if (name === 'connect' && !this.metricsLogger && rawArguments.client_id && metricsEnabled) {
+                this.metricsLogger = new usage_metrics_logger_1.UsageMetricsLogger(String(rawArguments.client_id));
             }
             let result;
             try {
@@ -156,9 +176,6 @@ class ConnectionManager {
                         break;
                     case 'status':
                         result = await (0, handlers_1.onStatus)(this, options);
-                        break;
-                    case 'experimental_features':
-                        result = await (0, handlers_1.onExperimentalFeatures)(this, rawArguments, options);
                         break;
                     case 'reload_mcp':
                         result = (0, handlers_1.onReloadMCP)(this, options);
@@ -176,7 +193,7 @@ class ConnectionManager {
                         break;
                     }
                 }
-                // Audit log the backend tool call
+                // Usage-metrics log the backend tool call
                 const isError = result?.isError === true || result?.success === false;
                 const entry = {
                     session_id: this.clientId || 'unknown',
@@ -200,11 +217,11 @@ class ConnectionManager {
                         };
                     }
                 }
-                this.auditLogger?.write(entry);
+                this.metricsLogger?.write(entry);
                 return result;
             }
             catch (err) {
-                // Audit log the error
+                // Usage-metrics log the error
                 const entry = {
                     session_id: this.clientId || 'unknown',
                     tool: name,
@@ -222,7 +239,7 @@ class ConnectionManager {
                         };
                     }
                 }
-                this.auditLogger?.write(entry);
+                this.metricsLogger?.write(entry);
                 throw err;
             }
         }

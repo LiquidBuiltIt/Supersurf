@@ -1,10 +1,13 @@
 /**
- * AuditLogger — structured NDJSON audit log for every tool call per session.
+ * UsageMetricsLogger — structured NDJSON usage-metrics log for every tool call per session.
  *
- * Always-on (not gated behind DEBUG_MODE). Writes to
- * `~/.supersurf/logs/sessions/audit-{sessionId}-{timestamp}.ndjson`.
+ * Gated by `config.logging.usage_metrics` (default true in scaffolded config,
+ * false in raw hardcoded defaults). Writes to
+ * `~/.supersurf/logs/sessions/metrics-{sessionId}-{timestamp}.ndjson`.
  *
- * @module audit-logger
+ * Renamed from `AuditLogger` in v2.0.0; older logs are at `audit-*.ndjson`.
+ *
+ * @module usage-metrics-logger
  */
 
 import fs from 'fs';
@@ -20,7 +23,7 @@ const PKG_VERSION: string = (() => {
   }
 })();
 
-const AUDIT_DIR = path.join(os.homedir(), '.supersurf', 'logs', 'sessions');
+const METRICS_DIR = path.join(os.homedir(), '.supersurf', 'logs', 'sessions');
 
 const SENSITIVE_KEYS = new Set(['value', 'password', 'token', 'secret', 'credential']);
 
@@ -37,7 +40,7 @@ export function redactParams(params: Record<string, unknown>): Record<string, un
   return out;
 }
 
-export interface AuditEntry {
+export interface MetricsEntry {
   ts: string;
   version: string;
   session_id: string;
@@ -52,28 +55,29 @@ export interface AuditEntry {
   experiments?: Record<string, boolean>;
 }
 
-export class AuditLogger {
-  private _path: string;
+export class UsageMetricsLogger {
+  readonly filePath: string;
 
-  constructor(sessionId: string, auditDir?: string) {
-    const dir = auditDir ?? AUDIT_DIR;
+  constructor(sessionId: string, metricsDir?: string) {
+    const dir = metricsDir ?? METRICS_DIR;
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    this._path = path.join(dir, `audit-${safe}-${ts}.ndjson`);
+    this.filePath = path.join(dir, `metrics-${safe}-${ts}.ndjson`);
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  write(entry: Omit<AuditEntry, 'ts' | 'version'>): void {
+  write(entry: Omit<MetricsEntry, 'ts' | 'version'>): void {
     const line = JSON.stringify({
       ts: new Date().toISOString(),
       version: PKG_VERSION,
       ...entry,
       params: redactParams(entry.params),
     });
-    fs.appendFileSync(this._path, line + '\n');
+    fs.appendFileSync(this.filePath, line + '\n');
   }
 
+  /** @deprecated Use the readonly `filePath` field. Kept for callers transitioning from v1.x. */
   getPath(): string {
-    return this._path;
+    return this.filePath;
   }
 }

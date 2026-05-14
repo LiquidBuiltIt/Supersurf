@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Custom Dropdown</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 2rem; max-width: 600px; margin: 0 auto; }
+    #combobox {
+      border: 1px solid #888;
+      padding: 0.5rem;
+      cursor: pointer;
+      user-select: none;
+      border-radius: 4px;
+    }
+    #combobox:focus { outline: 2px solid #06c; }
+    #listbox {
+      border: 1px solid #888;
+      border-top: none;
+      margin-top: -1px;
+      background: white;
+    }
+    #listbox[hidden] { display: none; }
+    [role="option"] { padding: 0.5rem; cursor: pointer; }
+    [role="option"]:hover, [role="option"][aria-selected="true"] { background: #eef; }
+    #status { padding: 1rem; margin-top: 1rem; background: #f5f5f5; }
+  </style>
+</head>
+<body>
+  <h1>Challenge: Custom Dropdown</h1>
+  <p><strong>Objective:</strong> Select "Senior" from the seniority dropdown below.</p>
+
+  <label id="combobox-label" for="combobox">Seniority</label>
+  <div id="combobox" role="combobox" aria-expanded="false" aria-controls="listbox"
+       aria-labelledby="combobox-label" tabindex="0">Choose seniority…</div>
+  <div id="listbox" role="listbox" hidden>
+    <div role="option" data-value="junior">Junior</div>
+    <div role="option" data-value="mid">Mid</div>
+    <div role="option" data-value="senior">Senior</div>
+  </div>
+
+  <div id="status">No selection yet.</div>
+
+  <script>
+    window.__webdrive = {
+      challenge_id: "challenge-course/02-custom-dropdown",
+      domain: "challenge-course",
+      objective: "Select 'Senior' from the custom ARIA combobox",
+      timeout_ms: 43200000,
+      started_at: Date.now(),
+      result: null,
+    };
+
+    const combobox = document.getElementById("combobox");
+    const listbox = document.getElementById("listbox");
+    let selected = null;
+
+    function setOpen(open) {
+      combobox.setAttribute("aria-expanded", String(open));
+      listbox.hidden = !open;
+    }
+    function selectOption(opt) {
+      selected = opt.getAttribute("data-value");
+      combobox.textContent = opt.textContent;
+      listbox.querySelectorAll('[role="option"]').forEach((o) => o.setAttribute("aria-selected", "false"));
+      opt.setAttribute("aria-selected", "true");
+      setOpen(false);
+
+      const passed = selected === "senior";
+      window.__webdrive.result = {
+        passed,
+        evidence: { selected },
+        time_ms: Date.now() - window.__webdrive.started_at,
+      };
+      document.getElementById("status").textContent = passed
+        ? `PASS — selected ${selected}.`
+        : `FAIL — selected ${selected}, expected senior.`;
+    }
+
+    combobox.addEventListener("click", () => setOpen(listbox.hidden));
+    combobox.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+        e.preventDefault();
+        setOpen(true);
+      }
+    });
+    listbox.querySelectorAll('[role="option"]').forEach((opt) => {
+      opt.addEventListener("click", () => selectOption(opt));
+    });
+  </script>
+</body>
+</html>

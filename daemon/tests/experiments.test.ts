@@ -195,4 +195,48 @@ describe('DaemonExperimentRegistry', () => {
       expect(available).not.toContain('secure_eval');
     });
   });
+
+  // ── constructor(defaults) — config-injected snapshot ────────
+
+  describe('constructor injection', () => {
+    it('seeds defaults from an experiments snapshot', () => {
+      const injected = new DaemonExperimentRegistry({
+        defaults: {
+          page_diffing: true,
+          smart_waiting: false,
+          storage_inspection: true,
+          mouse_humanization: false,
+          profiles: false,
+        },
+      });
+
+      expect(injected.isEnabled('fresh', 'page_diffing')).toBe(true);
+      expect(injected.isEnabled('fresh', 'storage_inspection')).toBe(true);
+      expect(injected.isEnabled('fresh', 'smart_waiting')).toBe(false);
+      expect(injected.isEnabled('fresh', 'mouse_humanization')).toBe(false);
+    });
+
+    it('ignores the `profiles` flag (handled at daemon-startup level, not per-session)', () => {
+      const injected = new DaemonExperimentRegistry({
+        defaults: {
+          page_diffing: false,
+          smart_waiting: false,
+          storage_inspection: false,
+          mouse_humanization: false,
+          profiles: true,
+        },
+      });
+
+      // `profiles` is not a session-toggleable experiment, so it must not
+      // appear in any session's enabled set.
+      expect(injected.listAvailable()).not.toContain('profiles');
+      const states = injected.getAll('any-session');
+      expect((states as any).profiles).toBeUndefined();
+    });
+
+    it('no defaults when constructed with empty options', () => {
+      const empty = new DaemonExperimentRegistry();
+      expect(empty.isEnabled('s', 'page_diffing')).toBe(false);
+    });
+  });
 });
