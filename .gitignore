@@ -7,6 +7,12 @@ research/
 .superpowers/
 .worktrees/
 
+# Internal architecture/code-walkthrough docs (not user-facing)
+docs/documentation/
+
+# Internal implementation plans (not user-facing)
+docs/superpowers/
+
 # Dependencies
 node_modules/
 

@@ -297,7 +297,7 @@ All WebSocket commands log params and responses. CDP passthrough unwraps to show
 ## Prerequisites
 
 - **Node.js** >= 18
-- **Chrome** or Chromium
+- **Chrome** or Chromium — on Ubuntu/Mint, **must be a deb install, not a Snap**. Snap Chromium's `home` interface denies access to hidden directories, breaking managed profiles under `~/.supersurf/`. Fix on Mint: `sudo snap remove chromium && sudo apt install chromium`. Ubuntu has no first-party deb — use `google-chrome-stable` from Google's signed apt repo instead.
 - An **MCP client** (Claude Code, Claude Desktop, etc.)
 - **macOS or Linux** — Windows is not currently supported. [Vote for Windows support](https://github.com/LiquidBuiltIt/Supersurf/issues/1) if you'd like to see it.
 

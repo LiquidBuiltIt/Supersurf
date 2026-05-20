@@ -58,7 +58,7 @@
     "commander": "^14.0.1",
     "image-size": "^2.0.2",
     "jsonpath-plus": "^10.3.0",
-    "sharp": "^0.34.4",
+    "sharp": "^0.34.5",
     "supersurf-daemon": "*",
     "ws": "^8.18.3"
   },
