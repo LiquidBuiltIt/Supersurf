@@ -170,7 +170,20 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
   await getAccessToken(clientId, clientSecret, refresh_token);
   ok('CWS refresh token valid');
 
-  // 2. Git checks (skipped with --no-github)
+  // 2. npm registry auth — must be logged in to publish daemon + server
+  try {
+    const npmUser = execSync('npm whoami --registry=https://registry.npmjs.org/', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    ok(`npm logged in as ${npmUser}`);
+  } catch {
+    console.error(`\n${red}Not logged in to npm.${reset} Run:`);
+    console.error(`  ${cyan}npm login${reset}\n`);
+    process.exit(1);
+  }
+
+  // 3. Git checks (skipped with --no-github)
   if (noGithub) {
     warn('--no-github: skipping git checks');
   } else {
@@ -216,7 +229,7 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
     }
   }
 
-  // 3. Verify package versions match
+  // 4. Verify package versions match
   const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version;
   const daemonVersion = JSON.parse(readFileSync(resolve(root, 'daemon/package.json'), 'utf8')).version;
   const serverVersion = JSON.parse(readFileSync(resolve(root, 'server/package.json'), 'utf8')).version;
