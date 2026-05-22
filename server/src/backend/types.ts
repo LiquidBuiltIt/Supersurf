@@ -58,7 +58,6 @@ export interface ConnectionManagerAPI {
   connectedBrowserName: string | null;
   attachedTab: TabInfo | null;
   metricsLogger: UsageMetricsLogger | null;
-  daemonCapabilities: { profiles: boolean } | null;
   statusHeader(): string;
   notifyToolsListChanged(): Promise<void>;
   sendLogNotification(level: string, message: string, logger?: string): Promise<void>;

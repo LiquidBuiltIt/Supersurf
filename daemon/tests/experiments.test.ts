@@ -206,7 +206,6 @@ describe('DaemonExperimentRegistry', () => {
           smart_waiting: false,
           storage_inspection: true,
           mouse_humanization: false,
-          profiles: false,
         },
       });
 
@@ -216,20 +215,15 @@ describe('DaemonExperimentRegistry', () => {
       expect(injected.isEnabled('fresh', 'mouse_humanization')).toBe(false);
     });
 
-    it('ignores the `profiles` flag (handled at daemon-startup level, not per-session)', () => {
+    it('regression lock: profiles is not a session-toggleable experiment (graduated)', () => {
+      const reg = new DaemonExperimentRegistry();
+      expect(reg.isAvailable('profiles')).toBe(false);
+      expect(reg.listAvailable()).not.toContain('profiles');
+      // Injecting `profiles: true` via the snapshot is silently dropped — the
+      // type definition no longer carries the key, so the cast is necessary.
       const injected = new DaemonExperimentRegistry({
-        defaults: {
-          page_diffing: false,
-          smart_waiting: false,
-          storage_inspection: false,
-          mouse_humanization: false,
-          profiles: true,
-        },
+        defaults: { page_diffing: false, smart_waiting: false, storage_inspection: false, mouse_humanization: false, profiles: true } as any,
       });
-
-      // `profiles` is not a session-toggleable experiment, so it must not
-      // appear in any session's enabled set.
-      expect(injected.listAvailable()).not.toContain('profiles');
       const states = injected.getAll('any-session');
       expect((states as any).profiles).toBeUndefined();
     });

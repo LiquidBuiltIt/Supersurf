@@ -379,6 +379,15 @@ async function main() {
     process.exit(0);
   }
 
+  // ── Deployment timer — 10s window to abort with Ctrl-C ──
+  console.log(`\n${bold}${yellow}About to publish v${version} to GitHub + npm + Chrome Web Store.${reset}`);
+  console.log(`${dim}Press Ctrl-C within 10 seconds to abort.${reset}\n`);
+  for (let i = 10; i > 0; i--) {
+    process.stdout.write(`\r  ${cyan}→${reset} Deploying in ${bold}${i}${reset}s... `);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  process.stdout.write(`\r  ${green}✓${reset} Deploying now.            \n`);
+
   console.log(`\n${bold}Publishing v${version}${reset}\n`);
 
   // Step 1: GitHub (creates tag, then pushes)

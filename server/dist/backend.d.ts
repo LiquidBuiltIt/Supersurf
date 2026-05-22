@@ -37,9 +37,6 @@ export declare class ConnectionManager implements ConnectionManagerAPI {
     attachedTab: TabInfo | null;
     stealthMode: boolean;
     metricsLogger: UsageMetricsLogger | null;
-    daemonCapabilities: {
-        profiles: boolean;
-    } | null;
     server: Server | null;
     clientInfo: Record<string, unknown>;
     constructor(config: BackendConfig);

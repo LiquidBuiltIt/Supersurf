@@ -145,9 +145,6 @@ export async function onConnect(
     mgr.state = 'active';
     mgr.connectedBrowserName = client.browser;
 
-    // Store daemon capabilities
-    mgr.daemonCapabilities = client.capabilities;
-
     // Connect to a managed profile if requested
     if (args.profile && typeof args.profile === 'string') {
       log('Connecting to profile:', args.profile);
@@ -352,7 +349,6 @@ export async function onStatus(
 /** Daemon connection handle used by profile handlers. */
 interface DaemonHandle {
   sendCmd: (method: string, params: Record<string, unknown>, timeout?: number) => Promise<unknown>;
-  capabilities: { profiles: boolean } | null;
 }
 
 /**
@@ -369,7 +365,6 @@ async function withDaemonConnection(
   if (mgr.extensionServer) {
     return fn({
       sendCmd: (method, params, timeout) => mgr.extensionServer!.sendCmd(method, params, timeout),
-      capabilities: mgr.daemonCapabilities,
     });
   }
 
@@ -381,25 +376,10 @@ async function withDaemonConnection(
     await tempClient.start();
     return await fn({
       sendCmd: (method, params, timeout) => tempClient.sendCmd(method, params, timeout),
-      capabilities: tempClient.capabilities,
     });
   } finally {
     await tempClient.stop().catch(() => {});
   }
-}
-
-/** Guard: check that daemon supports profiles. Returns error response or null. */
-function checkProfileCapability(
-  client: DaemonHandle,
-  options: { rawResult?: boolean }
-): any | null {
-  if (!client.capabilities?.profiles) {
-    const msg = 'Profile management is not enabled on the daemon. Set `experiments.profiles: true` in `~/.supersurf/config.json` (auto-scaffolded on first daemon start) and restart the daemon.';
-    return options.rawResult
-      ? { success: false, error: 'profiles_not_enabled', message: msg }
-      : { content: [{ type: 'text', text: msg }], isError: true };
-  }
-  return null;
 }
 
 /** Create a new managed Chromium profile. */
@@ -410,9 +390,6 @@ export async function onProfileCreate(
 ): Promise<any> {
   try {
     return await withDaemonConnection(mgr, async (client) => {
-      const capErr = checkProfileCapability(client, options);
-      if (capErr) return capErr;
-
       const result = await client.sendCmd('profiles.create', {
         name: args.name,
         experiments: args.experiments,
@@ -443,9 +420,6 @@ export async function onProfileList(
 ): Promise<any> {
   try {
     return await withDaemonConnection(mgr, async (client) => {
-      const capErr = checkProfileCapability(client, options);
-      if (capErr) return capErr;
-
       const result = await client.sendCmd('profiles.list', {}, 10000);
       if (options.rawResult) return result;
 
@@ -483,9 +457,6 @@ export async function onProfileDelete(
 ): Promise<any> {
   try {
     return await withDaemonConnection(mgr, async (client) => {
-      const capErr = checkProfileCapability(client, options);
-      if (capErr) return capErr;
-
       const result = await client.sendCmd('profiles.delete', {
         name: args.name,
       }, 10000);

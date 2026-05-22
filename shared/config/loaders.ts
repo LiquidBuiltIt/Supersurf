@@ -39,7 +39,6 @@ const KNOWN_EXPERIMENTS = [
   'smart_waiting',
   'storage_inspection',
   'mouse_humanization',
-  'profiles',
 ] as const;
 
 type ExperimentName = (typeof KNOWN_EXPERIMENTS)[number];

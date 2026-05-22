@@ -94,21 +94,19 @@ describe('applyInitialState()', () => {
       smart_waiting: true,
       storage_inspection: false,
       mouse_humanization: false,
-      profiles: false,
     });
     expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
     expect(experimentRegistry.isEnabled('smart_waiting')).toBe(true);
   });
 
-  it('silently skips unknown experiment names not in AVAILABLE_EXPERIMENTS', () => {
+  it('regression lock: profiles flag in snapshot is ignored (graduated)', () => {
     applyInitialState({
       page_diffing: true,
       smart_waiting: false,
       storage_inspection: false,
       mouse_humanization: false,
-      // profiles is not session-toggleable — applyInitialState filters it via isAvailable
       profiles: true,
-    });
+    } as any);
     expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
     expect(experimentRegistry.isEnabled('profiles')).toBe(false);
   });
@@ -119,7 +117,6 @@ describe('applyInitialState()', () => {
       smart_waiting: false,
       storage_inspection: false,
       mouse_humanization: false,
-      profiles: false,
     });
     expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
   });

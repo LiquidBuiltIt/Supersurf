@@ -78,7 +78,7 @@ export function getProfileToolSchemas(): ToolSchema[] {
     {
       name: 'profile_create',
       description:
-        'Create a new isolated Chromium profile for browser automation. Each profile gets its own cookies, sessions, and state. Requires `experiments.profiles: true` in `~/.supersurf/config.json` and a daemon restart.',
+        'Create a new isolated Chromium profile for browser automation. Each profile gets its own cookies, sessions, and state.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -104,7 +104,7 @@ export function getProfileToolSchemas(): ToolSchema[] {
     },
     {
       name: 'profile_list',
-      description: 'List all managed Chromium profiles with their running state. Requires `experiments.profiles: true` in `~/.supersurf/config.json` and a daemon restart.',
+      description: 'List all managed Chromium profiles with their running state.',
       inputSchema: { type: 'object', properties: {}, required: [] },
       annotations: {
         title: 'List profiles',
@@ -116,7 +116,7 @@ export function getProfileToolSchemas(): ToolSchema[] {
     {
       name: 'profile_delete',
       description:
-        'Delete a managed Chromium profile and all its data. Cannot delete profiles with active sessions. Requires `experiments.profiles: true` in `~/.supersurf/config.json` and a daemon restart.',
+        'Delete a managed Chromium profile and all its data. Cannot delete profiles with active sessions.',
       inputSchema: {
         type: 'object',
         properties: {

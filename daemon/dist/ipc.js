@@ -43,7 +43,7 @@ class IPCServer {
     onSessionCountChange = null;
     startedAt = Date.now();
     meta;
-    constructor(socketPath, bridge, sessions, scheduler, experiments, meta = { port: 5555, version: 'unknown' }, profileRegistry = null) {
+    constructor(socketPath, bridge, sessions, scheduler, experiments, profileRegistry, meta = { port: 5555, version: 'unknown' }) {
         this.socketPath = socketPath;
         this.bridge = bridge;
         this.sessions = sessions;
@@ -111,7 +111,6 @@ class IPCServer {
                                 type: 'session_ack',
                                 browser: this.bridge.browser,
                                 buildTimestamp: this.bridge.buildTime,
-                                capabilities: { profiles: !!this.profileRegistry },
                             });
                             handshakeComplete = true;
                             debugLog(`Session registered: "${sessionId}"`);
@@ -160,7 +159,7 @@ class IPCServer {
                     this.bridge.sendCmdToProfile(profileId, 'sessionDisconnect', { sessionId }, 5000).catch(() => { });
                     // Kill Chromium if no other sessions are using this profile
                     const remaining = this.sessions.getSessionsForProfile(profileId);
-                    if (remaining.length === 0 && this.profileRegistry) {
+                    if (remaining.length === 0) {
                         const pid = this.profileRegistry.getRunningPid(profileId);
                         if (pid) {
                             debugLog(`Last session for profile "${profileId}" disconnected — killing Chromium (pid ${pid})`);
@@ -259,9 +258,6 @@ class IPCServer {
     }
     /** Handle a profile IPC request directly (no scheduler round-trip). */
     async handleProfileRequest(sessionId, method, params) {
-        if (!this.profileRegistry) {
-            throw new Error('Profile management is not enabled on the daemon. Set `experiments.profiles: true` in `~/.supersurf/config.json` and restart the daemon.');
-        }
         switch (method) {
             case 'profiles.create': {
                 const name = params.name;
@@ -363,7 +359,6 @@ class IPCServer {
             extensionBrowser: this.bridge.browser,
             sessions,
             schedulerQueueDepth: this.scheduler.getQueueDepth(),
-            profilesEnabled: !!this.profileRegistry,
         };
     }
     /** Write an NDJSON line to a socket. */

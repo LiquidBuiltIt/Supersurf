@@ -97,39 +97,6 @@ describe('DaemonClient', () => {
     });
   });
 
-  describe('capabilities', () => {
-    it('parses capabilities from session_ack', async () => {
-      mockDaemon = createMockDaemon(sockPath, {
-        ackResponse: {
-          type: 'session_ack',
-          browser: 'chrome',
-          buildTimestamp: '2026-01-01T00:00:00Z',
-          capabilities: { profiles: true },
-        },
-      });
-      await new Promise(r => mockDaemon!.on('listening', r));
-
-      const client = new DaemonClient(sockPath, 'test');
-      await client.start();
-
-      expect(client.capabilities).toEqual({ profiles: true });
-
-      await client.stop();
-    });
-
-    it('defaults capabilities to null when not present', async () => {
-      mockDaemon = createMockDaemon(sockPath);
-      await new Promise(r => mockDaemon!.on('listening', r));
-
-      const client = new DaemonClient(sockPath, 'test');
-      await client.start();
-
-      expect(client.capabilities).toBeNull();
-
-      await client.stop();
-    });
-  });
-
   describe('sendCmd()', () => {
     it('sends JSON-RPC and receives response', async () => {
       mockDaemon = createMockDaemon(sockPath, {

@@ -34,7 +34,6 @@ export class DaemonClient implements IExtensionTransport {
   private _connected: boolean = false;
   private _browser: string = 'chrome';
   private _buildTime: string | null = null;
-  private _capabilities: { profiles: boolean } | null = null;
 
   onReconnect: (() => void) | null = null;
   onTabInfoUpdate: ((tabInfo: any) => void) | null = null;
@@ -54,10 +53,6 @@ export class DaemonClient implements IExtensionTransport {
 
   get buildTime(): string | null {
     return this._buildTime;
-  }
-
-  get capabilities(): { profiles: boolean } | null {
-    return this._capabilities;
   }
 
   /**
@@ -102,7 +97,6 @@ export class DaemonClient implements IExtensionTransport {
               clearTimeout(connectTimeout);
               this._browser = msg.browser || 'chrome';
               this._buildTime = msg.buildTimestamp || null;
-              this._capabilities = msg.capabilities || null;
               this._connected = true;
               log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
               resolve();

@@ -20,34 +20,87 @@ const debugLog = (...args: unknown[]) => {
   else if ((global as any).DAEMON_DEBUG) console.error('[Chrome]', ...args);
 };
 
-/** Known Chromium binary paths to check (macOS/Linux). */
+/** Known Chromium-family binary paths to check (macOS/Linux). */
 const CHROMIUM_PATHS = [
+  // macOS (Homebrew)
   '/opt/homebrew/bin/chromium',
+  '/opt/homebrew/bin/google-chrome',
   '/usr/local/bin/chromium',
+  '/usr/local/bin/google-chrome',
+  // Linux (deb / system)
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/opt/google/chrome/google-chrome',
 ];
 
+/** Binary names to look up via `which` as a fallback after the path list. */
+const WHICH_NAMES = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable'];
+
 /**
- * Find the Chromium binary on the system.
- * Checks known paths, then falls back to `which chromium`.
+ * Return true if the binary resolves to a path under /snap/.
+ * Snap confinement blocks access to ~/.supersurf/ via AppArmor's home interface
+ * (which excludes hidden directories), so Snap-packaged Chromium cannot run
+ * managed profiles even though the binary itself launches fine.
+ */
+export function isSnapBinary(binPath: string): boolean {
+  try {
+    return fs.realpathSync(binPath).startsWith('/snap/');
+  } catch {
+    return false;
+  }
+}
+
+/** Collect every Chromium-family binary on the system (Snap or otherwise). */
+function collectCandidates(): string[] {
+  const candidates: string[] = [];
+  for (const p of CHROMIUM_PATHS) {
+    if (fs.existsSync(p) && !candidates.includes(p)) candidates.push(p);
+  }
+  for (const name of WHICH_NAMES) {
+    try {
+      const result = execSync(`which ${name}`, { stdio: 'pipe', encoding: 'utf8' }).trim();
+      if (result && !candidates.includes(result)) candidates.push(result);
+    } catch {}
+  }
+  return candidates;
+}
+
+/**
+ * Find a usable Chromium-family binary on the system.
+ * Prefers non-Snap binaries — Snap-confined Chromium cannot access ~/.supersurf/.
  */
 export function findChromiumBinary(): string | null {
-  for (const p of CHROMIUM_PATHS) {
-    if (fs.existsSync(p)) return p;
+  for (const c of collectCandidates()) {
+    if (!isSnapBinary(c)) return c;
   }
-
-  try {
-    const result = execSync('which chromium', { stdio: 'pipe', encoding: 'utf8' }).trim();
-    if (result) return result;
-  } catch {}
-
-  try {
-    const result = execSync('which chromium-browser', { stdio: 'pipe', encoding: 'utf8' }).trim();
-    if (result) return result;
-  } catch {}
-
   return null;
+}
+
+/** True when the only Chromium-family binaries on the system are Snap-confined. */
+export function isSnapOnlySystem(): boolean {
+  const candidates = collectCandidates();
+  return candidates.length > 0 && candidates.every(isSnapBinary);
+}
+
+/** Build a platform-aware error message for when no usable Chromium is found. */
+function buildChromiumNotFoundError(): string {
+  if (isSnapOnlySystem()) {
+    return [
+      'Only Snap Chromium found — Snap confinement blocks access to ~/.supersurf/.',
+      'Fix on Mint:    sudo snap remove chromium && sudo apt install chromium',
+      'Fix on Ubuntu:  sudo snap remove chromium, then install google-chrome-stable from Google\'s apt repo',
+    ].join('\n');
+  }
+  if (os.platform() === 'darwin') {
+    return 'Chromium not found — install via: brew install chromium';
+  }
+  return [
+    'Chromium not found on PATH.',
+    'Install on Mint:    sudo apt install chromium',
+    'Install on Ubuntu:  install google-chrome-stable from Google\'s apt repo',
+  ].join('\n');
 }
 
 /**
@@ -67,7 +120,20 @@ export function spawnChromium(
 ): ChildProcess {
   const binary = findChromiumBinary();
   if (!binary) {
-    throw new Error('Chromium not found — install via brew install chromium');
+    throw new Error(buildChromiumNotFoundError());
+  }
+
+  // Validate extension dir is populated. If ensureExtension() failed on
+  // daemon startup (network down, GitHub unreachable), --load-extension
+  // silently launches Chrome without the extension and the matchmaker waits
+  // forever. Fail loud here instead.
+  if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
+    throw new Error(
+      `Extension not found at ${extensionDir}/manifest.json. ` +
+      `Daemon failed to download the extension from GitHub on startup. ` +
+      `Check ~/.supersurf/logs/daemon.log for the original error, ` +
+      `then restart the daemon: supersurf-daemon restart`,
+    );
   }
 
   const userDataDir = path.join(SUPERSURF_DIR, 'profiles', profileName, 'chrome-data');

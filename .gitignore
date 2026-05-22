@@ -42,6 +42,12 @@ client_secret_*.json
 # Local files (not pushed)
 local/
 
+# Test scratch dirs (project-local tmp for unix sockets in sandboxed envs)
+.tmp-test/
+
+# Internal benchmark suite (not user-facing)
+benchmark/
+
 # OS
 .DS_Store
 Thumbs.db

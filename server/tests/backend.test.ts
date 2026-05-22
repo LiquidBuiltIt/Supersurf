@@ -407,24 +407,8 @@ describe('ConnectionManager', () => {
       await backend.initialize(makeMockServer(), {});
     });
 
-    it('returns profiles_not_enabled from passive state when daemon lacks profiles capability', async () => {
-      // No connect() call — profile tools should still reach the daemon via temp connection
-      mockDaemonClientInstance.capabilities = null;
-      const result = await backend.callTool('profile_list', {}, { rawResult: true });
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('profiles_not_enabled');
-    });
-
-    it('returns profiles_not_enabled when connected but experiment is off', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
-      const result = await backend.callTool('profile_list', {}, { rawResult: true });
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('profiles_not_enabled');
-    });
-
     it('forwards profile_create to daemon', async () => {
       await backend.callTool('connect', { client_id: 'test' });
-      backend.daemonCapabilities = { profiles: true };
       mockDaemonClientInstance.sendCmd.mockResolvedValueOnce({
         success: true,
         profile: { name: 'test', created: '2026-01-01' },
@@ -441,7 +425,6 @@ describe('ConnectionManager', () => {
 
     it('forwards profile_list to daemon', async () => {
       await backend.callTool('connect', { client_id: 'test' });
-      backend.daemonCapabilities = { profiles: true };
       mockDaemonClientInstance.sendCmd.mockResolvedValueOnce({
         profiles: [{ name: 'test', created: '2026-01-01', running: false }],
       });
@@ -452,7 +435,6 @@ describe('ConnectionManager', () => {
 
     it('forwards profile_delete to daemon', async () => {
       await backend.callTool('connect', { client_id: 'test' });
-      backend.daemonCapabilities = { profiles: true };
       mockDaemonClientInstance.sendCmd.mockResolvedValueOnce({ success: true });
 
       const result = await backend.callTool('profile_delete', { name: 'test' }, { rawResult: true });
@@ -461,7 +443,6 @@ describe('ConnectionManager', () => {
 
     it('handles profile create errors', async () => {
       await backend.callTool('connect', { client_id: 'test' });
-      backend.daemonCapabilities = { profiles: true };
       mockDaemonClientInstance.sendCmd.mockRejectedValueOnce(new Error('Profile already exists'));
 
       const result = await backend.callTool('profile_create', { name: 'test' }, { rawResult: true });
@@ -833,7 +814,7 @@ describe('ConnectionManager', () => {
       expect(names).toContain('browser_tabs');
     });
 
-    it('always includes profile tools regardless of daemon capabilities', async () => {
+    it('always includes profile tools', async () => {
       const tools = await backend.listTools();
       const names = tools.map((t: any) => t.name);
       expect(names).toContain('profile_create');

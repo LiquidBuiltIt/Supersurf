@@ -37,7 +37,7 @@ export declare class IPCServer {
     private onSessionCountChange;
     private startedAt;
     private meta;
-    constructor(socketPath: string, bridge: ExtensionBridge, sessions: SessionRegistry, scheduler: RequestScheduler, experiments: DaemonExperimentRegistry, meta?: IPCServerMeta, profileRegistry?: ProfileRegistry | null);
+    constructor(socketPath: string, bridge: ExtensionBridge, sessions: SessionRegistry, scheduler: RequestScheduler, experiments: DaemonExperimentRegistry, profileRegistry: ProfileRegistry, meta?: IPCServerMeta);
     /** Set a callback for session count changes (used by idle timeout). */
     setSessionCountCallback(cb: SessionCountCallback): void;
     /** Start listening on the Unix socket. */

@@ -107,7 +107,7 @@ async function ensureDaemon(port = 5555, debug = false, experiments = []) {
     // Spawn via login shell so the daemon inherits the user's env vars
     // (e.g. SUPERSURF_EXPERIMENTS from .zshrc/.bashrc). MCP clients like
     // IDEs don't source shell profiles, so process.env is incomplete.
-    const shell = process.env.SHELL || '/bin/zsh';
+    const shell = process.env.SHELL || '/bin/bash';
     const fullCmd = [command, ...args].map(a => `'${a}'`).join(' ');
     const env = { ...process.env };
     if (experiments.length > 0) {

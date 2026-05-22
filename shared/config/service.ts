@@ -91,9 +91,6 @@ export class ConfigService {
         mouse_humanization: pick('experiments.mouse_humanization',
           inp.cli.experiments?.mouse_humanization, inp.env.experiments?.mouse_humanization,
           inp.file.experiments?.mouse_humanization, D.experiments.mouse_humanization, isBool, warn),
-        profiles: pick('experiments.profiles',
-          inp.cli.experiments?.profiles, inp.env.experiments?.profiles,
-          inp.file.experiments?.profiles, D.experiments.profiles, isBool, warn),
       },
       security: {
         secure_eval: pick('security.secure_eval',

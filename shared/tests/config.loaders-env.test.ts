@@ -57,11 +57,11 @@ describe('loadEnvConfig', () => {
     expect(warnings[0]).toMatch(/bogus/);
   });
 
-  it('SUPERSURF_EXPERIMENTS=profiles sets experiments.profiles=true without warnings', () => {
+  it('regression lock: profiles is no longer a known experiment (graduated)', () => {
     const { config, warnings } = loadEnvConfig({
       SUPERSURF_EXPERIMENTS: 'profiles',
     });
-    expect(config.experiments?.profiles).toBe(true);
-    expect(warnings).toEqual([]);
+    expect((config.experiments as any)?.profiles).toBeUndefined();
+    expect(warnings.some((w) => w.includes('profiles'))).toBe(true);
   });
 });

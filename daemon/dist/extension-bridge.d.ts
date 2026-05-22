@@ -4,28 +4,26 @@
  * Runs an HTTP + WebSocket server on localhost (default port 5555).
  * Communication uses JSON-RPC 2.0 with correlation IDs for request/response matching.
  *
- * When profiles are enabled, supports multiple concurrent extension connections via
- * the Matchmaker connection pool. When profiles are disabled, operates in single-
- * connection mode (rejects additional connections, same as v1).
+ * Supports multiple concurrent extension connections via the Matchmaker connection
+ * pool. Connections without a profile field are treated as unmanaged (the "bring your
+ * own Chromium" path).
  *
  * @module extension-bridge
  */
 import { Matchmaker } from './profiles/matchmaker';
 /**
  * WebSocket server that bridges the daemon to Chrome extension(s).
- * Supports both single-connection (v1) and pooled connection (profiles) modes.
+ * Routes connections via the Matchmaker pool; unmanaged connections (no profile) are supported.
  */
 export declare class ExtensionBridge {
     private port;
     private host;
     private httpServer;
     private wss;
-    private profilesEnabled;
     /** Connection pool and profile-based routing. */
     matchmaker: Matchmaker;
-    onReconnect: (() => void) | null;
     onTabInfoUpdate: ((tabInfo: any) => void) | null;
-    constructor(port?: number, host?: string, profilesEnabled?: boolean);
+    constructor(port?: number, host?: string);
     /** Browser name from the first available connection (backwards compat). */
     get browser(): string;
     /** Build timestamp from the first available connection (backwards compat). */

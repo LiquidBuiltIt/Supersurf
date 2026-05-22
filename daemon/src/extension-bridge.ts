@@ -4,9 +4,9 @@
  * Runs an HTTP + WebSocket server on localhost (default port 5555).
  * Communication uses JSON-RPC 2.0 with correlation IDs for request/response matching.
  *
- * When profiles are enabled, supports multiple concurrent extension connections via
- * the Matchmaker connection pool. When profiles are disabled, operates in single-
- * connection mode (rejects additional connections, same as v1).
+ * Supports multiple concurrent extension connections via the Matchmaker connection
+ * pool. Connections without a profile field are treated as unmanaged (the "bring your
+ * own Chromium" path).
  *
  * @module extension-bridge
  */
@@ -39,25 +39,22 @@ function registrationHtml(profileName: string): string {
 
 /**
  * WebSocket server that bridges the daemon to Chrome extension(s).
- * Supports both single-connection (v1) and pooled connection (profiles) modes.
+ * Routes connections via the Matchmaker pool; unmanaged connections (no profile) are supported.
  */
 export class ExtensionBridge {
   private port: number;
   private host: string;
   private httpServer: http.Server | null = null;
   private wss: WebSocketServer | null = null;
-  private profilesEnabled: boolean;
 
   /** Connection pool and profile-based routing. */
   matchmaker: Matchmaker;
 
-  onReconnect: (() => void) | null = null;
   onTabInfoUpdate: ((tabInfo: any) => void) | null = null;
 
-  constructor(port: number = 5555, host: string = '127.0.0.1', profilesEnabled: boolean = false) {
+  constructor(port: number = 5555, host: string = '127.0.0.1') {
     this.port = port;
     this.host = host;
-    this.profilesEnabled = profilesEnabled;
     this.matchmaker = new Matchmaker();
   }
 
@@ -86,8 +83,7 @@ export class ExtensionBridge {
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.httpServer = http.createServer((req, res) => {
-        // Profile registration endpoint
-        if (this.profilesEnabled && req.url) {
+        if (req.url) {
           const match = req.url.match(/^\/register\/([a-z0-9][a-z0-9-]*)$/);
           if (match) {
             const profileName = match[1];
@@ -113,23 +109,6 @@ export class ExtensionBridge {
 
       this.wss.on('connection', (ws, req) => {
         debugLog('Extension connection attempt');
-
-        if (!this.profilesEnabled) {
-          // Single-connection mode: reject if already connected
-          if (this.matchmaker.hasConnections) {
-            debugLog('Rejecting new connection — browser already connected (profiles disabled)');
-            const errorMsg = {
-              jsonrpc: '2.0',
-              error: {
-                code: -32001,
-                message: 'Another browser is already connected. Only one browser at a time.',
-              },
-            };
-            ws.send(JSON.stringify(errorMsg));
-            setTimeout(() => ws.close(1008, 'Already connected'), 100);
-            return;
-          }
-        }
 
         // Extract profile from cookie on the upgrade request (survives extension removal)
         let cookieProfile: string | null = null;
@@ -222,10 +201,6 @@ export class ExtensionBridge {
           this.matchmaker.updateProfile(ws, message.profile);
         }
 
-        // Notify about reconnection (backwards compat for unmanaged)
-        if (!this.profilesEnabled && this.onReconnect) {
-          this.onReconnect();
-        }
         return;
       }
 

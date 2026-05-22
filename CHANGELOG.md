@@ -4,6 +4,13 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
+## Unreleased
+
+- feat: `profiles` graduated from experiment to default behavior. Managed Chromium profiles, `profile_create`/`profile_list`/`profile_delete` MCP tools, and the connection-pool matchmaker are now always available — no `experiments.profiles: true` in `~/.supersurf/config.json` required. Decision data: 38,275 tool calls across 36 sessions / 11 versions, 95.9% success rate. No opt-out hatch — the single-connection-only daemon mode is retired; operators who do not need profile isolation can simply ignore the new tools or connect without the `profile` param (the "bring your own Chromium" path)
+- BREAKING: removed `experiments.profiles` config key. Setting it in `~/.supersurf/config.json` will emit an "unknown top-level key" warning and otherwise be ignored. `SUPERSURF_EXPERIMENTS=profiles` likewise warns and is ignored
+- BREAKING: removed `capabilities.profiles` from the daemon's `session_ack` handshake. MCP servers no longer guard profile tools on this capability — the gate is always open
+- chore: added regression-lock tests asserting `profiles` is not present in `Config['experiments']`, not in `KNOWN_EXPERIMENTS`, and not in `DaemonExperimentRegistry.AVAILABLE_EXPERIMENTS`
+
 ## 2.0.0 — 2026-05-13
 
 - **BREAKING: feat**: 3-layer ConfigService — CLI flag > env var > `~/.supersurf/config.json` > hardcoded defaults. Daemon auto-scaffolds `~/.supersurf/config.json` on first run with safe defaults. ConfigService lives in the `shared/` workspace so daemon and server consume one source of truth

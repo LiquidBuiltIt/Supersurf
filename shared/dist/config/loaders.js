@@ -70,7 +70,6 @@ const KNOWN_EXPERIMENTS = [
     'smart_waiting',
     'storage_inspection',
     'mouse_humanization',
-    'profiles',
 ];
 function isKnownExperiment(s) {
     return KNOWN_EXPERIMENTS.includes(s);

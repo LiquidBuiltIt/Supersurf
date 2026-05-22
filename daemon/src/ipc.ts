@@ -51,7 +51,7 @@ export class IPCServer {
   private sessions: SessionRegistry;
   private scheduler: RequestScheduler;
   private experiments: DaemonExperimentRegistry;
-  private profileRegistry: ProfileRegistry | null;
+  private profileRegistry: ProfileRegistry;
   private onSessionCountChange: SessionCountCallback | null = null;
   private startedAt: number = Date.now();
   private meta: IPCServerMeta;
@@ -62,8 +62,8 @@ export class IPCServer {
     sessions: SessionRegistry,
     scheduler: RequestScheduler,
     experiments: DaemonExperimentRegistry,
+    profileRegistry: ProfileRegistry,
     meta: IPCServerMeta = { port: 5555, version: 'unknown' },
-    profileRegistry: ProfileRegistry | null = null,
   ) {
     this.socketPath = socketPath;
     this.bridge = bridge;
@@ -146,7 +146,6 @@ export class IPCServer {
                 type: 'session_ack',
                 browser: this.bridge.browser,
                 buildTimestamp: this.bridge.buildTime,
-                capabilities: { profiles: !!this.profileRegistry },
               });
 
               handshakeComplete = true;
@@ -199,7 +198,7 @@ export class IPCServer {
 
           // Kill Chromium if no other sessions are using this profile
           const remaining = this.sessions.getSessionsForProfile(profileId);
-          if (remaining.length === 0 && this.profileRegistry) {
+          if (remaining.length === 0) {
             const pid = this.profileRegistry.getRunningPid(profileId);
             if (pid) {
               debugLog(`Last session for profile "${profileId}" disconnected — killing Chromium (pid ${pid})`);
@@ -318,10 +317,6 @@ export class IPCServer {
     method: string,
     params: Record<string, unknown>,
   ): Promise<unknown> {
-    if (!this.profileRegistry) {
-      throw new Error('Profile management is not enabled on the daemon. Set `experiments.profiles: true` in `~/.supersurf/config.json` and restart the daemon.');
-    }
-
     switch (method) {
       case 'profiles.create': {
         const name = params.name as string;
@@ -431,7 +426,6 @@ export class IPCServer {
       extensionBrowser: this.bridge.browser,
       sessions,
       schedulerQueueDepth: this.scheduler.getQueueDepth(),
-      profilesEnabled: !!this.profileRegistry,
     };
   }
 

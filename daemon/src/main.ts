@@ -414,10 +414,9 @@ async function main(): Promise<void> {
 
   // Experiment defaults come from the resolved config snapshot (file + env merged).
   const expSnapshot = cfg.get().experiments;
-  const profilesEnabled = expSnapshot.profiles;
 
   // Initialize components
-  const bridge = new ExtensionBridge(port, '127.0.0.1', profilesEnabled);
+  const bridge = new ExtensionBridge(port, '127.0.0.1');
   const sessions = new SessionRegistry();
   const scheduler = new RequestScheduler(bridge, sessions);
   const experiments = new DaemonExperimentRegistry({ defaults: expSnapshot });
@@ -429,37 +428,30 @@ async function main(): Promise<void> {
     logger.log(`[Daemon] Experiment defaults: ${enabledDefaults.join(', ')}`);
   }
 
-  // Profile management setup
-  let profileRegistry: ProfileRegistry | null = null;
+  // Ensure ~/.supersurf/daemon/ exists
+  fs.mkdirSync(path.join(SUPERSURF_DIR, 'daemon'), { recursive: true });
 
-  if (profilesEnabled) {
-    logger.log('[Daemon] Profile management enabled');
-
-    // Ensure ~/.supersurf/daemon/ exists
-    fs.mkdirSync(path.join(SUPERSURF_DIR, 'daemon'), { recursive: true });
-
-    // Pull extension from GitHub if not cached
-    try {
-      await ensureExtension();
-    } catch (err: any) {
-      logger.log(`[Daemon] Warning: Failed to pull extension: ${err.message}`);
-    }
-
-    // Initialize profile registry
-    profileRegistry = new ProfileRegistry(path.join(SUPERSURF_DIR, 'profiles'));
-
-    // Kill orphan Chromium processes from previous crash
-    const entries = replayPidLog();
-    const orphans = findOrphanPids(entries);
-    if (orphans.length > 0) {
-      logger.log(`[Daemon] Cleaning up ${orphans.length} orphan Chromium process(es)`);
-      killOrphanPids(orphans);
-    }
-    truncatePidLog();
+  // Pull extension from GitHub if not cached
+  try {
+    await ensureExtension();
+  } catch (err: any) {
+    logger.log(`[Daemon] Warning: Failed to pull extension: ${err.message}`);
   }
 
+  // Initialize profile registry
+  const profileRegistry = new ProfileRegistry(path.join(SUPERSURF_DIR, 'profiles'));
+
+  // Kill orphan Chromium processes from previous crash
+  const entries = replayPidLog();
+  const orphans = findOrphanPids(entries);
+  if (orphans.length > 0) {
+    logger.log(`[Daemon] Cleaning up ${orphans.length} orphan Chromium process(es)`);
+    killOrphanPids(orphans);
+  }
+  truncatePidLog();
+
   const version = getVersion();
-  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, { port, version }, profileRegistry);
+  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version });
 
   // Idle timeout: exit after the configured idle window with no sessions
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -499,18 +491,16 @@ async function main(): Promise<void> {
     resetIdleTimer();
 
     // Kill all managed Chromium processes
-    if (profileRegistry) {
-      const profiles = profileRegistry.list();
-      for (const p of profiles) {
-        const pid = profileRegistry.getRunningPid(p.name);
-        if (pid !== null) {
-          try {
-            process.kill(pid, 'SIGTERM');
-            logger.log(`[Daemon] Killed Chromium for profile "${p.name}" (pid ${pid})`);
-            appendPidLog({ action: 'kill', profile: p.name, pid, ts: new Date().toISOString() });
-          } catch {}
-          profileRegistry.clearRunningPid(p.name);
-        }
+    const profiles = profileRegistry.list();
+    for (const p of profiles) {
+      const pid = profileRegistry.getRunningPid(p.name);
+      if (pid !== null) {
+        try {
+          process.kill(pid, 'SIGTERM');
+          logger.log(`[Daemon] Killed Chromium for profile "${p.name}" (pid ${pid})`);
+          appendPidLog({ action: 'kill', profile: p.name, pid, ts: new Date().toISOString() });
+        } catch {}
+        profileRegistry.clearRunningPid(p.name);
       }
     }
 

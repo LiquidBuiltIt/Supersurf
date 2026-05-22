@@ -12,7 +12,10 @@ describe('config defaults', () => {
     expect(HARDCODED_DEFAULTS.experiments.smart_waiting).toBe(false);
     expect(HARDCODED_DEFAULTS.experiments.storage_inspection).toBe(false);
     expect(HARDCODED_DEFAULTS.experiments.mouse_humanization).toBe(false);
-    expect(HARDCODED_DEFAULTS.experiments.profiles).toBe(false);
+  });
+
+  it('regression lock: profiles is not an experiment (graduated)', () => {
+    expect('profiles' in HARDCODED_DEFAULTS.experiments).toBe(false);
   });
 
   it('HARDCODED_DEFAULTS port is 5555', () => {

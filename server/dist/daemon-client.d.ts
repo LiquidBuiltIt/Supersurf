@@ -21,16 +21,12 @@ export declare class DaemonClient implements IExtensionTransport {
     private _connected;
     private _browser;
     private _buildTime;
-    private _capabilities;
     onReconnect: (() => void) | null;
     onTabInfoUpdate: ((tabInfo: any) => void) | null;
     constructor(sockPath: string, sessionId: string);
     get connected(): boolean;
     get browser(): string;
     get buildTime(): string | null;
-    get capabilities(): {
-        profiles: boolean;
-    } | null;
     /**
      * Connect to the daemon, send session_register handshake, await session_ack.
      * Resolves when the session is established and browser info is available.

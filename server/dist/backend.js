@@ -84,7 +84,6 @@ class ConnectionManager {
     attachedTab = null;
     stealthMode = false;
     metricsLogger = null;
-    daemonCapabilities = null;
     server = null;
     clientInfo = {};
     constructor(config) {

@@ -6,10 +6,19 @@
 import { type ChildProcess } from 'child_process';
 import type { PidLogEntry } from './types';
 /**
- * Find the Chromium binary on the system.
- * Checks known paths, then falls back to `which chromium`.
+ * Return true if the binary resolves to a path under /snap/.
+ * Snap confinement blocks access to ~/.supersurf/ via AppArmor's home interface
+ * (which excludes hidden directories), so Snap-packaged Chromium cannot run
+ * managed profiles even though the binary itself launches fine.
+ */
+export declare function isSnapBinary(binPath: string): boolean;
+/**
+ * Find a usable Chromium-family binary on the system.
+ * Prefers non-Snap binaries — Snap-confined Chromium cannot access ~/.supersurf/.
  */
 export declare function findChromiumBinary(): string | null;
+/** True when the only Chromium-family binaries on the system are Snap-confined. */
+export declare function isSnapOnlySystem(): boolean;
 /**
  * Spawn a Chromium instance for a managed profile.
  *

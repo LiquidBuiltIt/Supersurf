@@ -60,7 +60,6 @@ export class ConnectionManager implements ConnectionManagerAPI {
   attachedTab: TabInfo | null = null;
   stealthMode: boolean = false;
   metricsLogger: UsageMetricsLogger | null = null;
-  daemonCapabilities: { profiles: boolean } | null = null;
   server: Server | null = null;
   clientInfo: Record<string, unknown> = {};
 
