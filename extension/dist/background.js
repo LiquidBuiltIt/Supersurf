@@ -125,7 +125,10 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     const consoleHandler = new ConsoleHandler(chrome, logger);
     const downloadHandler = new DownloadHandler(chrome, logger);
     tabHandlers.setConsoleInjector((tabId) => consoleHandler.injectConsoleCapture(tabId));
-    tabHandlers.setDialogInjector((tabId) => dialogHandler.setupDialogOverrides(tabId));
+    tabHandlers.setDialogInjector(async (tabId) => {
+        await dialogHandler.setupDialogOverrides(tabId);
+        dialogHandler.startBuffering(tabId);
+    });
     consoleHandler.setupMessageListener();
     iconManager.init();
     networkTracker.init();
@@ -234,8 +237,15 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     chrome.storage.onChanged.addListener((changes, areaName) => {
         if (areaName !== 'local')
             return;
-        if (changes.supersurf_profile?.newValue && typeof changes.supersurf_profile.newValue === 'string') {
-            logger.log('[Background] Profile set:', changes.supersurf_profile.newValue, '— reconnecting');
+        const change = changes.supersurf_profile;
+        // Only reconnect when the profile value actually changes. The daemon now
+        // re-serves the registration page on every managed spawn, which re-writes
+        // the same value on a healthy re-spawn — without this guard that no-op write
+        // would tear down an already-matched connection.
+        if (change?.newValue &&
+            typeof change.newValue === 'string' &&
+            change.newValue !== change.oldValue) {
+            logger.log('[Background] Profile set:', change.newValue, '— reconnecting');
             wsConnection.disconnect();
             wsConnection.connect();
         }
@@ -285,6 +295,10 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // Wire the tab-recovery note provider so every command response can
     // carry a `_recovery` field whenever ensureAttachedTab() had to reattach.
     wsConnection.setRecoveryNoteProvider(() => tabHandlers.consumeRecoveryNote(), () => tabHandlers.clearRecoveryNote());
+    // Wire the dialog event provider so every command response can carry a
+    // `_dialogs` field listing any native/overridden dialogs that fired
+    // since the last call (drained from the page on a 500ms interval).
+    wsConnection.setDialogEventProvider(() => dialogHandler.consumeBufferedEvents());
     // ── Register command handlers ──
     // Each handler corresponds to a JSON-RPC method the server can invoke.
     // Handlers receive params from the server and return results or throw errors.
@@ -462,11 +476,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // dialog
     wsConnection.registerCommandHandler('dialog', async (params) => {
         const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
-        if (params.accept !== undefined) {
-            await dialogHandler.setupDialogOverrides(tabId, params.accept, params.text);
-            return { success: true };
-        }
-        return { events: await dialogHandler.getDialogEvents(tabId) };
+        return dialogHandler.handleDialogCommand(tabId, params);
     });
     // window management
     wsConnection.registerCommandHandler('window', async (params) => {

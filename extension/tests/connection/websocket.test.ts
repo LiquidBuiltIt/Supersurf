@@ -135,6 +135,77 @@ describe('WebSocketConnection', () => {
     });
   });
 
+  describe('dialog event envelope', () => {
+    // Mirror the harness used by the recoveryNoteProvider tests above
+    async function fireCommand(wsInst: WebSocketConnection, message: any): Promise<any> {
+      const sent: any[] = [];
+      (wsInst as any).socket = { readyState: 1, send: (s: string) => sent.push(JSON.parse(s)) };
+      wsInst.isConnected = true;
+      await (wsInst as any)._handleMessage({ data: JSON.stringify(message) });
+      return sent[0];
+    }
+
+    it('attaches _dialogs to an object response when provider returns non-empty events', async () => {
+      ws.registerCommandHandler('echo', async () => ({ ok: true }));
+      const events = [
+        { type: 'alert', message: 'hi', response: 'accepted', timestamp: 1 },
+      ];
+      ws.setDialogEventProvider(() => events);
+
+      const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 10, method: 'echo', params: {} });
+
+      expect(sent.result).toEqual({ ok: true, _dialogs: events });
+    });
+
+    it('omits _dialogs when provider returns an empty array', async () => {
+      ws.registerCommandHandler('echo', async () => ({ ok: true }));
+      ws.setDialogEventProvider(() => []);
+
+      const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 11, method: 'echo', params: {} });
+
+      expect(sent.result).toEqual({ ok: true });
+      expect(sent.result._dialogs).toBeUndefined();
+    });
+
+    it('wraps primitive results as { value, _dialogs } when events fire', async () => {
+      ws.registerCommandHandler('num', async () => 7);
+      const events = [{ type: 'confirm', message: 'q', response: 'dismissed', timestamp: 2 }];
+      ws.setDialogEventProvider(() => events);
+
+      const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 12, method: 'num', params: {} });
+
+      expect(sent.result.value).toBe(7);
+      expect(sent.result._dialogs).toEqual(events);
+    });
+
+    it('survives a provider that throws without breaking the response', async () => {
+      ws.registerCommandHandler('noop', async () => ({ ok: true }));
+      ws.setDialogEventProvider(() => { throw new Error('boom'); });
+
+      const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 13, method: 'noop', params: {} });
+
+      expect(sent.result).toEqual({ ok: true });
+    });
+
+    it('composes with _recovery on the same response', async () => {
+      ws.registerCommandHandler('echo', async () => ({ ok: true }));
+      ws.setRecoveryNoteProvider(() => ({
+        reason: 'no-attached-tab',
+        previousTabId: null,
+        newTabId: 1,
+        url: 'https://x.com',
+      }), () => {});
+      const events = [{ type: 'alert', message: 'hi', response: 'accepted', timestamp: 1 }];
+      ws.setDialogEventProvider(() => events);
+
+      const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 14, method: 'echo', params: {} });
+
+      expect(sent.result.ok).toBe(true);
+      expect(sent.result._recovery).toBeTruthy();
+      expect(sent.result._dialogs).toEqual(events);
+    });
+  });
+
   describe('registerNotificationHandler()', () => {
     it('stores handler in notificationHandlers map', () => {
       const handler = vi.fn();

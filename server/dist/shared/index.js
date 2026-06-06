@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ensureConfigFile = exports.loadEnvConfig = exports.loadJsonConfig = exports.SCAFFOLD_DEFAULTS = exports.HARDCODED_DEFAULTS = exports.ConfigService = exports.replacer = exports.truncateString = exports.sanitizeFilename = exports.LOG_ROOT = exports.FileLogger = void 0;
+exports.SUPERSURF_SERVICE = exports.KeychainNotAvailableError = exports.KeychainError = exports.LinuxKeychainBackend = exports.MacosKeychainBackend = exports.InMemoryKeychainBackend = exports.getKeychainBackend = exports.ensureConfigFile = exports.loadEnvConfig = exports.loadJsonConfig = exports.SCAFFOLD_DEFAULTS = exports.HARDCODED_DEFAULTS = exports.ConfigService = exports.replacer = exports.truncateString = exports.sanitizeFilename = exports.LOG_ROOT = exports.FileLogger = void 0;
 var logger_1 = require("./logger/logger");
 Object.defineProperty(exports, "FileLogger", { enumerable: true, get: function () { return logger_1.FileLogger; } });
 Object.defineProperty(exports, "LOG_ROOT", { enumerable: true, get: function () { return logger_1.LOG_ROOT; } });
@@ -14,4 +14,12 @@ Object.defineProperty(exports, "SCAFFOLD_DEFAULTS", { enumerable: true, get: fun
 Object.defineProperty(exports, "loadJsonConfig", { enumerable: true, get: function () { return index_1.loadJsonConfig; } });
 Object.defineProperty(exports, "loadEnvConfig", { enumerable: true, get: function () { return index_1.loadEnvConfig; } });
 Object.defineProperty(exports, "ensureConfigFile", { enumerable: true, get: function () { return index_1.ensureConfigFile; } });
+var index_2 = require("./keychain/index");
+Object.defineProperty(exports, "getKeychainBackend", { enumerable: true, get: function () { return index_2.getKeychainBackend; } });
+Object.defineProperty(exports, "InMemoryKeychainBackend", { enumerable: true, get: function () { return index_2.InMemoryKeychainBackend; } });
+Object.defineProperty(exports, "MacosKeychainBackend", { enumerable: true, get: function () { return index_2.MacosKeychainBackend; } });
+Object.defineProperty(exports, "LinuxKeychainBackend", { enumerable: true, get: function () { return index_2.LinuxKeychainBackend; } });
+Object.defineProperty(exports, "KeychainError", { enumerable: true, get: function () { return index_2.KeychainError; } });
+Object.defineProperty(exports, "KeychainNotAvailableError", { enumerable: true, get: function () { return index_2.KeychainNotAvailableError; } });
+Object.defineProperty(exports, "SUPERSURF_SERVICE", { enumerable: true, get: function () { return index_2.SUPERSURF_SERVICE; } });
 //# sourceMappingURL=index.js.map

@@ -62,6 +62,9 @@ export class ConnectionManager implements ConnectionManagerAPI {
   metricsLogger: UsageMetricsLogger | null = null;
   server: Server | null = null;
   clientInfo: Record<string, unknown> = {};
+  /** Tracks whether the config-drift warning has already been surfaced this session
+   *  (one-shot per session — sticky until daemon restart). */
+  private _warnedConfigDrift: boolean = false;
 
   constructor(config: BackendConfig) {
     log('Constructor — starting in PASSIVE mode');
@@ -80,6 +83,12 @@ export class ConnectionManager implements ConnectionManagerAPI {
 
   /** Build a one-line status string prepended to every tool response. */
   statusHeader(): string {
+    // One-shot: surface config drift exactly once per session, then suppress.
+    const transport: any = this.extensionServer;
+    const drifted = typeof transport?.isConfigDrifted === 'function' && transport.isConfigDrifted();
+    const surfaceDrift = drifted && !this._warnedConfigDrift;
+    if (surfaceDrift) this._warnedConfigDrift = true;
+
     return buildStatusHeader({
       config: this.config,
       state: this.state,
@@ -88,6 +97,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
       attachedTab: this.attachedTab,
       stealthMode: this.stealthMode,
       extensionServer: this.extensionServer,
+      configDriftWarning: surfaceDrift,
     });
   }
 

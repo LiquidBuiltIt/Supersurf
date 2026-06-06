@@ -13,6 +13,12 @@ import {
   spawnChromium,
 } from '../../src/profiles/chrome';
 
+const spawnMock = vi.fn(() => ({ pid: 12345, unref: vi.fn(), on: vi.fn() }));
+vi.mock('child_process', async () => {
+  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  return { ...actual, spawn: (...args: unknown[]) => spawnMock(...args as Parameters<typeof spawnMock>) };
+});
+
 describe('Chrome PID log', () => {
   let tmpDir: string;
   let originalPidLogFile: string;
@@ -174,5 +180,73 @@ describe('spawnChromium extension dir validation', () => {
       existsSpy.mockRestore();
       realpathSpy.mockRestore();
     }
+  });
+});
+
+describe('spawnChromium registration URL', () => {
+  let existsSpy: ReturnType<typeof vi.spyOn>;
+  let realpathSpy: ReturnType<typeof vi.spyOn>;
+  let mkdirSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    spawnMock.mockClear();
+    existsSpy = vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    realpathSpy = vi.spyOn(fs, 'realpathSync').mockReturnValue('/usr/lib/chromium/chromium' as any);
+    mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined as any);
+  });
+
+  afterEach(() => {
+    existsSpy.mockRestore();
+    realpathSpy.mockRestore();
+    mkdirSpy.mockRestore();
+  });
+
+  it('appends the registration URL when openRegistration is true', () => {
+    spawnChromium('job-search', '/ext', 5555, true);
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args).toContain('http://127.0.0.1:5555/register/job-search');
+  });
+
+  it('omits the registration URL when openRegistration is false', () => {
+    spawnChromium('job-search', '/ext', 5555, false);
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args).not.toContain('http://127.0.0.1:5555/register/job-search');
+  });
+});
+
+describe('spawnChromium startupOpts', () => {
+  let existsSpy: ReturnType<typeof vi.spyOn>;
+  let realpathSpy: ReturnType<typeof vi.spyOn>;
+  let mkdirSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    spawnMock.mockClear();
+    existsSpy = vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    realpathSpy = vi.spyOn(fs, 'realpathSync').mockReturnValue('/usr/lib/chromium/chromium' as any);
+    mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined as any);
+  });
+
+  afterEach(() => {
+    existsSpy.mockRestore();
+    realpathSpy.mockRestore();
+    mkdirSpy.mockRestore();
+  });
+
+  it('omits --disable-gpu by default', () => {
+    spawnChromium('p', '/ext', 5555, false);
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args).not.toContain('--disable-gpu');
+  });
+
+  it('appends --disable-gpu when disableGpu is true', () => {
+    spawnChromium('p', '/ext', 5555, false, { disableGpu: true });
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args).toContain('--disable-gpu');
+  });
+
+  it('omits --disable-gpu when disableGpu is false', () => {
+    spawnChromium('p', '/ext', 5555, false, { disableGpu: false });
+    const args = spawnMock.mock.calls[0][1] as string[];
+    expect(args).not.toContain('--disable-gpu');
   });
 });

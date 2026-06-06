@@ -18,6 +18,13 @@
  */
 import http from 'http';
 import { WebSocket } from 'ws';
+/** Native-dialog event mirrored from the extension's DialogHandler. */
+export interface DialogEvent {
+    type: string;
+    message: string;
+    response: string | null;
+    timestamp: number;
+}
 /** Transport interface abstracting the WebSocket connection to the Chrome extension. */
 export interface IExtensionTransport {
     sendCmd(method: string, params?: Record<string, unknown>, timeout?: number): Promise<any>;
@@ -29,6 +36,8 @@ export interface IExtensionTransport {
     notifyClientId(clientId: string): void;
     start(): Promise<void>;
     stop(): Promise<void>;
+    /** Drain buffered native-dialog events accumulated from prior responses. */
+    consumeDialogEvents(): DialogEvent[];
 }
 /**
  * WebSocket server that bridges the MCP server to the Chrome extension.
@@ -63,6 +72,8 @@ export declare class ExtensionServer implements IExtensionTransport {
      * @throws If extension is disconnected or request times out
      */
     sendCmd(method: string, params?: Record<string, unknown>, timeout?: number): Promise<any>;
+    /** Legacy direct-WS path has no aggregation buffer; returns an empty array. */
+    consumeDialogEvents(): DialogEvent[];
     /** Send an `authenticated` notification to the extension with the session's client ID. */
     notifyClientId(clientId: string): void;
     /** Reject all pending requests with a disconnect error and clear the inflight map. */

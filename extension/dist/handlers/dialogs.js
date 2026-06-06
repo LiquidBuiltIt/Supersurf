@@ -19,6 +19,12 @@
 export class DialogHandler {
     browser;
     logger;
+    /** Sync buffer of dialog events drained from the page since the last consume. */
+    eventBuffer = [];
+    /** Tab whose event log we're draining periodically. */
+    drainTabId = null;
+    /** Drain interval timer id. */
+    drainInterval = null;
     constructor(browserAPI, logger) {
         this.browser = browserAPI;
         this.logger = logger;
@@ -29,7 +35,7 @@ export class DialogHandler {
      * @param accept - Whether confirm() returns true and prompt() returns a value
      * @param promptText - Text returned by prompt() when accepted
      */
-    async setupDialogOverrides(tabId, accept = true, promptText = '') {
+    async setupDialogOverrides(tabId, accept = false, promptText = '') {
         try {
             await this.browser.scripting.executeScript({
                 target: { tabId },
@@ -71,6 +77,111 @@ export class DialogHandler {
         }
         catch (e) {
             this.logger.log('[DialogHandler] Failed to inject:', e.message);
+            throw e;
+        }
+    }
+    /**
+     * Fire CDP `Page.handleJavaScriptDialog` blind to dismiss any native
+     * dialog that escaped the MAIN-world override (e.g. fired by a script
+     * that ran before the override was injected, or fired in an iframe).
+     *
+     * If no dialog is open, CDP returns "No dialog is showing." — we
+     * swallow that case silently. Any other CDP error propagates.
+     */
+    async dismissNativeDialog(tabId, accept, promptText) {
+        try {
+            await this.browser['debugger'].sendCommand({ tabId }, 'Page.handleJavaScriptDialog', { accept, promptText: promptText || '' });
+        }
+        catch (e) {
+            const msg = String(e?.message || e);
+            if (/no dialog is showing/i.test(msg))
+                return;
+            throw e;
+        }
+    }
+    /**
+     * Unified handler for the `'dialog'` WS command. Dispatches behavior based
+     * on whether `accept` was provided.
+     *
+     * - With `accept`: dismiss any live native dialog via CDP (unfreezes the
+     *   renderer if the override missed), then re-inject the MAIN-world stubs
+     *   with the new default, and return any events captured so far.
+     * - Without `accept`: just drain and return the event log.
+     *
+     * The events array is included in both response shapes so the agent
+     * always sees what dialogs fired during the call.
+     * Order matters: dismiss MUST precede stub injection because a live native
+     * dialog freezes the renderer and blocks `chrome.scripting.executeScript`.
+     */
+    async handleDialogCommand(tabId, params) {
+        if (params.accept !== undefined) {
+            const text = params.text || '';
+            await this.dismissNativeDialog(tabId, params.accept, text);
+            await this.setupDialogOverrides(tabId, params.accept, text);
+        }
+        const events = await this.drainDialogEvents(tabId);
+        return { events };
+    }
+    /**
+     * Start a background drain loop that polls `getDialogEvents` and buffers
+     * them. Used to give the WS envelope hook (which must be synchronous) a
+     * source of events without having to await per-call.
+     *
+     * Re-call with a new tabId to switch drain target without restarting the
+     * interval — the most-recent tabId wins on the next tick.
+     */
+    startBuffering(tabId) {
+        this.drainTabId = tabId;
+        if (this.drainInterval)
+            return;
+        this.drainInterval = setInterval(async () => {
+            if (this.drainTabId == null)
+                return;
+            try {
+                const events = await this.drainDialogEvents(this.drainTabId);
+                if (events.length > 0) {
+                    this.eventBuffer.push(...events);
+                }
+            }
+            catch { /* tab may be navigating; ignore */ }
+        }, 500);
+    }
+    /** Stop buffering (e.g. on tab detach). */
+    stopBuffering() {
+        if (this.drainInterval) {
+            clearInterval(this.drainInterval);
+            this.drainInterval = null;
+        }
+        this.drainTabId = null;
+    }
+    /** Synchronously consume buffered events. Used by the WS envelope hook. */
+    consumeBufferedEvents() {
+        if (this.eventBuffer.length === 0)
+            return [];
+        const out = this.eventBuffer;
+        this.eventBuffer = [];
+        return out;
+    }
+    /**
+     * Atomic read-and-clear in a single MAIN-world execution. Prevents the
+     * race where two consecutive drain ticks both read the same events
+     * before the prior tick's clear lands.
+     */
+    async drainDialogEvents(tabId) {
+        try {
+            const results = await this.browser.scripting.executeScript({
+                target: { tabId },
+                world: 'MAIN',
+                func: () => {
+                    const events = window.__supersurfDialogEvents || [];
+                    window.__supersurfDialogEvents = [];
+                    return events;
+                },
+            });
+            return results?.[0]?.result || [];
+        }
+        catch {
+            return [];
         }
     }
     /** Retrieve logged dialog events from the page for the given tab. */

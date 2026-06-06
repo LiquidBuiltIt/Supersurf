@@ -1,0 +1,93 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.HELP_TEXT = void 0;
+exports.pickTarget = pickTarget;
+exports.dispatch = dispatch;
+exports.HELP_TEXT = `supersurf — MCP browser automation for AI agents
+
+Usage: supersurf <command> [options]
+
+Commands:
+  mcp       Start the MCP server over stdio (the agent entrypoint)
+  daemon    Manage the coordinator daemon: start | stop | restart | status | observe
+  creds     Manage credentials in the OS keychain: add | list | rm
+
+Examples:
+  npx supersurf@latest mcp
+  supersurf daemon status
+  supersurf creds add github`;
+function pickTarget(argv) {
+    const subcommand = argv[2];
+    if (subcommand === 'mcp' || subcommand === 'daemon' || subcommand === 'creds') {
+        return {
+            target: subcommand,
+            remainingArgv: [...argv.slice(0, 2), ...argv.slice(3)],
+        };
+    }
+    // No recognized subcommand — intentionally do NOT default to the MCP
+    // server. A bare invocation (or --help) prints usage; an unrecognized
+    // command is a usage error. This keeps the entrypoint explicit so a
+    // misconfigured caller gets help instead of a silently-hanging stdio server.
+    return { target: 'help', remainingArgv: argv };
+}
+async function dispatch(argv) {
+    const { target, remainingArgv } = pickTarget(argv);
+    if (target === 'help') {
+        const sub = argv[2];
+        if (sub === undefined || sub === '--help' || sub === '-h') {
+            // Bare `supersurf` or an explicit help flag → usage on stdout, exit 0.
+            console.log(exports.HELP_TEXT);
+            return;
+        }
+        // Unrecognized command → usage on stderr, non-zero exit.
+        console.error(`supersurf: unknown command '${sub}'\n`);
+        console.error(exports.HELP_TEXT);
+        process.exit(1);
+    }
+    process.argv = remainingArgv;
+    if (target === 'mcp') {
+        await Promise.resolve().then(() => __importStar(require('../cli')));
+    }
+    else if (target === 'daemon') {
+        // @ts-ignore - resolved at runtime after daemon bundle copy
+        await Promise.resolve().then(() => __importStar(require('../daemon/main')));
+    }
+    else {
+        const credsModule = await Promise.resolve().then(() => __importStar(require('./creds')));
+        await credsModule.runCredsProgram(remainingArgv);
+    }
+}
+//# sourceMappingURL=dispatcher.js.map

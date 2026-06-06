@@ -10,7 +10,7 @@
 
 import net from 'net';
 import crypto from 'crypto';
-import type { IExtensionTransport } from './bridge';
+import type { IExtensionTransport, DialogEvent } from './bridge';
 import { createLog } from './logger';
 
 const log = createLog('[Daemon]');
@@ -34,6 +34,9 @@ export class DaemonClient implements IExtensionTransport {
   private _connected: boolean = false;
   private _browser: string = 'chrome';
   private _buildTime: string | null = null;
+  private _configDrift: boolean = false;
+  private _version: string | null = null;
+  private dialogEventBuffer: DialogEvent[] = [];
 
   onReconnect: (() => void) | null = null;
   onTabInfoUpdate: ((tabInfo: any) => void) | null = null;
@@ -53,6 +56,24 @@ export class DaemonClient implements IExtensionTransport {
 
   get buildTime(): string | null {
     return this._buildTime;
+  }
+
+  /** The daemon's reported package version, or null for a pre-v3 daemon. */
+  get version(): string | null {
+    return this._version;
+  }
+
+  /** True when the daemon has detected a config file change since its startup. */
+  isConfigDrifted(): boolean {
+    return this._configDrift;
+  }
+
+  /** Drain and return buffered native-dialog events captured from prior responses. */
+  consumeDialogEvents(): DialogEvent[] {
+    if (this.dialogEventBuffer.length === 0) return [];
+    const events = this.dialogEventBuffer;
+    this.dialogEventBuffer = [];
+    return events;
   }
 
   /**
@@ -98,6 +119,8 @@ export class DaemonClient implements IExtensionTransport {
               this._browser = msg.browser || 'chrome';
               this._buildTime = msg.buildTimestamp || null;
               this._connected = true;
+              if (msg.config_drift === true) this._configDrift = true;
+              this._version = msg.version || null;
               log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
               resolve();
               continue;
@@ -111,6 +134,7 @@ export class DaemonClient implements IExtensionTransport {
 
             // JSON-RPC responses
             if (msg.jsonrpc === '2.0' && msg.id !== undefined) {
+              if (msg.config_drift === true) this._configDrift = true;
               const pending = this.inflight.get(String(msg.id));
               if (pending) {
                 this.inflight.delete(String(msg.id));
@@ -121,6 +145,13 @@ export class DaemonClient implements IExtensionTransport {
                   const result = msg.result;
                   if (result && typeof result === 'object' && 'currentTab' in result && this.onTabInfoUpdate) {
                     this.onTabInfoUpdate(result.currentTab);
+                  }
+                  if (result && typeof result === 'object' && Array.isArray((result as any)._dialogs)) {
+                    const dialogs = (result as any)._dialogs as DialogEvent[];
+                    if (dialogs.length > 0) {
+                      for (const d of dialogs) this.dialogEventBuffer.push(d);
+                    }
+                    delete (result as any)._dialogs;
                   }
                   pending.resolve(msg.result);
                 }

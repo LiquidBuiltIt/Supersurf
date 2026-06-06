@@ -24,7 +24,7 @@ vi.mock('../src/daemon-spawn', async () => {
   };
 });
 
-import { isDaemonRunning, getSockPath, getPidPath } from '../src/daemon-spawn';
+import { isDaemonRunning, getSockPath, getPidPath, resolveDaemonEntry } from '../src/daemon-spawn';
 
 describe('daemon-spawn', () => {
   beforeEach(() => {
@@ -60,5 +60,17 @@ describe('daemon-spawn', () => {
       // We can't easily test without deeper mocking, so test the concept
       expect(typeof isDaemonRunning()).toBe('boolean');
     });
+  });
+});
+
+describe('resolveDaemonEntry', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('prefers the bundled daemon when it exists', () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    const entry = resolveDaemonEntry();
+    expect(entry.endsWith(path.join('daemon', 'main.js'))).toBe(true);
   });
 });

@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getSockPath = getSockPath;
 exports.getPidPath = getPidPath;
 exports.isDaemonRunning = isDaemonRunning;
+exports.resolveDaemonEntry = resolveDaemonEntry;
 exports.ensureDaemon = ensureDaemon;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
@@ -61,6 +62,26 @@ function isDaemonRunning() {
     }
 }
 /**
+ * Resolve the daemon entry script WITHOUT touching the network.
+ * Prefers the bundled daemon shipped inside this package
+ * (server/dist/daemon/main.js); falls back to the workspace
+ * `supersurf-daemon` package for local dev (running from source via tsx).
+ * Throws if neither is found — we never fetch `@latest` from npm, which
+ * is what caused a published v3 server to pull a stale v2 daemon.
+ */
+function resolveDaemonEntry() {
+    const bundled = path_1.default.join(__dirname, 'daemon', 'main.js');
+    if (fs_1.default.existsSync(bundled))
+        return bundled;
+    try {
+        return require.resolve('supersurf-daemon/dist/main.js');
+    }
+    catch {
+        throw new Error(`Daemon entry not found. Looked for the bundled daemon at ${bundled} ` +
+            `and the workspace 'supersurf-daemon' package. Rebuild with 'npm run build'.`);
+    }
+}
+/**
  * Ensure the daemon is running. If not, spawn it and wait for the socket file.
  *
  * @param port - WebSocket port for the extension connection (default 5555)
@@ -88,20 +109,11 @@ async function ensureDaemon(port = 5555, debug = false, experiments = []) {
     if (!fs_1.default.existsSync(SUPERSURF_DIR)) {
         fs_1.default.mkdirSync(SUPERSURF_DIR, { recursive: true });
     }
-    // Resolve the daemon — try local install first, then npx
-    let command;
-    let args;
-    try {
-        const daemonPath = require.resolve('supersurf-daemon/dist/main.js');
-        log('Daemon resolved locally:', daemonPath);
-        command = process.execPath;
-        args = [daemonPath, '--port', String(port)];
-    }
-    catch {
-        log('Daemon not found locally, falling back to npx (will fetch from npm)');
-        command = 'npx';
-        args = ['supersurf-daemon@latest', '--port', String(port)];
-    }
+    // Resolve the daemon from inside this package — never from the network.
+    const daemonPath = resolveDaemonEntry();
+    log('Daemon entry resolved:', daemonPath);
+    const command = process.execPath;
+    const args = [daemonPath, '--port', String(port)];
     if (debug)
         args.push('--debug');
     // Spawn via login shell so the daemon inherits the user's env vars

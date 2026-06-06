@@ -54,6 +54,18 @@ export class WebSocketConnection {
         this.recoveryNoteProvider = provider;
         this.recoveryNoteReset = reset ?? null;
     }
+    /**
+     * Optional hook consulted after each command handler returns. Used by
+     * the dialog handler to attach a `_dialogs` array to the response
+     * envelope listing any native/overridden dialogs that fired during the
+     * call (or since the previous call). Returns an array of events, or
+     * empty if none.
+     */
+    dialogEventProvider = null;
+    /** Register the dialog event provider (see `dialogEventProvider`). */
+    setDialogEventProvider(provider) {
+        this.dialogEventProvider = provider;
+    }
     constructor(browserAPI, logger, iconManager, buildTimestamp = null) {
         this.browser = browserAPI;
         this.logger = logger;
@@ -265,6 +277,20 @@ export class WebSocketConnection {
                         }
                         else {
                             finalResponse = { value: finalResponse, _recovery: note };
+                        }
+                    }
+                }
+                catch { /* never let the hook break a response */ }
+            }
+            if (this.dialogEventProvider) {
+                try {
+                    const events = this.dialogEventProvider();
+                    if (events && events.length > 0) {
+                        if (finalResponse && typeof finalResponse === 'object') {
+                            finalResponse = { ...finalResponse, _dialogs: events };
+                        }
+                        else {
+                            finalResponse = { value: finalResponse, _dialogs: events };
                         }
                     }
                 }

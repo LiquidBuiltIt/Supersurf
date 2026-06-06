@@ -38,6 +38,9 @@ export type SessionCountCallback = (count: number) => void;
 export interface IPCServerMeta {
   port: number;
   version: string;
+  startupOpts?: {
+    disableGpu?: boolean;
+  };
 }
 
 /**
@@ -55,6 +58,7 @@ export class IPCServer {
   private onSessionCountChange: SessionCountCallback | null = null;
   private startedAt: number = Date.now();
   private meta: IPCServerMeta;
+  private configDrift: boolean = false;
 
   constructor(
     socketPath: string,
@@ -77,6 +81,11 @@ export class IPCServer {
   /** Set a callback for session count changes (used by idle timeout). */
   setSessionCountCallback(cb: SessionCountCallback): void {
     this.onSessionCountChange = cb;
+  }
+
+  /** Mark that the on-disk config has changed since daemon startup. */
+  setConfigDrift(drifted: boolean): void {
+    this.configDrift = drifted;
   }
 
   /** Start listening on the Unix socket. */
@@ -146,6 +155,7 @@ export class IPCServer {
                 type: 'session_ack',
                 browser: this.bridge.browser,
                 buildTimestamp: this.bridge.buildTime,
+                version: this.meta.version,
               });
 
               handshakeComplete = true;
@@ -350,8 +360,19 @@ export class IPCServer {
 
             matchmaker.pendingSpawns.add(profile);
             try {
-              const isFirstLaunch = !registry.isInitialized(profile);
-              const child = spawnChromium(profile, getExtensionDir(), this.meta.port, isFirstLaunch);
+              // Always open the registration URL so the extension re-binds its
+              // profile in chrome.storage.local on every spawn. An already-
+              // initialized profile whose storage lost `supersurf_profile`
+              // (force-kill, rsync'd profile, Chrome corruption) would otherwise
+              // hand the daemon a handshake with no profile field, get pooled as
+              // unmanaged, and never resolve the pending match.
+              const child = spawnChromium(
+                profile,
+                getExtensionDir(),
+                this.meta.port,
+                true,
+                this.meta.startupOpts ?? {},
+              );
               const pid = child.pid!;
               registry.setRunningPid(profile, pid);
               appendPidLog({ action: 'spawn', profile, pid, ts: new Date().toISOString() });
@@ -429,9 +450,15 @@ export class IPCServer {
     };
   }
 
-  /** Write an NDJSON line to a socket. */
+  /** Write an NDJSON line to a socket. Injects `config_drift` into session_ack
+   *  and JSON-RPC response envelopes when the config file has changed since
+   *  daemon startup. */
   private sendLine(socket: net.Socket, data: any): void {
     if (!socket.writable) return;
+    if (this.configDrift && data && typeof data === 'object'
+        && (data.type === 'session_ack' || data.jsonrpc === '2.0')) {
+      data = { ...data, config_drift: true };
+    }
     socket.write(JSON.stringify(data) + '\n');
   }
 

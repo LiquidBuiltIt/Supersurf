@@ -108,6 +108,30 @@ export async function onConnect(
     const sockPath = getSockPath();
     const client = new DaemonClient(sockPath, mgr.clientId!);
     await client.start();
+
+    // Refuse to attach to a daemon of a different generation. A freshly
+    // spawned bundled daemon always matches this server's version; a
+    // mismatch means ensureDaemon attached to a pre-existing daemon (e.g.
+    // a stale v2 process still running). A null version is a pre-v3 daemon
+    // that predates the handshake version field — also a mismatch.
+    const daemonVersion = client.version;
+    const serverVersion = mgr.config.server.version;
+    if (daemonVersion !== serverVersion) {
+      await client.stop().catch(() => {});
+      mgr.state = 'passive';
+      const hint =
+        `A different daemon version is already running ` +
+        `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ` +
+        'Restart it to continue: `npx supersurf daemon restart`';
+      if (options.rawResult) {
+        return { success: false, error: 'version_mismatch', message: hint };
+      }
+      return {
+        content: [{ type: 'text', text: `### Daemon Version Mismatch\n\n${hint}` }],
+        isError: true,
+      };
+    }
+
     mgr.extensionServer = client;
 
     // Handle extension reconnections

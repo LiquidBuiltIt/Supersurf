@@ -21,6 +21,8 @@ interface StatusInput {
   attachedTab: TabInfo | null;
   stealthMode: boolean;
   extensionServer: IExtensionTransport | null;
+  /** When true, prepends a one-time warning that `~/.supersurf/config.json` changed since daemon start. */
+  configDriftWarning?: boolean;
 }
 
 /**
@@ -28,11 +30,14 @@ interface StatusInput {
  * Returns a string ending with `\n---\n\n` for markdown separation.
  */
 export function buildStatusHeader(input: StatusInput): string {
-  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer } = input;
+  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, configDriftWarning } = input;
   const version = config.server.version;
+  const driftLine = configDriftWarning
+    ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf daemon restart`\n\n'
+    : '';
 
   if (state === 'passive') {
-    return `🔴 v${version} | Disabled\n---\n\n`;
+    return `${driftLine}🔴 v${version} | Disabled\n---\n\n`;
   }
 
   const parts: string[] = [];
@@ -80,5 +85,5 @@ export function buildStatusHeader(input: StatusInput): string {
     parts.push(`🕵️ Stealth`);
   }
 
-  return parts.join(' | ') + '\n---\n\n';
+  return driftLine + parts.join(' | ') + '\n---\n\n';
 }

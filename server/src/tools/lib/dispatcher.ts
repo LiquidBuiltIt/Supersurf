@@ -88,7 +88,8 @@ export async function dispatchTool(
         if (experimentalResult !== null) { result = experimentalResult; break; }
         callResult = 'error';
         callError = `Unknown tool: ${name}`;
-        return formatError(callError, options);
+        result = formatError(callError, options);
+        return result;
       }
     }
 
@@ -97,13 +98,14 @@ export async function dispatchTool(
       callError = result?.content?.[0]?.text ?? 'unknown error';
     }
 
-    return await maybeAppendScreenshot(
+    result = await maybeAppendScreenshot(
       name,
       args,
       options,
       result,
       () => onScreenshot(ctx, {}, { rawResult: true }),
     );
+    return result;
   } catch (error: any) {
     log(`Tool error (${name}):`, error.message);
     const msg = error.message || String(error);
@@ -112,17 +114,18 @@ export async function dispatchTool(
 
     if (/debugger|attach|detach|target closed|session/i.test(msg) &&
         /another|conflict|denied|cannot|failed/i.test(msg)) {
-      return formatError(
+      result = formatError(
         msg + '\n\n' +
         '**Possible extension conflict.** Another extension may be using the Chrome debugger.\n\n' +
         '**Common culprits:** iCloud Passwords, password managers, or other DevTools extensions.\n' +
         'Try disabling other extensions at `chrome://extensions` and retry.',
         options,
       );
+      return result;
     }
 
     if (/Target crashed/i.test(msg)) {
-      return formatError(
+      result = formatError(
         'The browser tab\'s renderer process crashed.\n\n' +
         '**What this means:** The page hit an unrecoverable error (out-of-memory, native crash, or a heavy DOM operation on a broken page like a `chrome-error://` interstitial). The tab is no longer usable.\n\n' +
         '**Recovery:**\n' +
@@ -131,10 +134,11 @@ export async function dispatchTool(
         '3. If this happened after `browser_evaluate` or `browser_lookup` on a failed page, check `browser_navigate` returned the expected URL — error pages can\'t be queried with heavy DOM selectors.',
         options,
       );
+      return result;
     }
 
     if (/CDP timeout: Runtime\.evaluate/i.test(msg)) {
-      return formatError(
+      result = formatError(
         'JavaScript evaluation in the page timed out (50s).\n\n' +
         '**What this usually means:** The renderer is hung or recovering from a recent crash. Even trivial expressions like `() => 1` hang during the ~50s recovery window after a `Target crashed`.\n\n' +
         '**Recovery:**\n' +
@@ -143,10 +147,13 @@ export async function dispatchTool(
         '3. Confirm the page actually loaded — `browser_evaluate` against a `chrome-error://` page or a hung navigation will time out repeatedly.',
         options,
       );
+      return result;
     }
 
-    return formatError(msg, options);
+    result = formatError(msg, options);
+    return result;
   } finally {
+    result = prependDialogNotice(result, ctx, options);
     const url = env.getCurrentUrl();
     const sessionId = env.clientId ?? 'unknown';
     const tipsEnabled = ctx.config?.get().tips ?? true;
@@ -170,4 +177,43 @@ export async function dispatchTool(
       result.content[0].text += `\n\n---\n${tip}`;
     }
   }
+}
+
+/**
+ * Drain any native-dialog events buffered on the transport since the last
+ * tool call and prepend a `⚠ dialog fired` notice to the result's first
+ * text block. Multi-step tools (e.g. browser_interact) can fire several
+ * extension RPCs per dispatch; aggregating at this layer captures dialogs
+ * from every sub-call. Skipped in rawResult mode — script-mode consumers
+ * get the raw value with no formatted notice.
+ */
+function prependDialogNotice(
+  result: any,
+  ctx: ToolContext,
+  options: { rawResult?: boolean },
+): any {
+  const transport: any = ctx.ext;
+  if (typeof transport?.consumeDialogEvents !== 'function') return result;
+
+  const events = transport.consumeDialogEvents();
+  if (!events || events.length === 0) return result;
+  if (options.rawResult) return result;
+
+  const lines = events.map((d: any) => {
+    const msg = d.message != null ? `: ${JSON.stringify(d.message)}` : '';
+    const resp = d.response != null ? ` → ${d.response}` : '';
+    return `⚠ dialog fired: ${d.type}${msg}${resp}`;
+  });
+  const notice = lines.join('\n') + '\n';
+
+  if (result && Array.isArray(result.content)) {
+    const firstText = result.content.find((b: any) => b?.type === 'text');
+    if (firstText) {
+      firstText.text = notice + firstText.text;
+    } else {
+      result.content.unshift({ type: 'text', text: notice });
+    }
+  }
+
+  return result;
 }

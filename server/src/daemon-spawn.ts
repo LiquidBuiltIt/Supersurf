@@ -57,6 +57,27 @@ export function isDaemonRunning(): boolean {
 }
 
 /**
+ * Resolve the daemon entry script WITHOUT touching the network.
+ * Prefers the bundled daemon shipped inside this package
+ * (server/dist/daemon/main.js); falls back to the workspace
+ * `supersurf-daemon` package for local dev (running from source via tsx).
+ * Throws if neither is found — we never fetch `@latest` from npm, which
+ * is what caused a published v3 server to pull a stale v2 daemon.
+ */
+export function resolveDaemonEntry(): string {
+  const bundled = path.join(__dirname, 'daemon', 'main.js');
+  if (fs.existsSync(bundled)) return bundled;
+  try {
+    return require.resolve('supersurf-daemon/dist/main.js');
+  } catch {
+    throw new Error(
+      `Daemon entry not found. Looked for the bundled daemon at ${bundled} ` +
+      `and the workspace 'supersurf-daemon' package. Rebuild with 'npm run build'.`,
+    );
+  }
+}
+
+/**
  * Ensure the daemon is running. If not, spawn it and wait for the socket file.
  *
  * @param port - WebSocket port for the extension connection (default 5555)
@@ -80,20 +101,11 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
     fs.mkdirSync(SUPERSURF_DIR, { recursive: true });
   }
 
-  // Resolve the daemon — try local install first, then npx
-  let command: string;
-  let args: string[];
-
-  try {
-    const daemonPath = require.resolve('supersurf-daemon/dist/main.js');
-    log('Daemon resolved locally:', daemonPath);
-    command = process.execPath;
-    args = [daemonPath, '--port', String(port)];
-  } catch {
-    log('Daemon not found locally, falling back to npx (will fetch from npm)');
-    command = 'npx';
-    args = ['supersurf-daemon@latest', '--port', String(port)];
-  }
+  // Resolve the daemon from inside this package — never from the network.
+  const daemonPath = resolveDaemonEntry();
+  log('Daemon entry resolved:', daemonPath);
+  const command: string = process.execPath;
+  const args: string[] = [daemonPath, '--port', String(port)];
 
   if (debug) args.push('--debug');
 

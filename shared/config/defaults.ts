@@ -23,6 +23,11 @@ export const HARDCODED_DEFAULTS: Config = {
     debug: false,
     usage_metrics: false,
   },
+  profiles: {
+    startup_opts: {
+      disable_gpu: false,
+    },
+  },
   tips: true,
 };
 
@@ -35,4 +40,7 @@ export const SCAFFOLD_DEFAULTS: Config = {
   },
   daemon: { ...HARDCODED_DEFAULTS.daemon },
   logging: { ...HARDCODED_DEFAULTS.logging, usage_metrics: true },
+  profiles: {
+    startup_opts: { ...HARDCODED_DEFAULTS.profiles.startup_opts },
+  },
 };

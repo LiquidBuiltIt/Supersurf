@@ -39,6 +39,9 @@ export declare class ConnectionManager implements ConnectionManagerAPI {
     metricsLogger: UsageMetricsLogger | null;
     server: Server | null;
     clientInfo: Record<string, unknown>;
+    /** Tracks whether the config-drift warning has already been surfaced this session
+     *  (one-shot per session — sticky until daemon restart). */
+    private _warnedConfigDrift;
     constructor(config: BackendConfig);
     /** Store server reference and client metadata. Does not start the WebSocket — that happens in `enable`. */
     initialize(server: Server | null, clientInfo: Record<string, unknown>): Promise<void>;

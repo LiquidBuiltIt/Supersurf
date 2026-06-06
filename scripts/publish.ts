@@ -58,11 +58,10 @@ const run = (cmd: string) => execSync(cmd, { cwd: root, stdio: 'inherit' });
 
 // ── Result tracking ──────────────────────────────────────────
 
-type Step = 'github' | 'npm:daemon' | 'npm:server' | 'cws';
+type Step = 'github' | 'npm:supersurf' | 'cws';
 const results: Record<Step, 'pending' | 'success' | 'failed' | 'skipped'> = {
   'github': 'pending',
-  'npm:daemon': 'pending',
-  'npm:server': 'pending',
+  'npm:supersurf': 'pending',
   'cws': 'pending',
 };
 const errors: Record<string, string> = {};
@@ -231,14 +230,12 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
 
   // 4. Verify package versions match
   const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version;
-  const daemonVersion = JSON.parse(readFileSync(resolve(root, 'daemon/package.json'), 'utf8')).version;
   const serverVersion = JSON.parse(readFileSync(resolve(root, 'server/package.json'), 'utf8')).version;
   const extVersion = JSON.parse(readFileSync(resolve(extDir, 'manifest.json'), 'utf8')).version;
 
-  if (daemonVersion !== version || serverVersion !== version || extVersion !== version) {
+  if (serverVersion !== version || extVersion !== version) {
     console.error(`\n${red}Version mismatch across packages:${reset}`);
     console.error(`  Root:      ${version}`);
-    console.error(`  Daemon:    ${daemonVersion}`);
     console.error(`  Server:    ${serverVersion}`);
     console.error(`  Extension: ${extVersion}\n`);
     process.exit(1);
@@ -291,14 +288,14 @@ function pushToGitHub(version: string) {
   }
 }
 
-function publishNpm(pkg: 'daemon' | 'server') {
-  const step: Step = `npm:${pkg}`;
-  const dir = resolve(root, pkg);
-  info(`Publishing ${pkg} to npm...`);
+function publishNpm() {
+  const step: Step = 'npm:supersurf';
+  const dir = resolve(root, 'server');
+  info(`Publishing supersurf to npm...`);
   try {
     execSync('npm publish', { cwd: dir, stdio: 'inherit' });
     results[step] = 'success';
-    ok(`${pkg} published to npm`);
+    ok(`supersurf published to npm`);
   } catch (err) {
     recordFailure(step, err);
   }
@@ -359,11 +356,7 @@ function printSummary(version: string) {
         console.log(`    ${dim}Fix: resolve the issue and run:${reset}`);
         console.log(`    ${cyan}git push && git push --tags${reset}\n`);
         break;
-      case 'npm:daemon':
-        console.log(`    ${dim}Fix: resolve the issue and run:${reset}`);
-        console.log(`    ${cyan}cd daemon && npm publish${reset}\n`);
-        break;
-      case 'npm:server':
+      case 'npm:supersurf':
         console.log(`    ${dim}Fix: resolve the issue and run:${reset}`);
         console.log(`    ${cyan}cd server && npm publish${reset}\n`);
         break;
@@ -410,9 +403,8 @@ async function main() {
     pushToGitHub(version);
   }
 
-  // Step 2: npm (daemon first — server depends on it)
-  publishNpm('daemon');
-  publishNpm('server');
+  // Step 2: npm — single package now
+  publishNpm();
 
   // Step 3: Chrome Web Store
   await publishCWS(clientId, clientSecret, cwsToken);

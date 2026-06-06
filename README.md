@@ -4,7 +4,7 @@
 
 **MCP-native browser automation. Any agent. Any model. Real browser. Undetectable.**
 
-[![npm version](https://img.shields.io/npm/v/supersurf-mcp?style=flat-square&color=cb3837&label=npm)](https://www.npmjs.com/package/supersurf-mcp)
+[![npm version](https://img.shields.io/npm/v/supersurf?style=flat-square&color=cb3837&label=npm)](https://www.npmjs.com/package/supersurf)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -106,7 +106,7 @@ Content scripts in an isolated world — **invisible to page JS**. Your real bro
 **2. Register with your MCP client**
 
 ```bash
-claude mcp add supersurf -- npx supersurf-mcp@latest  # Claude Code
+claude mcp add supersurf -- npx supersurf@latest mcp  # Claude Code
 ```
 
 <details>
@@ -117,7 +117,7 @@ claude mcp add supersurf -- npx supersurf-mcp@latest  # Claude Code
   "mcpServers": {
     "supersurf": {
       "command": "npx",
-      "args": ["supersurf-mcp@latest"]
+      "args": ["supersurf@latest", "mcp"]
     }
   }
 }
@@ -129,7 +129,7 @@ CLI flags can be appended to the args array:
   "mcpServers": {
     "supersurf": {
       "command": "npx",
-      "args": ["supersurf-mcp@latest", "--debug", "--port", "5555"]
+      "args": ["supersurf@latest", "mcp", "--debug", "--port", "5555"]
     }
   }
 }
@@ -143,10 +143,25 @@ CLI flags can be appended to the args array:
 ```bash
 npm run mcp
 # or manually:
-claude mcp add supersurf -- node server/dist/cli.js
+claude mcp add supersurf -- node server/dist/bin/supersurf.js mcp
 ```
 
 </details>
+
+---
+
+## Migrating from v2 to v3
+
+v3.0 consolidates the `supersurf-mcp` and `supersurf-daemon` packages into a single `supersurf` package with subcommand routing.
+
+| v2 invocation                  | v3 equivalent                  |
+| ------------------------------ | ------------------------------ |
+| `npx supersurf-mcp`            | `npx supersurf mcp`            |
+| `npx supersurf-daemon`         | `npx supersurf daemon`         |
+| `npx supersurf-daemon status`  | `npx supersurf daemon status`  |
+| `npx supersurf-daemon restart` | `npx supersurf daemon restart` |
+
+The old binary names still work as deprecated aliases (with a stderr warning) — update at your convenience. The old npm packages are deprecated on npm; install `supersurf` for new setups.
 
 ---
 

@@ -24,6 +24,14 @@ import { createLog } from './logger';
 
 const log = createLog('[WS]');
 
+/** Native-dialog event mirrored from the extension's DialogHandler. */
+export interface DialogEvent {
+  type: string;
+  message: string;
+  response: string | null;
+  timestamp: number;
+}
+
 /** Transport interface abstracting the WebSocket connection to the Chrome extension. */
 export interface IExtensionTransport {
   sendCmd(method: string, params?: Record<string, unknown>, timeout?: number): Promise<any>;
@@ -35,6 +43,8 @@ export interface IExtensionTransport {
   notifyClientId(clientId: string): void;
   start(): Promise<void>;
   stop(): Promise<void>;
+  /** Drain buffered native-dialog events accumulated from prior responses. */
+  consumeDialogEvents(): DialogEvent[];
 }
 
 /** Pending request awaiting a JSON-RPC response from the extension. */
@@ -267,6 +277,11 @@ export class ExtensionServer implements IExtensionTransport {
       const message = { jsonrpc: '2.0', id, method, params };
       this.socket!.send(JSON.stringify(message));
     });
+  }
+
+  /** Legacy direct-WS path has no aggregation buffer; returns an empty array. */
+  consumeDialogEvents(): DialogEvent[] {
+    return [];
   }
 
   /** Send an `authenticated` notification to the extension with the session's client ID. */

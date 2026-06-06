@@ -23,6 +23,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import net from 'net';
+import crypto from 'crypto';
 import { spawn } from 'child_process';
 import {
   FileLogger,
@@ -140,12 +141,19 @@ function formatUptime(seconds: number): string {
 
 /** Read package version from package.json */
 function getVersion(): string {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-    return pkg.version || 'unknown';
-  } catch {
-    return 'unknown';
+  const candidates = [
+    path.join(__dirname, '..', 'package.json'),
+    path.join(__dirname, '..', '..', 'package.json'),
+  ];
+  for (const p of candidates) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (pkg.name === 'supersurf' || pkg.name === 'supersurf-daemon') {
+        return pkg.version || 'unknown';
+      }
+    } catch { /* try next */ }
   }
+  return 'unknown';
 }
 
 async function printStatus(verbose: boolean): Promise<void> {
@@ -451,7 +459,34 @@ async function main(): Promise<void> {
   truncatePidLog();
 
   const version = getVersion();
-  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version });
+  const startupOpts = {
+    disableGpu: cfg.get().profiles.startup_opts.disable_gpu,
+  };
+  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version, startupOpts });
+
+  // Watch ~/.supersurf/config.json for post-startup edits. The daemon snapshots
+  // config at startup and never hot-reloads — drift means the user's edits won't
+  // take effect until restart. We surface this through the IPC envelope so the
+  // server can warn the agent on the next response.
+  const hashFile = (p: string): string => {
+    try {
+      return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+    } catch {
+      return '';
+    }
+  };
+  const initialHash = hashFile(configPath);
+  try {
+    fs.watch(configPath, { persistent: false }, () => {
+      const current = hashFile(configPath);
+      if (current && current !== initialHash) {
+        ipc.setConfigDrift(true);
+        logger.log('[Daemon] config.json changed since startup — restart required to apply');
+      }
+    });
+  } catch (err: any) {
+    logger.log(`[Daemon] Warning: failed to watch ${configPath}: ${err.message}`);
+  }
 
   // Idle timeout: exit after the configured idle window with no sessions
   let idleTimer: ReturnType<typeof setTimeout> | null = null;

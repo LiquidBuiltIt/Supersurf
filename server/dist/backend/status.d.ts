@@ -19,6 +19,8 @@ interface StatusInput {
     attachedTab: TabInfo | null;
     stealthMode: boolean;
     extensionServer: IExtensionTransport | null;
+    /** When true, prepends a one-time warning that `~/.supersurf/config.json` changed since daemon start. */
+    configDriftWarning?: boolean;
 }
 /**
  * Build a pipe-delimited status header from current connection state.

@@ -1,11 +1,13 @@
 {
-  "name": "supersurf-mcp",
-  "version": "2.1.0",
+  "name": "supersurf",
+  "version": "3.0.0",
   "description": "Open-source MCP server for browser automation — gives AI agents control of a real Chrome browser via extension",
-  "main": "dist/cli.js",
-  "types": "dist/cli.d.ts",
+  "main": "dist/bin/supersurf.js",
+  "types": "dist/bin/supersurf.d.ts",
   "bin": {
-    "supersurf-mcp": "dist/cli.js"
+    "supersurf": "dist/bin/supersurf.js",
+    "supersurf-mcp": "dist/bin/supersurf-mcp.js",
+    "supersurf-daemon": "dist/bin/supersurf-daemon.js"
   },
   "files": [
     "dist",
@@ -45,7 +47,7 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc && npx tsx ../scripts/shared.bundle.ts server",
+    "build": "tsc && npx tsx ../scripts/daemon.bundle.ts && npx tsx ../scripts/shared.bundle.ts server",
     "prepublishOnly": "cp ../LICENSE . && npm run clean && npm run build",
     "dev": "npx tsx src/cli.ts --debug",
     "test": "vitest run",
@@ -59,7 +61,6 @@
     "image-size": "^2.0.2",
     "jsonpath-plus": "^10.3.0",
     "sharp": "^0.34.5",
-    "supersurf-daemon": "*",
     "ws": "^8.18.3"
   },
   "devDependencies": {

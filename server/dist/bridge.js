@@ -222,6 +222,10 @@ class ExtensionServer {
             this.socket.send(JSON.stringify(message));
         });
     }
+    /** Legacy direct-WS path has no aggregation buffer; returns an empty array. */
+    consumeDialogEvents() {
+        return [];
+    }
     /** Send an `authenticated` notification to the extension with the session's client ID. */
     notifyClientId(clientId) {
         log('Client ID set to:', clientId);

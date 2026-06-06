@@ -22,6 +22,11 @@ export interface Config {
         debug: DebugMode;
         usage_metrics: boolean;
     };
+    profiles: {
+        startup_opts: {
+            disable_gpu: boolean;
+        };
+    };
     tips: boolean;
 }
 export type PartialConfig = {
@@ -32,6 +37,9 @@ export type PartialConfig = {
     };
     daemon?: Partial<Config['daemon']>;
     logging?: Partial<Config['logging']>;
+    profiles?: {
+        startup_opts?: Partial<Config['profiles']['startup_opts']>;
+    };
     tips?: boolean;
 };
 export type ConfigSource = 'cli' | 'env' | 'file' | 'default';

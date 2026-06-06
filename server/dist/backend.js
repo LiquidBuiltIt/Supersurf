@@ -86,6 +86,9 @@ class ConnectionManager {
     metricsLogger = null;
     server = null;
     clientInfo = {};
+    /** Tracks whether the config-drift warning has already been surfaced this session
+     *  (one-shot per session — sticky until daemon restart). */
+    _warnedConfigDrift = false;
     constructor(config) {
         log('Constructor — starting in PASSIVE mode');
         this.config = config;
@@ -100,6 +103,12 @@ class ConnectionManager {
     // ─── Status header ─────────────────────────────────────────
     /** Build a one-line status string prepended to every tool response. */
     statusHeader() {
+        // One-shot: surface config drift exactly once per session, then suppress.
+        const transport = this.extensionServer;
+        const drifted = typeof transport?.isConfigDrifted === 'function' && transport.isConfigDrifted();
+        const surfaceDrift = drifted && !this._warnedConfigDrift;
+        if (surfaceDrift)
+            this._warnedConfigDrift = true;
         return (0, status_1.buildStatusHeader)({
             config: this.config,
             state: this.state,
@@ -108,6 +117,7 @@ class ConnectionManager {
             attachedTab: this.attachedTab,
             stealthMode: this.stealthMode,
             extensionServer: this.extensionServer,
+            configDriftWarning: surfaceDrift,
         });
     }
     // ─── Tool listing ──────────────────────────────────────────

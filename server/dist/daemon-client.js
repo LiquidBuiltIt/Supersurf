@@ -30,6 +30,9 @@ class DaemonClient {
     _connected = false;
     _browser = 'chrome';
     _buildTime = null;
+    _configDrift = false;
+    _version = null;
+    dialogEventBuffer = [];
     onReconnect = null;
     onTabInfoUpdate = null;
     constructor(sockPath, sessionId) {
@@ -44,6 +47,22 @@ class DaemonClient {
     }
     get buildTime() {
         return this._buildTime;
+    }
+    /** The daemon's reported package version, or null for a pre-v3 daemon. */
+    get version() {
+        return this._version;
+    }
+    /** True when the daemon has detected a config file change since its startup. */
+    isConfigDrifted() {
+        return this._configDrift;
+    }
+    /** Drain and return buffered native-dialog events captured from prior responses. */
+    consumeDialogEvents() {
+        if (this.dialogEventBuffer.length === 0)
+            return [];
+        const events = this.dialogEventBuffer;
+        this.dialogEventBuffer = [];
+        return events;
     }
     /**
      * Connect to the daemon, send session_register handshake, await session_ack.
@@ -81,6 +100,9 @@ class DaemonClient {
                             this._browser = msg.browser || 'chrome';
                             this._buildTime = msg.buildTimestamp || null;
                             this._connected = true;
+                            if (msg.config_drift === true)
+                                this._configDrift = true;
+                            this._version = msg.version || null;
                             log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
                             resolve();
                             continue;
@@ -92,6 +114,8 @@ class DaemonClient {
                         }
                         // JSON-RPC responses
                         if (msg.jsonrpc === '2.0' && msg.id !== undefined) {
+                            if (msg.config_drift === true)
+                                this._configDrift = true;
                             const pending = this.inflight.get(String(msg.id));
                             if (pending) {
                                 this.inflight.delete(String(msg.id));
@@ -103,6 +127,14 @@ class DaemonClient {
                                     const result = msg.result;
                                     if (result && typeof result === 'object' && 'currentTab' in result && this.onTabInfoUpdate) {
                                         this.onTabInfoUpdate(result.currentTab);
+                                    }
+                                    if (result && typeof result === 'object' && Array.isArray(result._dialogs)) {
+                                        const dialogs = result._dialogs;
+                                        if (dialogs.length > 0) {
+                                            for (const d of dialogs)
+                                                this.dialogEventBuffer.push(d);
+                                        }
+                                        delete result._dialogs;
                                     }
                                     pending.resolve(msg.result);
                                 }

@@ -51,6 +51,7 @@ function createMockExt() {
     start: vi.fn(),
     stop: vi.fn(),
     notifyClientId: vi.fn(),
+    consumeDialogEvents: vi.fn().mockReturnValue([]),
   } as any;
 }
 
@@ -369,6 +370,77 @@ describe('BrowserBridge', () => {
       // rawResult passes through untouched — _recovery preserved for programmatic consumers
       expect(result._recovery).toBeDefined();
       expect(result._recovery.previousTabId).toBe(1);
+    });
+  });
+
+  // ── dialog aggregation (via transport.consumeDialogEvents) ──
+
+  describe('dialog aggregation', () => {
+    it('prepends notice when transport reports buffered dialog events', async () => {
+      mockCM.statusHeader.mockReturnValue('STATUS\n');
+      mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
+      mockExt.consumeDialogEvents.mockReturnValue([
+        { type: 'alert', message: 'Upload complete', response: 'accepted', timestamp: 123 },
+        { type: 'confirm', message: 'Submit?', response: 'dismissed', timestamp: 456 },
+      ]);
+
+      const result = await bridge.callTool('browser_snapshot', {});
+      const text = result.content[0].text;
+
+      expect(text).toContain('⚠ dialog fired: alert');
+      expect(text).toContain('Upload complete');
+      expect(text).toContain('⚠ dialog fired: confirm');
+      expect(text).toContain('Submit?');
+    });
+
+    it('does nothing when the buffer is empty', async () => {
+      mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
+      mockExt.consumeDialogEvents.mockReturnValue([]);
+      const result = await bridge.callTool('browser_snapshot', {});
+      expect(result.content[0].text).not.toContain('⚠ dialog');
+    });
+
+    it('drains buffer once per dispatch (consumeDialogEvents is called)', async () => {
+      mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
+      mockExt.consumeDialogEvents.mockReturnValue([
+        { type: 'alert', message: 'hi', response: 'accepted', timestamp: 1 },
+      ]);
+
+      await bridge.callTool('browser_snapshot', {});
+      expect(mockExt.consumeDialogEvents).toHaveBeenCalled();
+    });
+
+    it('does not prepend dialog notice in rawResult mode', async () => {
+      mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
+      mockExt.consumeDialogEvents.mockReturnValue([
+        { type: 'alert', message: 'hi', response: 'accepted', timestamp: 1 },
+      ]);
+
+      const result = await bridge.callTool('browser_snapshot', {}, { rawResult: true });
+      const text = typeof result === 'string' ? result : JSON.stringify(result);
+      expect(text).not.toContain('⚠ dialog fired');
+    });
+
+    it('prepends notice to MCP-envelope tools that build their own content (e.g. snapshot)', async () => {
+      mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
+      mockExt.consumeDialogEvents.mockReturnValue([
+        { type: 'beforeunload', message: null, response: null, timestamp: 9 },
+      ]);
+
+      const result = await bridge.callTool('browser_snapshot', {});
+      const text = result.content[0].text;
+      expect(text).toContain('⚠ dialog fired: beforeunload');
+    });
+
+    it('still prepends notice when the result is an error', async () => {
+      mockExt.sendCmd.mockRejectedValue(new Error('boom'));
+      mockExt.consumeDialogEvents.mockReturnValue([
+        { type: 'alert', message: 'late', response: 'accepted', timestamp: 2 },
+      ]);
+
+      const result = await bridge.callTool('browser_snapshot', {});
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('⚠ dialog fired: alert');
     });
   });
 

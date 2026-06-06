@@ -103,20 +103,31 @@ function buildChromiumNotFoundError(): string {
   ].join('\n');
 }
 
+/** Optional Chromium spawn flags resolved from ConfigService. */
+export interface StartupOpts {
+  disableGpu?: boolean;
+}
+
 /**
  * Spawn a Chromium instance for a managed profile.
  *
  * @param profileName - Profile name (used for user-data-dir path)
  * @param extensionDir - Path to the cached extension directory
  * @param port - Daemon port (for registration URL)
- * @param isFirstLaunch - If true, opens the registration URL as startup page
+ * @param openRegistration - If true, opens the profile registration URL as the
+ *   startup page. This re-arms the profile binding in the extension's
+ *   chrome.storage.local on every spawn — not just the first — so an
+ *   already-initialized profile whose storage lost `supersurf_profile`
+ *   (force-kill, rsync'd profile, Chrome corruption) can still recover.
+ * @param startupOpts - Optional Chromium flags from config (e.g. disableGpu for stability)
  * @returns The spawned ChildProcess
  */
 export function spawnChromium(
   profileName: string,
   extensionDir: string,
   port: number,
-  isFirstLaunch: boolean,
+  openRegistration: boolean,
+  startupOpts: StartupOpts = {},
 ): ChildProcess {
   const binary = findChromiumBinary();
   if (!binary) {
@@ -147,7 +158,11 @@ export function spawnChromium(
     '--use-mock-keychain',
   ];
 
-  if (isFirstLaunch) {
+  if (startupOpts.disableGpu) {
+    args.push('--disable-gpu');
+  }
+
+  if (openRegistration) {
     args.push(`http://127.0.0.1:${port}/register/${profileName}`);
   }
 

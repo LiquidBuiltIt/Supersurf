@@ -17,6 +17,15 @@ export declare function getPidPath(): string;
  */
 export declare function isDaemonRunning(): boolean;
 /**
+ * Resolve the daemon entry script WITHOUT touching the network.
+ * Prefers the bundled daemon shipped inside this package
+ * (server/dist/daemon/main.js); falls back to the workspace
+ * `supersurf-daemon` package for local dev (running from source via tsx).
+ * Throws if neither is found — we never fetch `@latest` from npm, which
+ * is what caused a published v3 server to pull a stale v2 daemon.
+ */
+export declare function resolveDaemonEntry(): string;
+/**
  * Ensure the daemon is running. If not, spawn it and wait for the socket file.
  *
  * @param port - WebSocket port for the extension connection (default 5555)

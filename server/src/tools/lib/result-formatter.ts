@@ -60,6 +60,16 @@ export function formatResult(
     }
   }
 
+  if (result && typeof result === 'object' && '_dialogs' in result) {
+    if ('value' in result && Object.keys(result).length === 2) {
+      result = (result as any).value;
+    } else {
+      const { _dialogs, ...rest } = result as any;
+      void _dialogs;
+      result = rest;
+    }
+  }
+
   if (result && typeof result === 'object' && cm) {
     if (result.attachedTab) cm.setAttachedTab?.(result.attachedTab);
     if (result.browserName) cm.setConnectedBrowserName?.(result.browserName);

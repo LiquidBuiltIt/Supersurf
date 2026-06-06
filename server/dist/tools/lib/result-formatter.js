@@ -49,6 +49,16 @@ function formatResult(name, result, options, cm) {
             result = rest;
         }
     }
+    if (result && typeof result === 'object' && '_dialogs' in result) {
+        if ('value' in result && Object.keys(result).length === 2) {
+            result = result.value;
+        }
+        else {
+            const { _dialogs, ...rest } = result;
+            void _dialogs;
+            result = rest;
+        }
+    }
     if (result && typeof result === 'object' && cm) {
         if (result.attachedTab)
             cm.setAttachedTab?.(result.attachedTab);

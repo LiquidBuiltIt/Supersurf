@@ -17,3 +17,14 @@ export type {
   LoadResult,
   ScaffoldResult,
 } from './config/index';
+
+export {
+  getKeychainBackend,
+  InMemoryKeychainBackend,
+  MacosKeychainBackend,
+  LinuxKeychainBackend,
+  KeychainError,
+  KeychainNotAvailableError,
+  SUPERSURF_SERVICE,
+} from './keychain/index';
+export type { KeychainBackend, CredentialEntry } from './keychain/index';

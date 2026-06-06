@@ -73,7 +73,7 @@ describe('IPCServer', () => {
     scheduler = new RequestScheduler(bridge, sessions);
     experiments = new DaemonExperimentRegistry();
     profileRegistry = new ProfileRegistry(path.join(tmpDir, 'profiles'));
-    ipc = new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry);
+    ipc = new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry, { port: 5555, version: '9.9.9-test' });
   });
 
   afterEach(async () => {
@@ -92,6 +92,19 @@ describe('IPCServer', () => {
     expect(response.browser).toBe('chrome');
     expect(response.buildTimestamp).toBe('2026-01-01T00:00:00Z');
     expect(response.capabilities).toBeUndefined();
+
+    client.end();
+  });
+
+  it('includes the daemon version on session_ack', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'ver-session' });
+    const response = await readLine(client);
+
+    expect(response.type).toBe('session_ack');
+    expect(response.version).toBe('9.9.9-test');
 
     client.end();
   });
@@ -472,5 +485,47 @@ describe('IPCServer', () => {
 
     client1.end();
     client2.end();
+  });
+
+  describe('config drift envelope', () => {
+    it('omits config_drift from session_ack when no drift', async () => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'drift-off' });
+      const ack = await readLine(client);
+      expect(ack.type).toBe('session_ack');
+      expect(ack.config_drift).toBeUndefined();
+      client.end();
+    });
+
+    it('injects config_drift into session_ack when daemon flagged drift', async () => {
+      ipc.setConfigDrift(true);
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'drift-on' });
+      const ack = await readLine(client);
+      expect(ack.config_drift).toBe(true);
+      client.end();
+    });
+
+    it('injects config_drift into JSON-RPC responses when drift is flagged mid-session', async () => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'drift-mid' });
+      await readLine(client);
+
+      // Flip drift after handshake, then make any RPC call
+      ipc.setConfigDrift(true);
+      writeLine(client, {
+        jsonrpc: '2.0',
+        id: 'q1',
+        method: 'experiments.get',
+        params: {},
+      });
+      const response = await readLine(client);
+      expect(response.jsonrpc).toBe('2.0');
+      expect(response.config_drift).toBe(true);
+      client.end();
+    });
   });
 });

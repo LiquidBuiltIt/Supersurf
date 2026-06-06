@@ -24,6 +24,11 @@ exports.HARDCODED_DEFAULTS = {
         debug: false,
         usage_metrics: false,
     },
+    profiles: {
+        startup_opts: {
+            disable_gpu: false,
+        },
+    },
     tips: true,
 };
 exports.SCAFFOLD_DEFAULTS = {
@@ -35,5 +40,8 @@ exports.SCAFFOLD_DEFAULTS = {
     },
     daemon: { ...exports.HARDCODED_DEFAULTS.daemon },
     logging: { ...exports.HARDCODED_DEFAULTS.logging, usage_metrics: true },
+    profiles: {
+        startup_opts: { ...exports.HARDCODED_DEFAULTS.profiles.startup_opts },
+    },
 };
 //# sourceMappingURL=defaults.js.map

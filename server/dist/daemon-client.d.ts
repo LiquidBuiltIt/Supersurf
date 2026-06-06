@@ -7,7 +7,7 @@
  * @module daemon-client
  * @exports DaemonClient
  */
-import type { IExtensionTransport } from './bridge';
+import type { IExtensionTransport, DialogEvent } from './bridge';
 /**
  * Transport that connects to the SuperSurf daemon over a Unix domain socket.
  * Implements IExtensionTransport for drop-in replacement of ExtensionServer.
@@ -21,12 +21,21 @@ export declare class DaemonClient implements IExtensionTransport {
     private _connected;
     private _browser;
     private _buildTime;
+    private _configDrift;
+    private _version;
+    private dialogEventBuffer;
     onReconnect: (() => void) | null;
     onTabInfoUpdate: ((tabInfo: any) => void) | null;
     constructor(sockPath: string, sessionId: string);
     get connected(): boolean;
     get browser(): string;
     get buildTime(): string | null;
+    /** The daemon's reported package version, or null for a pre-v3 daemon. */
+    get version(): string | null;
+    /** True when the daemon has detected a config file change since its startup. */
+    isConfigDrifted(): boolean;
+    /** Drain and return buffered native-dialog events captured from prior responses. */
+    consumeDialogEvents(): DialogEvent[];
     /**
      * Connect to the daemon, send session_register handshake, await session_ack.
      * Resolves when the session is established and browser info is available.

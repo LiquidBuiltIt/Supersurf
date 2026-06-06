@@ -1,6 +1,7 @@
 {
   "name": "supersurf-daemon",
-  "version": "2.1.0",
+  "private": true,
+  "version": "3.0.0",
   "description": "Daemon process for SuperSurf — coordinates multiple MCP sessions sharing one Chrome extension",
   "main": "dist/main.js",
   "types": "dist/main.d.ts",
@@ -25,9 +26,6 @@
     "type": "git",
     "url": "https://github.com/liquidbuiltit/Supersurf.git",
     "directory": "daemon"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "clean": "rm -rf dist",

@@ -45,8 +45,10 @@ const mockDaemonClientInstance = {
   connected: true,
   buildTime: null as string | null,
   browser: 'chrome',
+  version: '0.1.0' as string | null,
   onReconnect: null as (() => void) | null,
   onTabInfoUpdate: null as ((tabInfo: any) => void) | null,
+  isConfigDrifted: vi.fn(() => false),
 };
 
 vi.mock('../src/daemon-client', () => ({
@@ -125,6 +127,7 @@ describe('ConnectionManager', () => {
     mockDaemonClientInstance.stop.mockResolvedValue(undefined);
     mockDaemonClientInstance.buildTime = null;
     mockDaemonClientInstance.browser = 'chrome';
+    mockDaemonClientInstance.version = '0.1.0';
     mockDaemonClientInstance.onReconnect = null;
     mockDaemonClientInstance.onTabInfoUpdate = null;
     mockMetricsWrite.mockClear();
@@ -237,6 +240,26 @@ describe('ConnectionManager', () => {
       const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
       expect(result.success).toBe(false);
       expect(result.error).toBe('connection_failed');
+    });
+
+    it('refuses to connect when the daemon version mismatches', async () => {
+      mockDaemonClientInstance.version = '2.1.0'; // stale daemon still running
+
+      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('version_mismatch');
+      expect(result.message).toContain('supersurf daemon restart');
+      expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
+    });
+
+    it('refuses to connect when the daemon reports no version (pre-v3)', async () => {
+      mockDaemonClientInstance.version = null;
+
+      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('version_mismatch');
     });
 
     it('trims whitespace from client_id', async () => {
@@ -593,6 +616,48 @@ describe('ConnectionManager', () => {
       expect(header).toContain('[');
       expect(header).toContain(']');
     });
+  });
+
+  // ---- config drift warning (one-shot per session) ----
+
+  describe('statusHeader() — config drift warning', () => {
+    afterEach(() => {
+      mockDaemonClientInstance.isConfigDrifted.mockReturnValue(false);
+    });
+
+    it('omits drift warning when daemon reports no drift', async () => {
+      await backend.initialize(makeMockServer(), {});
+      await backend.callTool('connect', { client_id: 'test' });
+      mockDaemonClientInstance.isConfigDrifted.mockReturnValue(false);
+
+      const header = backend.statusHeader();
+      expect(header).not.toContain('config.json changed');
+    });
+
+    it('surfaces drift warning on first call when daemon reports drift', async () => {
+      await backend.initialize(makeMockServer(), {});
+      await backend.callTool('connect', { client_id: 'test' });
+      mockDaemonClientInstance.isConfigDrifted.mockReturnValue(true);
+
+      const header = backend.statusHeader();
+      expect(header).toContain('config.json changed');
+      expect(header).toContain('npx supersurf daemon restart');
+    });
+
+    it('suppresses drift warning on subsequent calls (one-shot per session)', async () => {
+      await backend.initialize(makeMockServer(), {});
+      await backend.callTool('connect', { client_id: 'test' });
+      mockDaemonClientInstance.isConfigDrifted.mockReturnValue(true);
+
+      const first = backend.statusHeader();
+      const second = backend.statusHeader();
+      const third = backend.statusHeader();
+
+      expect(first).toContain('config.json changed');
+      expect(second).not.toContain('config.json changed');
+      expect(third).not.toContain('config.json changed');
+    });
+
   });
 
   // ---- setAttachedTab / getAttachedTab ----

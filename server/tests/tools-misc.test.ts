@@ -63,6 +63,30 @@ describe('onDialog()', () => {
   });
 });
 
+describe('onDialog returns events on both code paths', () => {
+  it('with accept: result includes events from the WS response', async () => {
+    const ctx = createMockCtx();
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      events: [{ type: 'alert', message: 'hi', response: 'accepted', timestamp: 1 }],
+    });
+    (ctx.formatResult as any).mockImplementation((_name: string, result: any) => result);
+
+    const out = await onDialog(ctx, { accept: true }, {});
+    expect(out.events).toHaveLength(1);
+  });
+
+  it('with no accept: same shape', async () => {
+    const ctx = createMockCtx();
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      events: [{ type: 'confirm', message: 'go?', response: 'dismissed', timestamp: 2 }],
+    });
+    (ctx.formatResult as any).mockImplementation((_name: string, result: any) => result);
+
+    const out = await onDialog(ctx, {}, {});
+    expect(out.events).toHaveLength(1);
+  });
+});
+
 describe('onVerifyTextVisible()', () => {
   it('returns success when text is found', async () => {
     const ctx = createMockCtx();

@@ -130,6 +130,15 @@ export class ConfigService {
           inp.cli.logging?.usage_metrics, inp.env.logging?.usage_metrics,
           inp.file.logging?.usage_metrics, D.logging.usage_metrics, isBool, warn),
       },
+      profiles: {
+        startup_opts: {
+          disable_gpu: pick('profiles.startup_opts.disable_gpu',
+            inp.cli.profiles?.startup_opts?.disable_gpu,
+            inp.env.profiles?.startup_opts?.disable_gpu,
+            inp.file.profiles?.startup_opts?.disable_gpu,
+            D.profiles.startup_opts.disable_gpu, isBool, warn),
+        },
+      },
       tips: pick('tips', inp.cli.tips, inp.env.tips, inp.file.tips, D.tips, isBool, warn),
     };
   }
