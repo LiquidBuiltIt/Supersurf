@@ -33,7 +33,7 @@ export function buildStatusHeader(input: StatusInput): string {
   const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, configDriftWarning } = input;
   const version = config.server.version;
   const driftLine = configDriftWarning
-    ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf daemon restart`\n\n'
+    ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf-daemon@latest restart`\n\n'
     : '';
 
   if (state === 'passive') {

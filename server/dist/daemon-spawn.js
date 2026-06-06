@@ -62,23 +62,18 @@ function isDaemonRunning() {
     }
 }
 /**
- * Resolve the daemon entry script WITHOUT touching the network.
- * Prefers the bundled daemon shipped inside this package
- * (server/dist/daemon/main.js); falls back to the workspace
- * `supersurf-daemon` package for local dev (running from source via tsx).
- * Throws if neither is found — we never fetch `@latest` from npm, which
- * is what caused a published v3 server to pull a stale v2 daemon.
+ * Resolve the daemon entry script. The daemon ships as a SEPARATE package
+ * (`supersurf-daemon`), declared as a dependency of supersurf-mcp, so it
+ * resolves from node_modules in a published install and via the workspace
+ * symlink in local dev. Never fetched from the network, never bundled.
  */
 function resolveDaemonEntry() {
-    const bundled = path_1.default.join(__dirname, 'daemon', 'main.js');
-    if (fs_1.default.existsSync(bundled))
-        return bundled;
     try {
         return require.resolve('supersurf-daemon/dist/main.js');
     }
     catch {
-        throw new Error(`Daemon entry not found. Looked for the bundled daemon at ${bundled} ` +
-            `and the workspace 'supersurf-daemon' package. Rebuild with 'npm run build'.`);
+        throw new Error(`Daemon entry not found. The 'supersurf-daemon' package must be installed ` +
+            `(it is a dependency of supersurf-mcp). Run 'npm install' or rebuild with 'npm run build'.`);
     }
 }
 /**

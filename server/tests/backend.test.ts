@@ -249,7 +249,7 @@ describe('ConnectionManager', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('version_mismatch');
-      expect(result.message).toContain('supersurf daemon restart');
+      expect(result.message).toContain('supersurf-daemon@latest restart');
       expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
     });
 
@@ -641,7 +641,7 @@ describe('ConnectionManager', () => {
 
       const header = backend.statusHeader();
       expect(header).toContain('config.json changed');
-      expect(header).toContain('npx supersurf daemon restart');
+      expect(header).toContain('npx supersurf-daemon@latest restart');
     });
 
     it('suppresses drift warning on subsequent calls (one-shot per session)', async () => {

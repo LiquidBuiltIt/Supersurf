@@ -27,7 +27,7 @@ function run(cmd: string, cwd: string): string {
 
 const work = mkdtempSync(join(tmpdir(), 'supersurf-smoke-'));
 try {
-  console.log('→ Building server (with daemon + shared bundle)...');
+  console.log('→ Building server (shared bundle only, daemon is separate)...');
   run('npm run build', serverDir);
 
   console.log('→ Packing supersurf...');
@@ -39,15 +39,16 @@ try {
   run('npm init -y', work);
   run(`npm install ./${tarball}`, work);
 
-  const pkgRoot = join(work, 'node_modules', 'supersurf', 'dist');
-  console.log('→ Loading bundled entrypoints (VITEST=1, no daemon start)...');
-  // Throws if any bundled require is unresolvable in the clean install.
+  const pkgRoot = join(work, 'node_modules', 'supersurf-mcp', 'dist');
+  console.log('→ Loading entrypoints (VITEST=1)...');
+  // Throws if a require is unresolvable in the clean install. The daemon is a
+  // SEPARATE package (supersurf-daemon) now — not bundled into the server.
   execSync(
-    `node -e "process.env.VITEST='1'; require('${join(pkgRoot, 'daemon', 'main.js')}'); require('${join(pkgRoot, 'bin', 'dispatcher.js')}'); console.log('modules-ok')"`,
+    `node -e "process.env.VITEST='1'; require('${join(pkgRoot, 'bin', 'dispatcher.js')}'); console.log('modules-ok')"`,
     { env: { ...process.env, VITEST: '1' }, stdio: 'inherit' },
   );
 
-  console.log('\n✓ Smoke test passed — bundle is self-contained.');
+  console.log('\n✓ Smoke test passed — supersurf-mcp loads standalone.');
 } finally {
   rmSync(work, { recursive: true, force: true });
 }

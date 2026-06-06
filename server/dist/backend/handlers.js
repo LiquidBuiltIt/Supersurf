@@ -142,7 +142,7 @@ async function onConnect(mgr, args = {}, options = {}) {
             mgr.state = 'passive';
             const hint = `A different daemon version is already running ` +
                 `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ` +
-                'Restart it to continue: `npx supersurf daemon restart`';
+                'Restart it to continue: `npx supersurf-daemon@latest restart`';
             if (options.rawResult) {
                 return { success: false, error: 'version_mismatch', message: hint };
             }

@@ -106,7 +106,7 @@ Content scripts in an isolated world — **invisible to page JS**. Your real bro
 **2. Register with your MCP client**
 
 ```bash
-claude mcp add supersurf -- npx supersurf@latest mcp  # Claude Code
+claude mcp add supersurf -- npx supersurf-mcp@latest mcp  # Claude Code
 ```
 
 <details>
@@ -117,7 +117,7 @@ claude mcp add supersurf -- npx supersurf@latest mcp  # Claude Code
   "mcpServers": {
     "supersurf": {
       "command": "npx",
-      "args": ["supersurf@latest", "mcp"]
+      "args": ["supersurf-mcp@latest", "mcp"]
     }
   }
 }
@@ -129,7 +129,7 @@ CLI flags can be appended to the args array:
   "mcpServers": {
     "supersurf": {
       "command": "npx",
-      "args": ["supersurf@latest", "mcp", "--debug", "--port", "5555"]
+      "args": ["supersurf-mcp@latest", "mcp", "--debug", "--port", "5555"]
     }
   }
 }
@@ -150,18 +150,14 @@ claude mcp add supersurf -- node server/dist/bin/supersurf.js mcp
 
 ---
 
-## Migrating from v2 to v3
+## Packages
 
-v3.0 consolidates the `supersurf-mcp` and `supersurf-daemon` packages into a single `supersurf` package with subcommand routing.
+SuperSurf ships as **two** npm packages:
 
-| v2 invocation                  | v3 equivalent                  |
-| ------------------------------ | ------------------------------ |
-| `npx supersurf-mcp`            | `npx supersurf mcp`            |
-| `npx supersurf-daemon`         | `npx supersurf daemon`         |
-| `npx supersurf-daemon status`  | `npx supersurf daemon status`  |
-| `npx supersurf-daemon restart` | `npx supersurf daemon restart` |
+- **[`supersurf-mcp`](https://www.npmjs.com/package/supersurf-mcp)** — the MCP server. This is what you install and point your client at.
+- **[`supersurf-daemon`](https://www.npmjs.com/package/supersurf-daemon)** — the coordinator daemon. It's a dependency of `supersurf-mcp`, spawned automatically; you never install or configure it directly.
 
-The old binary names still work as deprecated aliases (with a stderr warning) — update at your convenience. The old npm packages are deprecated on npm; install `supersurf` for new setups.
+> **Why two packages and not a single `supersurf`?** They were meant to merge into one `supersurf` package in v3. That name is currently squatted on npm by a stale, abandoned `0.0.1` placeholder (dead site, untouched for ~10 months), so the merge is on hold pending an ownership dispute. Until that resolves, the two ship separately under the names we own.
 
 ---
 

@@ -64,13 +64,9 @@ describe('daemon-spawn', () => {
 });
 
 describe('resolveDaemonEntry', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('prefers the bundled daemon when it exists', () => {
-    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+  it('resolves the separate supersurf-daemon package entry', () => {
     const entry = resolveDaemonEntry();
-    expect(entry.endsWith(path.join('daemon', 'main.js'))).toBe(true);
+    expect(entry.endsWith('main.js')).toBe(true);
+    expect(entry).toContain('daemon');
   });
 });

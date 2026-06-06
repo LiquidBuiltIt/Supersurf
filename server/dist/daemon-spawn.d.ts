@@ -17,12 +17,10 @@ export declare function getPidPath(): string;
  */
 export declare function isDaemonRunning(): boolean;
 /**
- * Resolve the daemon entry script WITHOUT touching the network.
- * Prefers the bundled daemon shipped inside this package
- * (server/dist/daemon/main.js); falls back to the workspace
- * `supersurf-daemon` package for local dev (running from source via tsx).
- * Throws if neither is found — we never fetch `@latest` from npm, which
- * is what caused a published v3 server to pull a stale v2 daemon.
+ * Resolve the daemon entry script. The daemon ships as a SEPARATE package
+ * (`supersurf-daemon`), declared as a dependency of supersurf-mcp, so it
+ * resolves from node_modules in a published install and via the workspace
+ * symlink in local dev. Never fetched from the network, never bundled.
  */
 export declare function resolveDaemonEntry(): string;
 /**

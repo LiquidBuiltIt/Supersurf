@@ -290,12 +290,14 @@ function pushToGitHub(version: string) {
 
 function publishNpm() {
   const step: Step = 'npm:supersurf';
-  const dir = resolve(root, 'server');
-  info(`Publishing supersurf to npm...`);
+  // Two published packages: daemon first (server depends on it), then server.
   try {
-    execSync('npm publish', { cwd: dir, stdio: 'inherit' });
+    for (const pkg of ['daemon', 'server']) {
+      info(`Publishing ${pkg} to npm...`);
+      execSync('npm publish', { cwd: resolve(root, pkg), stdio: 'inherit' });
+      ok(`${pkg} published to npm`);
+    }
     results[step] = 'success';
-    ok(`supersurf published to npm`);
   } catch (err) {
     recordFailure(step, err);
   }
