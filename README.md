@@ -4,7 +4,7 @@
 
 **MCP-native browser automation. Any agent. Any model. Real browser. Undetectable.**
 
-[![npm version](https://img.shields.io/npm/v/supersurf?style=flat-square&color=cb3837&label=npm)](https://www.npmjs.com/package/supersurf)
+[![npm version](https://img.shields.io/npm/v/supersurf-mcp?style=flat-square&color=cb3837&label=npm)](https://www.npmjs.com/package/supersurf-mcp)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -190,7 +190,6 @@ SuperSurf ships as **two** npm packages:
 | `connect` | Connect to the browser daemon. Pass `profile` for an isolated Chromium instance. |
 | `disconnect` | Disconnect from the browser daemon |
 | `status` | Show connection state |
-| `experimental_features` | Toggle experimental features |
 | `profile_create` | Create an isolated Chromium profile |
 | `profile_list` | List all managed profiles |
 | `profile_delete` | Delete a managed profile |
@@ -256,7 +255,6 @@ SuperSurf ships as **two** npm packages:
 | Tool | Description |
 |------|-------------|
 | `browser_list_extensions` | List installed Chrome extensions |
-| `browser_reload_extensions` | Reload unpacked extensions |
 | `browser_storage` | Inspect/modify localStorage & sessionStorage *(requires `storage_inspection` experiment)* |
 | `reload_mcp` | Hot-reload the MCP server *(debug mode only)* |
 
@@ -266,7 +264,7 @@ SuperSurf ships as **two** npm packages:
 
 ## Experimental Features
 
-Toggle via the `experimental_features` tool or the `SUPERSURF_EXPERIMENTS` environment variable:
+Configure via `~/.supersurf/config.json` (changes require a daemon restart) or the `SUPERSURF_EXPERIMENTS` environment variable:
 
 ```bash
 SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization
@@ -278,7 +276,6 @@ SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization
 | **smart_waiting** | Replaces fixed delays with adaptive DOM stability + network idle detection. |
 | **storage_inspection** | Inspect and modify browser storage (localStorage, sessionStorage). |
 | **mouse_humanization** | Human-like Bezier trajectories, overshoot correction, and idle micro-movements. Hand-tuned from the Balabit Mouse Dynamics dataset. |
-| **secure_eval** | Two-layer code analysis for `browser_evaluate`. Server-side AST parsing + extension-side Proxy membrane that blocks dangerous API access before execution. |
 
 ---
 
@@ -291,6 +288,10 @@ SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization
 | `--port <n>` | WebSocket port (default: `5555`) |
 | `--log-file <path>` | Custom server log file path |
 | `--script-mode` | JSON-RPC over stdio without MCP framing |
+| `--disable-secure-eval` | Disable the default-on `secure_eval` analysis (AST + Proxy membrane) for `browser_evaluate` |
+
+> [!NOTE]
+> `secure_eval` — two-layer code analysis for `browser_evaluate` (server-side AST parsing + extension-side Proxy membrane that blocks dangerous API access before execution) — is **on by default**. Disable it with the `--disable-secure-eval` flag or `SUPERSURF_DISABLE_SECURE_EVAL=1`.
 
 <details>
 <summary><strong>Debug log locations</strong></summary>

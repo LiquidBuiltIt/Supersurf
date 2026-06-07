@@ -48,6 +48,9 @@ local/
 # Internal benchmark suite (not user-facing)
 benchmark/
 
+# Throwaway PoC / spike harnesses (not shipped)
+poc/
+
 # OS
 .DS_Store
 Thumbs.db

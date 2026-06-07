@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onFillForm, onDrag, onSecureFill } from '../src/tools/forms';
+import { getToolSchemas } from '../src/tools/schemas';
 import type { ToolContext } from '../src/tools/lib/types';
 
 function createMockCtx(): ToolContext {
@@ -296,5 +297,12 @@ describe('onSecureFill()', () => {
     const result = await onSecureFill(ctx, { action: 'list' }, { rawResult: true });
     expect(result.success).toBe(true);
     expect(Array.isArray(result.credentials)).toBe(true);
+  });
+});
+
+describe('secure_fill schema', () => {
+  it('secure_fill schema carries the pre-deprecation notice', () => {
+    const schema = getToolSchemas().find((t: any) => t.name === 'secure_fill');
+    expect(schema?.description).toContain('being deprecated');
   });
 });

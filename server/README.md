@@ -38,7 +38,7 @@ Your agent calls `connect` to start the session, a daemon auto-starts, the exten
 | Tool | Description |
 |------|-------------|
 | `connect` / `disconnect` / `status` | Session lifecycle (`connect` accepts optional `profile` for isolated Chromium) |
-| `profile_create` / `profile_list` / `profile_delete` | Manage isolated Chromium profiles *(requires `profiles` experiment)* |
+| `profile_create` / `profile_list` / `profile_delete` | Manage isolated Chromium profiles |
 | `browser_tabs` | List, create, attach, or close tabs |
 | `browser_navigate` | Go to URL, back, forward, reload |
 | `browser_interact` | Click, type, press keys, hover, scroll, wait, select, upload files |
@@ -58,11 +58,10 @@ Your agent calls `connect` to start the session, a daemon auto-starts, the exten
 | `browser_pdf_save` | Export page as PDF |
 | `browser_handle_dialog` | Accept/dismiss alerts and prompts |
 | `browser_list_extensions` | List installed extensions |
-| `browser_reload_extensions` | Reload unpacked extensions |
 | `browser_performance_metrics` | Web Vitals (FCP, LCP, CLS, TTFB) |
 | `browser_download` | Download a file via the browser |
 | `browser_storage` | Inspect/modify localStorage and sessionStorage |
-| `secure_fill` | Fill a field with a credential from an env var (agent never sees the value) |
+| `secure_fill` | Fill a field with a credential from an env var, or `list` available credential names (agent never sees the value). *Being deprecated in favor of a keychain-backed system.* |
 
 ## CLI Flags
 
@@ -72,7 +71,10 @@ Your agent calls `connect` to start the session, a daemon auto-starts, the exten
 --port <n>           WebSocket port (default: 5555)
 --log-file <path>    Custom log file path
 --script-mode        JSON-RPC over stdio without MCP framing
+--disable-secure-eval  Disable the default-on secure_eval analysis for browser_evaluate
 ```
+
+`secure_eval` (AST + Proxy-membrane analysis of `browser_evaluate` code) is **on by default** — it is not an experiment. Turn it off with `--disable-secure-eval` or `SUPERSURF_DISABLE_SECURE_EVAL=1`.
 
 Pass flags via your MCP config:
 ```json
@@ -91,7 +93,7 @@ A standalone daemon multiplexes multiple MCP sessions through a single Chrome ex
 
 ## Experimental Features
 
-Toggle via the `experimental_features` tool or `SUPERSURF_EXPERIMENTS` env var:
+Configure via `~/.supersurf/config.json` (requires a daemon restart) or the `SUPERSURF_EXPERIMENTS` env var:
 
 | Experiment | Description |
 |------------|-------------|
@@ -99,8 +101,6 @@ Toggle via the `experimental_features` tool or `SUPERSURF_EXPERIMENTS` env var:
 | `smart_waiting` | Adaptive DOM stability + network idle detection |
 | `storage_inspection` | Inspect/modify localStorage and sessionStorage |
 | `mouse_humanization` | Human-like Bezier mouse trajectories |
-| `secure_eval` | AST-based code analysis for `browser_evaluate` |
-| `profiles` | Isolated Chromium instances per agent session with managed lifecycle |
 
 ## Requirements
 

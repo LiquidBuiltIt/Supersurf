@@ -12,16 +12,14 @@ Usage: supersurf <command> [options]
 Commands:
   mcp       Start the MCP server over stdio (the agent entrypoint)
   daemon    Manage the coordinator daemon: start | stop | restart | status | observe
-  creds     Manage credentials in the OS keychain: add | list | rm
 
 Examples:
   npx supersurf@latest mcp
-  supersurf daemon status
-  supersurf creds add github`;
+  supersurf daemon status`;
 
 export function pickTarget(argv: string[]): DispatchPlan {
   const subcommand = argv[2];
-  if (subcommand === 'mcp' || subcommand === 'daemon' || subcommand === 'creds') {
+  if (subcommand === 'mcp' || subcommand === 'daemon') {
     return {
       target: subcommand,
       remainingArgv: [...argv.slice(0, 2), ...argv.slice(3)],
@@ -57,6 +55,8 @@ export async function dispatch(argv: string[]): Promise<void> {
     // @ts-ignore - resolved at runtime after daemon bundle copy
     await import('../daemon/main');
   } else {
+    // Unreachable until `creds` is re-listed in pickTarget — kept intentionally
+    // (delisting is reversible; the keychain CLI is dead-but-ready, not deleted).
     const credsModule = await import('./creds');
     await credsModule.runCredsProgram(remainingArgv);
   }

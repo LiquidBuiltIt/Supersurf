@@ -42,27 +42,19 @@ describe('pickTarget', () => {
   });
 });
 
-describe('pickTarget — creds', () => {
-  it('routes "creds" subcommand to creds target and strips it from argv', () => {
+describe('pickTarget — creds is delisted', () => {
+  it('no longer recognizes "creds" and routes it to the help target', () => {
     const argv = ['node', 'supersurf', 'creds', 'list'];
     const result = pickTarget(argv);
-    expect(result.target).toBe('creds');
-    expect(result.remainingArgv).toEqual(['node', 'supersurf', 'list']);
-  });
-
-  it('routes "creds add banking --domain example.com" preserving all args', () => {
-    const argv = ['node', 'supersurf', 'creds', 'add', 'banking', '--domain', 'example.com'];
-    const result = pickTarget(argv);
-    expect(result.target).toBe('creds');
-    expect(result.remainingArgv).toEqual(['node', 'supersurf', 'add', 'banking', '--domain', 'example.com']);
+    expect(result.target).toBe('help');
   });
 });
 
 describe('HELP_TEXT', () => {
-  it('documents usage and all three subcommands', () => {
+  it('documents usage and the public subcommands, not the delisted creds', () => {
     expect(HELP_TEXT).toContain('Usage:');
     expect(HELP_TEXT).toContain('mcp');
     expect(HELP_TEXT).toContain('daemon');
-    expect(HELP_TEXT).toContain('creds');
+    expect(HELP_TEXT).not.toContain('creds');
   });
 });
