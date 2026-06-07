@@ -1,5 +1,5 @@
 {
-  "name": "supersurf",
+  "name": "supersurf-mcp",
   "version": "3.0.1",
   "description": "Open-source MCP server for browser automation — gives AI agents control of a real Chrome browser via extension",
   "main": "dist/bin/supersurf.js",
@@ -47,7 +47,7 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc && npx tsx ../scripts/daemon.bundle.ts && npx tsx ../scripts/shared.bundle.ts server",
+    "build": "tsc && npx tsx ../scripts/shared.bundle.ts server",
     "prepublishOnly": "cp ../LICENSE . && npm run clean && npm run build",
     "dev": "npx tsx src/cli.ts --debug",
     "test": "vitest run",
@@ -61,6 +61,7 @@
     "image-size": "^2.0.2",
     "jsonpath-plus": "^10.3.0",
     "sharp": "^0.34.5",
+    "supersurf-daemon": "^3.0.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
