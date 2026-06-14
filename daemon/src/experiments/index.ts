@@ -16,6 +16,7 @@ const AVAILABLE_EXPERIMENTS = [
   'smart_waiting',
   'storage_inspection',
   'mouse_humanization',
+  'fingerprinting',
 ] as const;
 
 const debugLog = (...args: unknown[]) => {

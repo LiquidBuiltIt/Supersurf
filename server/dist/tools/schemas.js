@@ -414,7 +414,7 @@ function getToolSchemas() {
         // ── Secure Fill ──
         {
             name: 'secure_fill',
-            description: 'Manage and fill credentials from server-side environment variables. Values never reach the agent. Use `list` to discover available credentials, `fill` to type one into a form field char-by-char with randomized delays.',
+            description: 'NOTE: This feature is being deprecated soon in favor of a new keychain-backed password system. It remains fully functional for now. Manage and fill credentials from server-side environment variables. Values never reach the agent. Use `list` to discover available credentials, `fill` to type one into a form field char-by-char with randomized delays.',
             inputSchema: {
                 type: 'object',
                 properties: {

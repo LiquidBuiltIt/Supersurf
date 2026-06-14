@@ -26,7 +26,7 @@ Object.defineProperty(exports, "calculateConfidence", { enumerable: true, get: f
 Object.defineProperty(exports, "formatDiffSection", { enumerable: true, get: function () { return page_diffing_1.formatDiffSection; } });
 const storage_inspection_1 = require("./storage-inspection");
 /** All recognized session-toggleable experiment names. */
-const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization'];
+const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization', 'fingerprinting'];
 /**
  * Cache-backed IPC proxy for experiment state.
  *

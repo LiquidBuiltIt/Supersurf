@@ -24,7 +24,7 @@ import type { Config } from 'shared';
 import { storageInspectionSchema, onBrowserStorage } from './storage-inspection';
 
 /** All recognized session-toggleable experiment names. */
-const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization'] as const;
+const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization', 'fingerprinting'] as const;
 type ExperimentName = typeof AVAILABLE_EXPERIMENTS[number];
 
 /**

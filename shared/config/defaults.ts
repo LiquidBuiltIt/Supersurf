@@ -6,6 +6,7 @@ export const HARDCODED_DEFAULTS: Config = {
     smart_waiting: false,
     storage_inspection: false,
     mouse_humanization: false,
+    fingerprinting: false,
   },
   security: {
     secure_eval: true,
@@ -22,6 +23,7 @@ export const HARDCODED_DEFAULTS: Config = {
   logging: {
     debug: false,
     usage_metrics: false,
+    action_recording: false,
   },
   profiles: {
     startup_opts: {
@@ -39,7 +41,7 @@ export const SCAFFOLD_DEFAULTS: Config = {
     domain_whitelist: { ...HARDCODED_DEFAULTS.security.domain_whitelist, custom: [] },
   },
   daemon: { ...HARDCODED_DEFAULTS.daemon },
-  logging: { ...HARDCODED_DEFAULTS.logging, usage_metrics: true },
+  logging: { ...HARDCODED_DEFAULTS.logging, usage_metrics: true, action_recording: false },
   profiles: {
     startup_opts: { ...HARDCODED_DEFAULTS.profiles.startup_opts },
   },

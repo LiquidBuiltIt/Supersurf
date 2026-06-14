@@ -42,6 +42,18 @@ describe('ConfigService', () => {
     expect(s.get().logging.usage_metrics).toBe(true);
   });
 
+  it('action_recording defaults to false and is source-tracked', () => {
+    const s = new ConfigService({ cli: {}, env: {}, file: {} });
+    expect(s.get().logging.action_recording).toBe(false);
+    expect(s.sourceOf('logging.action_recording')).toBe('default');
+  });
+
+  it('action_recording can be enabled via file layer', () => {
+    const s = new ConfigService({ cli: {}, env: {}, file: { logging: { action_recording: true } } });
+    expect(s.get().logging.action_recording).toBe(true);
+    expect(s.sourceOf('logging.action_recording')).toBe('file');
+  });
+
   it('reports source for each leaf', () => {
     const s = new ConfigService({
       cli: { daemon: { port: 9000 } },

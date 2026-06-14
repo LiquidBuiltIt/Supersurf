@@ -285,7 +285,7 @@ describe('UsageMetricsLogger', () => {
       params: { action: 'click' },
       result: 'ok',
       duration_ms: 42,
-      experiments: { page_diffing: true, smart_waiting: false, mouse_humanization: true, storage_inspection: false },
+      experiments: { page_diffing: true, smart_waiting: false, mouse_humanization: true, storage_inspection: false, fingerprinting: false },
     });
 
     const content = fs.readFileSync(logger.getPath(), 'utf8');
@@ -295,6 +295,7 @@ describe('UsageMetricsLogger', () => {
       smart_waiting: false,
       mouse_humanization: true,
       storage_inspection: false,
+      fingerprinting: false,
     });
   });
 

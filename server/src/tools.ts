@@ -14,6 +14,7 @@ import type { ToolSchema, ToolContext } from './tools/lib/types';
 import { createLog } from './logger';
 import { UsageMetricsLogger } from './usage-metrics-logger';
 import { getExperimentalToolSchemas, experimentRegistry } from './experimental/index';
+import { resolveWithHealing, captureInContext, healInContext, domainOf, routeOf } from './experimental/fingerprinting/index';
 
 import { getToolSchemas } from './tools/schemas';
 import { cdp as cdpFn, evalExpr as evalFn } from './tools/lib/cdp';
@@ -76,10 +77,55 @@ export class BrowserBridge {
       ext,
       connectionManager: this.connectionManager,
       config: this.config?.configService,
+      metricsLogger: this.metricsLogger,
       cdp: (method, params) => cdpFn(ext, method, params),
       eval: evalFnBound,
       sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
-      getElementCenter: (selector: string) => getElementCenter(evalFnBound, selector),
+      getElementCenter: (selector: string) =>
+        resolveWithHealing(
+          evalFnBound,
+          selector,
+          () => this.connectionManager?.getAttachedTab()?.url,
+          (ev) =>
+            this.metricsLogger?.write({
+              session_id: this.connectionManager?.clientId ?? 'unknown',
+              tool: 'fingerprint',
+              params: ev as unknown as Record<string, unknown>,
+              result: 'ok',
+              duration_ms: 0,
+            }),
+        ),
+      captureFingerprintInContext: (contextId: number, selector: string) =>
+        void captureInContext(
+          (expr: string) =>
+            cdpFn(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true })
+              .then((r: any) => r.result?.value),
+          this.connectionManager?.getAttachedTab()?.url,
+          selector,
+        ),
+      healFingerprintInContext: (contextId: number, selector: string) =>
+        healInContext(
+          (expr: string) =>
+            cdpFn(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true })
+              .then((r: any) => r.result?.value),
+          this.connectionManager?.getAttachedTab()?.url,
+          selector,
+        ).then((hit) => {
+          if (!hit) return null;
+          const url = this.connectionManager?.getAttachedTab()?.url;
+          this.metricsLogger?.write({
+            session_id: this.connectionManager?.clientId ?? 'unknown',
+            tool: 'fingerprint',
+            params: {
+              event: 'fingerprint', outcome: 'healed',
+              selector, domain: domainOf(url), route: routeOf(url),
+              score: hit.score, margin: hit.margin, hadRecord: true,
+            } as unknown as Record<string, unknown>,
+            result: 'ok',
+            duration_ms: 0,
+          });
+          return { cx: hit.cx, cy: hit.cy, score: hit.score };
+        }),
       getSelectorExpression,
       findAlternativeSelectors: (selector: string) => findAlternativeSelectors(evalFnBound, selector),
       formatResult: (name, result, options) =>

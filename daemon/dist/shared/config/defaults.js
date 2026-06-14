@@ -7,6 +7,7 @@ exports.HARDCODED_DEFAULTS = {
         smart_waiting: false,
         storage_inspection: false,
         mouse_humanization: false,
+        fingerprinting: false,
     },
     security: {
         secure_eval: true,

@@ -1,6 +1,7 @@
 // server/src/tools/interaction/registry.ts
 import type { ToolContext } from '../lib/types';
 import type { ActionHandler } from './types';
+import { recordAction } from '../../recorder/action-recorder';
 
 const registry = new Map<string, ActionHandler>();
 
@@ -14,7 +15,15 @@ export function registerAction(handler: ActionHandler): void {
 export async function executeAction(ctx: ToolContext, action: any): Promise<string> {
   const handler = registry.get(action.type);
   if (!handler) throw new Error(`Unknown action type: ${action.type}`);
-  return handler.run(ctx, action);
+  const startedAt = Date.now();
+  try {
+    const result = await handler.run(ctx, action);
+    recordAction(ctx, action, startedAt, result, null);
+    return result;
+  } catch (err) {
+    recordAction(ctx, action, startedAt, null, err);
+    throw err;
+  }
 }
 
 export function getRegisteredActions(): readonly string[] {

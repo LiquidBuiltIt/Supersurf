@@ -57,8 +57,9 @@ describe('ExperimentRegistry', () => {
       expect(available).toContain('smart_waiting');
       expect(available).toContain('storage_inspection');
       expect(available).toContain('mouse_humanization');
+      expect(available).toContain('fingerprinting');
       expect(available).not.toContain('secure_eval'); // graduated in v1.11.0
-      expect(available.length).toBe(4);
+      expect(available.length).toBe(5);
     });
   });
 
@@ -66,7 +67,7 @@ describe('ExperimentRegistry', () => {
     it('returns state map for all experiments', () => {
       experimentRegistry.enable('smart_waiting');
       const states = experimentRegistry.getStates();
-      expect(states).toEqual({ page_diffing: false, smart_waiting: true, storage_inspection: false, mouse_humanization: false });
+      expect(states).toEqual({ page_diffing: false, smart_waiting: true, storage_inspection: false, mouse_humanization: false, fingerprinting: false });
     });
   });
 
@@ -94,6 +95,7 @@ describe('applyInitialState()', () => {
       smart_waiting: true,
       storage_inspection: false,
       mouse_humanization: false,
+      fingerprinting: false,
     });
     expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
     expect(experimentRegistry.isEnabled('smart_waiting')).toBe(true);
@@ -105,6 +107,7 @@ describe('applyInitialState()', () => {
       smart_waiting: false,
       storage_inspection: false,
       mouse_humanization: false,
+      fingerprinting: false,
       profiles: true,
     } as any);
     expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
@@ -117,6 +120,7 @@ describe('applyInitialState()', () => {
       smart_waiting: false,
       storage_inspection: false,
       mouse_humanization: false,
+      fingerprinting: false,
     });
     expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
   });

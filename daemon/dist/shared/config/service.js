@@ -60,6 +60,7 @@ class ConfigService {
                 smart_waiting: pick('experiments.smart_waiting', inp.cli.experiments?.smart_waiting, inp.env.experiments?.smart_waiting, inp.file.experiments?.smart_waiting, D.experiments.smart_waiting, isBool, warn),
                 storage_inspection: pick('experiments.storage_inspection', inp.cli.experiments?.storage_inspection, inp.env.experiments?.storage_inspection, inp.file.experiments?.storage_inspection, D.experiments.storage_inspection, isBool, warn),
                 mouse_humanization: pick('experiments.mouse_humanization', inp.cli.experiments?.mouse_humanization, inp.env.experiments?.mouse_humanization, inp.file.experiments?.mouse_humanization, D.experiments.mouse_humanization, isBool, warn),
+                fingerprinting: pick('experiments.fingerprinting', inp.cli.experiments?.fingerprinting, inp.env.experiments?.fingerprinting, inp.file.experiments?.fingerprinting, D.experiments.fingerprinting, isBool, warn),
             },
             security: {
                 secure_eval: pick('security.secure_eval', inp.cli.security?.secure_eval, inp.env.security?.secure_eval, inp.file.security?.secure_eval, D.security.secure_eval, isBool, warn),

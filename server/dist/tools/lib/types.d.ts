@@ -33,6 +33,8 @@ export interface ToolContext {
     connectionManager: any;
     /** Resolved ConfigService (CLI + env + file + defaults). Optional for legacy callers. */
     config?: ConfigService;
+    /** Usage-metrics logger, when enabled. Used by the action recorder. */
+    metricsLogger?: import('../../usage-metrics-logger').UsageMetricsLogger | null;
     /** Send a Chrome DevTools Protocol command through the extension. */
     cdp(method: string, params?: any): Promise<any>;
     /** Evaluate a JS expression in the page context (via CDP Runtime.evaluate). */
@@ -44,6 +46,25 @@ export interface ToolContext {
         x: number;
         y: number;
     }>;
+    /**
+     * Fingerprint an element that was resolved inside a child frame (iframe), bound to that
+     * frame's execution context. The top-frame capture path (`getElementCenter` →
+     * `resolveWithHealing`) can't see iframe elements, so the frame-walk fallback fires this.
+     * Fire-and-forget; gated by the fingerprinting experiment. Optional — wired by BrowserBridge.
+     */
+    captureFingerprintInContext?(contextId: number, selector: string): void;
+    /**
+     * Heal a selector miss inside a child frame (iframe) by scoring a stored fingerprint
+     * against that frame's DOM, bound to the frame's execution context. Returns the
+     * gate-passing hit's **iframe-local** center + score (the caller translates to top-frame
+     * coords), or null when no record exists / the gate fails. Gated by the fingerprinting
+     * experiment. Optional — wired by BrowserBridge.
+     */
+    healFingerprintInContext?(contextId: number, selector: string): Promise<{
+        cx: number;
+        cy: number;
+        score: number;
+    } | null>;
     /** Convert a selector string (including `:has-text()`) to a JS querySelector expression. */
     getSelectorExpression(selector: string): string;
     /** Search the page for elements matching partial text when a selector fails. */

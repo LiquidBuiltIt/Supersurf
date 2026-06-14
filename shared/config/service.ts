@@ -91,6 +91,9 @@ export class ConfigService {
         mouse_humanization: pick('experiments.mouse_humanization',
           inp.cli.experiments?.mouse_humanization, inp.env.experiments?.mouse_humanization,
           inp.file.experiments?.mouse_humanization, D.experiments.mouse_humanization, isBool, warn),
+        fingerprinting: pick('experiments.fingerprinting',
+          inp.cli.experiments?.fingerprinting, inp.env.experiments?.fingerprinting,
+          inp.file.experiments?.fingerprinting, D.experiments.fingerprinting, isBool, warn),
       },
       security: {
         secure_eval: pick('security.secure_eval',
@@ -129,6 +132,9 @@ export class ConfigService {
         usage_metrics: pick('logging.usage_metrics',
           inp.cli.logging?.usage_metrics, inp.env.logging?.usage_metrics,
           inp.file.logging?.usage_metrics, D.logging.usage_metrics, isBool, warn),
+        action_recording: pick('logging.action_recording',
+          inp.cli.logging?.action_recording, inp.env.logging?.action_recording,
+          inp.file.logging?.action_recording, D.logging.action_recording, isBool, warn),
       },
       profiles: {
         startup_opts: {

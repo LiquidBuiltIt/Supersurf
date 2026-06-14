@@ -221,6 +221,104 @@ describe('getCenterInFrame', () => {
     expect(result).toEqual({ x: 260, y: 160, contextId: 22 });
   });
 
+  it('iframe-fallback: fires captureFingerprintInContext with the resolved contextId', async () => {
+    const ctx = mockCtx(async (method, params) => {
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [{ frame: { id: 'c' }, childFrames: [] }] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+      if (method === 'Runtime.evaluate' && params.contextId === 7) {
+        if (params.returnByValue) return { result: { value: { left: 10, top: 20, width: 40, height: 30 } } };
+        return { result: { objectId: 'el-obj' } };
+      }
+      if (method === 'DOM.getFrameOwner' && params.frameId === 'c') return { backendNodeId: 99 };
+      if (method === 'DOM.resolveNode') return { object: { objectId: 'iframe-obj' } };
+      if (method === 'Runtime.callFunctionOn' && params.objectId === 'iframe-obj') {
+        return { result: { value: { left: 100, top: 50 } } };
+      }
+    });
+    ctx.getElementCenter = vi.fn().mockRejectedValue(new Error('Element not found: `#btn`'));
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    ctx.captureFingerprintInContext = vi.fn();
+    const result = await getCenterInFrame(ctx, '#btn');
+    expect(result).toEqual({ x: 130, y: 85, contextId: 7 });
+    expect(ctx.captureFingerprintInContext).toHaveBeenCalledWith(7, '#btn');
+  });
+
+  it('top-frame happy path does NOT fire captureFingerprintInContext (capture handled in getElementCenter)', async () => {
+    const ctx = mockCtx(async () => { throw new Error('cdp should not be called'); });
+    ctx.getElementCenter = vi.fn().mockResolvedValue({ x: 100, y: 200 });
+    ctx.captureFingerprintInContext = vi.fn();
+    await getCenterInFrame(ctx, '#btn');
+    expect(ctx.captureFingerprintInContext).not.toHaveBeenCalled();
+  });
+
+  it('iframe heal: scores a stored fingerprint across child frames and returns top-frame-translated coords on a gate-passing hit', async () => {
+    // Selector matches no frame; the heal hook returns a gate-passing hit in frame c (ctx 7).
+    // Hit iframe-local center (30, 35); iframe offset (100, 50) → top-frame (130, 85).
+    const ctx = mockCtx(async (method, params) => {
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [{ frame: { id: 'c' }, childFrames: [] }] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+      // findElementInFrames probe: selector matches nothing in any frame.
+      if (method === 'Runtime.evaluate' && !params.returnByValue) return { result: {} };
+      if (method === 'DOM.getFrameOwner' && params.frameId === 'c') return { backendNodeId: 99 };
+      if (method === 'DOM.resolveNode' && params.backendNodeId === 99) return { object: { objectId: 'iframe-obj' } };
+      if (method === 'Runtime.callFunctionOn' && params.objectId === 'iframe-obj') {
+        return { result: { value: { left: 100, top: 50 } } };
+      }
+    });
+    ctx.getElementCenter = vi.fn().mockRejectedValue(new Error('Element not found: `#btn`'));
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    ctx.healFingerprintInContext = vi.fn().mockResolvedValue({ cx: 30, cy: 35, score: 0.9 });
+    const result = await getCenterInFrame(ctx, '#btn');
+    expect(result).toEqual({ x: 130, y: 85, contextId: 7 });
+    expect(ctx.healFingerprintInContext).toHaveBeenCalledWith(7, '#btn');
+  });
+
+  it('iframe heal: picks the highest-scoring frame when more than one yields a gate-passing hit', async () => {
+    // Two child frames; the hook returns a low-score hit in c1 and a high-score hit in c2.
+    const ctxIds: Record<string, number> = { c1: 11, c2: 22 };
+    const ctx = mockCtx(async (method, params) => {
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [
+          { frame: { id: 'c1' }, childFrames: [] },
+          { frame: { id: 'c2' }, childFrames: [] },
+        ] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: ctxIds[params.frameId] };
+      if (method === 'Runtime.evaluate' && !params.returnByValue) return { result: {} };
+      if (method === 'DOM.getFrameOwner' && params.frameId === 'c2') return { backendNodeId: 222 };
+      if (method === 'DOM.resolveNode' && params.backendNodeId === 222) return { object: { objectId: 'c2-iframe' } };
+      if (method === 'Runtime.callFunctionOn' && params.objectId === 'c2-iframe') {
+        return { result: { value: { left: 200, top: 100 } } };
+      }
+    });
+    ctx.getElementCenter = vi.fn().mockRejectedValue(new Error('Element not found'));
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    ctx.healFingerprintInContext = vi.fn(async (contextId: number) =>
+      contextId === 11 ? { cx: 1, cy: 1, score: 0.65 } : { cx: 5, cy: 5, score: 0.95 });
+    const result = await getCenterInFrame(ctx, '#btn');
+    // Winner is c2 (score 0.95): local (5,5) + offset (200,100) = (205, 105), contextId 22.
+    expect(result).toEqual({ x: 205, y: 105, contextId: 22 });
+  });
+
+  it('iframe heal: throws the original top-frame error when no frame yields a gate-passing hit', async () => {
+    const ctx = mockCtx(async (method) => {
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [{ frame: { id: 'c' }, childFrames: [] }] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+      if (method === 'Runtime.evaluate') return { result: {} };
+    });
+    const topErr = new Error('Element not found: `#btn`');
+    ctx.getElementCenter = vi.fn().mockRejectedValue(topErr);
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    ctx.healFingerprintInContext = vi.fn().mockResolvedValue(null);
+    await expect(getCenterInFrame(ctx, '#btn')).rejects.toBe(topErr);
+  });
+
   it('re-throws the original top-frame error when no frame contains the element', async () => {
     const ctx = mockCtx(async (method) => {
       if (method === 'Runtime.evaluate') return { result: {} };

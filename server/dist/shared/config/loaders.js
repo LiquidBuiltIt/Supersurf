@@ -66,10 +66,7 @@ function loadJsonConfig(filePath) {
     return { config: parsed, warnings: [] };
 }
 const KNOWN_EXPERIMENTS = [
-    'page_diffing',
-    'smart_waiting',
-    'storage_inspection',
-    'mouse_humanization',
+    'page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization', 'fingerprinting',
 ];
 function isKnownExperiment(s) {
     return KNOWN_EXPERIMENTS.includes(s);

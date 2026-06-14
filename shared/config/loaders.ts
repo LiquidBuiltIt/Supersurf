@@ -35,10 +35,7 @@ export function loadJsonConfig(filePath: string): LoadResult {
 }
 
 const KNOWN_EXPERIMENTS = [
-  'page_diffing',
-  'smart_waiting',
-  'storage_inspection',
-  'mouse_humanization',
+  'page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization', 'fingerprinting',
 ] as const;
 
 type ExperimentName = (typeof KNOWN_EXPERIMENTS)[number];

@@ -13,6 +13,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BrowserBridge = void 0;
 const logger_1 = require("./logger");
 const index_1 = require("./experimental/index");
+const index_2 = require("./experimental/fingerprinting/index");
 const schemas_1 = require("./tools/schemas");
 const cdp_1 = require("./tools/lib/cdp");
 const element_resolver_1 = require("./tools/lib/element-resolver");
@@ -57,10 +58,37 @@ class BrowserBridge {
             ext,
             connectionManager: this.connectionManager,
             config: this.config?.configService,
+            metricsLogger: this.metricsLogger,
             cdp: (method, params) => (0, cdp_1.cdp)(ext, method, params),
             eval: evalFnBound,
             sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
-            getElementCenter: (selector) => (0, element_resolver_1.getElementCenter)(evalFnBound, selector),
+            getElementCenter: (selector) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.connectionManager?.getAttachedTab()?.url, (ev) => this.metricsLogger?.write({
+                session_id: this.connectionManager?.clientId ?? 'unknown',
+                tool: 'fingerprint',
+                params: ev,
+                result: 'ok',
+                duration_ms: 0,
+            })),
+            captureFingerprintInContext: (contextId, selector) => void (0, index_2.captureInContext)((expr) => (0, cdp_1.cdp)(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true })
+                .then((r) => r.result?.value), this.connectionManager?.getAttachedTab()?.url, selector),
+            healFingerprintInContext: (contextId, selector) => (0, index_2.healInContext)((expr) => (0, cdp_1.cdp)(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true })
+                .then((r) => r.result?.value), this.connectionManager?.getAttachedTab()?.url, selector).then((hit) => {
+                if (!hit)
+                    return null;
+                const url = this.connectionManager?.getAttachedTab()?.url;
+                this.metricsLogger?.write({
+                    session_id: this.connectionManager?.clientId ?? 'unknown',
+                    tool: 'fingerprint',
+                    params: {
+                        event: 'fingerprint', outcome: 'healed',
+                        selector, domain: (0, index_2.domainOf)(url), route: (0, index_2.routeOf)(url),
+                        score: hit.score, margin: hit.margin, hadRecord: true,
+                    },
+                    result: 'ok',
+                    duration_ms: 0,
+                });
+                return { cx: hit.cx, cy: hit.cy, score: hit.score };
+            }),
             getSelectorExpression: element_resolver_1.getSelectorExpression,
             findAlternativeSelectors: (selector) => (0, element_resolver_1.findAlternativeSelectors)(evalFnBound, selector),
             formatResult: (name, result, options) => (0, result_formatter_1.formatResult)(name, result, options, this.connectionManager),
