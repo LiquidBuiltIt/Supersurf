@@ -31,7 +31,7 @@ Claude Desktop — add to your MCP config:
 
 **3. Use it**
 
-Your agent calls `connect` to start the session, a daemon auto-starts, the extension connects, and 30+ browser tools become available.
+Your agent calls `connect` to start the session, a daemon auto-starts, the extension connects, and 28 browser tools become available.
 
 ## Tools
 
