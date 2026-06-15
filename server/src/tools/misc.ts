@@ -26,7 +26,7 @@ export async function onWindow(ctx: ToolContext, args: any, options: any): Promi
   return ctx.formatResult('browser_window', result, options);
 }
 
-/** Accept or dismiss a browser dialog (alert, confirm, prompt). */
+/** View, accept, or dismiss a held native dialog (alert, confirm, prompt, beforeunload). */
 export async function onDialog(ctx: ToolContext, args: any, options: any): Promise<any> {
   // Priority: explicit `action` wins over the deprecated `accept` alias, which wins over a bare view.
   if (args.action !== undefined) {
