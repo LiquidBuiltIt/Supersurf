@@ -590,6 +590,74 @@ describe('WebSocketConnection', () => {
     });
   });
 
+  describe('WebSocketConnection dialog race + short-circuit', () => {
+    function makeConn() {
+      const chrome = createMockChrome();
+      const logger = createMockLogger();
+      const iconManager = createMockIconManager();
+      const conn = new WebSocketConnection(chrome, logger, iconManager);
+      const sent: any[] = [];
+      // Wire up send capture — same approach as the existing fireCommand helpers
+      (conn as any).socket = { readyState: 1, send: (s: string) => sent.push(JSON.parse(s)) };
+      conn.isConnected = true;
+      return { conn, sent };
+    }
+
+    it('short-circuits page-touching commands while a dialog is pending', async () => {
+      const { conn, sent } = makeConn();
+      let pending = true;
+      conn.setDialogPendingChecker(() => pending);
+      conn.registerCommandHandler('snapshot', async () => ({ ok: true }));
+
+      await (conn as any)._handleMessage({ jsonrpc: '2.0', id: 1, method: 'snapshot', params: {} });
+
+      const reply = sent.find((m: any) => m.id === 1);
+      expect(reply.error).toBeDefined();
+      expect(reply.error.message).toMatch(/native dialog is blocking/i);
+    });
+
+    it('allows the dialog command through while pending', async () => {
+      const { conn, sent } = makeConn();
+      conn.setDialogPendingChecker(() => true);
+      conn.registerCommandHandler('dialog', async () => ({ dialog: null }));
+
+      await (conn as any)._handleMessage({ jsonrpc: '2.0', id: 2, method: 'dialog', params: { action: 'view' } });
+
+      const reply = sent.find((m: any) => m.id === 2);
+      expect(reply.error).toBeUndefined();
+      expect(reply.result).toEqual({ dialog: null });
+    });
+
+    it('allows getTabs through while pending', async () => {
+      const { conn, sent } = makeConn();
+      conn.setDialogPendingChecker(() => true);
+      conn.registerCommandHandler('getTabs', async () => ({ tabs: [] }));
+
+      await (conn as any)._handleMessage({ jsonrpc: '2.0', id: 3, method: 'getTabs', params: {} });
+
+      expect(sent.find((m: any) => m.id === 3).error).toBeUndefined();
+    });
+
+    it('a hung handler returns early when notifyDialogOpened fires (race)', async () => {
+      const { conn, sent } = makeConn();
+      conn.setDialogPendingChecker(() => false);
+      conn.setDialogEventProvider(() => [{
+        type: 'beforeunload', message: 'Leave site?', defaultPrompt: '',
+        url: 'https://x.com/', hasBrowserHandler: true, timestamp: 1,
+      }]);
+      conn.registerCommandHandler('navigate', () => new Promise(() => {})); // never resolves
+
+      const p = (conn as any)._handleMessage({ jsonrpc: '2.0', id: 4, method: 'navigate', params: {} });
+      conn.notifyDialogOpened();
+      await p;
+
+      const reply = sent.find((m: any) => m.id === 4);
+      expect(reply.error).toBeUndefined();
+      expect(reply.result._dialogs).toHaveLength(1);
+      expect(reply.result._dialogs[0].type).toBe('beforeunload');
+    });
+  });
+
   describe('constructor', () => {
     it('stores the buildTimestamp', () => {
       const conn = new WebSocketConnection(

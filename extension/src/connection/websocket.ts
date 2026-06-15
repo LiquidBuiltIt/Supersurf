@@ -21,6 +21,12 @@ import { Logger } from '../utils/logger.js';
 import { IconManager } from '../utils/icons.js';
 import { DialogEvent } from '../handlers/dialogs.js';
 
+/** Unique marker returned by the in-flight race when a dialog interrupts a command. */
+const DIALOG_INTERRUPT = Symbol('dialog-interrupt');
+
+/** Methods allowed to run while a native dialog is held open. */
+const DIALOG_SAFE_METHODS = new Set(['dialog', 'getTabs']);
+
 /**
  * Manages the WebSocket lifecycle and JSON-RPC message routing between the
  * extension and the local MCP server.
@@ -74,9 +80,25 @@ export class WebSocketConnection {
    */
   private dialogEventProvider: (() => DialogEvent[]) | null = null;
 
+  /** Returns true while a native dialog is held open (renderer frozen). */
+  private dialogPendingChecker: (() => boolean) | null = null;
+  /** Resolver for the current in-flight command's dialog race, if any. */
+  private _dialogRaceResolve: (() => void) | null = null;
+
   /** Register the dialog event provider (see `dialogEventProvider`). */
   setDialogEventProvider(provider: (() => DialogEvent[]) | null): void {
     this.dialogEventProvider = provider;
+  }
+
+  /** Register the predicate used to short-circuit page commands while a dialog is held. */
+  setDialogPendingChecker(fn: (() => boolean) | null): void {
+    this.dialogPendingChecker = fn;
+  }
+
+  /** Called by the background dialog listener the instant CDP holds a dialog open.
+   *  Resolves the in-flight command's race so it returns immediately. */
+  notifyDialogOpened(): void {
+    if (this._dialogRaceResolve) this._dialogRaceResolve();
   }
 
   constructor(browserAPI: typeof chrome, logger: Logger, iconManager: IconManager, buildTimestamp: string | null = null) {
@@ -260,10 +282,14 @@ export class WebSocketConnection {
    * Distinguishes between notifications (no id) and commands (has id + method).
    * Commands get a JSON-RPC response sent back; errors include stack traces for debugging.
    */
-  private async _handleMessage(event: MessageEvent): Promise<void> {
+  private async _handleMessage(event: MessageEvent | any): Promise<void> {
     let message: any;
     try {
-      message = JSON.parse(event.data);
+      // Accept either a real MessageEvent (with .data) or a pre-parsed object
+      // (used in tests and internal calls).
+      message = (event && typeof event.data !== 'undefined')
+        ? JSON.parse(event.data)
+        : event;
       this.logger.log('[WebSocket] Received:', message);
 
       if (message.error) {
@@ -281,7 +307,24 @@ export class WebSocketConnection {
       if (this.recoveryNoteReset) {
         try { this.recoveryNoteReset(); } catch { /* never break a command */ }
       }
-      const response = await this._routeCommand(message);
+
+      // Race the handler against a dialog-interrupt signal. If a native dialog
+      // is held open mid-command, the renderer freezes and the handler hangs;
+      // notifyDialogOpened() (fired from the SW-thread CDP listener) resolves
+      // the race so we can return the held dialog in the _dialogs envelope
+      // instead of waiting for the handler's timeout.
+      const interrupt = new Promise<typeof DIALOG_INTERRUPT>((resolve) => {
+        this._dialogRaceResolve = () => resolve(DIALOG_INTERRUPT);
+      });
+      let routed: any;
+      try {
+        routed = await Promise.race([this._routeCommand(message), interrupt]);
+      } finally {
+        this._dialogRaceResolve = null;
+      }
+      const response = routed === DIALOG_INTERRUPT
+        ? { interrupted: 'dialog' }
+        : routed;
 
       // Attach a tab-recovery note to the response if ensureAttachedTab()
       // fired this call. Stored as `_recovery` on the result so the server
@@ -340,6 +383,13 @@ export class WebSocketConnection {
 
   private async _routeCommand(message: any): Promise<any> {
     const { method, params } = message;
+    if (this.dialogPendingChecker?.() && !DIALOG_SAFE_METHODS.has(method)) {
+      throw new Error(
+        'A native dialog is blocking the page. Inspect it with ' +
+        'browser_handle_dialog {action:"view"}, then resolve it with ' +
+        '{action:"accept"} or {action:"dismiss"} before issuing other commands.',
+      );
+    }
     const handler = this.commandHandlers.get(method);
     if (!handler) throw new Error(`Unknown command: ${method}`);
     return await handler(params, message);
