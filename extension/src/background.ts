@@ -137,10 +137,6 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   const downloadHandler = new DownloadHandler(chrome, logger);
 
   tabHandlers.setConsoleInjector((tabId) => consoleHandler.injectConsoleCapture(tabId));
-  tabHandlers.setDialogInjector(async (tabId) => {
-    await dialogHandler.setupDialogOverrides(tabId);
-    dialogHandler.startBuffering(tabId);
-  });
 
   consoleHandler.setupMessageListener();
   iconManager.init();
@@ -185,7 +181,11 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   // Listens for Network.* and Runtime.* events on the attached tab to build
   // a request log (capped at MAX_CDP_REQUESTS to bound memory).
   chromeDebugger.onEvent.addListener((source, method, params: any) => {
-    if (!method.startsWith('Network.') && !method.startsWith('Runtime.')) return;
+    if (
+      !method.startsWith('Network.') &&
+      !method.startsWith('Runtime.') &&
+      method !== 'Page.javascriptDialogOpening'
+    ) return;
     if (!sessionContext.currentDebuggerTabId || source.tabId !== sessionContext.currentDebuggerTabId) return;
 
     try {
@@ -214,6 +214,12 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
       } else if (method === 'Network.loadingFinished') {
         const req = cdpNetworkRequests.get(params.requestId);
         if (req) req.completed = true;
+      } else if (method === 'Page.javascriptDialogOpening') {
+        // CDP holds the dialog open until we call Page.handleJavaScriptDialog.
+        // Record it, flag the session, and wake any in-flight command's race.
+        dialogHandler.onDialogOpening(params);
+        sessionContext.dialogPending = true;
+        wsConnection.notifyDialogOpened();
       }
     } catch (e) {
       logger.log('[Background] CDP event error:', e);
@@ -224,6 +230,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     if (source.tabId === sessionContext.currentDebuggerTabId) {
       sessionContext.debuggerAttached = false;
       sessionContext.currentDebuggerTabId = null;
+      dialogHandler.clearPending();
+      sessionContext.dialogPending = false;
       logger.log('[Background] Debugger detached');
     }
   });
@@ -318,10 +326,14 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     () => tabHandlers.clearRecoveryNote(),
   );
 
-  // Wire the dialog event provider so every command response can carry a
-  // `_dialogs` field listing any native/overridden dialogs that fired
-  // since the last call (drained from the page on a 500ms interval).
-  wsConnection.setDialogEventProvider(() => dialogHandler.consumeBufferedEvents());
+  // Every response carries the currently-held native dialog (if any) in
+  // `_dialogs`, so the triggering tool's own result surfaces it.
+  wsConnection.setDialogEventProvider(() => {
+    const held = dialogHandler.getPending();
+    return held ? [held] : [];
+  });
+  // Short-circuit page-touching commands while a dialog blocks the renderer.
+  wsConnection.setDialogPendingChecker(() => sessionContext.dialogPending);
 
   // ── Register command handlers ──
   // Each handler corresponds to a JSON-RPC method the server can invoke.
@@ -519,7 +531,22 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   // dialog
   wsConnection.registerCommandHandler('dialog', async (params) => {
     const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
-    return dialogHandler.handleDialogCommand(tabId, params);
+    // action defaults: explicit `action` wins; else legacy `accept` maps
+    // (true→accept, false→dismiss); else `view`.
+    const action: 'view' | 'accept' | 'dismiss' =
+      params.action ??
+      (params.accept === undefined ? 'view' : params.accept ? 'accept' : 'dismiss');
+
+    const pending = dialogHandler.getPending();
+    if (action === 'view') {
+      return { dialog: pending };
+    }
+    if (!pending) {
+      return { dialog: null, note: 'No native dialog is currently open.' };
+    }
+    await dialogHandler.handle(tabId, action === 'accept', params.text ?? '');
+    sessionContext.dialogPending = false;
+    return { dialog: { ...pending, resolved: action } };
   });
 
   // window management

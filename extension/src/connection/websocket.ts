@@ -19,7 +19,7 @@
 
 import { Logger } from '../utils/logger.js';
 import { IconManager } from '../utils/icons.js';
-import { DialogEvent } from '../handlers/dialogs.js';
+import { HeldDialog } from '../handlers/dialogs.js';
 
 /** Unique marker returned by the in-flight race when a dialog interrupts a command. */
 const DIALOG_INTERRUPT = Symbol('dialog-interrupt');
@@ -78,7 +78,7 @@ export class WebSocketConnection {
    * call (or since the previous call). Returns an array of events, or
    * empty if none.
    */
-  private dialogEventProvider: (() => DialogEvent[]) | null = null;
+  private dialogEventProvider: (() => HeldDialog[]) | null = null;
 
   /** Returns true while a native dialog is held open (renderer frozen). */
   private dialogPendingChecker: (() => boolean) | null = null;
@@ -97,7 +97,7 @@ export class WebSocketConnection {
   private _dialogRaceResolve: (() => void) | null = null;
 
   /** Register the dialog event provider (see `dialogEventProvider`). */
-  setDialogEventProvider(provider: (() => DialogEvent[]) | null): void {
+  setDialogEventProvider(provider: (() => HeldDialog[]) | null): void {
     this.dialogEventProvider = provider;
   }
 
