@@ -181,7 +181,7 @@ export async function dispatchTool(
 
 /**
  * Drain any native-dialog events buffered on the transport since the last
- * tool call and prepend a `⚠ dialog fired` notice to the result's first
+ * tool call and prepend a held-dialog warning to the result's first
  * text block. Multi-step tools (e.g. browser_interact) can fire several
  * extension RPCs per dispatch; aggregating at this layer captures dialogs
  * from every sub-call. Skipped in rawResult mode — script-mode consumers

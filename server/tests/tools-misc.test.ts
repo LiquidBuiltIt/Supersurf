@@ -216,6 +216,18 @@ describe('held-dialog notice', () => {
     expect(out.content[0].text).toMatch(/browser_handle_dialog/);
     expect(out.content[0].text).toMatch(/navigated$/);
   });
+
+  it('includes defaultPrompt for prompt dialogs', async () => {
+    const transport: any = {
+      consumeDialogEvents: () => [{
+        type: 'prompt', message: 'Enter name:', defaultPrompt: 'Alice',
+        url: 'https://x.com/', hasBrowserHandler: false, timestamp: 1,
+      }],
+    };
+    const out = (await import('../src/tools/lib/dispatcher'))
+      .__testPrependDialogNotice({ content: [{ type: 'text', text: 'x' }] }, { ext: transport } as any, {});
+    expect(out.content[0].text).toMatch(/default: "Alice"/);
+  });
 });
 
 describe('onPerformanceMetrics()', () => {
