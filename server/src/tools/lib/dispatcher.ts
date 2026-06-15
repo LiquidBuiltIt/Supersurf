@@ -200,9 +200,11 @@ function prependDialogNotice(
   if (options.rawResult) return result;
 
   const lines = events.map((d: any) => {
-    const msg = d.message != null ? `: ${JSON.stringify(d.message)}` : '';
-    const resp = d.response != null ? ` → ${d.response}` : '';
-    return `⚠ dialog fired: ${d.type}${msg}${resp}`;
+    const msg = d.message != null && d.message !== '' ? `: ${JSON.stringify(d.message)}` : '';
+    const prompt = d.type === 'prompt' && d.defaultPrompt
+      ? ` (default: ${JSON.stringify(d.defaultPrompt)})` : '';
+    return `⚠ A native ${d.type} dialog is OPEN and blocking the page${msg}${prompt}. ` +
+      `Resolve it with browser_handle_dialog {action:"view"} then {action:"accept"} or {action:"dismiss"}.`;
   });
   const notice = lines.join('\n') + '\n';
 
@@ -217,3 +219,6 @@ function prependDialogNotice(
 
   return result;
 }
+
+/** @internal test seam */
+export const __testPrependDialogNotice = prependDialogNotice;

@@ -193,6 +193,31 @@ describe('onDialog action routing', () => {
   });
 });
 
+describe('held-dialog notice', () => {
+  it('prepends a held-dialog warning when the transport reports a held dialog', async () => {
+    // A transport that reports one held dialog on the first consume, then none.
+    let drained = false;
+    const transport: any = {
+      consumeDialogEvents: () => {
+        if (drained) return [];
+        drained = true;
+        return [{
+          type: 'beforeunload', message: 'Leave site?', defaultPrompt: '',
+          url: 'https://x.com/', hasBrowserHandler: true, timestamp: 1,
+        }];
+      },
+    };
+    // prependDialogNotice reads events via ctx.ext.consumeDialogEvents()
+    const ctx: any = { ext: transport };
+    const result = { content: [{ type: 'text', text: 'navigated' }] };
+    const out = (await import('../src/tools/lib/dispatcher'))
+      .__testPrependDialogNotice(result, ctx, {});
+    expect(out.content[0].text).toMatch(/native beforeunload dialog is OPEN/i);
+    expect(out.content[0].text).toMatch(/browser_handle_dialog/);
+    expect(out.content[0].text).toMatch(/navigated$/);
+  });
+});
+
 describe('onPerformanceMetrics()', () => {
   let ctx: ToolContext;
 
