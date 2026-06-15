@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://liquidbuiltit.github.io/Supersurf/sitemap.xml

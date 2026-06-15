@@ -1,0 +1,29 @@
+# SuperSurf
+
+> SuperSurf is an MCP (Model Context Protocol) server that gives any AI agent control of a real Chrome browser through a Chrome extension — real profile, cookies, and logins, no CDP. Works with any MCP client (Claude, GPT, or anything that speaks MCP).
+
+SuperSurf ships as two npm packages: `supersurf-mcp` (the MCP server you install via `npx supersurf-mcp@latest mcp`) and `supersurf-daemon` (a coordinator auto-spawned by the server; never installed directly). The Chrome extension is the interaction layer.
+
+Key facts:
+- Drives a **real** Chrome browser via a Chrome extension and content scripts, not raw CDP. Content scripts run in an isolated world the page's own JavaScript cannot read.
+- Uses your actual browser profile: real cookies, logins, history, localStorage, and extensions. Handles pages behind a login, iframe-heavy forms, React controlled inputs, and custom dropdowns.
+- Ships **28 browser tools**: navigation, clicking/typing, form fill, snapshots, network inspection, console access, screenshots, PDF export, CSS inspection, performance metrics, file downloads.
+- Multiple MCP clients can share one browser through the local daemon (tab ownership tracking + round-robin scheduling).
+- Platform support: **macOS and Linux only** (no Windows yet).
+- License: Apache-2.0 with a Commons Clause. Source is fully public (server and extension). No telemetry.
+- Honesty note: SuperSurf is a transparent browser *harness*, not an anti-bot framework. It has not been tested against commercial anti-bot vendors and is not marketed as "undetectable."
+
+## Docs
+
+- [Homepage](https://liquidbuiltit.github.io/Supersurf/): overview and quickstart
+- [Documentation](https://liquidbuiltit.github.io/Supersurf/documentation/): full docs index
+- [Tools reference](https://liquidbuiltit.github.io/Supersurf/documentation/tools.html): the 28 browser tools
+- [Architecture](https://liquidbuiltit.github.io/Supersurf/documentation/architecture.html): server, daemon, extension data flow
+- [Security](https://liquidbuiltit.github.io/Supersurf/documentation/security.html): secure_eval and credential handling
+
+## Source and packages
+
+- [GitHub repository](https://github.com/LiquidBuiltIt/Supersurf)
+- [supersurf-mcp on npm](https://www.npmjs.com/package/supersurf-mcp)
+- [supersurf-daemon on npm](https://www.npmjs.com/package/supersurf-daemon)
+- [Chrome Web Store extension](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek)

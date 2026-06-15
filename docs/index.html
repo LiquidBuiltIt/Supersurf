@@ -3,7 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SuperSurf — Browser Automation for AI Agents</title>
+  <title>SuperSurf — MCP Browser Automation for AI Agents (Real Chrome, via Extension)</title>
+
+  <!-- SEO -->
+  <meta name="description" content="SuperSurf is an MCP server that gives any AI agent control of a real Chrome browser through a Chrome extension — real profile, cookies, and logins, no CDP.">
+  <meta name="keywords" content="MCP, MCP server, browser automation, AI agent, Chrome extension, model context protocol, Claude, web automation, real browser, CDP alternative">
+  <link rel="canonical" href="https://liquidbuiltit.github.io/Supersurf/">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SuperSurf">
+  <meta property="og:title" content="SuperSurf — MCP Browser Automation for AI Agents">
+  <meta property="og:description" content="An MCP server that gives any AI agent control of a real Chrome browser through a Chrome extension — real profile, cookies, and logins, no CDP.">
+  <meta property="og:url" content="https://liquidbuiltit.github.io/Supersurf/">
+  <meta property="og:image" content="https://liquidbuiltit.github.io/Supersurf/logo.png">
+  <meta property="og:image:width" content="577">
+  <meta property="og:image:height" content="585">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SuperSurf — MCP Browser Automation for AI Agents">
+  <meta name="twitter:description" content="An MCP server that gives any AI agent control of a real Chrome browser through a Chrome extension — real profile, cookies, and logins, no CDP.">
+  <meta name="twitter:image" content="https://liquidbuiltit.github.io/Supersurf/logo.png">
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "SuperSurf",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "macOS, Linux",
+    "description": "SuperSurf is an MCP server that gives any AI agent control of a real Chrome browser through a Chrome extension — real profile, cookies, and logins, no CDP.",
+    "url": "https://liquidbuiltit.github.io/Supersurf/",
+    "downloadUrl": "https://www.npmjs.com/package/supersurf-mcp",
+    "codeRepository": "https://github.com/LiquidBuiltIt/Supersurf",
+    "softwareVersion": "3.1.0",
+    "license": "https://www.apache.org/licenses/LICENSE-2.0",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Organization", "name": "The Media Masons" }
+  }
+  </script>
+
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
@@ -1146,7 +1187,7 @@
         <div class="toc-item" onclick="goTo(3)">
           <div class="toc-num">04</div>
           <h3>Browser Tools</h3>
-          <p>30+ automation tools</p>
+          <p>28 automation tools</p>
         </div>
         <div class="toc-item" onclick="goTo(6)">
           <div class="toc-num">05</div>
@@ -1256,7 +1297,7 @@
         <div class="sparkle sm" style="bottom:12%;right:12%;animation-delay:0.7s;"></div>
         <div class="sparkle sm" style="bottom:20%;left:8%;animation-delay:1.5s;"></div>
       </div>
-      <h2 class="slide-title">30+ Browser Tools</h2>
+      <h2 class="slide-title">28 Browser Tools</h2>
       <p class="slide-subtitle">Everything your AI agent needs to operate a real browser.</p>
       <div class="feature-grid">
         <div class="feature-card">
@@ -1447,7 +1488,7 @@
             <td><span class="cross">Fresh profile</span></td>
           </tr>
           <tr>
-            <td>Undetectable by page JS</td>
+            <td>Interaction hidden from page JS</td>
             <td class="highlight"><span class="check">Isolated world</span></td>
             <td><span class="cross">CDP leaks</span></td>
             <td><span class="cross">WebDriver flag</span></td>
