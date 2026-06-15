@@ -184,6 +184,13 @@ describe('onDialog action routing', () => {
     await onDialog(ctx, {}, {});
     expect(sendCmd).toHaveBeenCalledWith('dialog', {});
   });
+
+  it('action wins over accept when both present', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { action: 'dismiss', accept: true }, {});
+    // action branch fires first; legacy accept is never consulted
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'dismiss', text: undefined });
+  });
 });
 
 describe('onPerformanceMetrics()', () => {
