@@ -373,37 +373,38 @@ describe('BrowserBridge', () => {
     });
   });
 
-  // ── dialog aggregation (via transport.consumeDialogEvents) ──
+  // ── held-dialog aggregation (via transport.consumeDialogEvents) ──
 
-  describe('dialog aggregation', () => {
-    it('prepends notice when transport reports buffered dialog events', async () => {
+  describe('held-dialog aggregation', () => {
+    it('prepends notice when transport reports held dialogs', async () => {
       mockCM.statusHeader.mockReturnValue('STATUS\n');
       mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
       mockExt.consumeDialogEvents.mockReturnValue([
-        { type: 'alert', message: 'Upload complete', response: 'accepted', timestamp: 123 },
-        { type: 'confirm', message: 'Submit?', response: 'dismissed', timestamp: 456 },
+        { type: 'alert', message: 'Upload complete', defaultPrompt: '', url: 'https://x.test/', hasBrowserHandler: true, timestamp: 123 },
+        { type: 'confirm', message: 'Submit?', defaultPrompt: '', url: 'https://x.test/', hasBrowserHandler: true, timestamp: 456 },
       ]);
 
       const result = await bridge.callTool('browser_snapshot', {});
       const text = result.content[0].text;
 
-      expect(text).toContain('⚠ dialog fired: alert');
+      expect(text).toContain('A native alert dialog is OPEN');
       expect(text).toContain('Upload complete');
-      expect(text).toContain('⚠ dialog fired: confirm');
+      expect(text).toContain('A native confirm dialog is OPEN');
       expect(text).toContain('Submit?');
+      expect(text).toContain('browser_handle_dialog');
     });
 
     it('does nothing when the buffer is empty', async () => {
       mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
       mockExt.consumeDialogEvents.mockReturnValue([]);
       const result = await bridge.callTool('browser_snapshot', {});
-      expect(result.content[0].text).not.toContain('⚠ dialog');
+      expect(result.content[0].text).not.toContain('is OPEN and blocking');
     });
 
     it('drains buffer once per dispatch (consumeDialogEvents is called)', async () => {
       mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
       mockExt.consumeDialogEvents.mockReturnValue([
-        { type: 'alert', message: 'hi', response: 'accepted', timestamp: 1 },
+        { type: 'alert', message: 'hi', defaultPrompt: '', url: 'https://x.test/', hasBrowserHandler: true, timestamp: 1 },
       ]);
 
       await bridge.callTool('browser_snapshot', {});
@@ -413,34 +414,34 @@ describe('BrowserBridge', () => {
     it('does not prepend dialog notice in rawResult mode', async () => {
       mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
       mockExt.consumeDialogEvents.mockReturnValue([
-        { type: 'alert', message: 'hi', response: 'accepted', timestamp: 1 },
+        { type: 'alert', message: 'hi', defaultPrompt: '', url: 'https://x.test/', hasBrowserHandler: true, timestamp: 1 },
       ]);
 
       const result = await bridge.callTool('browser_snapshot', {}, { rawResult: true });
       const text = typeof result === 'string' ? result : JSON.stringify(result);
-      expect(text).not.toContain('⚠ dialog fired');
+      expect(text).not.toContain('is OPEN and blocking');
     });
 
     it('prepends notice to MCP-envelope tools that build their own content (e.g. snapshot)', async () => {
       mockExt.sendCmd.mockResolvedValue({ message: 'ok' });
       mockExt.consumeDialogEvents.mockReturnValue([
-        { type: 'beforeunload', message: null, response: null, timestamp: 9 },
+        { type: 'beforeunload', message: '', defaultPrompt: '', url: 'https://x.test/', hasBrowserHandler: true, timestamp: 9 },
       ]);
 
       const result = await bridge.callTool('browser_snapshot', {});
       const text = result.content[0].text;
-      expect(text).toContain('⚠ dialog fired: beforeunload');
+      expect(text).toContain('A native beforeunload dialog is OPEN');
     });
 
     it('still prepends notice when the result is an error', async () => {
       mockExt.sendCmd.mockRejectedValue(new Error('boom'));
       mockExt.consumeDialogEvents.mockReturnValue([
-        { type: 'alert', message: 'late', response: 'accepted', timestamp: 2 },
+        { type: 'alert', message: 'late', defaultPrompt: '', url: 'https://x.test/', hasBrowserHandler: true, timestamp: 2 },
       ]);
 
       const result = await bridge.callTool('browser_snapshot', {});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('⚠ dialog fired: alert');
+      expect(result.content[0].text).toContain('A native alert dialog is OPEN');
     });
   });
 
