@@ -695,6 +695,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     if (message.type === 'disableExtension') {
       chrome.storage.local.set({ extensionEnabled: false });
       wsConnection.disconnect();
+      dialogHandler.clearPending();
+      sessionContext.dialogPending = false;
       sessionContext.clearStorage();
       sendResponse({ ok: true });
       return true;
