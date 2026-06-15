@@ -82,7 +82,18 @@ export class WebSocketConnection {
 
   /** Returns true while a native dialog is held open (renderer frozen). */
   private dialogPendingChecker: (() => boolean) | null = null;
-  /** Resolver for the current in-flight command's dialog race, if any. */
+  /**
+   * Single-slot resolver for the current in-flight command's dialog race.
+   *
+   * ASSUMPTION: per-tab serialized dispatch. The daemon scheduler routes
+   * commands to the extension one at a time per tab, so only one command
+   * can be in-flight here at any moment. If two commands were dispatched
+   * concurrently before the first awaits, the second assignment would
+   * overwrite the first resolver and the first's interrupt promise would
+   * hang until timeout. The serialization guarantee from the scheduler
+   * makes this safe — do NOT add locking or a queue unless that guarantee
+   * is removed.
+   */
   private _dialogRaceResolve: (() => void) | null = null;
 
   /** Register the dialog event provider (see `dialogEventProvider`). */
@@ -175,7 +186,7 @@ export class WebSocketConnection {
 
       this.socket = new WebSocket(url);
       this.socket.onopen = () => this._handleOpen();
-      this.socket.onmessage = (event) => this._handleMessage(event);
+      this.socket.onmessage = (event) => this._onMessage(event);
       this.socket.onerror = (error) => this._handleError(error);
       this.socket.onclose = (event) => this._handleClose(event);
     } catch (error: any) {
@@ -278,18 +289,29 @@ export class WebSocketConnection {
   }
 
   /**
-   * Route incoming WebSocket messages to the appropriate handler.
+   * Thin wrapper wired to `socket.onmessage`. JSON-parses the raw frame
+   * string from `event.data`, then delegates to `_handleMessage` with the
+   * parsed object. Logs and returns on parse failure so a malformed or
+   * binary frame never reaches the routing logic.
+   */
+  private async _onMessage(event: MessageEvent): Promise<void> {
+    let message: any;
+    try {
+      message = JSON.parse(event.data);
+    } catch (err: any) {
+      this.logger.error('[WebSocket] Failed to parse incoming message:', err);
+      return;
+    }
+    await this._handleMessage(message);
+  }
+
+  /**
+   * Route an already-parsed JSON-RPC message to the appropriate handler.
    * Distinguishes between notifications (no id) and commands (has id + method).
    * Commands get a JSON-RPC response sent back; errors include stack traces for debugging.
    */
-  private async _handleMessage(event: MessageEvent | any): Promise<void> {
-    let message: any;
+  private async _handleMessage(message: any): Promise<void> {
     try {
-      // Accept either a real MessageEvent (with .data) or a pre-parsed object
-      // (used in tests and internal calls).
-      message = (event && typeof event.data !== 'undefined')
-        ? JSON.parse(event.data)
-        : event;
       this.logger.log('[WebSocket] Received:', message);
 
       if (message.error) {

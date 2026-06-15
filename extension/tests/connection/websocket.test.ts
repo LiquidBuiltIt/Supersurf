@@ -65,7 +65,7 @@ describe('WebSocketConnection', () => {
       // Stub the outgoing send path
       (wsInst as any).socket = { readyState: 1, send: (s: string) => sent.push(JSON.parse(s)) };
       wsInst.isConnected = true;
-      await (wsInst as any)._handleMessage({ data: JSON.stringify(message) });
+      await (wsInst as any)._onMessage({ data: JSON.stringify(message) });
       return sent[0];
     }
 
@@ -141,7 +141,7 @@ describe('WebSocketConnection', () => {
       const sent: any[] = [];
       (wsInst as any).socket = { readyState: 1, send: (s: string) => sent.push(JSON.parse(s)) };
       wsInst.isConnected = true;
-      await (wsInst as any)._handleMessage({ data: JSON.stringify(message) });
+      await (wsInst as any)._onMessage({ data: JSON.stringify(message) });
       return sent[0];
     }
 
@@ -607,13 +607,15 @@ describe('WebSocketConnection', () => {
       const { conn, sent } = makeConn();
       let pending = true;
       conn.setDialogPendingChecker(() => pending);
-      conn.registerCommandHandler('snapshot', async () => ({ ok: true }));
+      const handler = vi.fn(async () => ({ ok: true }));
+      conn.registerCommandHandler('snapshot', handler);
 
       await (conn as any)._handleMessage({ jsonrpc: '2.0', id: 1, method: 'snapshot', params: {} });
 
       const reply = sent.find((m: any) => m.id === 1);
       expect(reply.error).toBeDefined();
       expect(reply.error.message).toMatch(/native dialog is blocking/i);
+      expect(handler).not.toHaveBeenCalled();
     });
 
     it('allows the dialog command through while pending', async () => {
