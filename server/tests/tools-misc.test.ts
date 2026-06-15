@@ -145,6 +145,47 @@ describe('onListExtensions()', () => {
   });
 });
 
+describe('onDialog action routing', () => {
+  function makeCtx() {
+    const sendCmd = vi.fn().mockResolvedValue({ dialog: null });
+    const ctx: any = {
+      ext: { sendCmd },
+      formatResult: (_name: string, r: any) => r,
+    };
+    return { ctx, sendCmd };
+  }
+
+  it('passes action:view through to the dialog command', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { action: 'view' }, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'view', text: undefined });
+  });
+
+  it('passes action:accept with text', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { action: 'accept', text: 'Alice' }, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'accept', text: 'Alice' });
+  });
+
+  it('passes action:dismiss through', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { action: 'dismiss' }, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'dismiss', text: undefined });
+  });
+
+  it('legacy accept:true still works (no action)', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { accept: true, text: 'x' }, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { accept: true, text: 'x' });
+  });
+
+  it('no args sends an empty dialog command (view)', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, {}, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', {});
+  });
+});
+
 describe('onPerformanceMetrics()', () => {
   let ctx: ToolContext;
 
