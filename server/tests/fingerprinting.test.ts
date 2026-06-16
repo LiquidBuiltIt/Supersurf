@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { getRecord, putRecord, loadDomain, setBaseDirForTests } from '../src/experimental/fingerprinting/store';
 import type { FingerprintRecord } from '../src/experimental/fingerprinting/types';
 import { captureExpr, scoreExpr } from '../src/experimental/fingerprinting/page-scripts';
-import { domainOf, routeOf, passesGate, THRESHOLD, MARGIN } from '../src/experimental/fingerprinting/index';
+import { domainOf, routeOf, passesGate, THRESHOLD, MARGIN, captureOnResolve } from '../src/experimental/fingerprinting/index';
 
 const TMP = path.join(process.cwd(), '.tmp-fp-store');
 setBaseDirForTests(TMP);
@@ -87,6 +87,28 @@ describe('url keying', () => {
   it('falls back safely on garbage urls', () => {
     expect(domainOf('not a url')).toBe('unknown');
     expect(routeOf('not a url')).toBe('/');
+  });
+  it('keys file:// urls under a dedicated "file" domain with the path as route', () => {
+    expect(domainOf('file:///home/x/heal-test.html')).toBe('file');
+    expect(routeOf('file:///home/x/heal-test.html')).toBe('/home/x/heal-test.html');
+  });
+});
+
+describe('capture guard', () => {
+  const fakeEval = async () => JSON.stringify({
+    role: 'button', name: 'X', text: '', tag: 'button', type: null,
+    attrs: {}, classList: [], htmlId: '', ordinal: 0, cx: 1, cy: 1,
+    neighborText: '', landmark: '',
+  });
+
+  it('does NOT persist when the domain is unknown (no url)', async () => {
+    await captureOnResolve(fakeEval, '', '#x');
+    expect(getRecord('unknown', '/', '#x')).toBeUndefined();
+  });
+
+  it('DOES persist for a real domain (control)', async () => {
+    await captureOnResolve(fakeEval, 'https://ex.com/p', '#z');
+    expect(getRecord('ex.com', '/p', '#z')?.selector).toBe('#z');
   });
 });
 

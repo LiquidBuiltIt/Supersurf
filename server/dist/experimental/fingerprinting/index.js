@@ -17,7 +17,12 @@ exports.THRESHOLD = 0.6;
 exports.MARGIN = 0.10;
 function domainOf(url) {
     try {
-        return new URL(url || '').hostname.replace(/^www\./, '') || 'unknown';
+        const u = new URL(url || '');
+        // file:// pages have no hostname but are real, automatable pages — give them
+        // a dedicated bucket (route = path) instead of collapsing into 'unknown'.
+        if (u.protocol === 'file:')
+            return 'file';
+        return u.hostname.replace(/^www\./, '') || 'unknown';
     }
     catch {
         return 'unknown';
@@ -52,6 +57,11 @@ async function captureOnResolve(evalFn, url, selector) {
         if (!fp)
             return;
         const domain = domainOf(url), route = routeOf(url);
+        // Never persist into the 'unknown' bucket: a stale/empty attached-tab URL would
+        // mis-file the record under unknown.json where it can never be healed (heal keys
+        // off the live domain). Drop it instead — the record is best-effort anyway.
+        if (domain === 'unknown')
+            return;
         const existing = (0, store_1.getRecord)(domain, route, selector);
         const now = Date.now();
         const rec = {

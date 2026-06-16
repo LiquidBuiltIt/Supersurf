@@ -9,7 +9,13 @@ export const THRESHOLD = 0.6;
 export const MARGIN = 0.10;
 
 export function domainOf(url: string | undefined): string {
-  try { return new URL(url || '').hostname.replace(/^www\./, '') || 'unknown'; } catch { return 'unknown'; }
+  try {
+    const u = new URL(url || '');
+    // file:// pages have no hostname but are real, automatable pages — give them
+    // a dedicated bucket (route = path) instead of collapsing into 'unknown'.
+    if (u.protocol === 'file:') return 'file';
+    return u.hostname.replace(/^www\./, '') || 'unknown';
+  } catch { return 'unknown'; }
 }
 export function routeOf(url: string | undefined): string {
   try { return new URL(url || '').pathname || '/'; } catch { return '/'; }
@@ -31,6 +37,10 @@ export async function captureOnResolve(evalFn: EvalFn, url: string | undefined, 
     const fp = safeParse<Fingerprint>(raw);
     if (!fp) return;
     const domain = domainOf(url), route = routeOf(url);
+    // Never persist into the 'unknown' bucket: a stale/empty attached-tab URL would
+    // mis-file the record under unknown.json where it can never be healed (heal keys
+    // off the live domain). Drop it instead — the record is best-effort anyway.
+    if (domain === 'unknown') return;
     const existing = getRecord(domain, route, selector);
     const now = Date.now();
     const rec: FingerprintRecord = {
