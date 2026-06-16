@@ -4,6 +4,11 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
+## Unreleased
+
+- fix(fingerprinting): captures now land under the correct domain instead of silently mis-filing into `unknown.json`. **Root cause:** after a mid-session extension reconnect the server nulled `attachedTab` and never restored its URL — `onTabInfoUpdate` ignored updates while the tab was null, and `onReconnect` only cleared state — so every subsequent capture read an empty URL and keyed to `domain: "unknown"`. Now `onReconnect` re-queries `getTabs` to rehydrate the attached tab (URL included), and `onTabInfoUpdate` rebuilds the snapshot even from a null state (`backend/handlers.ts`, extracted as testable `rehydrateAttachedTab` / `applyTabInfoUpdate`).
+- fix(fingerprinting): `file://` pages now key to a dedicated `file` bucket with the path as route (was collapsing into `unknown`), and `captureOnResolve` hard-drops any capture that still resolves to `domain: "unknown"` — the `unknown.json` bucket is unhealable (heal keys off the live domain) so writing to it is pure noise. Garbage/`about:blank`-style URLs go to the void instead of polluting the dataset.
+
 ## 3.1.0 — 2026-06-14
 
 - chore: closed the `supersurf` npm name-squat dispute as **abandoned**. npm Trust & Safety refused to review the squatting claim (2026-06-09, quoting policy: "we will not review squatting claims... trademark is the only path we act on"); registering a USPTO mark to force the issue isn't worth it for a FOSS name. The single-`supersurf` merge is **cancelled** (was "deferred" in 3.0.1) — SuperSurf ships permanently as `supersurf-mcp` + `supersurf-daemon`. CLAUDE.md callout updated; the `supersurf-npm-namesquat-dispute-2026-06-07` stickynote is closed/historical

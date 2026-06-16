@@ -22,6 +22,27 @@ export declare function onConnect(mgr: ConnectionManagerAPI, args?: Record<strin
     rawResult?: boolean;
 }): Promise<any>;
 /**
+ * Apply a `tab_info_update` notification to the attached-tab snapshot.
+ *
+ * A null update clears the tab. A non-null update rebuilds the snapshot **even when
+ * `attachedTab` was previously null** — the prior version skipped the update unless a
+ * tab was already attached, which left the URL stale/empty after a reconnect (reconnect
+ * nulls the tab) and mis-filed fingerprint captures into the 'unknown' bucket. Exported
+ * for testing.
+ */
+export declare function applyTabInfoUpdate(mgr: ConnectionManagerAPI, tabInfo: any): void;
+/** Minimal daemon-client surface needed to re-query tabs. */
+interface TabQueryClient {
+    sendCmd: (method: string, params: Record<string, unknown>, timeout?: number) => Promise<unknown>;
+}
+/**
+ * After a reconnect, re-query the extension for the attached tab and repopulate
+ * `mgr.attachedTab` (URL included). Without this, the tab stays null until the next
+ * navigation fires a `tab_info_update`, so any fingerprint capture in between has no
+ * live URL and gets dropped. Best-effort: any failure falls back to null. Exported for testing.
+ */
+export declare function rehydrateAttachedTab(mgr: ConnectionManagerAPI, client: TabQueryClient): Promise<void>;
+/**
  * Disconnect from the daemon: tear down bridge, close DaemonClient session,
  * reset experiments and mouse humanization, transition back to passive.
  * The daemon stays alive for other sessions.
@@ -49,4 +70,5 @@ export declare function onProfileDelete(mgr: ConnectionManagerAPI, args?: Record
 export declare function onReloadMCP(mgr: ConnectionManagerAPI, options?: {
     rawResult?: boolean;
 }): any;
+export {};
 //# sourceMappingURL=handlers.d.ts.map

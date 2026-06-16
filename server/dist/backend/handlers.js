@@ -48,6 +48,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onConnect = onConnect;
+exports.applyTabInfoUpdate = applyTabInfoUpdate;
+exports.rehydrateAttachedTab = rehydrateAttachedTab;
 exports.onDisconnect = onDisconnect;
 exports.onStatus = onStatus;
 exports.onProfileCreate = onProfileCreate;
@@ -152,28 +154,16 @@ async function onConnect(mgr, args = {}, options = {}) {
             };
         }
         mgr.extensionServer = client;
-        // Handle extension reconnections
+        // Handle extension reconnections — re-query the attached tab so its URL is
+        // restored immediately, rather than waiting for the next navigation event.
         mgr.extensionServer.onReconnect = () => {
-            log('Extension reconnected, resetting tab state...');
-            mgr.attachedTab = null;
+            log('Extension reconnected, rehydrating tab state...');
+            void rehydrateAttachedTab(mgr, mgr.extensionServer);
         };
         // Monitor tab info updates
         mgr.extensionServer.onTabInfoUpdate = (tabInfo) => {
             log('Tab info update:', tabInfo);
-            if (tabInfo === null) {
-                mgr.attachedTab = null;
-                return;
-            }
-            if (mgr.attachedTab) {
-                mgr.attachedTab = {
-                    ...mgr.attachedTab,
-                    id: tabInfo.id,
-                    title: tabInfo.title,
-                    url: tabInfo.url,
-                    index: tabInfo.index,
-                    techStack: tabInfo.techStack || null,
-                };
-            }
+            applyTabInfoUpdate(mgr, tabInfo);
         };
         // Bind experiment registry to daemon transport
         index_1.experimentRegistry.bind(client);
@@ -239,6 +229,55 @@ async function onConnect(mgr, args = {}, options = {}) {
             content: [{ type: 'text', text: `### Connection Failed\n\n${error.message}` }],
             isError: true,
         };
+    }
+}
+// ─── Tab state ───────────────────────────────────────────────
+/**
+ * Apply a `tab_info_update` notification to the attached-tab snapshot.
+ *
+ * A null update clears the tab. A non-null update rebuilds the snapshot **even when
+ * `attachedTab` was previously null** — the prior version skipped the update unless a
+ * tab was already attached, which left the URL stale/empty after a reconnect (reconnect
+ * nulls the tab) and mis-filed fingerprint captures into the 'unknown' bucket. Exported
+ * for testing.
+ */
+function applyTabInfoUpdate(mgr, tabInfo) {
+    if (tabInfo === null) {
+        mgr.attachedTab = null;
+        return;
+    }
+    mgr.attachedTab = {
+        ...(mgr.attachedTab || {}),
+        id: tabInfo.id,
+        title: tabInfo.title,
+        url: tabInfo.url,
+        index: tabInfo.index,
+        techStack: tabInfo.techStack || null,
+    };
+}
+/**
+ * After a reconnect, re-query the extension for the attached tab and repopulate
+ * `mgr.attachedTab` (URL included). Without this, the tab stays null until the next
+ * navigation fires a `tab_info_update`, so any fingerprint capture in between has no
+ * live URL and gets dropped. Best-effort: any failure falls back to null. Exported for testing.
+ */
+async function rehydrateAttachedTab(mgr, client) {
+    try {
+        const res = await client.sendCmd('getTabs', {}, 10000);
+        const tabs = res?.tabs || [];
+        const attached = tabs.find((t) => t.attached);
+        mgr.attachedTab = attached
+            ? {
+                id: attached.id,
+                index: attached.index,
+                title: attached.title,
+                url: attached.url,
+                techStack: attached.techStack || null,
+            }
+            : null;
+    }
+    catch {
+        mgr.attachedTab = null;
     }
 }
 // ─── Disconnect ─────────────────────────────────────────────────
