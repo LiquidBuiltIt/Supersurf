@@ -1,6 +1,6 @@
 {
   "name": "supersurf-daemon",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Daemon process for SuperSurf — coordinates multiple MCP sessions sharing one Chrome extension",
   "keywords": [
     "mcp",

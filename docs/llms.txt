@@ -23,7 +23,7 @@ Key facts:
 
 ## Source and packages
 
-- [GitHub repository](https://github.com/LiquidBuiltIt/Supersurf)
+- [GitHub repository](https://github.com/liquidbuiltit/Supersurf)
 - [supersurf-mcp on npm](https://www.npmjs.com/package/supersurf-mcp)
 - [supersurf-daemon on npm](https://www.npmjs.com/package/supersurf-daemon)
 - [Chrome Web Store extension](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek)
