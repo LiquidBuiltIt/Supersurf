@@ -77,18 +77,38 @@ describe('onNavigate()', () => {
     expect(ctx.ext.sendCmd).toHaveBeenCalledWith('navigate', expect.objectContaining({ action: 'url', url: 'https://example.com' }));
   });
 
-  it('navigates back via history', async () => {
-    (ctx.eval as any).mockResolvedValue('https://prev.com');
-    await onNavigate(ctx, { action: 'back' }, {});
+  it('navigates back via history and reads the post-nav URL from getTabs (browser-process), not in-page eval', async () => {
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      tabs: [{ id: 7, url: 'https://prev.com', attached: true }],
+      attachedTabId: 7,
+    });
+    const result = await onNavigate(ctx, { action: 'back' }, {});
     expect(ctx.eval).toHaveBeenCalledWith('window.history.back()');
+    // The URL read must NOT go through the (potentially pegged) renderer.
+    expect(ctx.eval).not.toHaveBeenCalledWith('window.location.href');
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('getTabs', {});
     expect(ctx.sleep).toHaveBeenCalledWith(1500);
+    expect(result.content[0].text).toContain('https://prev.com');
   });
 
-  it('navigates forward via history', async () => {
-    (ctx.eval as any).mockResolvedValue('https://next.com');
-    await onNavigate(ctx, { action: 'forward' }, {});
+  it('navigates forward via history and reads the post-nav URL from getTabs (browser-process), not in-page eval', async () => {
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      tabs: [{ id: 9, url: 'https://next.com', attached: true }],
+      attachedTabId: 9,
+    });
+    const result = await onNavigate(ctx, { action: 'forward' }, {});
     expect(ctx.eval).toHaveBeenCalledWith('window.history.forward()');
+    expect(ctx.eval).not.toHaveBeenCalledWith('window.location.href');
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('getTabs', {});
     expect(ctx.sleep).toHaveBeenCalledWith(1500);
+    expect(result.content[0].text).toContain('https://next.com');
+  });
+
+  it('back: URL is null when getTabs fails, without throwing (renderer-busy resilience)', async () => {
+    (ctx.ext.sendCmd as any).mockRejectedValue(new Error('socket closed'));
+    const result = await onNavigate(ctx, { action: 'back' }, {});
+    expect(ctx.error).not.toHaveBeenCalled();
+    expect(result.content[0].text).toContain('"url":null');
   });
 
   it('reloads the page', async () => {
