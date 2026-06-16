@@ -230,3 +230,35 @@ describe('SessionContext', () => {
     });
   });
 });
+
+describe('SessionContext.dialogPending', () => {
+  it('defaults to false', () => {
+    expect(new SessionContext().dialogPending).toBe(false);
+  });
+
+  it('is settable and gettable', () => {
+    const ctx = new SessionContext();
+    ctx.dialogPending = true;
+    expect(ctx.dialogPending).toBe(true);
+    ctx.dialogPending = false;
+    expect(ctx.dialogPending).toBe(false);
+  });
+
+  it('is NOT included in persisted serialized state', async () => {
+    const store: Record<string, any> = {};
+    const chromeRef: any = {
+      storage: { session: {
+        get: vi.fn(async (k: string) => ({ [k]: store[k] })),
+        set: vi.fn(async (obj: any) => { Object.assign(store, obj); }),
+        remove: vi.fn(async () => {}),
+      } },
+    };
+    const ctx = new SessionContext();
+    await ctx.init(chromeRef);
+    ctx.dialogPending = true;        // must NOT persist
+    ctx.connected = true;            // DOES persist — forces a write-through
+    const persisted = store['__supersurf_session_state'];
+    expect(persisted).toBeDefined();
+    expect('dialogPending' in persisted).toBe(false);
+  });
+});

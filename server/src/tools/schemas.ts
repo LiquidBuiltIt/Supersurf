@@ -395,12 +395,20 @@ export function getToolSchemas(): ToolSchema[] {
     // ── Dialog ──
     {
       name: 'browser_handle_dialog',
-      description: 'Accept or dismiss a browser dialog (alert, confirm, prompt).',
+      description:
+        'Inspect or resolve a native browser dialog (alert, confirm, prompt, beforeunload). ' +
+        'Dialogs are HELD open and block the page until resolved. Use action "view" to read ' +
+        'the held dialog, then "accept" (OK / supply prompt text) or "dismiss" (Cancel).',
       inputSchema: {
         type: 'object',
         properties: {
-          accept: { type: 'boolean', description: 'Accept or dismiss' },
-          text: { type: 'string', description: 'Text for prompt dialog' },
+          action: {
+            type: 'string',
+            enum: ['view', 'accept', 'dismiss'],
+            description: 'view = inspect the held dialog; accept = click OK; dismiss = click Cancel',
+          },
+          text: { type: 'string', description: 'Text to enter into a prompt dialog before accepting' },
+          accept: { type: 'boolean', description: 'Deprecated: legacy alias (true=accept, false=dismiss). Prefer action.' },
           screenshot: { type: 'boolean', description: 'Capture a screenshot after the action completes (default: false)' },
         },
       },
