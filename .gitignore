@@ -58,3 +58,19 @@ Thumbs.db
 # Lock files (regenerated on install)
 package-lock.json
 
+# Sandbox HOME-dotfile shadows — empty 0-byte placeholders the agent sandbox
+# materializes at repo root. Not project files. Ignored so `git add .` (e.g. in
+# scripts/version.bump.ts) can't sweep them into a release. Remove a line here if
+# any of these ever becomes a real, intentionally-tracked project file.
+.bash_profile
+.bashrc
+.gitconfig
+.gitmodules
+.idea
+.mcp.json
+.profile
+.ripgreprc
+.vscode
+.zprofile
+.zshrc
+

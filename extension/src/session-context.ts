@@ -100,6 +100,10 @@ export class SessionContext {
   private _debuggerAttached: boolean = false;
   /** The tab ID the CDP debugger is attached to, if any. */
   private _currentDebuggerTabId: number | null = null;
+  /** True while a native dialog is held open and blocking the renderer.
+   *  In-memory only — deliberately NOT persisted so a service-worker restart
+   *  clears it (a stale-true flag would wedge the session). */
+  private _dialogPending: boolean = false;
 
   // Per-session state. null key = single-client mode (backwards compat).
   private sessions: Map<string | null, SessionState> = new Map();
@@ -137,6 +141,9 @@ export class SessionContext {
     this._currentDebuggerTabId = value;
     this.persist();
   }
+
+  get dialogPending(): boolean { return this._dialogPending; }
+  set dialogPending(value: boolean) { this._dialogPending = value; }
 
   /**
    * Get or lazily create the session state for a given session ID.

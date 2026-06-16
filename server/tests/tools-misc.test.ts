@@ -145,6 +145,91 @@ describe('onListExtensions()', () => {
   });
 });
 
+describe('onDialog action routing', () => {
+  function makeCtx() {
+    const sendCmd = vi.fn().mockResolvedValue({ dialog: null });
+    const ctx: any = {
+      ext: { sendCmd },
+      formatResult: (_name: string, r: any) => r,
+    };
+    return { ctx, sendCmd };
+  }
+
+  it('passes action:view through to the dialog command', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { action: 'view' }, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'view', text: undefined });
+  });
+
+  it('passes action:accept with text', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { action: 'accept', text: 'Alice' }, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'accept', text: 'Alice' });
+  });
+
+  it('passes action:dismiss through', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { action: 'dismiss' }, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'dismiss', text: undefined });
+  });
+
+  it('legacy accept:true still works (no action)', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { accept: true, text: 'x' }, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { accept: true, text: 'x' });
+  });
+
+  it('no args sends an empty dialog command (view)', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, {}, {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', {});
+  });
+
+  it('action wins over accept when both present', async () => {
+    const { ctx, sendCmd } = makeCtx();
+    await onDialog(ctx, { action: 'dismiss', accept: true }, {});
+    // action branch fires first; legacy accept is never consulted
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'dismiss', text: undefined });
+  });
+});
+
+describe('held-dialog notice', () => {
+  it('prepends a held-dialog warning when the transport reports a held dialog', async () => {
+    // A transport that reports one held dialog on the first consume, then none.
+    let drained = false;
+    const transport: any = {
+      consumeDialogEvents: () => {
+        if (drained) return [];
+        drained = true;
+        return [{
+          type: 'beforeunload', message: 'Leave site?', defaultPrompt: '',
+          url: 'https://x.com/', hasBrowserHandler: true, timestamp: 1,
+        }];
+      },
+    };
+    // prependDialogNotice reads events via ctx.ext.consumeDialogEvents()
+    const ctx: any = { ext: transport };
+    const result = { content: [{ type: 'text', text: 'navigated' }] };
+    const out = (await import('../src/tools/lib/dispatcher'))
+      .__testPrependDialogNotice(result, ctx, {});
+    expect(out.content[0].text).toMatch(/native beforeunload dialog is OPEN/i);
+    expect(out.content[0].text).toMatch(/browser_handle_dialog/);
+    expect(out.content[0].text).toMatch(/navigated$/);
+  });
+
+  it('includes defaultPrompt for prompt dialogs', async () => {
+    const transport: any = {
+      consumeDialogEvents: () => [{
+        type: 'prompt', message: 'Enter name:', defaultPrompt: 'Alice',
+        url: 'https://x.com/', hasBrowserHandler: false, timestamp: 1,
+      }],
+    };
+    const out = (await import('../src/tools/lib/dispatcher'))
+      .__testPrependDialogNotice({ content: [{ type: 'text', text: 'x' }] }, { ext: transport } as any, {});
+    expect(out.content[0].text).toMatch(/default: "Alice"/);
+  });
+});
+
 describe('onPerformanceMetrics()', () => {
   let ctx: ToolContext;
 
