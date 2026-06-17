@@ -25,7 +25,7 @@ export class ExperimentalFeatures {
     static registerHandlers(wsConnection, tabHandlers, networkTracker, sessionContext) {
         // capturePageState — injects DOM capture into the page, returns PageState
         wsConnection.registerCommandHandler('capturePageState', async (params) => {
-            const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+            const tabId = (await tabHandlers.ensureAttachedTab(params?.tabId)).tabId;
             const mode = params?.mode || 'document';
             const results = await chrome.scripting.executeScript({
                 target: { tabId },
@@ -40,7 +40,7 @@ export class ExperimentalFeatures {
         // waitForReady — races DOM stability + network idle against an overall timeout.
         // The 500ms initial delay gives the DOM time to start mutating after navigation.
         wsConnection.registerCommandHandler('waitForReady', async (params) => {
-            const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+            const tabId = (await tabHandlers.ensureAttachedTab(params?.tabId)).tabId;
             const timeout = params?.timeout || 10000;
             const stabilityMs = params?.stabilityMs || 300;
             const start = Date.now();

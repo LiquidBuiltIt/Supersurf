@@ -114,7 +114,7 @@ export class TabHandlers {
    *
    * @returns `{ tabId, recovery? }` — `recovery` is undefined when no recovery was needed.
    */
-  async ensureAttachedTab(): Promise<{
+  async ensureAttachedTab(explicitTabId?: number): Promise<{
     tabId: number;
     recovery?: {
       reason: 'no-attached-tab' | 'stale-attached-tab';
@@ -123,6 +123,16 @@ export class TabHandlers {
       url: string;
     };
   }> {
+    // Explicit override (concurrency isolation): a caller that pins a tabId
+    // acts on exactly that tab. Verify it's alive and return it WITHOUT
+    // mutating the shared `attachedTabId` global — otherwise one caller's
+    // explicit target would flip a concurrent caller's view of "the" tab,
+    // which is the exact race this override exists to prevent.
+    if (explicitTabId != null) {
+      await this.browser.tabs.get(explicitTabId); // throws → clear error if the tab is gone
+      return { tabId: explicitTabId };
+    }
+
     const previousTabId = this.ctx.attachedTabId;
 
     // Path 1: attached tab exists — verify it is still alive

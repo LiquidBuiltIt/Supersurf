@@ -7,7 +7,7 @@ import { createLog } from '../../logger';
 const log = createLog('[Interact]');
 
 export async function getViewportSize(ctx: ToolContext): Promise<{ width: number; height: number }> {
-  return await ctx.ext.sendCmd('getViewportDimensions', {});
+  return await ctx.ext.sendCmd('getViewportDimensions', { tabId: ctx.tabId });
 }
 
 export async function moveCursorTo(ctx: ToolContext, x: number, y: number, sessionId: string): Promise<void> {
@@ -16,7 +16,7 @@ export async function moveCursorTo(ctx: ToolContext, x: number, y: number, sessi
       const viewport = await getViewportSize(ctx);
       const waypoints = generateMovement(sessionId, x, y, viewport);
       log(`Humanized move → (${x},${y}) via ${waypoints.length} waypoints`);
-      await ctx.ext.sendCmd('humanizedMouseMove', { waypoints });
+      await ctx.ext.sendCmd('humanizedMouseMove', { waypoints, tabId: ctx.tabId });
       return;
     } catch (e: any) {
       log(`Humanization failed, falling back to teleport:`, e.message);

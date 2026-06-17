@@ -39,7 +39,7 @@ export async function onScreenshot(ctx: ToolContext, args: any, options: any): P
   const filePath = args.path as string | undefined;
 
   // Build capture params
-  const captureParams: any = { format: args.type || 'jpeg' };
+  const captureParams: any = { format: args.type || 'jpeg', tabId: ctx.tabId };
   if (args.quality) captureParams.quality = args.quality;
   if (args.clip_x !== undefined) {
     captureParams.clip = {

@@ -122,9 +122,14 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
   switch (action) {
     case 'url': {
       const smartWait = experimentRegistry.isEnabled('smart_waiting');
+      // Forward the explicit tabId (if any) so a concurrent caller can't
+      // redirect this navigation by flipping the extension's shared
+      // attached-tab between calls. The extension resolves the fallback —
+      // the server's attachedTab is only a status mirror, not authoritative.
       result = await ctx.ext.sendCmd('navigate', {
         action: 'url',
         url: args.url,
+        tabId: ctx.tabId,
         screenshot: !!args.screenshot,
         smartWait,
         smartWaitStabilityMs: 500,
@@ -135,7 +140,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
       // If extension didn't handle waiting (no screenshot path), wait server-side
       if (!args.screenshot) {
         if (smartWait) {
-          try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500 }); }
+          try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
           catch { /* fall through — page may already be ready */ }
         } else {
           await ctx.sleep(1500);
@@ -149,7 +154,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
       await ctx.eval('window.history.back()');
       // === EXPERIMENTAL: smart waiting ===
       if (experimentRegistry.isEnabled('smart_waiting')) {
-        try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500 }); }
+        try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
         catch { await ctx.sleep(1500); }
       } else {
         await ctx.sleep(1500);
@@ -160,7 +165,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
       await ctx.eval('window.history.forward()');
       // === EXPERIMENTAL: smart waiting ===
       if (experimentRegistry.isEnabled('smart_waiting')) {
-        try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500 }); }
+        try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
         catch { await ctx.sleep(1500); }
       } else {
         await ctx.sleep(1500);
@@ -168,10 +173,10 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
       result = { success: true, action: 'forward', url: await getAttachedUrl(ctx) };
       break;
     case 'reload': {
-      result = await ctx.ext.sendCmd('navigate', { action: 'reload' });
+      result = await ctx.ext.sendCmd('navigate', { action: 'reload', tabId: ctx.tabId });
       // === EXPERIMENTAL: smart waiting ===
       if (experimentRegistry.isEnabled('smart_waiting')) {
-        try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500 }); }
+        try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
         catch { /* fall through */ }
       } else {
         await ctx.sleep(1500);

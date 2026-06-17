@@ -77,6 +77,18 @@ describe('onNavigate()', () => {
     expect(ctx.ext.sendCmd).toHaveBeenCalledWith('navigate', expect.objectContaining({ action: 'url', url: 'https://example.com' }));
   });
 
+  it('forwards ctx.tabId into the navigate payload (concurrency isolation)', async () => {
+    const pinned = createMockCtx({ tabId: 42 });
+    await onNavigate(pinned, { action: 'url', url: 'https://example.com' }, {});
+    expect(pinned.ext.sendCmd).toHaveBeenCalledWith('navigate', expect.objectContaining({ tabId: 42 }));
+  });
+
+  it('forwards ctx.tabId into the reload payload', async () => {
+    const pinned = createMockCtx({ tabId: 7 });
+    await onNavigate(pinned, { action: 'reload' }, {});
+    expect(pinned.ext.sendCmd).toHaveBeenCalledWith('navigate', { action: 'reload', tabId: 7 });
+  });
+
   it('navigates back via history and reads the post-nav URL from getTabs (browser-process), not in-page eval', async () => {
     (ctx.ext.sendCmd as any).mockResolvedValue({
       tabs: [{ id: 7, url: 'https://prev.com', attached: true }],

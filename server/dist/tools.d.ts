@@ -29,7 +29,13 @@ export declare class BrowserBridge {
     serverClosed(): void;
     /** Return all registered tool schemas (core + experimental). */
     listTools(): Promise<ToolSchema[]>;
-    /** Build the ToolContext that handlers receive. */
+    /**
+     * Build the ToolContext that handlers receive.
+     *
+     * `tabId` (from the caller's `tabId` arg) is baked into `cdp`/`eval`/
+     * `getElementCenter` so the entire selector/eval/CDP surface targets one
+     * tab — concurrency isolation for parallel callers sharing a session.
+     */
     private buildContext;
     /**
      * Dispatch a named tool call. Short-circuits with a help-text error

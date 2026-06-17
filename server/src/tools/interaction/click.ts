@@ -142,7 +142,7 @@ registerAction({
     await evalInFrameOrTop(ctx, domClickExpr, clickContextId).catch(() => {});
 
     if (experimentRegistry.isEnabled('smart_waiting')) {
-      try { await ctx.ext.sendCmd('waitForReady', { timeout: 3000, stabilityMs: 300 }); }
+      try { await ctx.ext.sendCmd('waitForReady', { timeout: 3000, stabilityMs: 300, tabId: ctx.tabId }); }
       catch { /* non-blocking */ }
     }
 

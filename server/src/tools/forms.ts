@@ -217,7 +217,7 @@ export async function onSecureFill(ctx: ToolContext, args: any, options: any): P
     );
   }
 
-  await ctx.ext.sendCmd('secure_fill', { selector, value });
+  await ctx.ext.sendCmd('secure_fill', { selector, value, tabId: ctx.tabId });
 
   if (options.rawResult) {
     return { success: true, selector, credential_env: envName };

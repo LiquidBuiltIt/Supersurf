@@ -17,7 +17,7 @@ import type { ToolSchema } from './lib/types';
 
 /** Returns all core (non-experimental) tool schemas. */
 export function getToolSchemas(): ToolSchema[] {
-  return [
+  const schemas: ToolSchema[] = [
     // ── Tab Management ──
     {
       name: 'browser_tabs',
@@ -474,4 +474,32 @@ export function getToolSchemas(): ToolSchema[] {
       annotations: { title: 'Secure credential fill', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
   ];
+
+  // Inject the shared `tabId` param into every tab-scoped tool — concurrency
+  // isolation for parallel callers sharing one session. One definition here
+  // instead of repeating the identical property across every tool. Excludes
+  // browser-global tools (extensions, downloads), buffer reads (console,
+  // network — Tier 2), and browser_tabs (which has its own tabId for attach).
+  const TAB_SCOPED = new Set([
+    'browser_navigate', 'browser_interact', 'browser_snapshot', 'browser_lookup',
+    'browser_extract_content', 'browser_get_element_styles', 'browser_take_screenshot',
+    'browser_evaluate', 'browser_fill_form', 'browser_drag', 'browser_window',
+    'browser_verify_text_visible', 'browser_verify_element_visible', 'browser_pdf_save',
+    'browser_handle_dialog', 'browser_performance_metrics', 'secure_fill',
+  ]);
+  const tabIdProp = {
+    type: 'number',
+    description:
+      'Target a specific tab by id (from browser_tabs). Pin this when running concurrent ' +
+      'agents so a sibling can\'t redirect your call by changing the active tab; omit to use ' +
+      'the session\'s attached tab.',
+  };
+  for (const s of schemas) {
+    if (TAB_SCOPED.has(s.name)) {
+      const props = (s.inputSchema as any).properties ?? ((s.inputSchema as any).properties = {});
+      props.tabId = tabIdProp;
+    }
+  }
+
+  return schemas;
 }

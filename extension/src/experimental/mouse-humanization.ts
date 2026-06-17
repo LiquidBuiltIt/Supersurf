@@ -38,7 +38,9 @@ export function registerMouseHandlers(
 
   // humanizedMouseMove — replay waypoints via CDP with delays
   wsConnection.registerCommandHandler('humanizedMouseMove', async (params) => {
-    const tabId = sessionContext.attachedTabId;
+    // Honor an explicit tabId (concurrency isolation) — falls back to the
+    // shared attached tab when the caller didn't pin one.
+    const tabId = params.tabId ?? sessionContext.attachedTabId;
     if (!tabId) throw new Error('No tab attached');
 
     const waypoints: Waypoint[] = params.waypoints || [];
@@ -84,8 +86,8 @@ export function registerMouseHandlers(
   });
 
   // getViewportDimensions — returns current viewport size
-  wsConnection.registerCommandHandler('getViewportDimensions', async () => {
-    const tabId = sessionContext.attachedTabId;
+  wsConnection.registerCommandHandler('getViewportDimensions', async (params) => {
+    const tabId = params?.tabId ?? sessionContext.attachedTabId;
     if (!tabId) throw new Error('No tab attached');
 
     const result = await cdp(tabId, 'Runtime.evaluate', {

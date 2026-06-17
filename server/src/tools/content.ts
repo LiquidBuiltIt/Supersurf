@@ -76,7 +76,7 @@ export function coalesceInlineTextBoxes(nodes: any[]): any[] {
  * Filters out generic/none roles to keep output meaningful.
  */
 export async function onSnapshot(ctx: ToolContext, options: any): Promise<any> {
-  const result = await ctx.ext.sendCmd('snapshot', {});
+  const result = await ctx.ext.sendCmd('snapshot', { tabId: ctx.tabId });
 
   // Use form fields from extension if available, otherwise collect via eval
   let formFields = result?.formFields;

@@ -40,7 +40,7 @@ const SCREENSHOT_MAX_DIMENSION = 2000;
 async function onScreenshot(ctx, args, options) {
     const filePath = args.path;
     // Build capture params
-    const captureParams = { format: args.type || 'jpeg' };
+    const captureParams = { format: args.type || 'jpeg', tabId: ctx.tabId };
     if (args.quality)
         captureParams.quality = args.quality;
     if (args.clip_x !== undefined) {

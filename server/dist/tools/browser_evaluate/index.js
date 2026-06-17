@@ -69,6 +69,7 @@ async function onEvaluate(ctx, args, options) {
             const result = await ctx.ext.sendCmd('evaluate', {
                 expression: wrapped,
                 prewrapped: true,
+                tabId: ctx.tabId,
             });
             if (options.rawResult)
                 return result;
@@ -91,6 +92,7 @@ async function onEvaluate(ctx, args, options) {
     }
     const result = await ctx.ext.sendCmd('evaluate', {
         expression,
+        tabId: ctx.tabId,
     });
     if (options.rawResult)
         return result;

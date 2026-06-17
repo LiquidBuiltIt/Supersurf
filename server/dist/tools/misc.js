@@ -27,6 +27,7 @@ async function onWindow(ctx, args, options) {
         action: args.action,
         width: args.width,
         height: args.height,
+        tabId: ctx.tabId,
     });
     return ctx.formatResult('browser_window', result, options);
 }
@@ -34,14 +35,14 @@ async function onWindow(ctx, args, options) {
 async function onDialog(ctx, args, options) {
     // Priority: explicit `action` wins over the deprecated `accept` alias, which wins over a bare view.
     if (args.action !== undefined) {
-        const result = await ctx.ext.sendCmd('dialog', { action: args.action, text: args.text });
+        const result = await ctx.ext.sendCmd('dialog', { action: args.action, text: args.text, tabId: ctx.tabId });
         return ctx.formatResult('browser_handle_dialog', result, options);
     }
     if (args.accept !== undefined) {
-        const result = await ctx.ext.sendCmd('dialog', { accept: args.accept, text: args.text });
+        const result = await ctx.ext.sendCmd('dialog', { accept: args.accept, text: args.text, tabId: ctx.tabId });
         return ctx.formatResult('browser_handle_dialog', result, options);
     }
-    const result = await ctx.ext.sendCmd('dialog', {});
+    const result = await ctx.ext.sendCmd('dialog', { tabId: ctx.tabId });
     return ctx.formatResult('browser_handle_dialog', result, options);
 }
 /** Assert that specific text is visible in the page body. Returns isError=true when not found. */
@@ -93,7 +94,7 @@ async function onListExtensions(ctx, options) {
  * Performance API and raw CDP metrics from the extension.
  */
 async function onPerformanceMetrics(ctx, options) {
-    const cdpResult = await ctx.ext.sendCmd('performanceMetrics', {});
+    const cdpResult = await ctx.ext.sendCmd('performanceMetrics', { tabId: ctx.tabId });
     const metrics = cdpResult?.metrics || [];
     const vitals = await ctx.eval(`
     (() => {

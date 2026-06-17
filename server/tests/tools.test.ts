@@ -136,6 +136,33 @@ describe('BrowserBridge', () => {
     });
   });
 
+  // ── tabId threading (concurrency isolation) ──
+  // args.tabId → buildContext(tabId) → ctx.tabId → every page-targeting command,
+  // so parallel callers sharing one session don't collide on the attached-tab global.
+  describe('callTool() tabId threading', () => {
+    it('forwards args.tabId into a direct sendCmd handler payload', async () => {
+      mockExt.sendCmd.mockResolvedValue({ success: true });
+      await bridge.callTool('browser_window', { action: 'maximize', tabId: 99 });
+      expect(mockExt.sendCmd).toHaveBeenCalledWith('window', expect.objectContaining({ tabId: 99 }));
+    });
+
+    it('bakes args.tabId into ctx.eval/ctx.cdp (rides the forwardCDPCommand envelope)', async () => {
+      // browser_verify_text_visible resolves via ctx.eval → cdp → forwardCDPCommand.
+      // Asserting the tabId on that envelope proves the WHOLE selector/eval surface
+      // is pinned by the single buildContext chokepoint, not per-handler.
+      mockExt.sendCmd.mockResolvedValue({ result: { value: true } });
+      await bridge.callTool('browser_verify_text_visible', { text: 'hello', tabId: 55 });
+      expect(mockExt.sendCmd).toHaveBeenCalledWith('forwardCDPCommand', expect.objectContaining({ tabId: 55 }));
+    });
+
+    it('leaves tabId undefined when the caller omits it (falls back to attached tab)', async () => {
+      mockExt.sendCmd.mockResolvedValue({ result: { value: true } });
+      await bridge.callTool('browser_verify_text_visible', { text: 'hello' });
+      const cdpCall = mockExt.sendCmd.mock.calls.find((c: any[]) => c[0] === 'forwardCDPCommand');
+      expect(cdpCall?.[1].tabId).toBeUndefined();
+    });
+  });
+
   // ── rawResult mode ──
 
   describe('rawResult mode', () => {
