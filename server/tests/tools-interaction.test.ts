@@ -90,6 +90,53 @@ describe('onInteract()', () => {
     expect(result.isError).toBe(true);
   });
 
+  // ── Click side-effect verification (confidence ladder) ──
+
+  // The probe read-back eval is tagged `ss:read`; the arm eval is tagged
+  // `ss:arm`. Tests stub only the read-back and let everything else fall
+  // through to the default eval mock.
+  function stubClickProbe(probe: any) {
+    (ctx.eval as any).mockImplementation(async (expr: string) => {
+      if (typeof expr === 'string' && expr.includes('ss:read')) return probe;
+      return undefined;
+    });
+  }
+
+  it('reports success when a click produces an observable side-effect (DOM mutation)', async () => {
+    stubClickProbe({ ok: true, hadTarget: true, reached: true, mutated: true, focusChanged: false, urlChanged: false, ariaChanged: false });
+    const result = await onInteract(ctx, { actions: [{ type: 'click', selector: '#btn' }] }, {});
+    expect(result.content[0].text).toContain('✓');
+    expect(result.content[0].text).not.toContain('⚠');
+    expect(result.content[0].text).toContain('Clicked');
+  });
+
+  it('warns when a click reaches the target but nothing observable changes', async () => {
+    stubClickProbe({ ok: true, hadTarget: true, reached: true, mutated: false, focusChanged: false, urlChanged: false, ariaChanged: false });
+    const result = await onInteract(ctx, { actions: [{ type: 'click', selector: '#btn' }] }, {});
+    expect(result.content[0].text).toContain('⚠');
+    expect(result.content[0].text).toMatch(/nothing observable changed|no observable|handler/i);
+  });
+
+  it('warns when the synthetic click never reaches the target (overlay/stale coords)', async () => {
+    stubClickProbe({ ok: true, hadTarget: true, reached: false, mutated: false, focusChanged: false, urlChanged: false, ariaChanged: false });
+    const result = await onInteract(ctx, { actions: [{ type: 'click', selector: '#btn' }] }, {});
+    expect(result.content[0].text).toContain('⚠');
+    expect(result.content[0].text).toMatch(/did not reach|overlay|coordinates/i);
+  });
+
+  it('treats focus/url/aria change as a side-effect (no warning)', async () => {
+    stubClickProbe({ ok: true, hadTarget: true, reached: false, mutated: false, focusChanged: true, urlChanged: false, ariaChanged: false });
+    const result = await onInteract(ctx, { actions: [{ type: 'click', selector: '#btn' }] }, {});
+    expect(result.content[0].text).not.toContain('⚠');
+  });
+
+  it('stays silent (no false warning) when the probe is unavailable or has no target', async () => {
+    stubClickProbe({ ok: false });
+    const result = await onInteract(ctx, { actions: [{ type: 'click', selector: '#btn' }] }, {});
+    expect(result.content[0].text).not.toContain('⚠');
+    expect(result.content[0].text).toContain('Clicked');
+  });
+
   // ── Type ──
 
   it('handles type action', async () => {
