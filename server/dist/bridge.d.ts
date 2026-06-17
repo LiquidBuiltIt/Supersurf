@@ -18,11 +18,13 @@
  */
 import http from 'http';
 import { WebSocket } from 'ws';
-/** Native-dialog event mirrored from the extension's DialogHandler. */
+/** A native dialog currently held open by the extension, mirrored over the wire. */
 export interface DialogEvent {
-    type: string;
+    type: 'alert' | 'confirm' | 'prompt' | 'beforeunload';
     message: string;
-    response: string | null;
+    defaultPrompt: string;
+    url: string;
+    hasBrowserHandler: boolean;
     timestamp: number;
 }
 /** Transport interface abstracting the WebSocket connection to the Chrome extension. */

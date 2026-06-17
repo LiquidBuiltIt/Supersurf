@@ -14,6 +14,29 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.onBrowserTabs = onBrowserTabs;
 exports.onNavigate = onNavigate;
 const index_1 = require("../experimental/index");
+/**
+ * Read the attached tab's current URL from the browser process (`getTabs`),
+ * NOT via in-page `eval('location.href')`.
+ *
+ * Why this matters: SPA back-nav (e.g. X's `/compose/post` modal) can tear down
+ * a heavy React subtree synchronously in its `popstate` handler, pegging the
+ * renderer main thread for tens of seconds. An in-page eval would queue behind
+ * that work and block until the ~50s eval timeout. `getTabs` is pure
+ * `chrome.tabs.query` + cached metadata — it never touches the renderer, so it
+ * returns the post-nav URL instantly even while page JS is frozen. Returns null
+ * if the lookup fails (caller surfaces a null URL rather than hanging).
+ */
+async function getAttachedUrl(ctx) {
+    try {
+        const res = await ctx.ext.sendCmd('getTabs', {});
+        const tabs = res?.tabs || [];
+        const attached = tabs.find((t) => t.id === res?.attachedTabId) || tabs.find((t) => t.attached);
+        return attached?.url ?? null;
+    }
+    catch {
+        return null;
+    }
+}
 async function checkChromeError(ctx) {
     try {
         const raw = await ctx.eval('JSON.stringify({bodyClass: document.body?.className || "", href: location.href})');
@@ -134,7 +157,7 @@ async function onNavigate(ctx, args, options) {
             else {
                 await ctx.sleep(1500);
             }
-            result = { success: true, action: 'back', url: await ctx.eval('window.location.href') };
+            result = { success: true, action: 'back', url: await getAttachedUrl(ctx) };
             break;
         case 'forward':
             await ctx.eval('window.history.forward()');
@@ -150,7 +173,7 @@ async function onNavigate(ctx, args, options) {
             else {
                 await ctx.sleep(1500);
             }
-            result = { success: true, action: 'forward', url: await ctx.eval('window.location.href') };
+            result = { success: true, action: 'forward', url: await getAttachedUrl(ctx) };
             break;
         case 'reload': {
             result = await ctx.ext.sendCmd('navigate', { action: 'reload' });
