@@ -16,7 +16,7 @@
 import type { ToolContext } from './lib/types';
 /** Resize, close, minimize, or maximize the browser window. */
 export declare function onWindow(ctx: ToolContext, args: any, options: any): Promise<any>;
-/** Accept or dismiss a browser dialog (alert, confirm, prompt). */
+/** View, accept, or dismiss a held native dialog (alert, confirm, prompt, beforeunload). */
 export declare function onDialog(ctx: ToolContext, args: any, options: any): Promise<any>;
 /** Assert that specific text is visible in the page body. Returns isError=true when not found. */
 export declare function onVerifyTextVisible(ctx: ToolContext, args: any, options: any): Promise<any>;

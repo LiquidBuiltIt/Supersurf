@@ -16,4 +16,18 @@ export interface DispatchEnv {
 export declare function dispatchTool(ctx: ToolContext, name: string, args: Record<string, unknown>, options: {
     rawResult?: boolean;
 }, env: DispatchEnv): Promise<any>;
+/**
+ * Drain any native-dialog events buffered on the transport since the last
+ * tool call and prepend a held-dialog warning to the result's first
+ * text block. Multi-step tools (e.g. browser_interact) can fire several
+ * extension RPCs per dispatch; aggregating at this layer captures dialogs
+ * from every sub-call. Skipped in rawResult mode — script-mode consumers
+ * get the raw value with no formatted notice.
+ */
+declare function prependDialogNotice(result: any, ctx: ToolContext, options: {
+    rawResult?: boolean;
+}): any;
+/** @internal test seam */
+export declare const __testPrependDialogNotice: typeof prependDialogNotice;
+export {};
 //# sourceMappingURL=dispatcher.d.ts.map
