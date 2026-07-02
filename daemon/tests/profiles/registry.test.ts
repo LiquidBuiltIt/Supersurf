@@ -149,4 +149,45 @@ describe('ProfileRegistry', () => {
       expect(registry.getRunningPid('runner')).toBeNull();
     });
   });
+
+  describe('owner tracking', () => {
+    it('defaults owner to daemon', () => {
+      registry.setRunningPid('dev', process.pid);
+      expect(registry.getOwner('dev')).toBe('daemon');
+      expect(registry.isUserOwned('dev')).toBe(false);
+    });
+
+    it('records user ownership', () => {
+      registry.setRunningPid('dev', process.pid, 'user');
+      expect(registry.getOwner('dev')).toBe('user');
+      expect(registry.isUserOwned('dev')).toBe(true);
+    });
+
+    it('returns null owner for a profile with no running pid', () => {
+      expect(registry.getOwner('nope')).toBeNull();
+    });
+
+    it('clearRunningPid clears the owner too', () => {
+      registry.setRunningPid('dev', process.pid, 'user');
+      registry.clearRunningPid('dev');
+      expect(registry.getOwner('dev')).toBeNull();
+      expect(registry.isUserOwned('dev')).toBe(false);
+    });
+
+    it('hasUserOwnedRunning is true only while a live user-owned pid exists', () => {
+      expect(registry.hasUserOwnedRunning()).toBe(false);
+      registry.setRunningPid('a', process.pid, 'daemon');
+      expect(registry.hasUserOwnedRunning()).toBe(false);
+      registry.setRunningPid('b', process.pid, 'user');
+      expect(registry.hasUserOwnedRunning()).toBe(true);
+      registry.clearRunningPid('b');
+      expect(registry.hasUserOwnedRunning()).toBe(false);
+    });
+
+    it('hasUserOwnedRunning drops dead user-owned pids', () => {
+      registry.setRunningPid('dead', 999999999, 'user'); // certainly not alive
+      expect(registry.hasUserOwnedRunning()).toBe(false);
+      expect(registry.getOwner('dead')).toBeNull(); // stale entry was reaped
+    });
+  });
 });
