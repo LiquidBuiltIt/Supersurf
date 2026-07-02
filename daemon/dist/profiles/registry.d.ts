@@ -11,6 +11,7 @@ import type { SessionRegistry } from '../session';
 export declare class ProfileRegistry {
     private profilesDir;
     private runningPids;
+    private runningOwners;
     constructor(profilesDir: string);
     /** Validate a profile name. Throws on invalid names. */
     private validateName;
@@ -36,9 +37,15 @@ export declare class ProfileRegistry {
     markInitialized(name: string): void;
     /** Check if a profile has been initialized. */
     isInitialized(name: string): boolean;
-    setRunningPid(name: string, pid: number): void;
+    setRunningPid(name: string, pid: number, owner?: 'daemon' | 'user'): void;
     clearRunningPid(name: string): void;
     getRunningPid(name: string): number | null;
+    /** Who spawned the running Chromium for this profile, or null if not running. */
+    getOwner(name: string): 'daemon' | 'user' | null;
+    /** True if the running Chromium for this profile was launched by the user (CLI). */
+    isUserOwned(name: string): boolean;
+    /** True if any profile has a live user-owned Chromium. */
+    hasUserOwnedRunning(): boolean;
     isRunning(name: string): boolean;
 }
 //# sourceMappingURL=registry.d.ts.map

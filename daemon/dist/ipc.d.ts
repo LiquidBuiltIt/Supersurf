@@ -56,6 +56,12 @@ export declare class IPCServer {
     private handleExperimentRequest;
     /** Handle a profile IPC request directly (no scheduler round-trip). */
     private handleProfileRequest;
+    /**
+     * Spawn Chromium for a profile through the bootstrap queue.
+     * owner='daemon': killed when the last session for the profile disconnects.
+     * owner='user': survives sessions, daemon shutdown, and the orphan sweep.
+     */
+    private spawnProfile;
     /** Build a status response from live daemon state. */
     private buildStatusResponse;
     /** Write an NDJSON line to a socket. Injects `config_drift` into session_ack

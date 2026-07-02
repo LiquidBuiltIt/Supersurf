@@ -163,11 +163,13 @@ class IPCServer {
                 // Notify extension to ungroup the session's tabs
                 if (profileId) {
                     this.bridge.sendCmdToProfile(profileId, 'sessionDisconnect', { sessionId }, 5000).catch(() => { });
-                    // Kill Chromium if no other sessions are using this profile
+                    // Kill Chromium if no other sessions are using this profile.
+                    // User-owned browsers (launched via `supersurf profiles open`) are
+                    // never killed by session lifecycle — the human closes them.
                     const remaining = this.sessions.getSessionsForProfile(profileId);
                     if (remaining.length === 0) {
                         const pid = this.profileRegistry.getRunningPid(profileId);
-                        if (pid) {
+                        if (pid && !this.profileRegistry.isUserOwned(profileId)) {
                             debugLog(`Last session for profile "${profileId}" disconnected — killing Chromium (pid ${pid})`);
                             try {
                                 process.kill(pid, 'SIGTERM');
@@ -272,7 +274,12 @@ class IPCServer {
                 return { success: true, profile: config };
             }
             case 'profiles.list': {
-                const profiles = this.profileRegistry.list();
+                const matchmaker = this.bridge.matchmaker;
+                const profiles = this.profileRegistry.list().map((p) => ({
+                    ...p,
+                    owner: this.profileRegistry.getOwner(p.name),
+                    connected: !!matchmaker?.getConnectionForProfile(p.name),
+                }));
                 return { profiles };
             }
             case 'profiles.delete': {
@@ -289,34 +296,16 @@ class IPCServer {
                 }
                 const matchmaker = this.bridge.matchmaker;
                 const registry = this.profileRegistry;
-                // Spawn Chromium if not running
-                if (!registry.isRunning(profile)) {
-                    await matchmaker.enqueueBootstrap(async () => {
-                        if (registry.isRunning(profile))
-                            return; // double-check after queue
-                        matchmaker.pendingSpawns.add(profile);
-                        try {
-                            // Always open the registration URL so the extension re-binds its
-                            // profile in chrome.storage.local on every spawn. An already-
-                            // initialized profile whose storage lost `supersurf_profile`
-                            // (force-kill, rsync'd profile, Chrome corruption) would otherwise
-                            // hand the daemon a handshake with no profile field, get pooled as
-                            // unmanaged, and never resolve the pending match.
-                            const child = (0, chrome_1.spawnChromium)(profile, (0, extension_source_1.getExtensionDir)(), this.meta.port, true, this.meta.startupOpts ?? {});
-                            const pid = child.pid;
-                            registry.setRunningPid(profile, pid);
-                            (0, chrome_1.appendPidLog)({ action: 'spawn', profile, pid, ts: new Date().toISOString() });
-                            // Listen for crash
-                            child.on('exit', (code) => {
-                                debugLog(`Chromium exited for profile "${profile}" (code=${code})`);
-                                registry.clearRunningPid(profile);
-                                (0, chrome_1.appendPidLog)({ action: 'kill', profile, pid, ts: new Date().toISOString() });
-                            });
-                        }
-                        finally {
-                            matchmaker.pendingSpawns.delete(profile);
-                        }
-                    });
+                // Spawn Chromium only if it isn't running AND no live extension
+                // connection exists for this profile. A CLI-launched (user-owned)
+                // browser is unknown to registry.runningPids but present in the
+                // matchmaker pool — without the pool check we'd double-spawn onto
+                // the same --user-data-dir. Pool check first: it's side-effect-free,
+                // whereas registry.isRunning() self-heals (clears the pid) on a dead
+                // process, which would erase ownership tracking for a still-pooled
+                // (but registry-untracked) user-launched browser.
+                if (!matchmaker.getConnectionForProfile(profile) && !registry.isRunning(profile)) {
+                    await this.spawnProfile(profile, 'daemon');
                 }
                 // Wait for matching extension connection
                 debugLog(`Waiting for extension match for profile "${profile}"...`);
@@ -346,9 +335,71 @@ class IPCServer {
                     buildTimestamp: conn.buildTimestamp,
                 };
             }
+            case 'profiles.launch': {
+                const profile = params.profile;
+                if (!profile)
+                    throw new Error('Profile name is required');
+                if (!this.profileRegistry.exists(profile)) {
+                    throw new Error(`Profile '${profile}' not found. Use profile_create first.`);
+                }
+                const matchmaker = this.bridge.matchmaker;
+                const registry = this.profileRegistry;
+                // Already running (daemon- or user-owned) or already connected? Report, don't spawn.
+                if (registry.isRunning(profile) || matchmaker.getConnectionForProfile(profile)) {
+                    return { success: true, alreadyRunning: true, owner: registry.getOwner(profile) };
+                }
+                await this.spawnProfile(profile, 'user');
+                // Wait for the extension in the fresh Chromium to announce itself.
+                debugLog(`Waiting for extension match for profile "${profile}" (user launch)...`);
+                await matchmaker.requestMatch(profile, 90000);
+                if (!registry.isInitialized(profile)) {
+                    registry.markInitialized(profile);
+                }
+                return { success: true, alreadyRunning: false, owner: registry.getOwner(profile) ?? 'user' };
+            }
             default:
                 throw new Error(`Unknown profile method: ${method}`);
         }
+    }
+    /**
+     * Spawn Chromium for a profile through the bootstrap queue.
+     * owner='daemon': killed when the last session for the profile disconnects.
+     * owner='user': survives sessions, daemon shutdown, and the orphan sweep.
+     */
+    async spawnProfile(profile, owner) {
+        const matchmaker = this.bridge.matchmaker;
+        const registry = this.profileRegistry;
+        await matchmaker.enqueueBootstrap(async () => {
+            if (registry.isRunning(profile))
+                return; // double-check after queue
+            matchmaker.pendingSpawns.add(profile);
+            try {
+                // Always open the registration URL so the extension re-binds its
+                // profile in chrome.storage.local on every spawn. An already-
+                // initialized profile whose storage lost `supersurf_profile`
+                // (force-kill, rsync'd profile, Chrome corruption) would otherwise
+                // hand the daemon a handshake with no profile field, get pooled as
+                // unmanaged, and never resolve the pending match.
+                const child = (0, chrome_1.spawnChromium)(profile, (0, extension_source_1.getExtensionDir)(), this.meta.port, true, this.meta.startupOpts ?? {});
+                const pid = child.pid;
+                registry.setRunningPid(profile, pid, owner);
+                (0, chrome_1.appendPidLog)({ action: 'spawn', profile, pid, owner, ts: new Date().toISOString() });
+                // Listen for crash/close
+                child.on('exit', (code) => {
+                    debugLog(`Chromium exited for profile "${profile}" (code=${code})`);
+                    registry.clearRunningPid(profile);
+                    (0, chrome_1.appendPidLog)({ action: 'kill', profile, pid, ts: new Date().toISOString() });
+                    // A user-owned browser closing may unblock the idle timeout —
+                    // re-evaluate via the session-count callback.
+                    if (this.onSessionCountChange) {
+                        this.onSessionCountChange(this.sessions.count);
+                    }
+                });
+            }
+            finally {
+                matchmaker.pendingSpawns.delete(profile);
+            }
+        });
     }
     /** Build a status response from live daemon state. */
     buildStatusResponse() {

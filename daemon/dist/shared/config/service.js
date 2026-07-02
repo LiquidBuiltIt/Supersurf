@@ -77,6 +77,7 @@ class ConfigService {
             logging: {
                 debug: pick('logging.debug', inp.cli.logging?.debug, inp.env.logging?.debug, inp.file.logging?.debug, D.logging.debug, isDebugMode, warn),
                 usage_metrics: pick('logging.usage_metrics', inp.cli.logging?.usage_metrics, inp.env.logging?.usage_metrics, inp.file.logging?.usage_metrics, D.logging.usage_metrics, isBool, warn),
+                action_recording: pick('logging.action_recording', inp.cli.logging?.action_recording, inp.env.logging?.action_recording, inp.file.logging?.action_recording, D.logging.action_recording, isBool, warn),
             },
             profiles: {
                 startup_opts: {

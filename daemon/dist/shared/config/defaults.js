@@ -24,6 +24,7 @@ exports.HARDCODED_DEFAULTS = {
     logging: {
         debug: false,
         usage_metrics: false,
+        action_recording: false,
     },
     profiles: {
         startup_opts: {
@@ -40,7 +41,7 @@ exports.SCAFFOLD_DEFAULTS = {
         domain_whitelist: { ...exports.HARDCODED_DEFAULTS.security.domain_whitelist, custom: [] },
     },
     daemon: { ...exports.HARDCODED_DEFAULTS.daemon },
-    logging: { ...exports.HARDCODED_DEFAULTS.logging, usage_metrics: true },
+    logging: { ...exports.HARDCODED_DEFAULTS.logging, usage_metrics: true, action_recording: false },
     profiles: {
         startup_opts: { ...exports.HARDCODED_DEFAULTS.profiles.startup_opts },
     },

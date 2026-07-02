@@ -43,13 +43,15 @@ Usage: supersurf <command> [options]
 Commands:
   mcp       Start the MCP server over stdio (the agent entrypoint)
   daemon    Manage the coordinator daemon: start | stop | restart | status | observe
+  profiles  Manage browser profiles: ls | open <name>
 
 Examples:
-  npx supersurf@latest mcp
-  supersurf daemon status`;
+  npx supersurf-mcp@latest mcp
+  supersurf daemon status
+  supersurf profiles open dev`;
 function pickTarget(argv) {
     const subcommand = argv[2];
-    if (subcommand === 'mcp' || subcommand === 'daemon') {
+    if (subcommand === 'mcp' || subcommand === 'daemon' || subcommand === 'profiles') {
         return {
             target: subcommand,
             remainingArgv: [...argv.slice(0, 2), ...argv.slice(3)],
@@ -82,6 +84,10 @@ async function dispatch(argv) {
     else if (target === 'daemon') {
         // @ts-ignore - resolved at runtime after daemon bundle copy
         await Promise.resolve().then(() => __importStar(require('../daemon/main')));
+    }
+    else if (target === 'profiles') {
+        const { runProfilesCli } = await Promise.resolve().then(() => __importStar(require('./profiles-cli')));
+        await runProfilesCli(remainingArgv);
     }
     else {
         // Unreachable until `creds` is re-listed in pickTarget — kept intentionally

@@ -26,6 +26,7 @@ const NAME_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
 class ProfileRegistry {
     profilesDir;
     runningPids = new Map();
+    runningOwners = new Map();
     constructor(profilesDir) {
         this.profilesDir = profilesDir;
         fs_1.default.mkdirSync(profilesDir, { recursive: true });
@@ -147,14 +148,32 @@ class ProfileRegistry {
         return config?.initialized ?? false;
     }
     // ─── Running PID tracking (in-memory) ─────────────────────
-    setRunningPid(name, pid) {
+    setRunningPid(name, pid, owner = 'daemon') {
         this.runningPids.set(name, pid);
+        this.runningOwners.set(name, owner);
     }
     clearRunningPid(name) {
         this.runningPids.delete(name);
+        this.runningOwners.delete(name);
     }
     getRunningPid(name) {
         return this.runningPids.get(name) ?? null;
+    }
+    /** Who spawned the running Chromium for this profile, or null if not running. */
+    getOwner(name) {
+        return this.runningOwners.get(name) ?? null;
+    }
+    /** True if the running Chromium for this profile was launched by the user (CLI). */
+    isUserOwned(name) {
+        return this.runningOwners.get(name) === 'user';
+    }
+    /** True if any profile has a live user-owned Chromium. */
+    hasUserOwnedRunning() {
+        for (const [name, owner] of [...this.runningOwners.entries()]) {
+            if (owner === 'user' && this.isRunning(name))
+                return true;
+        }
+        return false;
     }
     isRunning(name) {
         const pid = this.runningPids.get(name);
@@ -165,7 +184,7 @@ class ProfileRegistry {
             return true;
         }
         catch {
-            this.runningPids.delete(name);
+            this.clearRunningPid(name);
             return false;
         }
     }

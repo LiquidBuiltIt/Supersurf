@@ -16,6 +16,10 @@
  * Stripped of PRO/relay/OAuth logic (direct localhost mode only).
  * Adapted from Blueprint MCP (Apache 2.0).
  */
+/** Unique marker returned by the in-flight race when a dialog interrupts a command. */
+const DIALOG_INTERRUPT = Symbol('dialog-interrupt');
+/** Methods allowed to run while a native dialog is held open. */
+const DIALOG_SAFE_METHODS = new Set(['dialog', 'getTabs']);
 /**
  * Manages the WebSocket lifecycle and JSON-RPC message routing between the
  * extension and the local MCP server.
@@ -62,9 +66,34 @@ export class WebSocketConnection {
      * empty if none.
      */
     dialogEventProvider = null;
+    /** Returns true while a native dialog is held open (renderer frozen). */
+    dialogPendingChecker = null;
+    /**
+     * Single-slot resolver for the current in-flight command's dialog race.
+     *
+     * ASSUMPTION: per-tab serialized dispatch. The daemon scheduler routes
+     * commands to the extension one at a time per tab, so only one command
+     * can be in-flight here at any moment. If two commands were dispatched
+     * concurrently before the first awaits, the second assignment would
+     * overwrite the first resolver and the first's interrupt promise would
+     * hang until timeout. The serialization guarantee from the scheduler
+     * makes this safe — do NOT add locking or a queue unless that guarantee
+     * is removed.
+     */
+    _dialogRaceResolve = null;
     /** Register the dialog event provider (see `dialogEventProvider`). */
     setDialogEventProvider(provider) {
         this.dialogEventProvider = provider;
+    }
+    /** Register the predicate used to short-circuit page commands while a dialog is held. */
+    setDialogPendingChecker(fn) {
+        this.dialogPendingChecker = fn;
+    }
+    /** Called by the background dialog listener the instant CDP holds a dialog open.
+     *  Resolves the in-flight command's race so it returns immediately. */
+    notifyDialogOpened() {
+        if (this._dialogRaceResolve)
+            this._dialogRaceResolve();
     }
     constructor(browserAPI, logger, iconManager, buildTimestamp = null) {
         this.browser = browserAPI;
@@ -133,7 +162,7 @@ export class WebSocketConnection {
             }
             this.socket = new WebSocket(url);
             this.socket.onopen = () => this._handleOpen();
-            this.socket.onmessage = (event) => this._handleMessage(event);
+            this.socket.onmessage = (event) => this._onMessage(event);
             this.socket.onerror = (error) => this._handleError(error);
             this.socket.onclose = (event) => this._handleClose(event);
         }
@@ -238,14 +267,29 @@ export class WebSocketConnection {
         return null;
     }
     /**
-     * Route incoming WebSocket messages to the appropriate handler.
-     * Distinguishes between notifications (no id) and commands (has id + method).
-     * Commands get a JSON-RPC response sent back; errors include stack traces for debugging.
+     * Thin wrapper wired to `socket.onmessage`. JSON-parses the raw frame
+     * string from `event.data`, then delegates to `_handleMessage` with the
+     * parsed object. Logs and returns on parse failure so a malformed or
+     * binary frame never reaches the routing logic.
      */
-    async _handleMessage(event) {
+    async _onMessage(event) {
         let message;
         try {
             message = JSON.parse(event.data);
+        }
+        catch (err) {
+            this.logger.error('[WebSocket] Failed to parse incoming message:', err);
+            return;
+        }
+        await this._handleMessage(message);
+    }
+    /**
+     * Route an already-parsed JSON-RPC message to the appropriate handler.
+     * Distinguishes between notifications (no id) and commands (has id + method).
+     * Commands get a JSON-RPC response sent back; errors include stack traces for debugging.
+     */
+    async _handleMessage(message) {
+        try {
             this.logger.log('[WebSocket] Received:', message);
             if (message.error) {
                 this.logger.logAlways('[WebSocket] Server error:', message.error);
@@ -263,7 +307,24 @@ export class WebSocketConnection {
                 }
                 catch { /* never break a command */ }
             }
-            const response = await this._routeCommand(message);
+            // Race the handler against a dialog-interrupt signal. If a native dialog
+            // is held open mid-command, the renderer freezes and the handler hangs;
+            // notifyDialogOpened() (fired from the SW-thread CDP listener) resolves
+            // the race so we can return the held dialog in the _dialogs envelope
+            // instead of waiting for the handler's timeout.
+            const interrupt = new Promise((resolve) => {
+                this._dialogRaceResolve = () => resolve(DIALOG_INTERRUPT);
+            });
+            let routed;
+            try {
+                routed = await Promise.race([this._routeCommand(message), interrupt]);
+            }
+            finally {
+                this._dialogRaceResolve = null;
+            }
+            const response = routed === DIALOG_INTERRUPT
+                ? { interrupted: 'dialog' }
+                : routed;
             // Attach a tab-recovery note to the response if ensureAttachedTab()
             // fired this call. Stored as `_recovery` on the result so the server
             // and ultimately the agent can see the attached tab changed.
@@ -321,6 +382,11 @@ export class WebSocketConnection {
     }
     async _routeCommand(message) {
         const { method, params } = message;
+        if (this.dialogPendingChecker?.() && !DIALOG_SAFE_METHODS.has(method)) {
+            throw new Error('A native dialog is blocking the page. Inspect it with ' +
+                'browser_handle_dialog {action:"view"}, then resolve it with ' +
+                '{action:"accept"} or {action:"dismiss"} before issuing other commands.');
+        }
         const handler = this.commandHandlers.get(method);
         if (!handler)
             throw new Error(`Unknown command: ${method}`);
