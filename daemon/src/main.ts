@@ -509,7 +509,15 @@ async function main(): Promise<void> {
   ipc.setSessionCountCallback((count: number) => {
     logger.log(`[Daemon] Session count: ${count}`);
     if (count === 0) {
-      startIdleTimer();
+      if (profileRegistry.hasUserOwnedRunning()) {
+        // A human-opened browser is alive — idling out would strand it
+        // (next daemon start could not adopt/kill it and connect latency
+        // would suffer). Stay up; the Chromium exit handler re-invokes
+        // this callback when the browser closes.
+        logger.log('[Daemon] Idle timer suppressed — user-owned browser running');
+      } else {
+        startIdleTimer();
+      }
     } else {
       resetIdleTimer();
     }
@@ -525,11 +533,16 @@ async function main(): Promise<void> {
     logger.log('[Daemon] Shutting down...');
     resetIdleTimer();
 
-    // Kill all managed Chromium processes
+    // Kill all managed Chromium processes — except user-owned ones
+    // (launched via `supersurf profiles open`): the human closes those.
     const profiles = profileRegistry.list();
     for (const p of profiles) {
       const pid = profileRegistry.getRunningPid(p.name);
       if (pid !== null) {
+        if (profileRegistry.isUserOwned(p.name)) {
+          logger.log(`[Daemon] Leaving user-owned Chromium for profile "${p.name}" (pid ${pid}) running`);
+          continue;
+        }
         try {
           process.kill(pid, 'SIGTERM');
           logger.log(`[Daemon] Killed Chromium for profile "${p.name}" (pid ${pid})`);
