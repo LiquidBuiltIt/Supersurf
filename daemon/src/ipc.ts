@@ -428,7 +428,7 @@ export class IPCServer {
         if (!registry.isInitialized(profile)) {
           registry.markInitialized(profile);
         }
-        return { success: true, alreadyRunning: false, owner: 'user' as const };
+        return { success: true, alreadyRunning: false, owner: registry.getOwner(profile) ?? 'user' };
       }
       default:
         throw new Error(`Unknown profile method: ${method}`);
