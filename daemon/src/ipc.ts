@@ -415,7 +415,9 @@ export class IPCServer {
         const registry = this.profileRegistry;
 
         // Already running (daemon- or user-owned) or already connected? Report, don't spawn.
-        if (registry.isRunning(profile) || matchmaker.getConnectionForProfile(profile)) {
+        // Pool check first — isRunning() self-heals (clears stale pid+owner) which
+        // would mask a live connection if checked second.
+        if (matchmaker.getConnectionForProfile(profile) || registry.isRunning(profile)) {
           return { success: true, alreadyRunning: true, owner: registry.getOwner(profile) };
         }
 

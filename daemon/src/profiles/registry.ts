@@ -134,6 +134,9 @@ export class ProfileRegistry {
     // Kill Chromium if running
     const pid = this.getRunningPid(name);
     if (pid !== null) {
+      if (this.isUserOwned(name)) {
+        throw new Error(`Profile '${name}' has a user-opened browser running. Close the browser window first, then delete the profile.`);
+      }
       try {
         process.kill(pid, 'SIGTERM');
         debugLog(`Killed Chromium for profile "${name}" (pid ${pid})`);

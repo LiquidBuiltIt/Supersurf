@@ -126,6 +126,20 @@ describe('ProfileRegistry', () => {
       sessions.setProfileId('s1', 'active');
       expect(() => registry.delete('active', sessions)).toThrow('active sessions are connected');
     });
+
+    it('throws when a user-owned browser is running', () => {
+      registry.create('user-owned');
+      registry.setRunningPid('user-owned', process.pid, 'user');
+      expect(() => registry.delete('user-owned', sessions)).toThrow('user-opened browser');
+      expect(registry.exists('user-owned')).toBe(true);
+    });
+
+    it('deletes a profile with a daemon-owned browser running', () => {
+      registry.create('daemon-owned');
+      registry.setRunningPid('daemon-owned', 99999, 'daemon');
+      registry.delete('daemon-owned', sessions);
+      expect(registry.exists('daemon-owned')).toBe(false);
+    });
   });
 
   describe('initialized', () => {

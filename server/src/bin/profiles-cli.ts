@@ -105,14 +105,16 @@ export async function runProfilesCli(argv: string[]): Promise<void> {
     const result = await withCliDaemonClient((client) =>
       client.sendCmd('profiles.launch', { profile: parsed.profile }, 95000),
     );
+    const owner = result.owner ?? 'daemon';
     if (result.alreadyRunning) {
-      const owner = result.owner ?? 'daemon';
       console.log(`Profile '${parsed.profile}' is already running (${owner}-owned).`);
-      if (owner === 'daemon') {
-        console.log('Note: daemon-owned browsers close when their agent session ends.');
-      }
-    } else {
+    } else if (owner === 'user') {
       console.log(`Profile '${parsed.profile}' opened — browser is yours until you close it.`);
+    } else {
+      console.log(`Profile '${parsed.profile}' opened, but an agent session claimed it first (${owner}-owned).`);
+    }
+    if (owner === 'daemon') {
+      console.log('Note: daemon-owned browsers close when their agent session ends.');
     }
   } catch (err: any) {
     console.error(`supersurf: ${err?.message || String(err)}`);
