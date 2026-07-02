@@ -15,4 +15,8 @@ describe('isProfileMethod', () => {
     expect(isProfileMethod('profiles.unknown')).toBe(false);
     expect(isProfileMethod('')).toBe(false);
   });
+
+  it('recognizes profiles.launch', () => {
+    expect(isProfileMethod('profiles.launch')).toBe(true);
+  });
 });

@@ -27,6 +27,8 @@ export interface PidLogEntry {
   profile: string;
   pid: number;
   ts: string;
+  /** Who initiated the spawn. Absent on pre-3.2 entries — treated as 'daemon'. */
+  owner?: 'daemon' | 'user';
 }
 
 /** A WebSocket connection from an extension instance sitting in the matchmaker pool. */
@@ -53,5 +55,6 @@ export function isProfileMethod(method: string): boolean {
   return method === 'profiles.create'
     || method === 'profiles.list'
     || method === 'profiles.delete'
-    || method === 'profiles.connect';
+    || method === 'profiles.connect'
+    || method === 'profiles.launch';
 }
