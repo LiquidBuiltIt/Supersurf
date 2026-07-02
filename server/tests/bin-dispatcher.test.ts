@@ -40,6 +40,13 @@ describe('pickTarget', () => {
     expect(result.target).toBe('daemon');
     expect(result.remainingArgv).toEqual(['node', 'supersurf', 'restart', '--port', '6666', '--debug']);
   });
+
+  it('routes "profiles" subcommand to profiles target and strips it from argv', () => {
+    const argv = ['node', 'supersurf', 'profiles', 'open', 'dev'];
+    const result = pickTarget(argv);
+    expect(result.target).toBe('profiles');
+    expect(result.remainingArgv).toEqual(['node', 'supersurf', 'open', 'dev']);
+  });
 });
 
 describe('pickTarget — creds is delisted', () => {
@@ -56,5 +63,10 @@ describe('HELP_TEXT', () => {
     expect(HELP_TEXT).toContain('mcp');
     expect(HELP_TEXT).toContain('daemon');
     expect(HELP_TEXT).not.toContain('creds');
+  });
+
+  it('documents the profiles command', () => {
+    expect(HELP_TEXT).toContain('profiles');
+    expect(HELP_TEXT).toContain('open <name>');
   });
 });
