@@ -84,6 +84,9 @@ class ConnectionManager {
     attachedTab = null;
     stealthMode = false;
     metricsLogger = null;
+    /** Reason the last `connect` attempt failed (e.g. wedged-port EADDRINUSE).
+     *  Surfaced in the passive status header; cleared on the next connect attempt. */
+    lastConnectError = null;
     server = null;
     clientInfo = {};
     /** Tracks whether the config-drift warning has already been surfaced this session
@@ -118,6 +121,7 @@ class ConnectionManager {
             stealthMode: this.stealthMode,
             extensionServer: this.extensionServer,
             configDriftWarning: surfaceDrift,
+            lastConnectError: this.lastConnectError,
         });
     }
     // ─── Tool listing ──────────────────────────────────────────

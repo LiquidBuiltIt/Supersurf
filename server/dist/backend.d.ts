@@ -37,6 +37,9 @@ export declare class ConnectionManager implements ConnectionManagerAPI {
     attachedTab: TabInfo | null;
     stealthMode: boolean;
     metricsLogger: UsageMetricsLogger | null;
+    /** Reason the last `connect` attempt failed (e.g. wedged-port EADDRINUSE).
+     *  Surfaced in the passive status header; cleared on the next connect attempt. */
+    lastConnectError: string | null;
     server: Server | null;
     clientInfo: Record<string, unknown>;
     /** Tracks whether the config-drift warning has already been surfaced this session

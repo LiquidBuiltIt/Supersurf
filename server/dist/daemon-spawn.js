@@ -12,6 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.explainStartupFailure = explainStartupFailure;
 exports.getSockPath = getSockPath;
 exports.getPidPath = getPidPath;
 exports.isDaemonRunning = isDaemonRunning;
@@ -26,6 +27,26 @@ const log = (0, logger_1.createLog)('[Spawn]');
 const SUPERSURF_DIR = path_1.default.join(os_1.default.homedir(), '.supersurf');
 const PID_FILE = path_1.default.join(SUPERSURF_DIR, 'daemon.pid');
 const SOCK_FILE = path_1.default.join(SUPERSURF_DIR, 'daemon.sock');
+/** Captures the spawned daemon's stderr so a startup failure (e.g. EADDRINUSE)
+ *  is not swallowed by `stdio: 'ignore'`. Truncated on every spawn attempt. */
+const STARTUP_LOG = path_1.default.join(SUPERSURF_DIR, 'daemon.startup.log');
+/**
+ * Turn a captured daemon-startup-stderr blob into a single human-facing reason.
+ * Recognizes the common wedged-port case (EADDRINUSE) and renders an actionable
+ * message; otherwise returns the last non-empty line, or null if nothing useful.
+ */
+function explainStartupFailure(raw, port) {
+    const text = (raw || '').trim();
+    if (!text)
+        return null;
+    if (text.includes('EADDRINUSE')) {
+        return (`port ${port} is already in use (EADDRINUSE) — another process (likely a ` +
+            `stale/wedged daemon) is holding it. Stop it with \`npx supersurf-daemon@latest stop\` ` +
+            `(or kill whatever is bound to ${port}), then retry.`);
+    }
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    return lines.length ? lines[lines.length - 1] : null;
+}
 /** Return the path to the daemon's Unix socket. */
 function getSockPath() {
     return SOCK_FILE;
@@ -120,14 +141,38 @@ async function ensureDaemon(port = 5555, debug = false, experiments = []) {
     if (experiments.length > 0) {
         env.SUPERSURF_EXPERIMENTS = experiments.join(',');
     }
+    // Capture the daemon's stderr to a file so a startup failure (e.g. binding a
+    // port already held by a wedged daemon → EADDRINUSE) is not silently lost to
+    // `stdio: 'ignore'`. Without this, the daemon exits(1) on bind failure and the
+    // poll loop below just times out blindly with no diagnostic.
+    let errFd;
+    try {
+        errFd = fs_1.default.openSync(STARTUP_LOG, 'w');
+    }
+    catch {
+        errFd = undefined;
+    }
     const child = (0, child_process_1.spawn)(shell, ['-ilc', fullCmd], {
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', errFd ?? 'ignore'],
         env,
     });
+    // Watch for the daemon dying before it ever becomes ready. The child is the
+    // login shell wrapping node; it exits with node's exit code, so a bind
+    // failure surfaces here as a non-zero exit while the socket never appears.
+    let exited = null;
+    child.on('exit', (code, signal) => { exited = { code, signal }; });
+    child.on('error', () => { exited = { code: null, signal: null }; });
     child.unref();
+    try {
+        if (errFd !== undefined)
+            fs_1.default.closeSync(errFd);
+    }
+    catch { }
     log(`Spawned daemon (pid=${child.pid}) via: ${fullCmd}`);
-    // Poll for socket file (100ms interval, 10s timeout)
+    // Poll for socket file (100ms interval, 10s timeout), but bail out the instant
+    // the daemon process exits — no point waiting the full 10s for a socket that
+    // will never appear.
     const pollInterval = 100;
     const maxWait = 10000;
     let waited = 0;
@@ -136,9 +181,24 @@ async function ensureDaemon(port = 5555, debug = false, experiments = []) {
             log('Daemon socket ready');
             return;
         }
+        if (exited) {
+            const info = exited;
+            let captured = '';
+            try {
+                captured = fs_1.default.readFileSync(STARTUP_LOG, 'utf8');
+            }
+            catch { }
+            const reason = explainStartupFailure(captured, port);
+            const how = info.code != null ? `exit code ${info.code}`
+                : info.signal != null ? `signal ${info.signal}`
+                    : 'spawn error';
+            log('Daemon exited before becoming ready:', how, reason || '(no diagnostic)');
+            throw new Error(`Daemon process exited before becoming ready (${how}). ` +
+                (reason ?? `No diagnostic captured — see ${STARTUP_LOG} and ~/.supersurf/logs/daemon.log.`));
+        }
         await new Promise(r => setTimeout(r, pollInterval));
         waited += pollInterval;
     }
-    throw new Error('Daemon failed to start within 10 seconds');
+    throw new Error('Daemon failed to start within 10 seconds (socket never appeared, process still alive)');
 }
 //# sourceMappingURL=daemon-spawn.js.map

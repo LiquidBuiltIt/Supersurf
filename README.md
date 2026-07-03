@@ -314,6 +314,14 @@ All WebSocket commands log params and responses. CDP passthrough unwraps to show
 
 ---
 
+## Support
+
+SuperSurf is **free and open-source**. If it saves you time, you can support continued development:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-supersurf-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/supersurf)
+
+---
+
 <div align="center">
 
 **100% Open Source** — Apache-2.0 with Commons Clause. Free to use, modify, and redistribute, but not to sell.

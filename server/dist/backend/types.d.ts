@@ -55,6 +55,10 @@ export interface ConnectionManagerAPI {
     connectedBrowserName: string | null;
     attachedTab: TabInfo | null;
     metricsLogger: UsageMetricsLogger | null;
+    /** Reason the last `connect` attempt failed, surfaced in the passive status
+     *  header so `status` reports the real cause (e.g. port held / EADDRINUSE)
+     *  instead of a bare cached "Disabled". Cleared on the next connect attempt. */
+    lastConnectError: string | null;
     statusHeader(): string;
     notifyToolsListChanged(): Promise<void>;
     sendLogNotification(level: string, message: string, logger?: string): Promise<void>;

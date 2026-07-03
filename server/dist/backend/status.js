@@ -16,13 +16,16 @@ exports.buildStatusHeader = buildStatusHeader;
  * Returns a string ending with `\n---\n\n` for markdown separation.
  */
 function buildStatusHeader(input) {
-    const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, configDriftWarning } = input;
+    const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, configDriftWarning, lastConnectError } = input;
     const version = config.server.version;
     const driftLine = configDriftWarning
         ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf-daemon@latest restart`\n\n'
         : '';
     if (state === 'passive') {
-        return `${driftLine}🔴 v${version} | Disabled\n---\n\n`;
+        const failLine = lastConnectError
+            ? `⚠️ Last connect failed: ${lastConnectError}\n\n`
+            : '';
+        return `${driftLine}${failLine}🔴 v${version} | Disabled\n---\n\n`;
     }
     const parts = [];
     let buildTime = null;

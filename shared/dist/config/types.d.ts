@@ -22,7 +22,6 @@ export interface Config {
     logging: {
         debug: DebugMode;
         usage_metrics: boolean;
-        action_recording: boolean;
     };
     profiles: {
         startup_opts: {

@@ -3,7 +3,7 @@ import { recordAction } from '../src/recorder/action-recorder';
 
 function ctx(enabled: boolean) {
   return {
-    config: { get: () => ({ logging: { action_recording: enabled } }) },
+    config: { get: () => ({ logging: { usage_metrics: enabled } }) },
     connectionManager: { clientId: 'sid', getAttachedTab: () => ({ url: 'https://ex.com/jobs' }) },
     metricsLogger: { write: vi.fn() },
   } as any;
@@ -52,7 +52,7 @@ describe('recordAction', () => {
   });
 
   it('never throws when there is no metricsLogger', () => {
-    const c = { config: { get: () => ({ logging: { action_recording: true } }) } } as any;
+    const c = { config: { get: () => ({ logging: { usage_metrics: true } }) } } as any;
     expect(() => recordAction(c, { type: 'wait' }, 1000, 'waited', null)).not.toThrow();
   });
 });

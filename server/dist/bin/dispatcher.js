@@ -82,8 +82,16 @@ async function dispatch(argv) {
         await Promise.resolve().then(() => __importStar(require('../cli')));
     }
     else if (target === 'daemon') {
-        // @ts-ignore - resolved at runtime after daemon bundle copy
-        await Promise.resolve().then(() => __importStar(require('../daemon/main')));
+        // The daemon ships as a SEPARATE package (`supersurf-daemon`). Resolve it
+        // via the package name — exactly how daemon-spawn.ts does — which works in
+        // both local dev (workspace symlink) and a published install. The old
+        // '../daemon/main' relative path assumed a bundle-copy into server/dist
+        // that was never wired into any build script, so this entry crashed with
+        // MODULE_NOT_FOUND and the daemon CLI (status|stop|restart|observe) was
+        // completely dead. Importing the resolved entry runs its CLI against the
+        // process.argv we just set above.
+        const { resolveDaemonEntry } = await Promise.resolve().then(() => __importStar(require('../daemon-spawn')));
+        await Promise.resolve(`${resolveDaemonEntry()}`).then(s => __importStar(require(s)));
     }
     else if (target === 'profiles') {
         const { runProfilesCli } = await Promise.resolve().then(() => __importStar(require('./profiles-cli')));

@@ -21,6 +21,9 @@ interface StatusInput {
     extensionServer: IExtensionTransport | null;
     /** When true, prepends a one-time warning that `~/.supersurf/config.json` changed since daemon start. */
     configDriftWarning?: boolean;
+    /** Reason the last connect attempt failed; shown in the passive header so a wedged
+     *  daemon / port conflict is reported instead of a bare "Disabled". */
+    lastConnectError?: string | null;
 }
 /**
  * Build a pipe-delimited status header from current connection state.

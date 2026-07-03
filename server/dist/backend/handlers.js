@@ -123,6 +123,8 @@ async function onConnect(mgr, args = {}, options = {}) {
         const sessionLogger = reg.setSessionLog(mgr.clientId);
         log('Session log:', sessionLogger.logFilePath);
     }
+    // Fresh attempt — clear any stale failure reason from a prior connect.
+    mgr.lastConnectError = null;
     try {
         const port = mgr.config.port || 5555;
         // Spawn daemon if not running
@@ -218,6 +220,9 @@ async function onConnect(mgr, args = {}, options = {}) {
             mgr.extensionServer = null;
         }
         mgr.state = 'passive';
+        // Remember why, so a follow-up `status` call surfaces the real cause
+        // (e.g. wedged-port EADDRINUSE) instead of a bare cached "Disabled".
+        mgr.lastConnectError = error.message;
         if (options.rawResult) {
             return {
                 success: false,

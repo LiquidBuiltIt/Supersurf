@@ -7,6 +7,12 @@
  * @exports getSockPath - Return the daemon socket path
  * @exports getPidPath - Return the daemon PID file path
  */
+/**
+ * Turn a captured daemon-startup-stderr blob into a single human-facing reason.
+ * Recognizes the common wedged-port case (EADDRINUSE) and renders an actionable
+ * message; otherwise returns the last non-empty line, or null if nothing useful.
+ */
+export declare function explainStartupFailure(raw: string, port: number): string | null;
 /** Return the path to the daemon's Unix socket. */
 export declare function getSockPath(): string;
 /** Return the path to the daemon's PID file. */

@@ -42,16 +42,16 @@ describe('ConfigService', () => {
     expect(s.get().logging.usage_metrics).toBe(true);
   });
 
-  it('action_recording defaults to false and is source-tracked', () => {
+  it('usage_metrics defaults to false and is source-tracked', () => {
     const s = new ConfigService({ cli: {}, env: {}, file: {} });
-    expect(s.get().logging.action_recording).toBe(false);
-    expect(s.sourceOf('logging.action_recording')).toBe('default');
+    expect(s.get().logging.usage_metrics).toBe(false);
+    expect(s.sourceOf('logging.usage_metrics')).toBe('default');
   });
 
-  it('action_recording can be enabled via file layer', () => {
-    const s = new ConfigService({ cli: {}, env: {}, file: { logging: { action_recording: true } } });
-    expect(s.get().logging.action_recording).toBe(true);
-    expect(s.sourceOf('logging.action_recording')).toBe('file');
+  it('usage_metrics can be enabled via file layer', () => {
+    const s = new ConfigService({ cli: {}, env: {}, file: { logging: { usage_metrics: true } } });
+    expect(s.get().logging.usage_metrics).toBe(true);
+    expect(s.sourceOf('logging.usage_metrics')).toBe('file');
   });
 
   it('reports source for each leaf', () => {

@@ -23,7 +23,6 @@ export const HARDCODED_DEFAULTS: Config = {
   logging: {
     debug: false,
     usage_metrics: false,
-    action_recording: false,
   },
   profiles: {
     startup_opts: {
@@ -41,7 +40,7 @@ export const SCAFFOLD_DEFAULTS: Config = {
     domain_whitelist: { ...HARDCODED_DEFAULTS.security.domain_whitelist, custom: [] },
   },
   daemon: { ...HARDCODED_DEFAULTS.daemon },
-  logging: { ...HARDCODED_DEFAULTS.logging, usage_metrics: true, action_recording: false },
+  logging: { ...HARDCODED_DEFAULTS.logging, usage_metrics: true },
   profiles: {
     startup_opts: { ...HARDCODED_DEFAULTS.profiles.startup_opts },
   },

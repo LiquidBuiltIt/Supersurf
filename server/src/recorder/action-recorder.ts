@@ -1,7 +1,8 @@
 /**
  * Action recorder — records what each interaction action targeted and what
- * happened, to the usage-metrics trail. Config-gated (logging.action_recording),
- * core infra (NOT an experiment). Records only; downstream tooling
+ * happened, to the usage-metrics trail. Gated by logging.usage_metrics
+ * (the same leaf that enables the usage-metrics logger), core infra
+ * (NOT an experiment). Records only; downstream tooling
  * (fingerprinting / self-healing) consumes this chokepoint separately.
  *
  * @module recorder/action-recorder
@@ -25,7 +26,7 @@ function truncate(s: string, n = 200): string {
 
 /**
  * Record one action's target + outcome. Called from executeAction on both the
- * success and error paths. Gated by logging.action_recording. NEVER throws.
+ * success and error paths. Gated by logging.usage_metrics. NEVER throws.
  */
 export function recordAction(
   ctx: any,
@@ -35,7 +36,7 @@ export function recordAction(
   error: unknown,
 ): void {
   try {
-    if (ctx?.config?.get?.()?.logging?.action_recording !== true) return;
+    if (ctx?.config?.get?.()?.logging?.usage_metrics !== true) return;
     const rec: ActionRecord = {
       event: 'action',
       type: typeof action?.type === 'string' ? action.type : 'unknown',

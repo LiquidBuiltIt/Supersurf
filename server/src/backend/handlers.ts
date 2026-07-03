@@ -97,6 +97,9 @@ export async function onConnect(
     log('Session log:', sessionLogger.logFilePath);
   }
 
+  // Fresh attempt — clear any stale failure reason from a prior connect.
+  mgr.lastConnectError = null;
+
   try {
     const port = mgr.config.port || 5555;
 
@@ -214,6 +217,9 @@ export async function onConnect(
       mgr.extensionServer = null;
     }
     mgr.state = 'passive';
+    // Remember why, so a follow-up `status` call surfaces the real cause
+    // (e.g. wedged-port EADDRINUSE) instead of a bare cached "Disabled".
+    mgr.lastConnectError = error.message;
 
     if (options.rawResult) {
       return {

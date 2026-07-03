@@ -24,7 +24,7 @@ vi.mock('../src/daemon-spawn', async () => {
   };
 });
 
-import { isDaemonRunning, getSockPath, getPidPath, resolveDaemonEntry } from '../src/daemon-spawn';
+import { isDaemonRunning, getSockPath, getPidPath, resolveDaemonEntry, explainStartupFailure } from '../src/daemon-spawn';
 
 describe('daemon-spawn', () => {
   beforeEach(() => {
@@ -68,5 +68,34 @@ describe('resolveDaemonEntry', () => {
     const entry = resolveDaemonEntry();
     expect(entry.endsWith('main.js')).toBe(true);
     expect(entry).toContain('daemon');
+  });
+
+  // Regression for the dead daemon CLI: the bin dispatcher used to import
+  // '../daemon/main' (server/dist/daemon/main), a bundle-copy path that was
+  // never built — so `supersurf daemon status|stop|restart` crashed with
+  // MODULE_NOT_FOUND. The fix routes through this resolver; lock that it points
+  // at a file that actually exists on disk.
+  it('resolves to a daemon entry file that exists on disk', () => {
+    expect(fs.existsSync(resolveDaemonEntry())).toBe(true);
+  });
+});
+
+describe('explainStartupFailure', () => {
+  it('renders an actionable message for the wedged-port EADDRINUSE case', () => {
+    const raw = 'Failed to start extension WebSocket: listen EADDRINUSE 127.0.0.1:5555';
+    const msg = explainStartupFailure(raw, 5555);
+    expect(msg).toContain('EADDRINUSE');
+    expect(msg).toContain('5555');
+    expect(msg).toContain('supersurf-daemon');
+  });
+
+  it('falls back to the last non-empty stderr line when not a known case', () => {
+    const raw = 'some noise\n\nDaemon fatal error: boom\n';
+    expect(explainStartupFailure(raw, 5555)).toBe('Daemon fatal error: boom');
+  });
+
+  it('returns null when there is no captured output', () => {
+    expect(explainStartupFailure('', 5555)).toBeNull();
+    expect(explainStartupFailure('   \n  \n', 5555)).toBeNull();
   });
 });

@@ -38,7 +38,7 @@ describe('executeAction recording', () => {
 
   function recCtx() {
     return {
-      config: { get: () => ({ logging: { action_recording: true } }) },
+      config: { get: () => ({ logging: { usage_metrics: true } }) },
       connectionManager: { clientId: 's', getAttachedTab: () => ({ url: 'https://ex.com/' }) },
       metricsLogger: { write: vi.fn() },
     } as any;

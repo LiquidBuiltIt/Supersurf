@@ -60,6 +60,9 @@ export class ConnectionManager implements ConnectionManagerAPI {
   attachedTab: TabInfo | null = null;
   stealthMode: boolean = false;
   metricsLogger: UsageMetricsLogger | null = null;
+  /** Reason the last `connect` attempt failed (e.g. wedged-port EADDRINUSE).
+   *  Surfaced in the passive status header; cleared on the next connect attempt. */
+  lastConnectError: string | null = null;
   server: Server | null = null;
   clientInfo: Record<string, unknown> = {};
   /** Tracks whether the config-drift warning has already been surfaced this session
@@ -98,6 +101,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
       stealthMode: this.stealthMode,
       extensionServer: this.extensionServer,
       configDriftWarning: surfaceDrift,
+      lastConnectError: this.lastConnectError,
     });
   }
 
