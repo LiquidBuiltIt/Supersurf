@@ -57,6 +57,10 @@ export class SessionContext {
     _debuggerAttached = false;
     /** The tab ID the CDP debugger is attached to, if any. */
     _currentDebuggerTabId = null;
+    /** True while a native dialog is held open and blocking the renderer.
+     *  In-memory only — deliberately NOT persisted so a service-worker restart
+     *  clears it (a stale-true flag would wedge the session). */
+    _dialogPending = false;
     // Per-session state. null key = single-client mode (backwards compat).
     sessions = new Map();
     /** Reference to chrome.storage.session for persistence. */
@@ -88,6 +92,8 @@ export class SessionContext {
         this._currentDebuggerTabId = value;
         this.persist();
     }
+    get dialogPending() { return this._dialogPending; }
+    set dialogPending(value) { this._dialogPending = value; }
     /**
      * Get or lazily create the session state for a given session ID.
      * @param sessionId - Session identifier, or null/undefined for single-client mode

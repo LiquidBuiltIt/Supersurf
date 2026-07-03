@@ -21,6 +21,13 @@ function mockBridge(): ExtensionBridge {
     onTabInfoUpdate: null,
     start: vi.fn(),
     stop: vi.fn(),
+    sendCmdToProfile: vi.fn().mockResolvedValue({}),
+    matchmaker: {
+      getConnectionForProfile: vi.fn().mockReturnValue(null),
+      enqueueBootstrap: vi.fn(async (fn: () => Promise<void>) => { await fn(); }),
+      pendingSpawns: new Set<string>(),
+      requestMatch: vi.fn().mockResolvedValue({ profile: 'x' }),
+    },
   } as any;
 }
 
@@ -525,6 +532,113 @@ describe('IPCServer', () => {
       const response = await readLine(client);
       expect(response.jsonrpc).toBe('2.0');
       expect(response.config_drift).toBe(true);
+      client.end();
+    });
+  });
+
+  describe('profiles.launch + user-owned lifecycle', () => {
+    it('rejects launch of a nonexistent profile', async () => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'launch-404' });
+      await readLine(client);
+
+      writeLine(client, { jsonrpc: '2.0', id: 'l1', method: 'profiles.launch', params: { profile: 'ghost' } });
+      const res = await readLine(client);
+      expect(res.error).toBeDefined();
+      expect(res.error.message).toContain('not found');
+      client.end();
+    });
+
+    it('reports alreadyRunning without spawning when a pooled connection exists', async () => {
+      await ipc.start();
+      profileRegistry.create('dev');
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({ profile: 'dev' });
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'launch-dup' });
+      await readLine(client);
+
+      writeLine(client, { jsonrpc: '2.0', id: 'l2', method: 'profiles.launch', params: { profile: 'dev' } });
+      const res = await readLine(client);
+      expect(res.result.success).toBe(true);
+      expect(res.result.alreadyRunning).toBe(true);
+      expect((bridge as any).matchmaker.enqueueBootstrap).not.toHaveBeenCalled();
+      client.end();
+    });
+
+    it('profiles.connect skips spawn when a pooled connection exists (pool-aware guard)', async () => {
+      await ipc.start();
+      profileRegistry.create('dev');
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({ profile: 'dev' });
+      (bridge as any).matchmaker.requestMatch.mockResolvedValue({ profile: 'dev' });
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'connect-pooled' });
+      await readLine(client);
+
+      writeLine(client, { jsonrpc: '2.0', id: 'c1', method: 'profiles.connect', params: { profile: 'dev' } });
+      const res = await readLine(client);
+      expect(res.result).toBeDefined();
+      expect((bridge as any).matchmaker.enqueueBootstrap).not.toHaveBeenCalled();
+      client.end();
+    });
+
+    it('does NOT kill a user-owned Chromium when the last session disconnects', async () => {
+      await ipc.start();
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 999999, 'user'); // dead pid; kill would throw anyway — we assert it isn't cleared
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({ profile: 'dev' });
+      (bridge as any).matchmaker.requestMatch.mockResolvedValue({ profile: 'dev' });
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'owner-guard' });
+      await readLine(client);
+      writeLine(client, { jsonrpc: '2.0', id: 'c2', method: 'profiles.connect', params: { profile: 'dev' } });
+      await readLine(client); // session now bound to profile 'dev'
+
+      client.end();
+      await new Promise((r) => setTimeout(r, 150)); // let the close handler run
+
+      expect(profileRegistry.getRunningPid('dev')).toBe(999999); // untouched
+    });
+
+    it('kills (clears) a daemon-owned Chromium when the last session disconnects', async () => {
+      await ipc.start();
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 999999, 'daemon');
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({ profile: 'dev' });
+      (bridge as any).matchmaker.requestMatch.mockResolvedValue({ profile: 'dev' });
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'daemon-kill' });
+      await readLine(client);
+      writeLine(client, { jsonrpc: '2.0', id: 'c3', method: 'profiles.connect', params: { profile: 'dev' } });
+      await readLine(client);
+
+      client.end();
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(profileRegistry.getRunningPid('dev')).toBeNull(); // kill path ran, pid cleared
+    });
+
+    it('profiles.list includes owner and connected fields', async () => {
+      await ipc.start();
+      profileRegistry.create('dev');
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'list-enriched' });
+      await readLine(client);
+
+      writeLine(client, { jsonrpc: '2.0', id: 'ls1', method: 'profiles.list', params: {} });
+      const res = await readLine(client);
+      expect(res.result.profiles).toHaveLength(1);
+      expect(res.result.profiles[0]).toMatchObject({
+        name: 'dev',
+        running: false,
+        owner: null,
+        connected: false,
+      });
       client.end();
     });
   });

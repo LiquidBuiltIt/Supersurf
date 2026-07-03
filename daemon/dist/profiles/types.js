@@ -11,6 +11,7 @@ function isProfileMethod(method) {
     return method === 'profiles.create'
         || method === 'profiles.list'
         || method === 'profiles.delete'
-        || method === 'profiles.connect';
+        || method === 'profiles.connect'
+        || method === 'profiles.launch';
 }
 //# sourceMappingURL=types.js.map

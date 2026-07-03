@@ -42,7 +42,11 @@ export declare function spawnChromium(profileName: string, extensionDir: string,
 export declare function appendPidLog(entry: PidLogEntry): void;
 /** Read and parse all entries from the PID log file. */
 export declare function replayPidLog(): PidLogEntry[];
-/** Replay spawn/kill events to find orphan PIDs (spawned but never killed). */
+/**
+ * Replay spawn/kill events to find orphan PIDs (spawned but never killed).
+ * User-owned spawns (`owner: 'user'`) are excluded — the daemon never reaps
+ * a browser the human opened; they close it themselves.
+ */
 export declare function findOrphanPids(entries: PidLogEntry[]): number[];
 /** Kill orphan Chromium processes and log kill events. */
 export declare function killOrphanPids(pids: number[]): void;

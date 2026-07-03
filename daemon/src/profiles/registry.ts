@@ -25,6 +25,7 @@ const NAME_REGEX = /^[a-z0-9][a-z0-9-]{0,31}$/;
 export class ProfileRegistry {
   private profilesDir: string;
   private runningPids: Map<string, number> = new Map();
+  private runningOwners: Map<string, 'daemon' | 'user'> = new Map();
 
   constructor(profilesDir: string) {
     this.profilesDir = profilesDir;
@@ -133,6 +134,9 @@ export class ProfileRegistry {
     // Kill Chromium if running
     const pid = this.getRunningPid(name);
     if (pid !== null) {
+      if (this.isUserOwned(name)) {
+        throw new Error(`Profile '${name}' has a user-opened browser running. Close the browser window first, then delete the profile.`);
+      }
       try {
         process.kill(pid, 'SIGTERM');
         debugLog(`Killed Chromium for profile "${name}" (pid ${pid})`);
@@ -168,16 +172,36 @@ export class ProfileRegistry {
 
   // ─── Running PID tracking (in-memory) ─────────────────────
 
-  setRunningPid(name: string, pid: number): void {
+  setRunningPid(name: string, pid: number, owner: 'daemon' | 'user' = 'daemon'): void {
     this.runningPids.set(name, pid);
+    this.runningOwners.set(name, owner);
   }
 
   clearRunningPid(name: string): void {
     this.runningPids.delete(name);
+    this.runningOwners.delete(name);
   }
 
   getRunningPid(name: string): number | null {
     return this.runningPids.get(name) ?? null;
+  }
+
+  /** Who spawned the running Chromium for this profile, or null if not running. */
+  getOwner(name: string): 'daemon' | 'user' | null {
+    return this.runningOwners.get(name) ?? null;
+  }
+
+  /** True if the running Chromium for this profile was launched by the user (CLI). */
+  isUserOwned(name: string): boolean {
+    return this.runningOwners.get(name) === 'user';
+  }
+
+  /** True if any profile has a live user-owned Chromium. */
+  hasUserOwnedRunning(): boolean {
+    for (const [name, owner] of [...this.runningOwners.entries()]) {
+      if (owner === 'user' && this.isRunning(name)) return true;
+    }
+    return false;
   }
 
   isRunning(name: string): boolean {
@@ -187,7 +211,7 @@ export class ProfileRegistry {
       process.kill(pid, 0);
       return true;
     } catch {
-      this.runningPids.delete(name);
+      this.clearRunningPid(name);
       return false;
     }
   }

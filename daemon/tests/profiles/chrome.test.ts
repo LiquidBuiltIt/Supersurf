@@ -12,6 +12,7 @@ import {
   findChromiumBinary,
   spawnChromium,
 } from '../../src/profiles/chrome';
+import type { PidLogEntry } from '../../src/profiles/types';
 
 const spawnMock = vi.fn(() => ({ pid: 12345, unref: vi.fn(), on: vi.fn() }));
 vi.mock('child_process', async () => {
@@ -63,6 +64,25 @@ describe('Chrome PID log', () => {
       ];
       expect(findOrphanPids(entries)).toEqual([100]);
     });
+  });
+});
+
+describe('findOrphanPids owner filtering', () => {
+  it('excludes user-owned spawns from orphan detection', () => {
+    const entries: PidLogEntry[] = [
+      { action: 'spawn', profile: 'a', pid: 101, ts: '2026-06-28T00:00:00Z' },
+      { action: 'spawn', profile: 'b', pid: 102, owner: 'user', ts: '2026-06-28T00:00:01Z' },
+      { action: 'spawn', profile: 'c', pid: 103, owner: 'daemon', ts: '2026-06-28T00:00:02Z' },
+    ];
+    expect(findOrphanPids(entries)).toEqual([101, 103]);
+  });
+
+  it('still removes killed pids regardless of owner', () => {
+    const entries: PidLogEntry[] = [
+      { action: 'spawn', profile: 'a', pid: 201, owner: 'daemon', ts: '2026-06-28T00:00:00Z' },
+      { action: 'kill', profile: 'a', pid: 201, ts: '2026-06-28T00:00:01Z' },
+    ];
+    expect(findOrphanPids(entries)).toEqual([]);
   });
 });
 

@@ -187,18 +187,22 @@ function replayPidLog() {
     }
     return entries;
 }
-/** Replay spawn/kill events to find orphan PIDs (spawned but never killed). */
+/**
+ * Replay spawn/kill events to find orphan PIDs (spawned but never killed).
+ * User-owned spawns (`owner: 'user'`) are excluded — the daemon never reaps
+ * a browser the human opened; they close it themselves.
+ */
 function findOrphanPids(entries) {
-    const alive = new Set();
+    const alive = new Map();
     for (const entry of entries) {
         if (entry.action === 'spawn') {
-            alive.add(entry.pid);
+            alive.set(entry.pid, entry);
         }
         else if (entry.action === 'kill') {
             alive.delete(entry.pid);
         }
     }
-    return [...alive];
+    return [...alive.values()].filter((e) => e.owner !== 'user').map((e) => e.pid);
 }
 /** Kill orphan Chromium processes and log kill events. */
 function killOrphanPids(pids) {
