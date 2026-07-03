@@ -338,7 +338,10 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // completion (via tabs.onUpdated) then optionally applies smart waiting
     // (DOM stability detection) before capturing.
     wsConnection.registerCommandHandler('navigate', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+        // Honor an explicit tabId from the caller so concurrent callers don't
+        // collide on the shared attached-tab global. The resolver falls back to
+        // the attached tab (with recovery) when no tabId is given.
+        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
         const action = params.action || 'url';
         if (action === 'url') {
             await chrome.tabs.update(tabId, { url: params.url });
@@ -407,7 +410,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // forwardCDPCommand — Generic CDP passthrough for server-side tools
     // that need direct CDP access (e.g., CSS inspection, accessibility tree).
     wsConnection.registerCommandHandler('forwardCDPCommand', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
         return await cdp(tabId, params.method, params.params || {});
     });
     // evaluate — Execute JavaScript in the page via CDP Runtime.evaluate.
@@ -416,7 +419,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // Bot-detection bypass: shouldUnwrap/wrapWithUnwrap temporarily restores native
     // DOM methods that pages may have overridden to detect automation.
     wsConnection.registerCommandHandler('evaluate', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
         const code = params.function || params.expression || '';
         let expression;
         if (params.prewrapped) {
@@ -447,13 +450,13 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         return result.result?.value;
     });
     // snapshot (accessible DOM)
-    wsConnection.registerCommandHandler('snapshot', async () => {
-        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+    wsConnection.registerCommandHandler('snapshot', async (params) => {
+        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
         return await cdp(tabId, 'Accessibility.getFullAXTree', {});
     });
     // screenshot
     wsConnection.registerCommandHandler('screenshot', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
         const captureParams = {
             format: params.type || 'jpeg',
             quality: params.quality || 70,
@@ -486,7 +489,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // dialog
     wsConnection.registerCommandHandler('dialog', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
         // action defaults: explicit `action` wins; else legacy `accept` maps
         // (true→accept, false→dismiss); else `view`.
         const action = params.action ??
@@ -504,7 +507,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // window management
     wsConnection.registerCommandHandler('window', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
         const tab = await chrome.tabs.get(tabId);
         const windowId = tab.windowId;
         switch (params.action) {
@@ -530,8 +533,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         return { extensions: extensions.map((e) => ({ id: e.id, name: e.name, enabled: e.enabled, type: e.type })) };
     });
     // performance metrics
-    wsConnection.registerCommandHandler('performanceMetrics', async () => {
-        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+    wsConnection.registerCommandHandler('performanceMetrics', async (params) => {
+        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
         const result = await cdp(tabId, 'Performance.getMetrics', {});
         return { metrics: result.metrics };
     });
@@ -543,7 +546,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // Runs in MAIN world (not isolated) so it can interact with page-level input frameworks.
     // Types character-by-character with randomized delays to mimic human input.
     wsConnection.registerCommandHandler('secure_fill', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab()).tabId;
+        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
         const results = await chrome.scripting.executeScript({
             target: { tabId },
             world: 'MAIN',

@@ -200,7 +200,7 @@ async function onSecureFill(ctx, args, options) {
         const available = keys.length > 0 ? ` Available credentials: ${keys.join(', ')}` : ' No credentials found in .env file.';
         return ctx.error(`Environment variable "${envName}" is not set.${available}`, options);
     }
-    await ctx.ext.sendCmd('secure_fill', { selector, value });
+    await ctx.ext.sendCmd('secure_fill', { selector, value, tabId: ctx.tabId });
     if (options.rawResult) {
         return { success: true, selector, credential_env: envName };
     }

@@ -139,7 +139,7 @@ function describeClickOutcome(target, probe, hadSpawn) {
         await (0, frames_1.evalInFrameOrTop)(ctx, domClickExpr, clickContextId).catch(() => { });
         if (index_1.experimentRegistry.isEnabled('smart_waiting')) {
             try {
-                await ctx.ext.sendCmd('waitForReady', { timeout: 3000, stabilityMs: 300 });
+                await ctx.ext.sendCmd('waitForReady', { timeout: 3000, stabilityMs: 300, tabId: ctx.tabId });
             }
             catch { /* non-blocking */ }
         }

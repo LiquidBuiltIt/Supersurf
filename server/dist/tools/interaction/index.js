@@ -51,7 +51,7 @@ async function onInteract(ctx, args, options) {
     const captureMode = isOnlyScrollActions ? 'viewport' : 'document';
     if (index_1.experimentRegistry.isEnabled('page_diffing')) {
         try {
-            beforeState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode });
+            beforeState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode, tabId: ctx.tabId });
         }
         catch { /* silently skip — extension may not support it yet */ }
     }
@@ -78,7 +78,7 @@ async function onInteract(ctx, args, options) {
             // Let smooth scroll animations settle before capturing viewport
             if (isOnlyScrollActions)
                 await ctx.sleep(350);
-            const afterState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode });
+            const afterState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode, tabId: ctx.tabId });
             const confidence = (0, index_1.calculateConfidence)(afterState);
             if (confidence >= 0.5) {
                 diffSection = (0, index_1.formatDiffSection)((0, index_1.diffSnapshots)(beforeState, afterState), confidence, afterState, captureMode);

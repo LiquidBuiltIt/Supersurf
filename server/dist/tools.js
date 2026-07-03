@@ -50,16 +50,23 @@ class BrowserBridge {
     async listTools() {
         return [...(0, schemas_1.getToolSchemas)(), ...(0, index_1.getExperimentalToolSchemas)()];
     }
-    /** Build the ToolContext that handlers receive. */
-    buildContext() {
+    /**
+     * Build the ToolContext that handlers receive.
+     *
+     * `tabId` (from the caller's `tabId` arg) is baked into `cdp`/`eval`/
+     * `getElementCenter` so the entire selector/eval/CDP surface targets one
+     * tab — concurrency isolation for parallel callers sharing a session.
+     */
+    buildContext(tabId) {
         const ext = this.ext;
-        const evalFnBound = (expression, awaitPromise = true) => (0, cdp_1.evalExpr)(ext, expression, awaitPromise);
+        const evalFnBound = (expression, awaitPromise = true) => (0, cdp_1.evalExpr)(ext, expression, awaitPromise, tabId);
         return {
             ext,
             connectionManager: this.connectionManager,
             config: this.config?.configService,
             metricsLogger: this.metricsLogger,
-            cdp: (method, params) => (0, cdp_1.cdp)(ext, method, params),
+            tabId,
+            cdp: (method, params) => (0, cdp_1.cdp)(ext, method, params, tabId),
             eval: evalFnBound,
             sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
             getElementCenter: (selector) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.connectionManager?.getAttachedTab()?.url, (ev) => this.metricsLogger?.write({
@@ -69,9 +76,9 @@ class BrowserBridge {
                 result: 'ok',
                 duration_ms: 0,
             })),
-            captureFingerprintInContext: (contextId, selector) => void (0, index_2.captureInContext)((expr) => (0, cdp_1.cdp)(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true })
+            captureFingerprintInContext: (contextId, selector) => void (0, index_2.captureInContext)((expr) => (0, cdp_1.cdp)(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true }, tabId)
                 .then((r) => r.result?.value), this.connectionManager?.getAttachedTab()?.url, selector),
-            healFingerprintInContext: (contextId, selector) => (0, index_2.healInContext)((expr) => (0, cdp_1.cdp)(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true })
+            healFingerprintInContext: (contextId, selector) => (0, index_2.healInContext)((expr) => (0, cdp_1.cdp)(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true }, tabId)
                 .then((r) => r.result?.value), this.connectionManager?.getAttachedTab()?.url, selector).then((hit) => {
                 if (!hit)
                     return null;
@@ -119,7 +126,7 @@ class BrowserBridge {
             });
             return response;
         }
-        return await (0, dispatcher_1.dispatchTool)(this.buildContext(), name, args, options, {
+        return await (0, dispatcher_1.dispatchTool)(this.buildContext(args.tabId), name, args, options, {
             metricsLogger: this.metricsLogger,
             clientId: this.connectionManager?.clientId,
             getCurrentUrl: () => this.connectionManager?.getAttachedTab()?.url,

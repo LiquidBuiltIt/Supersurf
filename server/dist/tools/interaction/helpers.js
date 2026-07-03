@@ -9,7 +9,7 @@ const index_2 = require("../../experimental/mouse-humanization/index");
 const logger_1 = require("../../logger");
 const log = (0, logger_1.createLog)('[Interact]');
 async function getViewportSize(ctx) {
-    return await ctx.ext.sendCmd('getViewportDimensions', {});
+    return await ctx.ext.sendCmd('getViewportDimensions', { tabId: ctx.tabId });
 }
 async function moveCursorTo(ctx, x, y, sessionId) {
     if (index_1.experimentRegistry.isEnabled('mouse_humanization')) {
@@ -17,7 +17,7 @@ async function moveCursorTo(ctx, x, y, sessionId) {
             const viewport = await getViewportSize(ctx);
             const waypoints = (0, index_2.generateMovement)(sessionId, x, y, viewport);
             log(`Humanized move → (${x},${y}) via ${waypoints.length} waypoints`);
-            await ctx.ext.sendCmd('humanizedMouseMove', { waypoints });
+            await ctx.ext.sendCmd('humanizedMouseMove', { waypoints, tabId: ctx.tabId });
             return;
         }
         catch (e) {

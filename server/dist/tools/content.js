@@ -79,7 +79,7 @@ function coalesceInlineTextBoxes(nodes) {
  * Filters out generic/none roles to keep output meaningful.
  */
 async function onSnapshot(ctx, options) {
-    const result = await ctx.ext.sendCmd('snapshot', {});
+    const result = await ctx.ext.sendCmd('snapshot', { tabId: ctx.tabId });
     // Use form fields from extension if available, otherwise collect via eval
     let formFields = result?.formFields;
     if (!formFields) {

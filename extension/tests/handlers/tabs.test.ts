@@ -519,6 +519,33 @@ describe('TabHandlers', () => {
       expect(result.recovery).toBeUndefined();
     });
 
+    it('honors an explicit tabId and returns it without recovery', async () => {
+      sessionContext.attachedTabId = 10;
+      mockChrome.tabs.get.mockResolvedValue({ id: 20, index: 1, title: 'B', url: 'https://b.com', windowId: 1 });
+
+      const result = await tabs.ensureAttachedTab(20);
+      expect(result.tabId).toBe(20);
+      expect(result.recovery).toBeUndefined();
+    });
+
+    it('does NOT mutate the shared attachedTabId when given an explicit tabId (concurrency isolation)', async () => {
+      // The shared global points at tab 10; an explicit override to tab 20 must
+      // not flip it — otherwise one caller would redirect a concurrent caller.
+      sessionContext.attachedTabId = 10;
+      mockChrome.tabs.get.mockResolvedValue({ id: 20, index: 1, title: 'B', url: 'https://b.com', windowId: 1 });
+
+      await tabs.ensureAttachedTab(20);
+      expect(tabs.getAttachedTabId()).toBe(10);
+    });
+
+    it('throws for an explicit tabId that no longer exists (without touching the global)', async () => {
+      sessionContext.attachedTabId = 10;
+      mockChrome.tabs.get.mockRejectedValue(new Error('No tab with id: 999'));
+
+      await expect(tabs.ensureAttachedTab(999)).rejects.toThrow();
+      expect(tabs.getAttachedTabId()).toBe(10);
+    });
+
     it('recovers when attachedTabId is null by selecting the active visible tab', async () => {
       // No attached tab
       expect(tabs.getAttachedTabId()).toBeNull();

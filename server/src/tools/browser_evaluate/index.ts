@@ -81,6 +81,7 @@ export async function onEvaluate(ctx: ToolContext, args: any, options: any): Pro
       const result = await ctx.ext.sendCmd('evaluate', {
         expression: wrapped,
         prewrapped: true,
+        tabId: ctx.tabId,
       });
 
       if (options.rawResult) return result;
@@ -106,6 +107,7 @@ export async function onEvaluate(ctx: ToolContext, args: any, options: any): Pro
 
   const result = await ctx.ext.sendCmd('evaluate', {
     expression,
+    tabId: ctx.tabId,
   });
 
   if (options.rawResult) return result;

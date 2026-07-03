@@ -39,6 +39,14 @@ export interface ToolContext {
   /** Usage-metrics logger, when enabled. Used by the action recorder. */
   metricsLogger?: import('../../usage-metrics-logger').UsageMetricsLogger | null;
 
+  /**
+   * Explicit target tab id for this call (from the tool's `tabId` arg), or
+   * undefined to use the session's attached tab. Baked into `cdp`/`eval`/
+   * `getElementCenter`; direct `sendCmd` handlers forward it in their payload.
+   * Concurrency isolation for parallel callers sharing one session.
+   */
+  tabId?: number;
+
   /** Send a Chrome DevTools Protocol command through the extension. */
   cdp(method: string, params?: any): Promise<any>;
   /** Evaluate a JS expression in the page context (via CDP Runtime.evaluate). */

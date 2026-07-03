@@ -22,6 +22,7 @@ export async function onWindow(ctx: ToolContext, args: any, options: any): Promi
     action: args.action,
     width: args.width,
     height: args.height,
+    tabId: ctx.tabId,
   });
   return ctx.formatResult('browser_window', result, options);
 }
@@ -30,14 +31,14 @@ export async function onWindow(ctx: ToolContext, args: any, options: any): Promi
 export async function onDialog(ctx: ToolContext, args: any, options: any): Promise<any> {
   // Priority: explicit `action` wins over the deprecated `accept` alias, which wins over a bare view.
   if (args.action !== undefined) {
-    const result = await ctx.ext.sendCmd('dialog', { action: args.action, text: args.text });
+    const result = await ctx.ext.sendCmd('dialog', { action: args.action, text: args.text, tabId: ctx.tabId });
     return ctx.formatResult('browser_handle_dialog', result, options);
   }
   if (args.accept !== undefined) {
-    const result = await ctx.ext.sendCmd('dialog', { accept: args.accept, text: args.text });
+    const result = await ctx.ext.sendCmd('dialog', { accept: args.accept, text: args.text, tabId: ctx.tabId });
     return ctx.formatResult('browser_handle_dialog', result, options);
   }
-  const result = await ctx.ext.sendCmd('dialog', {});
+  const result = await ctx.ext.sendCmd('dialog', { tabId: ctx.tabId });
   return ctx.formatResult('browser_handle_dialog', result, options);
 }
 
@@ -93,7 +94,7 @@ export async function onListExtensions(ctx: ToolContext, options: any): Promise<
  * Performance API and raw CDP metrics from the extension.
  */
 export async function onPerformanceMetrics(ctx: ToolContext, options: any): Promise<any> {
-  const cdpResult = await ctx.ext.sendCmd('performanceMetrics', {});
+  const cdpResult = await ctx.ext.sendCmd('performanceMetrics', { tabId: ctx.tabId });
   const metrics = cdpResult?.metrics || [];
 
   const vitals = await ctx.eval(`

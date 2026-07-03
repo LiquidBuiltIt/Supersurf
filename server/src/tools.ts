@@ -68,17 +68,24 @@ export class BrowserBridge {
     return [...getToolSchemas(), ...getExperimentalToolSchemas()];
   }
 
-  /** Build the ToolContext that handlers receive. */
-  private buildContext(): ToolContext {
+  /**
+   * Build the ToolContext that handlers receive.
+   *
+   * `tabId` (from the caller's `tabId` arg) is baked into `cdp`/`eval`/
+   * `getElementCenter` so the entire selector/eval/CDP surface targets one
+   * tab — concurrency isolation for parallel callers sharing a session.
+   */
+  private buildContext(tabId?: number): ToolContext {
     const ext = this.ext!;
     const evalFnBound = (expression: string, awaitPromise = true) =>
-      evalFn(ext, expression, awaitPromise);
+      evalFn(ext, expression, awaitPromise, tabId);
     return {
       ext,
       connectionManager: this.connectionManager,
       config: this.config?.configService,
       metricsLogger: this.metricsLogger,
-      cdp: (method, params) => cdpFn(ext, method, params),
+      tabId,
+      cdp: (method, params) => cdpFn(ext, method, params, tabId),
       eval: evalFnBound,
       sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
       getElementCenter: (selector: string) =>
@@ -98,7 +105,7 @@ export class BrowserBridge {
       captureFingerprintInContext: (contextId: number, selector: string) =>
         void captureInContext(
           (expr: string) =>
-            cdpFn(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true })
+            cdpFn(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true }, tabId)
               .then((r: any) => r.result?.value),
           this.connectionManager?.getAttachedTab()?.url,
           selector,
@@ -106,7 +113,7 @@ export class BrowserBridge {
       healFingerprintInContext: (contextId: number, selector: string) =>
         healInContext(
           (expr: string) =>
-            cdpFn(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true })
+            cdpFn(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true }, tabId)
               .then((r: any) => r.result?.value),
           this.connectionManager?.getAttachedTab()?.url,
           selector,
@@ -166,7 +173,7 @@ export class BrowserBridge {
       return response;
     }
 
-    return await dispatchTool(this.buildContext(), name, args, options, {
+    return await dispatchTool(this.buildContext(args.tabId as number | undefined), name, args, options, {
       metricsLogger: this.metricsLogger,
       clientId: this.connectionManager?.clientId,
       getCurrentUrl: () => this.connectionManager?.getAttachedTab()?.url,
