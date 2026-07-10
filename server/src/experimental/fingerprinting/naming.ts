@@ -9,7 +9,7 @@ export function normalizeName(raw: string | undefined | null): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_') // any run of non-alphanumerics -> single _
     .replace(/^_+|_+$/g, '');     // strip leading/trailing _
-  return s.slice(0, 64);
+  return s.slice(0, 64).replace(/^_+|_+$/g, ''); // re-strip: truncation can reintroduce a trailing _
 }
 
 /** True when normalizeName(raw) differs from the trimmed input (i.e. it wasn't already canonical). */

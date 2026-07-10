@@ -25,6 +25,11 @@ describe('normalizeName', () => {
   it('caps length at 64 chars', () => {
     expect(normalizeName('x'.repeat(100)).length).toBe(64);
   });
+  it('never leaves a trailing underscore after the 64-char cap', () => {
+    const out = normalizeName('a'.repeat(63) + ' bbbb');
+    expect(out.length).toBeLessThanOrEqual(64);
+    expect(out.endsWith('_')).toBe(false);
+  });
 });
 
 describe('wasNormalized', () => {
