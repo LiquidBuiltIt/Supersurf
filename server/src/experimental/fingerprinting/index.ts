@@ -185,6 +185,8 @@ export async function resolveWithHealing(
   selector: string,
   getUrl: () => string | undefined,
   emit?: HealEmit,
+  meta?: HandleMeta,
+  emitHandle?: HandleEmit,
 ): Promise<{ x: number; y: number }> {
   if (!experimentRegistry.isEnabled('fingerprinting')) {
     return getElementCenter(evalFn, selector);
@@ -197,7 +199,7 @@ export async function resolveWithHealing(
   try {
     const center = await getElementCenter(evalFn, selector);
     // fire-and-forget capture; do not await (keeps resolve latency unchanged)
-    void captureOnResolve(evalFn, url, selector);
+    void captureOnResolve(evalFn, url, selector, meta, emitHandle); // now carries handle meta
     fire('resolved', null, null, false);
     return center;
   } catch (missErr) {
