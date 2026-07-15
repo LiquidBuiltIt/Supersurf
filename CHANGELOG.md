@@ -6,7 +6,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
-- **Named capture (playbooks write-side):** `browser_interact` actions now accept `name` (snake_case handle identity) and `purpose` (intent) fields. When the `fingerprinting` experiment is on, these bind to the element's fingerprint record on every element-targeting action (click/hover/type/clear/select_option/select_custom/file_upload/drag) via a centralized capture path shared by the coordinate and context resolvers — first-seen name is canonical, differing labels are harvested as frequency-counted aliases (never overwritten). Emits `handle.capture` / `handle.alias_added` events to the usage-metrics trail. Gated behind `fingerprinting`; no-op when off. Never rejects a missing/malformed name (normalized server-side).
+- **Named capture (playbooks write-side):** `browser_interact` actions now accept `name` (snake_case handle identity) and `purpose` (intent) fields. When the `fingerprinting` experiment is on, these bind to the element's fingerprint record on every element-targeting `browser_interact` action (click/hover/type/clear/select_option/select_custom/file_upload) via a centralized capture path shared by the coordinate and context resolvers — first-seen name is canonical, differing labels are harvested as frequency-counted aliases (never overwritten). Emits `handle.capture` / `handle.alias_added` events to the usage-metrics trail. Gated behind `fingerprinting`; no-op when off. Never rejects a missing/malformed name (normalized server-side).
 
 ## 3.2.0 — 2026-07-03
 

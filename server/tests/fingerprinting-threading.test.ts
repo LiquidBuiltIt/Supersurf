@@ -9,23 +9,9 @@ describe('getCenterInFrame — meta threading', () => {
     expect(getElementCenter).toHaveBeenCalledWith('#fn', { name: 'first_name', purpose: 'enter name' });
   });
 
-  it('forwards meta to captureFingerprintInContext on the iframe fallback path', async () => {
-    const topErr = new Error('not found');
-    const getElementCenter = vi.fn().mockRejectedValue(topErr);
-    const getSelectorExpression = vi.fn().mockReturnValue('document.querySelector("#fn")');
-    const captureFingerprintInContext = vi.fn();
-    // cdp returns a rect so the iframe branch completes.
-    const cdp = vi.fn().mockResolvedValue({ result: { value: { left: 0, top: 0, width: 10, height: 10 } } });
-    const ctx: any = { getElementCenter, getSelectorExpression, captureFingerprintInContext, cdp };
-
-    // Stub the frame-walk helpers via module mock:
-    const frames = await import('../src/tools/lib/frames');
-    vi.spyOn(frames as any, 'findElementInFrames' as any); // ensure symbol exists
-    // We rely on findElementInFrames returning a match; emulate by monkeypatching is brittle,
-    // so assert the simpler contract: meta is the 3rd param and is threaded to capture when a match resolves.
-    // (If findElementInFrames can't be stubbed cleanly here, this assertion is covered by the click.ts integration below.)
-    expect(typeof getCenterInFrame).toBe('function');
-  });
+  // The iframe-fallback path (meta threaded to captureFingerprintInContext) is covered
+  // authoritatively in tools-frames.test.ts, which stubs the frame walk cleanly. It is not
+  // re-asserted here because findElementInFrames can't be stubbed reliably in this file.
 });
 
 describe('click action passes action.name/purpose', () => {
