@@ -5,6 +5,7 @@ registerAction({
   name: 'file_upload',
   async run(ctx, action) {
     const selectorExpr = `document.querySelector(${JSON.stringify(action.selector)})`;
+    const meta = { name: action.name, purpose: action.purpose };
     const verificationExpr = `
       (() => {
         const el = document.querySelector(${JSON.stringify(action.selector)});
@@ -23,6 +24,10 @@ registerAction({
     let objectId: string | undefined = evalResult.result?.objectId;
     let frameContextId: number | null = null;
 
+    if (objectId && action.selector) {
+      ctx.captureFingerprintInContext?.(null, action.selector, meta); // null contextId => top frame
+    }
+
     // Step 2: If top frame has no match, walk child frames in DFS order.
     if (!objectId) {
       const match = await findElementInFrames(ctx, selectorExpr);
@@ -31,6 +36,9 @@ registerAction({
       }
       objectId = match.objectId;
       frameContextId = match.contextId;
+      if (action.selector) {
+        ctx.captureFingerprintInContext?.(match.contextId, action.selector, meta);
+      }
     }
 
     const nodeResult = await ctx.cdp('DOM.describeNode', { objectId });

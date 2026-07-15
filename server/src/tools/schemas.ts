@@ -107,6 +107,22 @@ export function getToolSchemas(): ToolSchema[] {
                 button: { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button' },
                 clickCount: { type: 'number', description: 'Number of clicks (default: 1)' },
                 timeout: { type: 'number', description: 'Timeout in ms (for wait action). With selector: max wait before rejecting. Without selector: fixed delay. Default: 30000ms.' },
+                name: {
+                  type: 'string',
+                  description:
+                    'Handle identity — a short, stable snake_case name for the element you are acting on ' +
+                    '(e.g. "first_name_input", "submit_application"). REQUIRED for element-targeting actions ' +
+                    '(click/type/clear/hover/select_option/select_custom/file_upload). Reuse the same name for ' +
+                    'the same logical element across pages. Normalized server-side; a differing name is recorded ' +
+                    'as an alias, not a rename.',
+                },
+                purpose: {
+                  type: 'string',
+                  description:
+                    'Intent — a short natural-language reason for this interaction (e.g. "enter applicant first name", ' +
+                    '"submit the job application"). REQUIRED for element-targeting actions. Disambiguates ' +
+                    'identical-looking elements and groups actions into workflows.',
+                },
               },
               required: ['type'],
             },

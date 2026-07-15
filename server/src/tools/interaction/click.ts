@@ -104,7 +104,8 @@ registerAction({
     let x: number, y: number;
     let clickContextId: number | null = null;
     if (action.selector) {
-      const c = await getCenterInFrame(ctx, action.selector);
+      const meta = { name: action.name, purpose: action.purpose };
+      const c = await getCenterInFrame(ctx, action.selector, meta);
       x = c.x; y = c.y; clickContextId = c.contextId;
     } else if (action.x !== undefined && action.y !== undefined) {
       x = action.x;

@@ -104,17 +104,23 @@ export async function findElementInFrames(
  */
 export async function resolveInFrames(
   ctx: ToolContext,
-  selectorExpr: string
+  selectorExpr: string,
+  selector?: string,
+  meta?: import('../../experimental/fingerprinting/handle-meta').HandleMeta,
 ): Promise<{ objectId: string; contextId: number | null; frameId: string | null } | null> {
   const top = await ctx.cdp('Runtime.evaluate', {
     expression: selectorExpr,
     returnByValue: false,
   });
   const topObjectId = top?.result?.objectId;
-  if (topObjectId) return { objectId: topObjectId, contextId: null, frameId: null };
+  if (topObjectId) {
+    if (selector) ctx.captureFingerprintInContext?.(null, selector, meta); // top frame => null contextId
+    return { objectId: topObjectId, contextId: null, frameId: null };
+  }
 
   const match = await findElementInFrames(ctx, selectorExpr);
   if (!match) return null;
+  if (selector) ctx.captureFingerprintInContext?.(match.contextId, selector, meta);
   return match;
 }
 
@@ -254,10 +260,11 @@ async function healInFrames(
  */
 export async function getCenterInFrame(
   ctx: ToolContext,
-  selector: string
+  selector: string,
+  meta?: import('../../experimental/fingerprinting/handle-meta').HandleMeta,
 ): Promise<{ x: number; y: number; contextId: number | null }> {
   try {
-    const { x, y } = await ctx.getElementCenter(selector);
+    const { x, y } = await ctx.getElementCenter(selector, meta);
     return { x, y, contextId: null };
   } catch (topFrameErr) {
     const expr = ctx.getSelectorExpression(selector);
@@ -292,7 +299,7 @@ export async function getCenterInFrame(
     const y = Math.round(rect.top + offset.offsetY + rect.height / 2);
     // Iframe-nested elements bypass the top-frame capture wrapper (ctx.getElementCenter),
     // so fingerprint capture is fired here, bound to the child frame's execution context.
-    ctx.captureFingerprintInContext?.(match.contextId, selector);
+    ctx.captureFingerprintInContext?.(match.contextId, selector, meta);
     return { x, y, contextId: match.contextId };
   }
 }

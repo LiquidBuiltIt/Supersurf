@@ -135,8 +135,9 @@ export async function onFillForm(ctx: ToolContext, args: any, options: any): Pro
  * @param args - `{ fromSelector: string, toSelector: string }`
  */
 export async function onDrag(ctx: ToolContext, args: any, options: any): Promise<any> {
-  const from = await ctx.getElementCenter(args.fromSelector);
-  const to = await ctx.getElementCenter(args.toSelector);
+  const meta = { name: args.name, purpose: args.purpose };
+  const from = await ctx.getElementCenter(args.fromSelector, meta);
+  const to = await ctx.getElementCenter(args.toSelector, meta);
 
   // Press at source
   await ctx.cdp('Input.dispatchMouseEvent', {

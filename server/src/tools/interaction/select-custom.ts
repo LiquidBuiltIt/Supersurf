@@ -64,7 +64,8 @@ registerAction({
       })()
     `, frameContextId) || [];
 
-    const { x, y } = await getCenterInFrame(ctx, triggerSelector);
+    const meta = { name: action.name, purpose: action.purpose };
+    const { x, y } = await getCenterInFrame(ctx, triggerSelector, meta);
     await moveCursorTo(ctx, x, y, '_default');
     await ctx.cdp('Input.dispatchMouseEvent', {
       type: 'mousePressed', x, y, button: 'left', clickCount: 1, buttons: 1,
