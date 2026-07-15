@@ -140,7 +140,7 @@ export class BrowserBridge {
             params: {
               event: 'fingerprint', outcome: 'healed',
               selector, domain: domainOf(url), route: routeOf(url),
-              score: hit.score, margin: hit.margin, hadRecord: true,
+              score: hit.score, margin: hit.margin, hadRecord: true, discovery: 'known',
             } as unknown as Record<string, unknown>,
             result: 'ok',
             duration_ms: 0,

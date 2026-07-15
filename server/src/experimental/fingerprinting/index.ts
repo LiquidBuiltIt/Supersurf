@@ -49,13 +49,17 @@ export interface HandleEvent {
 export type HandleEmit = (ev: HandleEvent) => void;
 
 /** Fire-and-forget: fingerprint the just-resolved element and persist it, binding an
- *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws. */
+ *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws.
+ *  `preloadedRecord`, when passed (even as `null`), is reused as-is instead of re-reading via
+ *  `getRecord` — callers that already looked up the record (e.g. `resolveWithHealing`, for its
+ *  `hadRecord` telemetry) pass it through so the happy path stays at one file read, not two. */
 export async function captureOnResolve(
   evalFn: EvalFn,
   url: string | undefined,
   selector: string,
   meta?: HandleMeta,
   emitHandle?: HandleEmit,
+  preloadedRecord?: FingerprintRecord | null,
 ): Promise<void> {
   try {
     const raw = await evalFn(captureExpr(selector));
@@ -66,7 +70,7 @@ export async function captureOnResolve(
     // mis-file the record under unknown.json where it can never be healed (heal keys
     // off the live domain). Drop it instead — the record is best-effort anyway.
     if (domain === 'unknown') return;
-    const existing = getRecord(domain, route, selector);
+    const existing = preloadedRecord !== undefined ? preloadedRecord : getRecord(domain, route, selector);
     const now = Date.now();
 
     const merged = mergeHandleMeta(
@@ -127,7 +131,7 @@ export async function captureInContext(
 
 /** Outcome of a heal attempt, with enough detail for telemetry on every branch. */
 export interface HealAttempt {
-  hadRecord: boolean;        // was a stored fingerprint found for this selector?
+  hadRecord: boolean;        // was a stored fingerprint found for this domain+route+selector key?
   score: number | null;     // best candidate score (null if no record / scorer returned nothing)
   margin: number | null;    // best − runner-up
   hit: ScoreHit | null;     // non-null ONLY when the gate passed (safe to heal)
@@ -171,7 +175,13 @@ export interface HealEvent {
   route: string;
   score: number | null;
   margin: number | null;
+  /** True iff a stored fingerprint already existed for this exact domain+route+selector key at
+   *  resolve time. This is identity of the *storage key*, not of the underlying DOM element or
+   *  its meaning — a selector can be reused across unrelated elements/pages and still read true. */
   hadRecord: boolean;
+  /** 1:1 derived from `hadRecord`: 'known' when a record existed for this selector-key, 'new' on
+   *  first contact. Lets the usage-metrics trail distinguish cold-start resolves from steady-state. */
+  discovery: 'new' | 'known';
 }
 export type HealEmit = (ev: HealEvent) => void;
 
@@ -194,13 +204,23 @@ export async function resolveWithHealing(
   const url = getUrl();
   const domain = domainOf(url), route = routeOf(url);
   const fire = (outcome: HealEvent['outcome'], score: number | null, margin: number | null, hadRecord: boolean) => {
-    try { emit?.({ event: 'fingerprint', outcome, selector, domain, route, score, margin, hadRecord }); } catch { /* telemetry must never break a resolve */ }
+    try {
+      emit?.({
+        event: 'fingerprint', outcome, selector, domain, route, score, margin, hadRecord,
+        discovery: hadRecord ? 'known' : 'new',
+      });
+    } catch { /* telemetry must never break a resolve */ }
   };
   try {
     const center = await getElementCenter(evalFn, selector);
+    // Single hoisted read: reused for the `hadRecord` telemetry below AND passed into
+    // captureOnResolve so it skips its own getRecord — keeps the happy path at one file
+    // read total, not two. (Skip entirely for the 'unknown' domain bucket, which never
+    // has records — see captureOnResolve's 'unknown' guard.)
+    const existing = domain === 'unknown' ? null : getRecord(domain, route, selector);
     // fire-and-forget capture; do not await (keeps resolve latency unchanged)
-    void captureOnResolve(evalFn, url, selector, meta, emitHandle); // now carries handle meta
-    fire('resolved', null, null, false);
+    void captureOnResolve(evalFn, url, selector, meta, emitHandle, existing); // now carries handle meta + preloaded record
+    fire('resolved', null, null, !!existing);
     return center;
   } catch (missErr) {
     try {
