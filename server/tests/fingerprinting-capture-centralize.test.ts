@@ -26,3 +26,30 @@ describe('resolveInFrames — capture centralization', () => {
     await expect(resolveInFrames(ctx, 'q', '#fn', {})).resolves.toBeTruthy();
   });
 });
+
+describe('file_upload — top-frame capture', () => {
+  it('fires capture with null contextId on a top-frame hit, passing raw selector + meta', async () => {
+    await import('../src/tools/interaction/file-upload');
+    const { executeAction } = await import('../src/tools/interaction/registry');
+
+    const capture = vi.fn();
+    const cdp = vi.fn().mockImplementation((method: string) => {
+      if (method === 'Runtime.evaluate') return Promise.resolve({ result: { objectId: 'o' } }); // top-frame selector hit
+      if (method === 'DOM.describeNode') return Promise.resolve({ node: { backendNodeId: 42 } });
+      if (method === 'DOM.setFileInputFiles') return Promise.resolve({});
+      return Promise.resolve({});
+    });
+    const ctx: any = {
+      cdp,
+      eval: vi.fn().mockResolvedValue({ verified: true, count: 1 }), // verification read-back (top-frame path)
+      captureFingerprintInContext: capture,
+    };
+
+    await executeAction(ctx, {
+      type: 'file_upload', selector: '#file', files: ['/tmp/resume.pdf'],
+      name: 'resume_upload', purpose: 'attach resume',
+    });
+
+    expect(capture).toHaveBeenCalledWith(null, '#file', { name: 'resume_upload', purpose: 'attach resume' });
+  });
+});
