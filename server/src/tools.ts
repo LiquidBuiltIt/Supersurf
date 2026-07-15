@@ -96,7 +96,7 @@ export class BrowserBridge {
       cdp: (method, params) => cdpFn(ext, method, params, tabId),
       eval: evalFnBound,
       sleep: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
-      getElementCenter: (selector: string) =>
+      getElementCenter: (selector: string, meta?: import('./experimental/fingerprinting/handle-meta').HandleMeta) =>
         resolveWithHealing(
           evalFnBound,
           selector,
@@ -109,6 +109,8 @@ export class BrowserBridge {
               result: 'ok',
               duration_ms: 0,
             }),
+          meta,
+          emitHandle,
         ),
       captureFingerprintInContext: (contextId: number | null, selector: string, meta?: import('./experimental/fingerprinting/handle-meta').HandleMeta) =>
         void captureInContext(
