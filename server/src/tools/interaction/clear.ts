@@ -5,7 +5,8 @@ registerAction({
   name: 'clear',
   async run(ctx, action) {
     const selectorExpr = ctx.getSelectorExpression(action.selector);
-    const match = await resolveInFrames(ctx, selectorExpr);
+    const meta = { name: action.name, purpose: action.purpose };
+    const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
     if (!match) throw new Error(`Element not found: ${action.selector}`);
     const clearExpr = `
       (() => {

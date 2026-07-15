@@ -104,17 +104,23 @@ export async function findElementInFrames(
  */
 export async function resolveInFrames(
   ctx: ToolContext,
-  selectorExpr: string
+  selectorExpr: string,
+  selector?: string,
+  meta?: import('../../experimental/fingerprinting/handle-meta').HandleMeta,
 ): Promise<{ objectId: string; contextId: number | null; frameId: string | null } | null> {
   const top = await ctx.cdp('Runtime.evaluate', {
     expression: selectorExpr,
     returnByValue: false,
   });
   const topObjectId = top?.result?.objectId;
-  if (topObjectId) return { objectId: topObjectId, contextId: null, frameId: null };
+  if (topObjectId) {
+    if (selector) ctx.captureFingerprintInContext?.(null, selector, meta); // top frame => null contextId
+    return { objectId: topObjectId, contextId: null, frameId: null };
+  }
 
   const match = await findElementInFrames(ctx, selectorExpr);
   if (!match) return null;
+  if (selector) ctx.captureFingerprintInContext?.(match.contextId, selector, meta);
   return match;
 }
 

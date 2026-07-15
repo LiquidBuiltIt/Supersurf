@@ -49,3 +49,25 @@ describe('click action passes action.name/purpose', () => {
     expect(spy).toHaveBeenCalledWith(ctx, '#fn', { name: 'First Name', purpose: 'submit' });
   });
 });
+
+describe('type action passes action.name/purpose', () => {
+  it('threads action.selector and action.name/purpose into resolveInFrames', async () => {
+    // Import the registry to fetch the type handler after side-effect registration.
+    await import('../src/tools/interaction/type');
+    const framesMod: any = await import('../src/tools/lib/frames');
+    const spy = vi.spyOn(framesMod, 'resolveInFrames').mockResolvedValue({ objectId: 'obj-1', contextId: null, frameId: null });
+
+    const { executeAction } = await import('../src/tools/interaction/registry');
+    const ctx: any = {
+      getSelectorExpression: (s: string) => `q(${s})`,
+      cdp: vi.fn().mockResolvedValue({}),
+      eval: vi.fn().mockResolvedValue({ focused: true }),
+      sleep: () => Promise.resolve(),
+      ext: { sendCmd: vi.fn().mockResolvedValue({}) },
+    };
+    await executeAction(ctx, { type: 'type', selector: '#fn', text: 'hi', name: 'First Name', purpose: 'enter name' })
+      .catch(() => { /* downstream probe reads may noop; we only assert the meta threading */ });
+
+    expect(spy).toHaveBeenCalledWith(ctx, 'q(#fn)', '#fn', { name: 'First Name', purpose: 'enter name' });
+  });
+});

@@ -31,6 +31,10 @@ registerAction({
       }
       objectId = match.objectId;
       frameContextId = match.contextId;
+      if (action.selector) {
+        const meta = { name: action.name, purpose: action.purpose };
+        ctx.captureFingerprintInContext?.(match.contextId, action.selector, meta);
+      }
     }
 
     const nodeResult = await ctx.cdp('DOM.describeNode', { objectId });

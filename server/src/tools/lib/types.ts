@@ -62,7 +62,7 @@ export interface ToolContext {
    * `resolveWithHealing`) can't see iframe elements, so the frame-walk fallback fires this.
    * Fire-and-forget; gated by the fingerprinting experiment. Optional — wired by BrowserBridge.
    */
-  captureFingerprintInContext?(contextId: number, selector: string, meta?: HandleMeta): void;
+  captureFingerprintInContext?(contextId: number | null, selector: string, meta?: HandleMeta): void;
   /**
    * Heal a selector miss inside a child frame (iframe) by scoring a stored fingerprint
    * against that frame's DOM, bound to the frame's execution context. Returns the
