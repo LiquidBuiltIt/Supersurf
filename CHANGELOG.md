@@ -4,6 +4,10 @@ All notable changes to SuperSurf are documented in this file.
 
 Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore` = maintenance.
 
+## Unreleased
+
+- **Named capture (playbooks write-side):** `browser_interact` actions now accept `name` (snake_case handle identity) and `purpose` (intent) fields. When the `fingerprinting` experiment is on, these bind to the element's fingerprint record on every element-targeting action (click/hover/type/clear/select_option/select_custom/file_upload/drag) via a centralized capture path shared by the coordinate and context resolvers — first-seen name is canonical, differing labels are harvested as frequency-counted aliases (never overwritten). Emits `handle.capture` / `handle.alias_added` events to the usage-metrics trail. Gated behind `fingerprinting`; no-op when off. Never rejects a missing/malformed name (normalized server-side).
+
 ## 3.2.0 — 2026-07-03
 
 - **fix: the `daemon` control CLI was completely dead — `supersurf daemon status|stop|restart|observe` crashed with `Cannot find module '../daemon/main'`.** The bin dispatcher (`server/src/bin/dispatcher.ts`) imported `../daemon/main`, which resolves to `server/dist/daemon/main` — a bundle-copy target (`scripts/daemon.bundle.ts`) that was **never wired into any build script**, so the file never existed. Net effect: there was no working way to stop/restart a wedged daemon via CLI; the only recovery was manually killing the PID on port 5555. The dispatcher now resolves the daemon the same way `daemon-spawn.ts` already does — through the `supersurf-daemon` package (`resolveDaemonEntry()`), which works in both local dev (workspace symlink) and a published install. Regression-locked: a test asserts the resolved daemon entry exists on disk. The dead path was invisible to CI because `bin-dispatcher.test.ts` only exercised `pickTarget`/`HELP_TEXT`, never `dispatch()`.
