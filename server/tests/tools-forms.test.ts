@@ -205,8 +205,8 @@ describe('onDrag()', () => {
       toSelector: '.target',
     }, {});
 
-    expect(ctx.getElementCenter).toHaveBeenCalledWith('.source');
-    expect(ctx.getElementCenter).toHaveBeenCalledWith('.target');
+    expect(ctx.getElementCenter).toHaveBeenCalledWith('.source', { name: undefined, purpose: undefined });
+    expect(ctx.getElementCenter).toHaveBeenCalledWith('.target', { name: undefined, purpose: undefined });
     // mousePressed + 10 mouseMoved steps + mouseReleased + initial mouseMoved = 13 cdp calls
     expect(ctx.cdp).toHaveBeenCalledTimes(13);
     expect(result.content[0].text).toContain('.source');

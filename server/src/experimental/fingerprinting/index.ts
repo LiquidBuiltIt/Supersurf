@@ -4,6 +4,8 @@ import { experimentRegistry } from '../index';
 import { getRecord, putRecord } from './store';
 import { captureExpr, scoreExpr } from './page-scripts';
 import type { Fingerprint, FingerprintRecord, ScoreHit } from './types';
+import { mergeHandleMeta } from './handle-meta';
+import type { HandleMeta } from './handle-meta';
 
 export const THRESHOLD = 0.6;
 export const MARGIN = 0.10;
@@ -30,8 +32,31 @@ function safeParse<T>(s: any): T | null {
   try { return JSON.parse(s) as T; } catch { return null; }
 }
 
-/** Fire-and-forget: fingerprint the just-resolved element and persist it. Never throws. */
-export async function captureOnResolve(evalFn: EvalFn, url: string | undefined, selector: string): Promise<void> {
+/** Handle-capture telemetry, written to the usage-metrics trail when the agent supplies a name. */
+export interface HandleEvent {
+  event: 'handle.capture' | 'handle.alias_added';
+  outcome: 'new' | 'alias' | 'existing' | 'none';
+  name: string;
+  purpose_present: boolean;
+  normalized: boolean;
+  aliasCount: number;
+  addedAlias?: string;
+  aliasFreq?: number;
+  domain: string;
+  route: string;
+  selector: string;
+}
+export type HandleEmit = (ev: HandleEvent) => void;
+
+/** Fire-and-forget: fingerprint the just-resolved element and persist it, binding an
+ *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws. */
+export async function captureOnResolve(
+  evalFn: EvalFn,
+  url: string | undefined,
+  selector: string,
+  meta?: HandleMeta,
+  emitHandle?: HandleEmit,
+): Promise<void> {
   try {
     const raw = await evalFn(captureExpr(selector));
     const fp = safeParse<Fingerprint>(raw);
@@ -43,13 +68,41 @@ export async function captureOnResolve(evalFn: EvalFn, url: string | undefined, 
     if (domain === 'unknown') return;
     const existing = getRecord(domain, route, selector);
     const now = Date.now();
+
+    const merged = mergeHandleMeta(
+      existing ? { name: existing.handleName, purpose: existing.purpose, aliases: existing.aliases } : undefined,
+      meta ?? {},
+    );
+
     const rec: FingerprintRecord = {
       ...fp, selector,
       capturedAt: existing?.capturedAt ?? now,
       lastSeenAt: now,
       hits: (existing?.hits ?? 0) + 1,
+      // handle fields (only set when present, keeps records that never got a name clean)
+      ...(merged.name !== undefined ? { handleName: merged.name } : {}),
+      ...(merged.purpose !== undefined ? { purpose: merged.purpose } : {}),
+      ...(merged.aliases !== undefined ? { aliases: merged.aliases } : {}),
     };
     putRecord(domain, route, selector, rec);
+
+    // Emit handle telemetry only when the agent actually supplied a usable name.
+    if (emitHandle && merged.outcome !== 'none') {
+      const aliasCount = merged.aliases ? Object.keys(merged.aliases).length : 0;
+      const fire = (event: HandleEvent['event'], extra: Partial<HandleEvent> = {}) => {
+        try {
+          emitHandle({
+            event, outcome: merged.outcome,
+            name: merged.name ?? '', purpose_present: !!merged.purpose,
+            normalized: merged.normalized, aliasCount, domain, route, selector, ...extra,
+          });
+        } catch { /* telemetry must never break capture */ }
+      };
+      fire('handle.capture');
+      if (merged.outcome === 'alias') {
+        fire('handle.alias_added', { addedAlias: merged.addedAlias, aliasFreq: merged.aliasFreq });
+      }
+    }
   } catch {
     /* capture is best-effort; never disrupt the resolve */
   }
@@ -61,9 +114,15 @@ export async function captureOnResolve(evalFn: EvalFn, url: string | undefined, 
  * so `getCenterInFrame`'s frame-walk fallback calls this with an `evalFn` already bound to
  * the child frame's execution context. Gated + fire-and-forget; never throws.
  */
-export async function captureInContext(evalInContext: EvalFn, url: string | undefined, selector: string): Promise<void> {
+export async function captureInContext(
+  evalInContext: EvalFn,
+  url: string | undefined,
+  selector: string,
+  meta?: HandleMeta,
+  emitHandle?: HandleEmit,
+): Promise<void> {
   if (!experimentRegistry.isEnabled('fingerprinting')) return;
-  await captureOnResolve(evalInContext, url, selector);
+  await captureOnResolve(evalInContext, url, selector, meta, emitHandle);
 }
 
 /** Outcome of a heal attempt, with enough detail for telemetry on every branch. */
@@ -126,6 +185,8 @@ export async function resolveWithHealing(
   selector: string,
   getUrl: () => string | undefined,
   emit?: HealEmit,
+  meta?: HandleMeta,
+  emitHandle?: HandleEmit,
 ): Promise<{ x: number; y: number }> {
   if (!experimentRegistry.isEnabled('fingerprinting')) {
     return getElementCenter(evalFn, selector);
@@ -138,7 +199,7 @@ export async function resolveWithHealing(
   try {
     const center = await getElementCenter(evalFn, selector);
     // fire-and-forget capture; do not await (keeps resolve latency unchanged)
-    void captureOnResolve(evalFn, url, selector);
+    void captureOnResolve(evalFn, url, selector, meta, emitHandle); // now carries handle meta
     fire('resolved', null, null, false);
     return center;
   } catch (missErr) {

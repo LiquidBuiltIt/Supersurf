@@ -62,7 +62,7 @@ describe('onInteract()', () => {
       actions: [{ type: 'click', selector: '#btn' }],
     }, {});
 
-    expect(ctx.getElementCenter).toHaveBeenCalledWith('#btn');
+    expect(ctx.getElementCenter).toHaveBeenCalledWith('#btn', { name: undefined, purpose: undefined });
     expect(ctx.cdp).toHaveBeenCalledWith('Input.dispatchMouseEvent', expect.objectContaining({ type: 'mouseMoved' }));
     expect(ctx.cdp).toHaveBeenCalledWith('Input.dispatchMouseEvent', expect.objectContaining({ type: 'mousePressed' }));
     expect(ctx.cdp).toHaveBeenCalledWith('Input.dispatchMouseEvent', expect.objectContaining({ type: 'mouseReleased' }));
@@ -171,7 +171,7 @@ describe('onInteract()', () => {
       actions: [{ type: 'hover', selector: '.menu' }],
     }, {});
 
-    expect(ctx.getElementCenter).toHaveBeenCalledWith('.menu');
+    expect(ctx.getElementCenter).toHaveBeenCalledWith('.menu', { name: undefined, purpose: undefined });
     expect(ctx.cdp).toHaveBeenCalledWith('Input.dispatchMouseEvent', expect.objectContaining({ type: 'mouseMoved' }));
     expect(result.content[0].text).toContain('Hovered');
   });

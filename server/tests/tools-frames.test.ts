@@ -144,7 +144,7 @@ describe('getCenterInFrame', () => {
     const ctx = mockCtx(async () => { throw new Error('cdp should not be called'); });
     ctx.getElementCenter = vi.fn().mockResolvedValue({ x: 100, y: 200 });
     const result = await getCenterInFrame(ctx, '#btn');
-    expect(ctx.getElementCenter).toHaveBeenCalledWith('#btn');
+    expect(ctx.getElementCenter).toHaveBeenCalledWith('#btn', undefined);
     expect(result).toEqual({ x: 100, y: 200, contextId: null });
   });
 
@@ -242,7 +242,7 @@ describe('getCenterInFrame', () => {
     ctx.captureFingerprintInContext = vi.fn();
     const result = await getCenterInFrame(ctx, '#btn');
     expect(result).toEqual({ x: 130, y: 85, contextId: 7 });
-    expect(ctx.captureFingerprintInContext).toHaveBeenCalledWith(7, '#btn');
+    expect(ctx.captureFingerprintInContext).toHaveBeenCalledWith(7, '#btn', undefined);
   });
 
   it('top-frame happy path does NOT fire captureFingerprintInContext (capture handled in getElementCenter)', async () => {

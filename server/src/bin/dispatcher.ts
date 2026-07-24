@@ -1,4 +1,4 @@
-export type Target = 'mcp' | 'daemon' | 'profiles' | 'creds' | 'help';
+export type Target = 'mcp' | 'daemon' | 'profiles' | 'export' | 'creds' | 'help';
 
 export interface DispatchPlan {
   target: Target;
@@ -13,15 +13,22 @@ Commands:
   mcp       Start the MCP server over stdio (the agent entrypoint)
   daemon    Manage the coordinator daemon: start | stop | restart | status | observe
   profiles  Manage browser profiles: ls | open <name>
+  export    Bundle usage-metrics logs into a .zip in the current directory
 
 Examples:
   npx supersurf-mcp@latest mcp
   supersurf daemon status
-  supersurf profiles open dev`;
+  supersurf profiles open dev
+  supersurf export`;
 
 export function pickTarget(argv: string[]): DispatchPlan {
   const subcommand = argv[2];
-  if (subcommand === 'mcp' || subcommand === 'daemon' || subcommand === 'profiles') {
+  if (
+    subcommand === 'mcp' ||
+    subcommand === 'daemon' ||
+    subcommand === 'profiles' ||
+    subcommand === 'export'
+  ) {
     return {
       target: subcommand,
       remainingArgv: [...argv.slice(0, 2), ...argv.slice(3)],
@@ -67,6 +74,10 @@ export async function dispatch(argv: string[]): Promise<void> {
   } else if (target === 'profiles') {
     const { runProfilesCli } = await import('./profiles-cli');
     await runProfilesCli(remainingArgv);
+  } else if (target === 'export') {
+    const { runExportProgram } = await import('./export');
+    const code = await runExportProgram(remainingArgv);
+    process.exit(code);
   } else {
     // Unreachable until `creds` is re-listed in pickTarget — kept intentionally
     // (delisting is reversible; the keychain CLI is dead-but-ready, not deleted).

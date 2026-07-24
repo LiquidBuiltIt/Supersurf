@@ -47,6 +47,13 @@ describe('pickTarget', () => {
     expect(result.target).toBe('profiles');
     expect(result.remainingArgv).toEqual(['node', 'supersurf', 'open', 'dev']);
   });
+
+  it('routes "export" subcommand to export target and strips it from argv', () => {
+    const argv = ['node', 'supersurf', 'export'];
+    const result = pickTarget(argv);
+    expect(result.target).toBe('export');
+    expect(result.remainingArgv).toEqual(['node', 'supersurf']);
+  });
 });
 
 describe('pickTarget — creds is delisted', () => {
@@ -68,5 +75,9 @@ describe('HELP_TEXT', () => {
   it('documents the profiles command', () => {
     expect(HELP_TEXT).toContain('profiles');
     expect(HELP_TEXT).toContain('open <name>');
+  });
+
+  it('documents the export command', () => {
+    expect(HELP_TEXT).toContain('export');
   });
 });
