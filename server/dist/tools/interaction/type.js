@@ -8,7 +8,8 @@ const frames_1 = require("../lib/frames");
         let typeContextId = null;
         if (action.selector) {
             const selectorExpr = ctx.getSelectorExpression(action.selector);
-            const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr);
+            const meta = { name: action.name, purpose: action.purpose };
+            const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr, action.selector, meta);
             if (!match)
                 throw new Error(`Element not found: ${action.selector}`);
             typeContextId = match.contextId;

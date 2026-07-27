@@ -28,7 +28,7 @@ export declare function findElementInFrames(ctx: ToolContext, selectorExpr: stri
  * `contextId` and `frameId` are both `null` when the element was found in
  * the top frame, otherwise they identify the child frame that owns it.
  */
-export declare function resolveInFrames(ctx: ToolContext, selectorExpr: string): Promise<{
+export declare function resolveInFrames(ctx: ToolContext, selectorExpr: string, selector?: string, meta?: import('../../experimental/fingerprinting/handle-meta').HandleMeta): Promise<{
     objectId: string;
     contextId: number | null;
     frameId: string | null;
@@ -46,7 +46,7 @@ export declare function evalInFrameOrTop(ctx: ToolContext, expression: string, c
  * selector walk misses, a fingerprint heal across child frames is attempted
  * before the original error is re-thrown.
  */
-export declare function getCenterInFrame(ctx: ToolContext, selector: string): Promise<{
+export declare function getCenterInFrame(ctx: ToolContext, selector: string, meta?: import('../../experimental/fingerprinting/handle-meta').HandleMeta): Promise<{
     x: number;
     y: number;
     contextId: number | null;

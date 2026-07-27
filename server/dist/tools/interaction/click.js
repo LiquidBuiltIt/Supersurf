@@ -102,7 +102,8 @@ function describeClickOutcome(target, probe, hadSpawn) {
         let x, y;
         let clickContextId = null;
         if (action.selector) {
-            const c = await (0, frames_1.getCenterInFrame)(ctx, action.selector);
+            const meta = { name: action.name, purpose: action.purpose };
+            const c = await (0, frames_1.getCenterInFrame)(ctx, action.selector, meta);
             x = c.x;
             y = c.y;
             clickContextId = c.contextId;

@@ -4,11 +4,11 @@ import { findElementInFrames } from '../lib/frames';
 registerAction({
   name: 'file_upload',
   async run(ctx, action) {
-    const selectorExpr = `document.querySelector(${JSON.stringify(action.selector)})`;
+    const selectorExpr = ctx.getSelectorExpression(action.selector);
     const meta = { name: action.name, purpose: action.purpose };
     const verificationExpr = `
       (() => {
-        const el = document.querySelector(${JSON.stringify(action.selector)});
+        const el = ${ctx.getSelectorExpression(action.selector)};
         if (!el) return { verified: false, count: 0 };
         const count = el.files ? el.files.length : 0;
         return { verified: count === ${action.files.length}, count };

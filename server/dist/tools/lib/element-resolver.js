@@ -8,6 +8,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getSelectorExpression = getSelectorExpression;
 exports.findAlternativeSelectors = findAlternativeSelectors;
 exports.getElementCenter = getElementCenter;
+const shared_1 = require("../../shared");
 /**
  * Rewrite digit-leading IDs (`#883a76-...`) to `[id="..."]` form.
  * CSS spec disallows ID identifiers that start with a digit, so
@@ -23,6 +24,13 @@ function rewriteDigitLeadingIds(selector) {
  * expression that resolves to the matching Element or null. The
  * `:has-text` form is a SuperSurf extension — the page-eval falls back
  * to scanning textContent when the selector includes it.
+ *
+ * Both branches pierce open shadow roots via `queryDeep`/`queryAllDeep`
+ * (see `shared/dom/shadow-walker.ts`) — light DOM is tried first, shadow
+ * roots are only walked on a miss, so a selector that resolves today keeps
+ * resolving to the same element. Each returned expression is a self-contained
+ * IIFE carrying its own copy of the walker function, since callers splice
+ * the result directly into a larger expression (e.g. `const el = ${expr};`).
  */
 function getSelectorExpression(selector) {
     if (!selector)
@@ -32,13 +40,17 @@ function getSelectorExpression(selector) {
     if (m) {
         const [, base, text] = m;
         return `(() => {
-      for (const el of document.querySelectorAll(${JSON.stringify(base)})) {
+      ${shared_1.QUERY_ALL_DEEP_SOURCE}
+      for (const el of queryAllDeep(${JSON.stringify(base)})) {
         if (el.textContent && el.textContent.includes(${JSON.stringify(text)})) return el;
       }
       return null;
     })()`;
     }
-    return `document.querySelector(${JSON.stringify(rewritten)})`;
+    return `(() => {
+      ${shared_1.QUERY_DEEP_SOURCE}
+      return queryDeep(${JSON.stringify(rewritten)});
+    })()`;
 }
 /**
  * Search the page for elements whose direct text content includes the

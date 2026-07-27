@@ -13,6 +13,7 @@ const element_resolver_1 = require("../../tools/lib/element-resolver");
 const index_1 = require("../index");
 const store_1 = require("./store");
 const page_scripts_1 = require("./page-scripts");
+const handle_meta_1 = require("./handle-meta");
 exports.THRESHOLD = 0.6;
 exports.MARGIN = 0.10;
 function domainOf(url) {
@@ -49,8 +50,9 @@ function safeParse(s) {
         return null;
     }
 }
-/** Fire-and-forget: fingerprint the just-resolved element and persist it. Never throws. */
-async function captureOnResolve(evalFn, url, selector) {
+/** Fire-and-forget: fingerprint the just-resolved element and persist it, binding an
+ *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws. */
+async function captureOnResolve(evalFn, url, selector, meta, emitHandle) {
     try {
         const raw = await evalFn((0, page_scripts_1.captureExpr)(selector));
         const fp = safeParse(raw);
@@ -64,13 +66,36 @@ async function captureOnResolve(evalFn, url, selector) {
             return;
         const existing = (0, store_1.getRecord)(domain, route, selector);
         const now = Date.now();
+        const merged = (0, handle_meta_1.mergeHandleMeta)(existing ? { name: existing.handleName, purpose: existing.purpose, aliases: existing.aliases } : undefined, meta ?? {});
         const rec = {
             ...fp, selector,
             capturedAt: existing?.capturedAt ?? now,
             lastSeenAt: now,
             hits: (existing?.hits ?? 0) + 1,
+            // handle fields (only set when present, keeps records that never got a name clean)
+            ...(merged.name !== undefined ? { handleName: merged.name } : {}),
+            ...(merged.purpose !== undefined ? { purpose: merged.purpose } : {}),
+            ...(merged.aliases !== undefined ? { aliases: merged.aliases } : {}),
         };
         (0, store_1.putRecord)(domain, route, selector, rec);
+        // Emit handle telemetry only when the agent actually supplied a usable name.
+        if (emitHandle && merged.outcome !== 'none') {
+            const aliasCount = merged.aliases ? Object.keys(merged.aliases).length : 0;
+            const fire = (event, extra = {}) => {
+                try {
+                    emitHandle({
+                        event, outcome: merged.outcome,
+                        name: merged.name ?? '', purpose_present: !!merged.purpose,
+                        normalized: merged.normalized, aliasCount, domain, route, selector, ...extra,
+                    });
+                }
+                catch { /* telemetry must never break capture */ }
+            };
+            fire('handle.capture');
+            if (merged.outcome === 'alias') {
+                fire('handle.alias_added', { addedAlias: merged.addedAlias, aliasFreq: merged.aliasFreq });
+            }
+        }
     }
     catch {
         /* capture is best-effort; never disrupt the resolve */
@@ -82,10 +107,10 @@ async function captureOnResolve(evalFn, url, selector) {
  * so `getCenterInFrame`'s frame-walk fallback calls this with an `evalFn` already bound to
  * the child frame's execution context. Gated + fire-and-forget; never throws.
  */
-async function captureInContext(evalInContext, url, selector) {
+async function captureInContext(evalInContext, url, selector, meta, emitHandle) {
     if (!index_1.experimentRegistry.isEnabled('fingerprinting'))
         return;
-    await captureOnResolve(evalInContext, url, selector);
+    await captureOnResolve(evalInContext, url, selector, meta, emitHandle);
 }
 /** On a selector miss, try to heal via stored fingerprint. Returns the attempt detail; `hit` is set only when the gate passes. */
 async function healOnMiss(evalFn, url, selector) {
@@ -123,7 +148,7 @@ async function healInContext(evalInContext, url, selector) {
  * to getElementCenter. When ON: captures on success, heals on miss, escalates (rethrows)
  * if healing fails.
  */
-async function resolveWithHealing(evalFn, selector, getUrl, emit) {
+async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHandle) {
     if (!index_1.experimentRegistry.isEnabled('fingerprinting')) {
         return (0, element_resolver_1.getElementCenter)(evalFn, selector);
     }
@@ -138,7 +163,7 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit) {
     try {
         const center = await (0, element_resolver_1.getElementCenter)(evalFn, selector);
         // fire-and-forget capture; do not await (keeps resolve latency unchanged)
-        void captureOnResolve(evalFn, url, selector);
+        void captureOnResolve(evalFn, url, selector, meta, emitHandle); // now carries handle meta
         fire('resolved', null, null, false);
         return center;
     }

@@ -133,8 +133,9 @@ async function onFillForm(ctx, args, options) {
  * @param args - `{ fromSelector: string, toSelector: string }`
  */
 async function onDrag(ctx, args, options) {
-    const from = await ctx.getElementCenter(args.fromSelector);
-    const to = await ctx.getElementCenter(args.toSelector);
+    const meta = { name: args.name, purpose: args.purpose };
+    const from = await ctx.getElementCenter(args.fromSelector, meta);
+    const to = await ctx.getElementCenter(args.toSelector, meta);
     // Press at source
     await ctx.cdp('Input.dispatchMouseEvent', {
         type: 'mouseMoved', x: from.x, y: from.y,

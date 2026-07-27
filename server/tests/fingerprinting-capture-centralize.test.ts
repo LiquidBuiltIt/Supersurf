@@ -43,6 +43,7 @@ describe('file_upload — top-frame capture', () => {
       cdp,
       eval: vi.fn().mockResolvedValue({ verified: true, count: 1 }), // verification read-back (top-frame path)
       captureFingerprintInContext: capture,
+      getSelectorExpression: vi.fn((s: string) => `document.querySelector(${JSON.stringify(s)})`),
     };
 
     await executeAction(ctx, {

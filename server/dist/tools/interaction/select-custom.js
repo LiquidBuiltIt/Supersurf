@@ -63,7 +63,8 @@ const option_matcher_1 = require("./option-matcher");
         return [...ids];
       })()
     `, frameContextId) || [];
-        const { x, y } = await (0, frames_1.getCenterInFrame)(ctx, triggerSelector);
+        const meta = { name: action.name, purpose: action.purpose };
+        const { x, y } = await (0, frames_1.getCenterInFrame)(ctx, triggerSelector, meta);
         await (0, helpers_1.moveCursorTo)(ctx, x, y, '_default');
         await ctx.cdp('Input.dispatchMouseEvent', {
             type: 'mousePressed', x, y, button: 'left', clickCount: 1, buttons: 1,
