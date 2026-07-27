@@ -18,6 +18,8 @@ export type {
   ScaffoldResult,
 } from './config/index';
 
+export { QUERY_DEEP_SOURCE, QUERY_ALL_DEEP_SOURCE } from './dom/shadow-walker';
+
 export {
   getKeychainBackend,
   InMemoryKeychainBackend,

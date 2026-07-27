@@ -4,6 +4,8 @@
 // ToolContext factory. Takes an `evalFn` callback rather than an
 // IExtensionTransport so callers can inject a pre-bound evaluator.
 
+import { QUERY_DEEP_SOURCE, QUERY_ALL_DEEP_SOURCE } from 'shared';
+
 /** Async page evaluator signature (matches the inner closure of `evalExpr`). */
 export type EvalFn = (expression: string, awaitPromise?: boolean) => Promise<any>;
 
@@ -26,6 +28,13 @@ function rewriteDigitLeadingIds(selector: string): string {
  * expression that resolves to the matching Element or null. The
  * `:has-text` form is a SuperSurf extension — the page-eval falls back
  * to scanning textContent when the selector includes it.
+ *
+ * Both branches pierce open shadow roots via `queryDeep`/`queryAllDeep`
+ * (see `shared/dom/shadow-walker.ts`) — light DOM is tried first, shadow
+ * roots are only walked on a miss, so a selector that resolves today keeps
+ * resolving to the same element. Each returned expression is a self-contained
+ * IIFE carrying its own copy of the walker function, since callers splice
+ * the result directly into a larger expression (e.g. `const el = ${expr};`).
  */
 export function getSelectorExpression(selector: string): string {
   if (!selector) throw new Error('Selector is required for this action');
@@ -34,13 +43,17 @@ export function getSelectorExpression(selector: string): string {
   if (m) {
     const [, base, text] = m;
     return `(() => {
-      for (const el of document.querySelectorAll(${JSON.stringify(base)})) {
+      ${QUERY_ALL_DEEP_SOURCE}
+      for (const el of queryAllDeep(${JSON.stringify(base)})) {
         if (el.textContent && el.textContent.includes(${JSON.stringify(text)})) return el;
       }
       return null;
     })()`;
   }
-  return `document.querySelector(${JSON.stringify(rewritten)})`;
+  return `(() => {
+      ${QUERY_DEEP_SOURCE}
+      return queryDeep(${JSON.stringify(rewritten)});
+    })()`;
 }
 
 /**

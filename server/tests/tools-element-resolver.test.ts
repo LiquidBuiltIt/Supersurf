@@ -6,55 +6,72 @@ describe('getSelectorExpression()', () => {
     expect(() => getSelectorExpression('')).toThrow('Selector is required');
   });
 
-  it('passes plain selectors through unchanged', () => {
-    expect(getSelectorExpression('#first_name')).toBe('document.querySelector("#first_name")');
-    expect(getSelectorExpression('input[name="email"]')).toBe('document.querySelector("input[name=\\"email\\"]")');
-    expect(getSelectorExpression('.foo .bar')).toBe('document.querySelector(".foo .bar")');
+  it('passes plain selectors through as a queryDeep() call, quoted correctly', () => {
+    expect(getSelectorExpression('#first_name')).toContain('queryDeep("#first_name")');
+    expect(getSelectorExpression('input[name="email"]')).toContain(
+      'queryDeep("input[name=\\"email\\"]")',
+    );
+    expect(getSelectorExpression('.foo .bar')).toContain('queryDeep(".foo .bar")');
   });
 
-  it('handles :has-text() selectors', () => {
+  it('handles :has-text() selectors via queryAllDeep', () => {
     const out = getSelectorExpression('button:has-text("Submit")');
-    expect(out).toContain('querySelectorAll("button")');
+    expect(out).toContain('queryAllDeep("button")');
     expect(out).toContain('"Submit"');
   });
 
   // ── digit-leading ID rewrite (Ashby UUID fix) ──
 
   it('rewrites a bare digit-leading ID to [id="..."]', () => {
-    expect(getSelectorExpression('#883a762f-8c9b-4686-b145-b2bfe30ce851')).toBe(
-      'document.querySelector("[id=\\"883a762f-8c9b-4686-b145-b2bfe30ce851\\"]")',
+    expect(getSelectorExpression('#883a762f-8c9b-4686-b145-b2bfe30ce851')).toContain(
+      'queryDeep("[id=\\"883a762f-8c9b-4686-b145-b2bfe30ce851\\"]")',
     );
   });
 
   it('rewrites a tag-prefixed digit-leading ID', () => {
-    expect(getSelectorExpression('input#883a762f-8c9b')).toBe(
-      'document.querySelector("input[id=\\"883a762f-8c9b\\"]")',
+    expect(getSelectorExpression('input#883a762f-8c9b')).toContain(
+      'queryDeep("input[id=\\"883a762f-8c9b\\"]")',
     );
   });
 
   it('rewrites digit-leading IDs in descendant combinators', () => {
-    expect(getSelectorExpression('.parent #883a76')).toBe(
-      'document.querySelector(".parent [id=\\"883a76\\"]")',
+    expect(getSelectorExpression('.parent #883a76')).toContain(
+      'queryDeep(".parent [id=\\"883a76\\"]")',
     );
-    expect(getSelectorExpression('div>p#883a76')).toBe(
-      'document.querySelector("div>p[id=\\"883a76\\"]")',
+    expect(getSelectorExpression('div>p#883a76')).toContain(
+      'queryDeep("div>p[id=\\"883a76\\"]")',
     );
   });
 
   it('does NOT rewrite letter-leading IDs', () => {
-    expect(getSelectorExpression('#abc123')).toBe('document.querySelector("#abc123")');
-    expect(getSelectorExpression('#_systemfield_name')).toBe('document.querySelector("#_systemfield_name")');
+    expect(getSelectorExpression('#abc123')).toContain('queryDeep("#abc123")');
+    expect(getSelectorExpression('#_systemfield_name')).toContain('queryDeep("#_systemfield_name")');
   });
 
   it('preserves trailing class/attribute selectors after rewrite', () => {
-    expect(getSelectorExpression('#883a76.active')).toBe(
-      'document.querySelector("[id=\\"883a76\\"].active")',
+    expect(getSelectorExpression('#883a76.active')).toContain(
+      'queryDeep("[id=\\"883a76\\"].active")',
     );
   });
 
   it('handles digit-leading IDs in :has-text() base', () => {
     const out = getSelectorExpression('#883a76:has-text("Apply")');
-    expect(out).toContain('querySelectorAll("[id=\\"883a76\\"]")');
+    expect(out).toContain('queryAllDeep("[id=\\"883a76\\"]")');
     expect(out).toContain('"Apply"');
+  });
+
+  // ── self-containment / shape ──
+
+  it('returns a single expression (an IIFE), not a bare statement', () => {
+    const out = getSelectorExpression('#x');
+    expect(out.trim().startsWith('(() => {')).toBe(true);
+    expect(out.trim().endsWith('})()')).toBe(true);
+  });
+
+  it('inlines the walker function source rather than referencing an import', () => {
+    const out = getSelectorExpression('#x');
+    expect(out).toContain('function queryDeep(selector)');
+    expect(out).not.toContain('require(');
+    expect(out).not.toMatch(/^\s*import /m);
   });
 });

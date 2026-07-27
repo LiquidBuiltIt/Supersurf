@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onInteract } from '../src/tools/interaction';
 import { OPTION_MATCHER_JS } from '../src/tools/interaction/option-matcher';
+import { getSelectorExpression } from '../src/tools/lib/element-resolver';
 import type { ToolContext } from '../src/tools/lib/types';
 
 // Build a node-callable version of the page-context matcher.
@@ -714,6 +715,117 @@ describe('onInteract()', () => {
       const verificationCall = evalCalls.find((c) => c?.contextId === 42 && c?.returnByValue);
       expect(verificationCall).toBeDefined();
       expect(result.content[0].text).toContain('✓ file_upload');
+    });
+  });
+
+  // ── file_upload shadow-DOM piercing ──
+  // Regression lock for the gap where file-upload.ts built its own
+  // `document.querySelector(...)` expression instead of going through
+  // ctx.getSelectorExpression() (the shared shadow-piercing resolver).
+  // Wires in the REAL getSelectorExpression against a tiny fake DOM (same
+  // approach as shadow-walker.test.ts) so this fails if file-upload.ts
+  // ever regresses back to a plain querySelector.
+  describe('file_upload shadow DOM piercing', () => {
+    class FakeElement {
+      tagName: string;
+      classes: string[];
+      children: FakeElement[] = [];
+      shadowRoot: FakeShadowRoot | null = null;
+      constructor(tag: string, opts: { class?: string } = {}) {
+        this.tagName = tag.toUpperCase();
+        this.classes = opts.class ? opts.class.split(/\s+/) : [];
+      }
+      append(...kids: FakeElement[]): this {
+        this.children.push(...kids);
+        return this;
+      }
+      attachShadow(): FakeShadowRoot {
+        this.shadowRoot = new FakeShadowRoot();
+        return this.shadowRoot;
+      }
+      querySelectorAll(selector: string): FakeElement[] { return collect(this, selector); }
+      querySelector(selector: string): FakeElement | null { return this.querySelectorAll(selector)[0] ?? null; }
+    }
+    class FakeShadowRoot {
+      children: FakeElement[] = [];
+      append(...kids: FakeElement[]): this {
+        this.children.push(...kids);
+        return this;
+      }
+      querySelectorAll(selector: string): FakeElement[] { return collect(this, selector); }
+      querySelector(selector: string): FakeElement | null { return this.querySelectorAll(selector)[0] ?? null; }
+    }
+    class FakeDocument {
+      children: FakeElement[] = [];
+      append(...kids: FakeElement[]): this {
+        this.children.push(...kids);
+        return this;
+      }
+      querySelectorAll(selector: string): FakeElement[] { return collect(this, selector); }
+      querySelector(selector: string): FakeElement | null { return this.querySelectorAll(selector)[0] ?? null; }
+    }
+    function selectorMatches(el: FakeElement, selector: string): boolean {
+      const tagMatch = selector.match(/^[a-zA-Z][\w-]*/);
+      if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+      const classMatches = Array.from(selector.matchAll(/\.([\w-]+)/g)).map((m) => m[1]);
+      if (classMatches.length && !classMatches.every((c) => el.classes.includes(c))) return false;
+      return true;
+    }
+    function collect(root: { children: FakeElement[] }, selector: string): FakeElement[] {
+      const out: FakeElement[] = [];
+      const walk = (node: { children: FakeElement[] }) => {
+        for (const child of node.children) {
+          if (selectorMatches(child, selector)) out.push(child);
+          walk(child); // light-tree descent only — never crosses into child.shadowRoot
+        }
+      };
+      walk(root);
+      return out;
+    }
+
+    it('finds and uploads to a <input type="file"> nested inside an open shadow root', async () => {
+      const doc = new FakeDocument();
+      const host = new FakeElement('my-host');
+      doc.append(host);
+      const shadowInput = new FakeElement('input', { class: 'shadow-file-input' });
+      host.attachShadow()!.append(shadowInput);
+
+      // Sanity check: plain querySelector (the old, buggy behavior) cannot see it.
+      expect(doc.querySelector('.shadow-file-input')).toBeNull();
+
+      (globalThis as any).document = doc;
+      try {
+        // Swap in the REAL resolver — the mocked ctx.getSelectorExpression from
+        // createMockCtx() would trivially "pass" this test even with the old bug.
+        ctx.getSelectorExpression = getSelectorExpression;
+        (ctx.cdp as any).mockImplementation((method: string, params?: any) => {
+          if (method === 'Runtime.evaluate' && !params?.contextId) {
+            const resolved = new Function(`return ${params.expression}`)();
+            return Promise.resolve(
+              resolved
+                ? { result: { objectId: 'shadow-input-obj' } }
+                : { result: { type: 'object', subtype: 'null', value: null } }
+            );
+          }
+          if (method === 'DOM.describeNode') return Promise.resolve({ node: { backendNodeId: 321 } });
+          if (method === 'DOM.setFileInputFiles') return Promise.resolve({});
+          return Promise.resolve({});
+        });
+        (ctx.eval as any).mockResolvedValue({ verified: true, count: 1 });
+
+        const result = await onInteract(ctx, {
+          actions: [{ type: 'file_upload', selector: '.shadow-file-input', files: ['/tmp/a.pdf'] }],
+        }, {});
+
+        // Never fell through to the child-frame walk — resolved directly against
+        // the (shadow-piercing) top-frame expression.
+        expect(ctx.cdp).not.toHaveBeenCalledWith('Page.getFrameTree', expect.anything());
+        expect(ctx.cdp).toHaveBeenCalledWith('DOM.setFileInputFiles', expect.objectContaining({ backendNodeId: 321 }));
+        expect(result.content[0].text).toContain('✓ file_upload');
+        expect(result.content[0].text).toContain('Uploaded 1 file(s)');
+      } finally {
+        delete (globalThis as any).document;
+      }
     });
   });
 });
