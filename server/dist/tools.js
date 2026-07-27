@@ -60,6 +60,13 @@ class BrowserBridge {
     buildContext(tabId) {
         const ext = this.ext;
         const evalFnBound = (expression, awaitPromise = true) => (0, cdp_1.evalExpr)(ext, expression, awaitPromise, tabId);
+        const emitHandle = (ev) => this.metricsLogger?.write({
+            session_id: this.connectionManager?.clientId ?? 'unknown',
+            tool: 'handle',
+            params: ev,
+            result: 'ok',
+            duration_ms: 0,
+        });
         return {
             ext,
             connectionManager: this.connectionManager,
@@ -69,15 +76,19 @@ class BrowserBridge {
             cdp: (method, params) => (0, cdp_1.cdp)(ext, method, params, tabId),
             eval: evalFnBound,
             sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
-            getElementCenter: (selector) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.connectionManager?.getAttachedTab()?.url, (ev) => this.metricsLogger?.write({
+            getElementCenter: (selector, meta) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.connectionManager?.getAttachedTab()?.url, (ev) => this.metricsLogger?.write({
                 session_id: this.connectionManager?.clientId ?? 'unknown',
                 tool: 'fingerprint',
                 params: ev,
                 result: 'ok',
                 duration_ms: 0,
-            })),
-            captureFingerprintInContext: (contextId, selector) => void (0, index_2.captureInContext)((expr) => (0, cdp_1.cdp)(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true }, tabId)
-                .then((r) => r.result?.value), this.connectionManager?.getAttachedTab()?.url, selector),
+            }), meta, emitHandle),
+            captureFingerprintInContext: (contextId, selector, meta) => void (0, index_2.captureInContext)((expr) => {
+                const params = { expression: expr, returnByValue: true };
+                if (contextId != null)
+                    params.contextId = contextId; // null => top-frame default context
+                return (0, cdp_1.cdp)(ext, 'Runtime.evaluate', params, tabId).then((r) => r.result?.value);
+            }, this.connectionManager?.getAttachedTab()?.url, selector, meta, emitHandle),
             healFingerprintInContext: (contextId, selector) => (0, index_2.healInContext)((expr) => (0, cdp_1.cdp)(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true }, tabId)
                 .then((r) => r.result?.value), this.connectionManager?.getAttachedTab()?.url, selector).then((hit) => {
                 if (!hit)

@@ -18,6 +18,9 @@ export interface FingerprintRecord extends Fingerprint {
     capturedAt: number;
     lastSeenAt: number;
     hits: number;
+    handleName?: string;
+    purpose?: string;
+    aliases?: Record<string, number>;
 }
 export interface DomainStore {
     domain: string;

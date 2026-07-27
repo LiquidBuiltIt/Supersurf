@@ -5,6 +5,13 @@ export type EvalFn = (expression: string, awaitPromise?: boolean) => Promise<any
  * expression that resolves to the matching Element or null. The
  * `:has-text` form is a SuperSurf extension — the page-eval falls back
  * to scanning textContent when the selector includes it.
+ *
+ * Both branches pierce open shadow roots via `queryDeep`/`queryAllDeep`
+ * (see `shared/dom/shadow-walker.ts`) — light DOM is tried first, shadow
+ * roots are only walked on a miss, so a selector that resolves today keeps
+ * resolving to the same element. Each returned expression is a self-contained
+ * IIFE carrying its own copy of the walker function, since callers splice
+ * the result directly into a larger expression (e.g. `const el = ${expr};`).
  */
 export declare function getSelectorExpression(selector: string): string;
 /**

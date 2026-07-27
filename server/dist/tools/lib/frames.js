@@ -109,17 +109,22 @@ async function findElementInFrames(ctx, selectorExpr) {
  * `contextId` and `frameId` are both `null` when the element was found in
  * the top frame, otherwise they identify the child frame that owns it.
  */
-async function resolveInFrames(ctx, selectorExpr) {
+async function resolveInFrames(ctx, selectorExpr, selector, meta) {
     const top = await ctx.cdp('Runtime.evaluate', {
         expression: selectorExpr,
         returnByValue: false,
     });
     const topObjectId = top?.result?.objectId;
-    if (topObjectId)
+    if (topObjectId) {
+        if (selector)
+            ctx.captureFingerprintInContext?.(null, selector, meta); // top frame => null contextId
         return { objectId: topObjectId, contextId: null, frameId: null };
+    }
     const match = await findElementInFrames(ctx, selectorExpr);
     if (!match)
         return null;
+    if (selector)
+        ctx.captureFingerprintInContext?.(match.contextId, selector, meta);
     return match;
 }
 /**
@@ -248,9 +253,9 @@ async function healInFrames(ctx, selector) {
  * selector walk misses, a fingerprint heal across child frames is attempted
  * before the original error is re-thrown.
  */
-async function getCenterInFrame(ctx, selector) {
+async function getCenterInFrame(ctx, selector, meta) {
     try {
-        const { x, y } = await ctx.getElementCenter(selector);
+        const { x, y } = await ctx.getElementCenter(selector, meta);
         return { x, y, contextId: null };
     }
     catch (topFrameErr) {
@@ -286,7 +291,7 @@ async function getCenterInFrame(ctx, selector) {
         const y = Math.round(rect.top + offset.offsetY + rect.height / 2);
         // Iframe-nested elements bypass the top-frame capture wrapper (ctx.getElementCenter),
         // so fingerprint capture is fired here, bound to the child frame's execution context.
-        ctx.captureFingerprintInContext?.(match.contextId, selector);
+        ctx.captureFingerprintInContext?.(match.contextId, selector, meta);
         return { x, y, contextId: match.contextId };
     }
 }

@@ -1,19 +1,36 @@
 import type { EvalFn } from '../../tools/lib/element-resolver';
 import type { ScoreHit } from './types';
+import type { HandleMeta } from './handle-meta';
 export declare const THRESHOLD = 0.6;
 export declare const MARGIN = 0.1;
 export declare function domainOf(url: string | undefined): string;
 export declare function routeOf(url: string | undefined): string;
 export declare function passesGate(hit: ScoreHit): boolean;
-/** Fire-and-forget: fingerprint the just-resolved element and persist it. Never throws. */
-export declare function captureOnResolve(evalFn: EvalFn, url: string | undefined, selector: string): Promise<void>;
+/** Handle-capture telemetry, written to the usage-metrics trail when the agent supplies a name. */
+export interface HandleEvent {
+    event: 'handle.capture' | 'handle.alias_added';
+    outcome: 'new' | 'alias' | 'existing' | 'none';
+    name: string;
+    purpose_present: boolean;
+    normalized: boolean;
+    aliasCount: number;
+    addedAlias?: string;
+    aliasFreq?: number;
+    domain: string;
+    route: string;
+    selector: string;
+}
+export type HandleEmit = (ev: HandleEvent) => void;
+/** Fire-and-forget: fingerprint the just-resolved element and persist it, binding an
+ *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws. */
+export declare function captureOnResolve(evalFn: EvalFn, url: string | undefined, selector: string, meta?: HandleMeta, emitHandle?: HandleEmit): Promise<void>;
 /**
  * Capture an element resolved inside a child frame (iframe). The top-frame capture path
  * (`resolveWithHealing`) can't see iframe elements because it evals against the top frame,
  * so `getCenterInFrame`'s frame-walk fallback calls this with an `evalFn` already bound to
  * the child frame's execution context. Gated + fire-and-forget; never throws.
  */
-export declare function captureInContext(evalInContext: EvalFn, url: string | undefined, selector: string): Promise<void>;
+export declare function captureInContext(evalInContext: EvalFn, url: string | undefined, selector: string, meta?: HandleMeta, emitHandle?: HandleEmit): Promise<void>;
 /** Outcome of a heal attempt, with enough detail for telemetry on every branch. */
 export interface HealAttempt {
     hadRecord: boolean;
@@ -50,7 +67,7 @@ export type HealEmit = (ev: HealEvent) => void;
  * to getElementCenter. When ON: captures on success, heals on miss, escalates (rethrows)
  * if healing fails.
  */
-export declare function resolveWithHealing(evalFn: EvalFn, selector: string, getUrl: () => string | undefined, emit?: HealEmit): Promise<{
+export declare function resolveWithHealing(evalFn: EvalFn, selector: string, getUrl: () => string | undefined, emit?: HealEmit, meta?: HandleMeta, emitHandle?: HandleEmit): Promise<{
     x: number;
     y: number;
 }>;

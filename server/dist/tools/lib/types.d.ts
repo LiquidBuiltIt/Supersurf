@@ -8,6 +8,7 @@
  */
 import type { IExtensionTransport } from '../../bridge';
 import type { ConfigService } from 'shared';
+import type { HandleMeta } from '../../experimental/fingerprinting/handle-meta';
 /**
  * MCP tool registration metadata.
  * Each schema is exposed to the AI agent as an available tool.
@@ -49,7 +50,7 @@ export interface ToolContext {
     /** Async sleep utility. */
     sleep(ms: number): Promise<void>;
     /** Resolve a CSS selector to its element's viewport center coordinates. Throws with "Did you mean?" hints on failure. */
-    getElementCenter(selector: string): Promise<{
+    getElementCenter(selector: string, meta?: HandleMeta): Promise<{
         x: number;
         y: number;
     }>;
@@ -59,7 +60,7 @@ export interface ToolContext {
      * `resolveWithHealing`) can't see iframe elements, so the frame-walk fallback fires this.
      * Fire-and-forget; gated by the fingerprinting experiment. Optional — wired by BrowserBridge.
      */
-    captureFingerprintInContext?(contextId: number, selector: string): void;
+    captureFingerprintInContext?(contextId: number | null, selector: string, meta?: HandleMeta): void;
     /**
      * Heal a selector miss inside a child frame (iframe) by scoring a stored fingerprint
      * against that frame's DOM, bound to the frame's execution context. Returns the

@@ -5,10 +5,11 @@ const frames_1 = require("../lib/frames");
 (0, registry_1.registerAction)({
     name: 'file_upload',
     async run(ctx, action) {
-        const selectorExpr = `document.querySelector(${JSON.stringify(action.selector)})`;
+        const selectorExpr = ctx.getSelectorExpression(action.selector);
+        const meta = { name: action.name, purpose: action.purpose };
         const verificationExpr = `
       (() => {
-        const el = document.querySelector(${JSON.stringify(action.selector)});
+        const el = ${ctx.getSelectorExpression(action.selector)};
         if (!el) return { verified: false, count: 0 };
         const count = el.files ? el.files.length : 0;
         return { verified: count === ${action.files.length}, count };
@@ -21,6 +22,9 @@ const frames_1 = require("../lib/frames");
         });
         let objectId = evalResult.result?.objectId;
         let frameContextId = null;
+        if (objectId && action.selector) {
+            ctx.captureFingerprintInContext?.(null, action.selector, meta); // null contextId => top frame
+        }
         // Step 2: If top frame has no match, walk child frames in DFS order.
         if (!objectId) {
             const match = await (0, frames_1.findElementInFrames)(ctx, selectorExpr);
@@ -29,6 +33,9 @@ const frames_1 = require("../lib/frames");
             }
             objectId = match.objectId;
             frameContextId = match.contextId;
+            if (action.selector) {
+                ctx.captureFingerprintInContext?.(match.contextId, action.selector, meta);
+            }
         }
         const nodeResult = await ctx.cdp('DOM.describeNode', { objectId });
         await ctx.cdp('DOM.setFileInputFiles', {
