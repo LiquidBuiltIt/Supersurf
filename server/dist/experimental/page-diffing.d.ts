@@ -7,8 +7,12 @@
  * snapshot. The diff (added/removed text, element count delta) is appended to
  * the tool response along with a confidence score.
  *
- * Confidence scoring applies flat penalties for shadow DOM, iframes, and very large
- * pages — conditions that reduce snapshot completeness but don't invalidate the diff.
+ * Confidence scoring applies flat penalties for iframes and very large pages —
+ * conditions that reduce snapshot completeness but don't invalidate the diff.
+ * Open shadow roots are pierced during capture (see
+ * extension/src/experimental/capture-page-state.ts) so they no longer carry a
+ * penalty; closed shadow roots remain silently unreachable (no reliable way to
+ * detect their presence from script).
  *
  * @module experimental/page-diffing
  *
@@ -54,9 +58,14 @@ export declare function diffSnapshots(before: PageState, after: PageState): Diff
 /**
  * Score how reliable the diff is based on page complexity.
  * Starts at 1.0 and applies flat penalties:
- * - Shadow DOM present: -0.05 (content may be hidden from snapshot)
  * - Iframes present: -0.05 (cross-origin content invisible)
  * - Large page (>5000 elements): -0.05 (snapshot may be incomplete)
+ *
+ * Shadow DOM carries no penalty: capture pierces open shadow roots (see
+ * extension/src/experimental/capture-page-state.ts), so their content is
+ * already reflected in elementCount/textContent. Closed shadow roots are
+ * still invisible, but there's no reliable way to detect their presence
+ * from script to penalize for it specifically.
  *
  * @param state - The post-interaction page snapshot
  * @returns Confidence between 0.0 and 1.0

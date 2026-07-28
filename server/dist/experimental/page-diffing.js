@@ -8,8 +8,12 @@
  * snapshot. The diff (added/removed text, element count delta) is appended to
  * the tool response along with a confidence score.
  *
- * Confidence scoring applies flat penalties for shadow DOM, iframes, and very large
- * pages — conditions that reduce snapshot completeness but don't invalidate the diff.
+ * Confidence scoring applies flat penalties for iframes and very large pages —
+ * conditions that reduce snapshot completeness but don't invalidate the diff.
+ * Open shadow roots are pierced during capture (see
+ * extension/src/experimental/capture-page-state.ts) so they no longer carry a
+ * penalty; closed shadow roots remain silently unreachable (no reliable way to
+ * detect their presence from script).
  *
  * @module experimental/page-diffing
  *
@@ -52,18 +56,21 @@ function diffSnapshots(before, after) {
 /**
  * Score how reliable the diff is based on page complexity.
  * Starts at 1.0 and applies flat penalties:
- * - Shadow DOM present: -0.05 (content may be hidden from snapshot)
  * - Iframes present: -0.05 (cross-origin content invisible)
  * - Large page (>5000 elements): -0.05 (snapshot may be incomplete)
+ *
+ * Shadow DOM carries no penalty: capture pierces open shadow roots (see
+ * extension/src/experimental/capture-page-state.ts), so their content is
+ * already reflected in elementCount/textContent. Closed shadow roots are
+ * still invisible, but there's no reliable way to detect their presence
+ * from script to penalize for it specifically.
  *
  * @param state - The post-interaction page snapshot
  * @returns Confidence between 0.0 and 1.0
  */
 function calculateConfidence(state) {
     let confidence = 1.0;
-    // Flat penalties — shadow DOM and iframes reduce visibility but don't invalidate the diff
-    if (state.shadowRootCount > 0)
-        confidence -= 0.05;
+    // Flat penalty — iframes reduce visibility but don't invalidate the diff
     if (state.visibleIframeCount > 0)
         confidence -= 0.05;
     if (state.pageElementCount > 5000)
@@ -86,8 +93,8 @@ function formatDiffSection(diff, confidence, state, mode) {
         label += ' (viewport only)';
     if (state) {
         const reasons = [];
-        if (state.shadowRootCount > 0)
-            reasons.push('shadow DOM');
+        // Open shadow roots are pierced during capture — no longer a partial-capture reason.
+        // Closed shadow roots stay invisible, but script has no reliable way to detect them.
         if (state.visibleIframeCount > 0)
             reasons.push(`iframes (${state.visibleIframeCount} visible)`);
         if (reasons.length > 0)
