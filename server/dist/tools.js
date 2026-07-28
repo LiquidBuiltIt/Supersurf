@@ -100,7 +100,7 @@ class BrowserBridge {
                     params: {
                         event: 'fingerprint', outcome: 'healed',
                         selector, domain: (0, index_2.domainOf)(url), route: (0, index_2.routeOf)(url),
-                        score: hit.score, margin: hit.margin, hadRecord: true,
+                        score: hit.score, margin: hit.margin, hadRecord: true, discovery: 'known',
                     },
                     result: 'ok',
                     duration_ms: 0,
