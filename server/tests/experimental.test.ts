@@ -359,12 +359,12 @@ describe('calculateConfidence()', () => {
     expect(calculateConfidence(makeState())).toBe(1.0);
   });
 
-  it('deducts flat -0.05 for any shadow roots', () => {
-    expect(calculateConfidence(makeState({ shadowRootCount: 5 }))).toBe(0.95);
+  it('no penalty for shadow roots (open roots are pierced during capture)', () => {
+    expect(calculateConfidence(makeState({ shadowRootCount: 5 }))).toBe(1.0);
   });
 
-  it('deducts flat -0.05 for many shadow roots (same penalty)', () => {
-    expect(calculateConfidence(makeState({ shadowRootCount: 15 }))).toBe(0.95);
+  it('no penalty regardless of shadow root count', () => {
+    expect(calculateConfidence(makeState({ shadowRootCount: 15 }))).toBe(1.0);
   });
 
   it('deducts flat -0.05 for visible iframes', () => {
@@ -394,8 +394,8 @@ describe('calculateConfidence()', () => {
       pageElementCount: 10000,
       hiddenElementCount: 100,
     });
-    // -0.05 shadow + -0.05 visible iframe + -0.05 large = 0.85
-    expect(calculateConfidence(worstCase)).toBeCloseTo(0.85);
+    // -0.05 visible iframe + -0.05 large = 0.90 (shadow roots no longer penalized)
+    expect(calculateConfidence(worstCase)).toBeCloseTo(0.90);
   });
 });
 
@@ -456,12 +456,12 @@ describe('formatDiffSection()', () => {
     expect(output).toContain('No visible changes');
   });
 
-  it('shows shadow DOM annotation only when shadow roots present', () => {
+  it('does not show a partial annotation for shadow roots alone (open roots are pierced)', () => {
     const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges: [] };
     const state: PageState = { elementCount: 10, textContent: [], shadowRootCount: 2, iframeCount: 0, visibleIframeCount: 0, hiddenElementCount: 0, pageElementCount: 50, formValues: {} };
-    const output = formatDiffSection(diff, 0.95, state);
-    expect(output).toContain('partial — shadow DOM present');
-    expect(output).not.toContain('iframes');
+    const output = formatDiffSection(diff, 1.0, state);
+    expect(output).not.toContain('partial');
+    expect(output).not.toContain('shadow DOM');
   });
 
   it('shows visible iframe annotation with count', () => {
@@ -472,11 +472,12 @@ describe('formatDiffSection()', () => {
     expect(output).not.toContain('shadow DOM');
   });
 
-  it('shows combined annotation for shadow DOM + visible iframes', () => {
+  it('shows only the iframe annotation when both shadow roots and visible iframes are present', () => {
     const diff: DiffResult = { added: [], removed: [], countDelta: 0, formChanges: [] };
     const state: PageState = { elementCount: 10, textContent: [], shadowRootCount: 1, iframeCount: 3, visibleIframeCount: 1, hiddenElementCount: 0, pageElementCount: 50, formValues: {} };
-    const output = formatDiffSection(diff, 0.9, state);
-    expect(output).toContain('shadow DOM + iframes (1 visible)');
+    const output = formatDiffSection(diff, 0.95, state);
+    expect(output).toContain('partial — iframes (1 visible) present');
+    expect(output).not.toContain('shadow DOM');
   });
 
   it('no annotation when iframes exist but none visible', () => {
