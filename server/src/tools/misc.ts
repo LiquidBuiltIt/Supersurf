@@ -62,7 +62,7 @@ export async function onVerifyElementVisible(ctx: ToolContext, args: any, option
   const selector = args.selector as string;
   const result = await ctx.eval(`
     (() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
+      const el = ${ctx.getSelectorExpression(selector)};
       if (!el) return { exists: false, visible: false };
       const rect = el.getBoundingClientRect();
       const style = window.getComputedStyle(el);

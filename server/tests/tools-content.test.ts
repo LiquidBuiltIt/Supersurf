@@ -1,6 +1,121 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onSnapshot, onLookup, onExtractContent } from '../src/tools/content';
+import { getSelectorExpression } from '../src/tools/lib/element-resolver';
 import type { ToolContext } from '../src/tools/lib/types';
+
+// ── minimal fake DOM (mirrors server/tests/shadow-walker.test.ts) ─────────
+// queryDeep only touches querySelector/querySelectorAll/.shadowRoot, so this
+// tiny hand-rolled tree exercises real shadow traversal without a browser
+// engine. Extended with childNodes/textContent/nodeType so the markdown
+// walker in onExtractContent can run against it too.
+
+class FakeTextNode {
+  nodeType = 3; // Node.TEXT_NODE
+  textContent: string;
+  constructor(text: string) {
+    this.textContent = text;
+  }
+}
+
+class FakeElement {
+  nodeType = 1; // Node.ELEMENT_NODE
+  tagName: string;
+  id: string;
+  classes: string[];
+  attrs: Record<string, string>;
+  children: FakeElement[] = []; // element-only, used by querySelector traversal
+  childNodes: Array<FakeElement | FakeTextNode> = []; // used by the markdown walker
+  shadowRoot: FakeShadowRoot | null = null;
+
+  constructor(tag: string, opts: { id?: string; class?: string; attrs?: Record<string, string> } = {}) {
+    this.tagName = tag.toUpperCase();
+    this.id = opts.id ?? '';
+    this.classes = opts.class ? opts.class.split(/\s+/) : [];
+    this.attrs = opts.attrs ?? {};
+  }
+  append(...kids: Array<FakeElement | FakeTextNode>): this {
+    for (const kid of kids) {
+      this.childNodes.push(kid);
+      if (kid instanceof FakeElement) this.children.push(kid);
+    }
+    return this;
+  }
+  attachShadow(): FakeShadowRoot {
+    this.shadowRoot = new FakeShadowRoot();
+    return this.shadowRoot;
+  }
+  querySelectorAll(selector: string): FakeElement[] {
+    return collect(this, selector);
+  }
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+}
+
+class FakeShadowRoot {
+  children: FakeElement[] = [];
+  append(...kids: FakeElement[]): this {
+    this.children.push(...kids);
+    return this;
+  }
+  querySelectorAll(selector: string): FakeElement[] {
+    return collect(this, selector);
+  }
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+}
+
+class FakeDocument {
+  children: FakeElement[] = [];
+  append(...kids: FakeElement[]): this {
+    this.children.push(...kids);
+    return this;
+  }
+  querySelectorAll(selector: string): FakeElement[] {
+    return collect(this, selector);
+  }
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+}
+
+function selectorMatches(el: FakeElement, selector: string): boolean {
+  if (selector === '*') return true;
+  const tagMatch = selector.match(/^[a-zA-Z][\w-]*/);
+  if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+  const idMatch = selector.match(/#([\w-]+)/);
+  if (idMatch && el.id !== idMatch[1]) return false;
+  const classMatches = Array.from(selector.matchAll(/\.([\w-]+)/g)).map((m) => m[1]);
+  if (classMatches.length && !classMatches.every((c) => el.classes.includes(c))) return false;
+  return true;
+}
+
+function collect(root: { children: FakeElement[] }, selector: string): FakeElement[] {
+  const out: FakeElement[] = [];
+  const walk = (node: { children: FakeElement[] }) => {
+    for (const child of node.children) {
+      if (selectorMatches(child, selector)) out.push(child);
+      walk(child); // light-tree descent only — never crosses into child.shadowRoot
+    }
+  };
+  walk(root);
+  return out;
+}
+
+const FAKE_WINDOW = { getComputedStyle: () => ({ display: 'block' }) };
+const FAKE_NODE = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+
+/** Runs a real (unmocked) onExtractContent page-eval script against a fake DOM. */
+function makeRealEval(doc: FakeDocument) {
+  return vi.fn(async (expr: string) => {
+    // Wrap in parens: expr can start with a newline before `(`, and a bare
+    // `return\n(...)` triggers ASI (return-then-semicolon), silently
+    // discarding the value. `return (...)` is immune to that.
+    const fn = new Function('document', 'window', 'Node', `return (${expr})`);
+    return fn(doc, FAKE_WINDOW, FAKE_NODE);
+  });
+}
 
 function createMockCtx(): ToolContext {
   return {
@@ -311,5 +426,53 @@ describe('onExtractContent()', () => {
     const result = await onExtractContent(ctx, {}, { rawResult: true });
     expect(result.lines).toEqual(['hello']);
     expect(result.total).toBe(1);
+  });
+
+  it('routes selector-mode root resolution through ctx.getSelectorExpression rather than a hand-rolled querySelector', async () => {
+    (ctx.getSelectorExpression as any).mockReturnValue('window.__SHADOW_TEST_MARKER__');
+    (ctx.eval as any).mockResolvedValue({ lines: [] });
+
+    await onExtractContent(ctx, { mode: 'selector', selector: '#deep' }, {});
+
+    expect(ctx.getSelectorExpression).toHaveBeenCalledWith('#deep');
+    expect((ctx.eval as any).mock.calls[0][0]).toContain('window.__SHADOW_TEST_MARKER__');
+    expect((ctx.eval as any).mock.calls[0][0]).not.toContain('document.querySelector(');
+  });
+
+  it('pierces an open shadow root: selector mode can now extract content from a shadow-nested root', async () => {
+    const doc = new FakeDocument();
+    const host = new FakeElement('my-host');
+    doc.append(host);
+    const article = new FakeElement('article', { id: 'shadow-article' });
+    article.append(new FakeTextNode('Shadow content marker'));
+    host.attachShadow()!.append(article);
+
+    // Sanity check: a plain querySelector genuinely misses this element.
+    expect(doc.querySelector('#shadow-article')).toBeNull();
+
+    ctx.getSelectorExpression = getSelectorExpression;
+    ctx.eval = makeRealEval(doc);
+
+    const result = await onExtractContent(ctx, { mode: 'selector', selector: '#shadow-article' }, {});
+    expect(ctx.error).not.toHaveBeenCalled();
+    expect(result.content[0].text).toContain('Shadow content marker');
+  });
+
+  it('non-breaking: selector mode still extracts from the light-DOM element when the same selector also matches inside a shadow root', async () => {
+    const doc = new FakeDocument();
+    const lightArticle = new FakeElement('article', { class: 'content' });
+    lightArticle.append(new FakeTextNode('Light content marker'));
+    const host = new FakeElement('my-host');
+    doc.append(lightArticle, host);
+    const shadowArticle = new FakeElement('article', { class: 'content' });
+    shadowArticle.append(new FakeTextNode('Shadow content marker'));
+    host.attachShadow()!.append(shadowArticle);
+
+    ctx.getSelectorExpression = getSelectorExpression;
+    ctx.eval = makeRealEval(doc);
+
+    const result = await onExtractContent(ctx, { mode: 'selector', selector: '.content' }, {});
+    expect(result.content[0].text).toContain('Light content marker');
+    expect(result.content[0].text).not.toContain('Shadow content marker');
   });
 });
