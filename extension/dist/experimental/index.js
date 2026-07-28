@@ -29,6 +29,12 @@ export class ExperimentalFeatures {
             const mode = params?.mode || 'document';
             const results = await chrome.scripting.executeScript({
                 target: { tabId },
+                // MUST be MAIN. In the default isolated world the capture walk returns
+                // zero open shadow roots, so every shadow-DOM mutation diffs as
+                // "No visible changes detected." at 100% confidence — a silent false
+                // negative, not an error. Measured: 2/10 vs 10/10 on the ground-truth
+                // harness. Do not drop this line.
+                world: 'MAIN',
                 func: capturePageState,
                 args: [mode],
             });
