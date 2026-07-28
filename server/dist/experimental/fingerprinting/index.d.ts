@@ -1,5 +1,5 @@
 import type { EvalFn } from '../../tools/lib/element-resolver';
-import type { ScoreHit } from './types';
+import type { FingerprintRecord, ScoreHit } from './types';
 import type { HandleMeta } from './handle-meta';
 export declare const THRESHOLD = 0.6;
 export declare const MARGIN = 0.1;
@@ -22,8 +22,11 @@ export interface HandleEvent {
 }
 export type HandleEmit = (ev: HandleEvent) => void;
 /** Fire-and-forget: fingerprint the just-resolved element and persist it, binding an
- *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws. */
-export declare function captureOnResolve(evalFn: EvalFn, url: string | undefined, selector: string, meta?: HandleMeta, emitHandle?: HandleEmit): Promise<void>;
+ *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws.
+ *  `preloadedRecord`, when passed (even as `null`), is reused as-is instead of re-reading via
+ *  `getRecord` — callers that already looked up the record (e.g. `resolveWithHealing`, for its
+ *  `hadRecord` telemetry) pass it through so the happy path stays at one file read, not two. */
+export declare function captureOnResolve(evalFn: EvalFn, url: string | undefined, selector: string, meta?: HandleMeta, emitHandle?: HandleEmit, preloadedRecord?: FingerprintRecord | null): Promise<void>;
 /**
  * Capture an element resolved inside a child frame (iframe). The top-frame capture path
  * (`resolveWithHealing`) can't see iframe elements because it evals against the top frame,
@@ -59,7 +62,13 @@ export interface HealEvent {
     route: string;
     score: number | null;
     margin: number | null;
+    /** True iff a stored fingerprint already existed for this exact domain+route+selector key at
+     *  resolve time. This is identity of the *storage key*, not of the underlying DOM element or
+     *  its meaning — a selector can be reused across unrelated elements/pages and still read true. */
     hadRecord: boolean;
+    /** 1:1 derived from `hadRecord`: 'known' when a record existed for this selector-key, 'new' on
+     *  first contact. Lets the usage-metrics trail distinguish cold-start resolves from steady-state. */
+    discovery: 'new' | 'known';
 }
 export type HealEmit = (ev: HealEvent) => void;
 /**

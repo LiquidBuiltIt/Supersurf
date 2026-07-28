@@ -69,12 +69,25 @@ describe('resolveWithHealing', () => {
 describe('resolveWithHealing telemetry (emit)', () => {
   beforeEach(() => mockEnabled.mockImplementation((f: string) => f === 'fingerprinting'));
 
-  it('emits outcome=resolved on a clean resolve', async () => {
+  it('emits outcome=resolved with hadRecord=false + discovery=new on first-contact resolve', async () => {
     const evalFn = vi.fn().mockResolvedValue({ x: 1, y: 2 });
     const emit = vi.fn();
     await resolveWithHealing(evalFn, '#go', url, emit);
     expect(emit).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'fingerprint', outcome: 'resolved', selector: '#go', domain: 'ex.com', route: '/', hadRecord: false }),
+      expect.objectContaining({
+        event: 'fingerprint', outcome: 'resolved', selector: '#go', domain: 'ex.com', route: '/',
+        hadRecord: false, discovery: 'new',
+      }),
+    );
+  });
+
+  it('emits outcome=resolved with hadRecord=true + discovery=known when a record already exists', async () => {
+    putRecord('ex.com', '/', '#go', rec());
+    const evalFn = vi.fn().mockResolvedValue({ x: 1, y: 2 });
+    const emit = vi.fn();
+    await resolveWithHealing(evalFn, '#go', url, emit);
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'resolved', hadRecord: true, discovery: 'known' }),
     );
   });
 
@@ -86,11 +99,11 @@ describe('resolveWithHealing telemetry (emit)', () => {
     const emit = vi.fn();
     await resolveWithHealing(evalFn, '#go', url, emit);
     expect(emit).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: 'healed', score: 0.9, margin: 0.5, hadRecord: true }),
+      expect.objectContaining({ outcome: 'healed', score: 0.9, margin: 0.5, hadRecord: true, discovery: 'known' }),
     );
   });
 
-  it('emits outcome=escalated (hadRecord=true) when the gate fails on low margin', async () => {
+  it('emits outcome=escalated (hadRecord=true, discovery=known) when the gate fails on low margin', async () => {
     putRecord('ex.com', '/', '#go', rec());
     const evalFn = vi.fn()
       .mockResolvedValueOnce(null)
@@ -98,16 +111,16 @@ describe('resolveWithHealing telemetry (emit)', () => {
     const emit = vi.fn();
     await expect(resolveWithHealing(evalFn, '#go', url, emit)).rejects.toThrow(/not found/i);
     expect(emit).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: 'escalated', score: 0.9, margin: 0.05, hadRecord: true }),
+      expect.objectContaining({ outcome: 'escalated', score: 0.9, margin: 0.05, hadRecord: true, discovery: 'known' }),
     );
   });
 
-  it('emits outcome=escalated (hadRecord=false) when no fingerprint exists', async () => {
+  it('emits outcome=escalated (hadRecord=false, discovery=new) when no fingerprint exists', async () => {
     const evalFn = vi.fn().mockResolvedValueOnce(null);
     const emit = vi.fn();
     await expect(resolveWithHealing(evalFn, '#missing', url, emit)).rejects.toThrow(/not found/i);
     expect(emit).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: 'escalated', hadRecord: false }),
+      expect.objectContaining({ outcome: 'escalated', hadRecord: false, discovery: 'new' }),
     );
   });
 });

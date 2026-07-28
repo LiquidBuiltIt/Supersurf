@@ -51,8 +51,11 @@ function safeParse(s) {
     }
 }
 /** Fire-and-forget: fingerprint the just-resolved element and persist it, binding an
- *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws. */
-async function captureOnResolve(evalFn, url, selector, meta, emitHandle) {
+ *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws.
+ *  `preloadedRecord`, when passed (even as `null`), is reused as-is instead of re-reading via
+ *  `getRecord` — callers that already looked up the record (e.g. `resolveWithHealing`, for its
+ *  `hadRecord` telemetry) pass it through so the happy path stays at one file read, not two. */
+async function captureOnResolve(evalFn, url, selector, meta, emitHandle, preloadedRecord) {
     try {
         const raw = await evalFn((0, page_scripts_1.captureExpr)(selector));
         const fp = safeParse(raw);
@@ -64,7 +67,7 @@ async function captureOnResolve(evalFn, url, selector, meta, emitHandle) {
         // off the live domain). Drop it instead — the record is best-effort anyway.
         if (domain === 'unknown')
             return;
-        const existing = (0, store_1.getRecord)(domain, route, selector);
+        const existing = preloadedRecord !== undefined ? preloadedRecord : (0, store_1.getRecord)(domain, route, selector);
         const now = Date.now();
         const merged = (0, handle_meta_1.mergeHandleMeta)(existing ? { name: existing.handleName, purpose: existing.purpose, aliases: existing.aliases } : undefined, meta ?? {});
         const rec = {
@@ -156,15 +159,23 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
     const domain = domainOf(url), route = routeOf(url);
     const fire = (outcome, score, margin, hadRecord) => {
         try {
-            emit?.({ event: 'fingerprint', outcome, selector, domain, route, score, margin, hadRecord });
+            emit?.({
+                event: 'fingerprint', outcome, selector, domain, route, score, margin, hadRecord,
+                discovery: hadRecord ? 'known' : 'new',
+            });
         }
         catch { /* telemetry must never break a resolve */ }
     };
     try {
         const center = await (0, element_resolver_1.getElementCenter)(evalFn, selector);
+        // Single hoisted read: reused for the `hadRecord` telemetry below AND passed into
+        // captureOnResolve so it skips its own getRecord — keeps the happy path at one file
+        // read total, not two. (Skip entirely for the 'unknown' domain bucket, which never
+        // has records — see captureOnResolve's 'unknown' guard.)
+        const existing = domain === 'unknown' ? null : (0, store_1.getRecord)(domain, route, selector);
         // fire-and-forget capture; do not await (keeps resolve latency unchanged)
-        void captureOnResolve(evalFn, url, selector, meta, emitHandle); // now carries handle meta
-        fire('resolved', null, null, false);
+        void captureOnResolve(evalFn, url, selector, meta, emitHandle, existing); // now carries handle meta + preloaded record
+        fire('resolved', null, null, !!existing);
         return center;
     }
     catch (missErr) {
