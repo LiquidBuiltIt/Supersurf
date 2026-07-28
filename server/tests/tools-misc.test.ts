@@ -5,7 +5,110 @@ import {
   onListExtensions,
   onPerformanceMetrics,
 } from '../src/tools/misc';
+import { getSelectorExpression } from '../src/tools/lib/element-resolver';
 import type { ToolContext } from '../src/tools/lib/types';
+
+// ── minimal fake DOM (mirrors server/tests/shadow-walker.test.ts) ─────────
+// queryDeep/queryAllDeep only touch querySelector/querySelectorAll/.shadowRoot,
+// so this tiny hand-rolled tree is enough to exercise real shadow traversal
+// without a browser engine.
+
+class FakeElement {
+  tagName: string;
+  id: string;
+  classes: string[];
+  attrs: Record<string, string>;
+  children: FakeElement[] = [];
+  shadowRoot: FakeShadowRoot | null = null;
+
+  constructor(tag: string, opts: { id?: string; class?: string; attrs?: Record<string, string> } = {}) {
+    this.tagName = tag.toUpperCase();
+    this.id = opts.id ?? '';
+    this.classes = opts.class ? opts.class.split(/\s+/) : [];
+    this.attrs = opts.attrs ?? {};
+  }
+  append(...kids: FakeElement[]): this {
+    this.children.push(...kids);
+    return this;
+  }
+  attachShadow(): FakeShadowRoot {
+    this.shadowRoot = new FakeShadowRoot();
+    return this.shadowRoot;
+  }
+  querySelectorAll(selector: string): FakeElement[] {
+    return collect(this, selector);
+  }
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+  getBoundingClientRect() {
+    return { width: 10, height: 10, left: 0, top: 0 };
+  }
+}
+
+class FakeShadowRoot {
+  children: FakeElement[] = [];
+  append(...kids: FakeElement[]): this {
+    this.children.push(...kids);
+    return this;
+  }
+  querySelectorAll(selector: string): FakeElement[] {
+    return collect(this, selector);
+  }
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+}
+
+class FakeDocument {
+  children: FakeElement[] = [];
+  append(...kids: FakeElement[]): this {
+    this.children.push(...kids);
+    return this;
+  }
+  querySelectorAll(selector: string): FakeElement[] {
+    return collect(this, selector);
+  }
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+}
+
+function selectorMatches(el: FakeElement, selector: string): boolean {
+  if (selector === '*') return true;
+  const tagMatch = selector.match(/^[a-zA-Z][\w-]*/);
+  if (tagMatch && el.tagName.toLowerCase() !== tagMatch[0].toLowerCase()) return false;
+  const idMatch = selector.match(/#([\w-]+)/);
+  if (idMatch && el.id !== idMatch[1]) return false;
+  const classMatches = Array.from(selector.matchAll(/\.([\w-]+)/g)).map((m) => m[1]);
+  if (classMatches.length && !classMatches.every((c) => el.classes.includes(c))) return false;
+  return true;
+}
+
+function collect(root: { children: FakeElement[] }, selector: string): FakeElement[] {
+  const out: FakeElement[] = [];
+  const walk = (node: { children: FakeElement[] }) => {
+    for (const child of node.children) {
+      if (selectorMatches(child, selector)) out.push(child);
+      walk(child); // light-tree descent only — never crosses into child.shadowRoot
+    }
+  };
+  walk(root);
+  return out;
+}
+
+const FAKE_WINDOW = { getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) };
+
+/** Runs a real (unmocked) getSelectorExpression()-produced script against a fake DOM. */
+function makeRealEval(doc: FakeDocument) {
+  return vi.fn(async (expr: string) => {
+    // Wrap in parens: expr can start with a newline before `(`, and a bare
+    // `return\n(...)` triggers ASI (return-then-semicolon), silently
+    // discarding the value. `return (...)` is immune to that.
+    const fn = new Function('document', 'window', `return (${expr})`);
+    return fn(doc, FAKE_WINDOW);
+  });
+}
 
 function createMockCtx(): ToolContext {
   return {
@@ -133,6 +236,64 @@ describe('onVerifyElementVisible()', () => {
     (ctx.eval as any).mockResolvedValue({ exists: false, visible: false });
     const result = await onVerifyElementVisible(ctx, { selector: '.missing' }, {});
     expect(result.isError).toBe(true);
+  });
+
+  it('routes selector resolution through ctx.getSelectorExpression rather than a hand-rolled querySelector', async () => {
+    const ctx = createMockCtx();
+    (ctx.getSelectorExpression as any).mockReturnValue('window.__SHADOW_TEST_MARKER__');
+    (ctx.eval as any).mockResolvedValue({ exists: true, visible: true });
+
+    await onVerifyElementVisible(ctx, { selector: '#deep' }, {});
+
+    expect(ctx.getSelectorExpression).toHaveBeenCalledWith('#deep');
+    expect((ctx.eval as any).mock.calls[0][0]).toContain('window.__SHADOW_TEST_MARKER__');
+    expect((ctx.eval as any).mock.calls[0][0]).not.toContain('document.querySelector(');
+  });
+
+  it('pierces an open shadow root: a selector that only matches inside a shadow root is now found and reported visible', async () => {
+    const doc = new FakeDocument();
+    const host = new FakeElement('my-host');
+    doc.append(host);
+    const shadowOnly = new FakeElement('button', { id: 'shadow-btn' });
+    host.attachShadow()!.append(shadowOnly);
+
+    // Confirm a plain querySelector genuinely misses this element (sanity check
+    // that the fixture is actually testing shadow piercing).
+    expect(doc.querySelector('#shadow-btn')).toBeNull();
+
+    const ctx = createMockCtx();
+    ctx.getSelectorExpression = getSelectorExpression;
+    ctx.eval = makeRealEval(doc);
+
+    const result = await onVerifyElementVisible(ctx, { selector: '#shadow-btn' }, {});
+    expect(result.content[0].text).toContain('✓');
+    expect(result.isError).toBeFalsy();
+  });
+
+  it('non-breaking: a selector matching both a light-DOM element and a same-selector shadow element still resolves to the light element', async () => {
+    const doc = new FakeDocument();
+    const lightEl = new FakeElement('div', { class: 'x' });
+    const host = new FakeElement('my-host');
+    doc.append(lightEl, host);
+    host.attachShadow()!.append(new FakeElement('div', { class: 'x' }));
+
+    // Independently confirm getSelectorExpression resolves the light element
+    // by identity (mirrors shadow-walker.test.ts's end-to-end assertion).
+    (globalThis as any).document = doc;
+    try {
+      const expr = getSelectorExpression('.x');
+      const resolved = new Function(`return ${expr}`)();
+      expect(resolved).toBe(lightEl);
+    } finally {
+      delete (globalThis as any).document;
+    }
+
+    const ctx = createMockCtx();
+    ctx.getSelectorExpression = getSelectorExpression;
+    ctx.eval = makeRealEval(doc);
+
+    const result = await onVerifyElementVisible(ctx, { selector: '.x' }, {});
+    expect(result.content[0].text).toContain('✓');
   });
 });
 

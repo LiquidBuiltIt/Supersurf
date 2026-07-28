@@ -293,7 +293,7 @@ export async function onExtractContent(ctx: ToolContext, args: any, options: any
     (() => {
       function getRoot() {
         ${mode === 'selector' && selector
-          ? `return document.querySelector(${JSON.stringify(selector)});`
+          ? `return ${ctx.getSelectorExpression(selector)};`
           : mode === 'full'
           ? `return document.body;`
           : `// Auto-detect main content
