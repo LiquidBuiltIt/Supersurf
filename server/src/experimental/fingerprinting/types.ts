@@ -35,9 +35,22 @@ export interface DomainStore {
 }
 
 // Best in-page candidate match returned by the scorer (pre-threshold).
+// Carries the winner's identity, not just its coordinates: a caller that heals a
+// selector miss needs to know WHICH element won so it can synthesize a usable
+// selector (see selector-synthesis.ts). Coordinates alone are useless to the 14
+// action sites that need a selector string or a live CDP objectId.
 export interface ScoreHit {
   cx: number;
   cy: number;
   score: number;
   margin: number;
+  // ── winner identity (mirrors the same-named fields on Fingerprint) ──
+  role: string;
+  name: string;
+  tag: string;
+  type: string | null;
+  htmlId: string;
+  attrs: Record<string, string>;
+  classList: string[];
+  ordinal: number;
 }

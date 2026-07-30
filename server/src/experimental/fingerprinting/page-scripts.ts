@@ -35,7 +35,10 @@ export function captureExpr(selector: string): string {
   })()`;
 }
 
-/** Build a read-only IIFE that scores all candidates against `targetJson`, returns best {cx,cy,score,margin} or null. */
+/** Build a read-only IIFE that scores all candidates against `targetJson`, returns the best
+ *  match as a ScoreHit (coordinates + score/margin + the winner's identity) or null. The
+ *  identity is what lets the caller synthesize a selector for the healed element — see
+ *  selector-synthesis.ts. */
 export function scoreExpr(targetJson: string): string {
   return `(function(){${HELPERS}
     var T=${targetJson};
@@ -60,6 +63,8 @@ export function scoreExpr(targetJson: string): string {
     var best=null,bs=0,ru=0;
     cands.forEach(function(c){var s=sc(T,c);if(s>bs){ru=bs;bs=s;best=c;}else if(s>ru)ru=s;});
     if(!best) return null;
-    return JSON.stringify({cx:best.cx,cy:best.cy,score:+bs.toFixed(3),margin:+(bs-ru).toFixed(3)});
+    return JSON.stringify({cx:best.cx,cy:best.cy,score:+bs.toFixed(3),margin:+(bs-ru).toFixed(3),
+      role:best.role,name:best.name,tag:best.tag,type:best.type,htmlId:best.htmlId,
+      attrs:best.attrs,classList:best.classList,ordinal:best.ordinal});
   })()`;
 }

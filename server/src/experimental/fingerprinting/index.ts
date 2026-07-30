@@ -6,22 +6,13 @@ import { captureExpr, scoreExpr } from './page-scripts';
 import type { Fingerprint, FingerprintRecord, ScoreHit } from './types';
 import { mergeHandleMeta } from './handle-meta';
 import type { HandleMeta } from './handle-meta';
+import { resolveSelectorOrHandle } from './handle-resolve';
 
 export const THRESHOLD = 0.6;
 export const MARGIN = 0.10;
 
-export function domainOf(url: string | undefined): string {
-  try {
-    const u = new URL(url || '');
-    // file:// pages have no hostname but are real, automatable pages — give them
-    // a dedicated bucket (route = path) instead of collapsing into 'unknown'.
-    if (u.protocol === 'file:') return 'file';
-    return u.hostname.replace(/^www\./, '') || 'unknown';
-  } catch { return 'unknown'; }
-}
-export function routeOf(url: string | undefined): string {
-  try { return new URL(url || '').pathname || '/'; } catch { return '/'; }
-}
+export { domainOf, routeOf } from './url';
+import { domainOf, routeOf } from './url';
 
 export function passesGate(hit: ScoreHit): boolean {
   return hit.score >= THRESHOLD && hit.margin >= MARGIN;
@@ -46,7 +37,24 @@ export interface HandleEvent {
   route: string;
   selector: string;
 }
-export type HandleEmit = (ev: HandleEvent) => void;
+
+/** Resolve-by-name telemetry. Fires on every translation attempt, hit or miss, so the
+ *  usage-metrics trail can measure handle adoption and handle accuracy separately. */
+export interface HandleResolveEvent {
+  event: 'handle.resolved';
+  /** The handle name the agent passed (normalized shape, as supplied). */
+  name: string;
+  match: 'canonical' | 'alias' | 'miss';
+  /** Records in this domain+route carrying the name; 0 on a miss. */
+  candidateCount: number;
+  /** The translated selector; '' on a miss. */
+  selector: string;
+  domain: string;
+  route: string;
+}
+
+export type AnyHandleEvent = HandleEvent | HandleResolveEvent;
+export type HandleEmit = (ev: AnyHandleEvent) => void;
 
 /** Fire-and-forget: fingerprint the just-resolved element and persist it, binding an
  *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws.
@@ -203,28 +211,47 @@ export async function resolveWithHealing(
   }
   const url = getUrl();
   const domain = domainOf(url), route = routeOf(url);
+
+  // Translate a handle name to the selector it was captured against. Must happen
+  // before anything else: `query` is used as the page query, the capture key AND
+  // the heal key below, and a handle name would miss on all three.
+  const translated = resolveSelectorOrHandle(url, selector);
+  const query = translated.selector;
+  if (translated.attempted) {
+    try {
+      emitHandle?.({
+        event: 'handle.resolved',
+        name: selector,
+        match: translated.handle ? translated.handle.match : 'miss',
+        candidateCount: translated.handle ? translated.handle.candidateCount : 0,
+        selector: translated.handle ? query : '',
+        domain, route,
+      });
+    } catch { /* telemetry must never break a resolve */ }
+  }
+
   const fire = (outcome: HealEvent['outcome'], score: number | null, margin: number | null, hadRecord: boolean) => {
     try {
       emit?.({
-        event: 'fingerprint', outcome, selector, domain, route, score, margin, hadRecord,
+        event: 'fingerprint', outcome, selector: query, domain, route, score, margin, hadRecord,
         discovery: hadRecord ? 'known' : 'new',
       });
     } catch { /* telemetry must never break a resolve */ }
   };
   try {
-    const center = await getElementCenter(evalFn, selector);
+    const center = await getElementCenter(evalFn, query);
     // Single hoisted read: reused for the `hadRecord` telemetry below AND passed into
     // captureOnResolve so it skips its own getRecord — keeps the happy path at one file
     // read total, not two. (Skip entirely for the 'unknown' domain bucket, which never
     // has records — see captureOnResolve's 'unknown' guard.)
-    const existing = domain === 'unknown' ? null : getRecord(domain, route, selector);
+    const existing = domain === 'unknown' ? null : getRecord(domain, route, query);
     // fire-and-forget capture; do not await (keeps resolve latency unchanged)
-    void captureOnResolve(evalFn, url, selector, meta, emitHandle, existing); // now carries handle meta + preloaded record
+    void captureOnResolve(evalFn, url, query, meta, emitHandle, existing);
     fire('resolved', null, null, !!existing);
     return center;
   } catch (missErr) {
     try {
-      const attempt = await healOnMiss(evalFn, url, selector);
+      const attempt = await healOnMiss(evalFn, url, query);
       if (attempt.hit) {
         fire('healed', attempt.score, attempt.margin, true);
         return { x: attempt.hit.cx, y: attempt.hit.cy };
@@ -232,6 +259,13 @@ export async function resolveWithHealing(
       fire('escalated', attempt.score, attempt.margin, attempt.hadRecord);
     } catch {
       fire('escalated', null, null, false);
+    }
+    // An unresolved handle that also failed as a CSS selector: say so, so the agent
+    // stops retrying the name and looks the element up for itself.
+    if (translated.attempted && !translated.handle && missErr instanceof Error) {
+      missErr.message +=
+        `\n\nThere is no recorded handle named \`${selector}\` on ${domain}${route}. ` +
+        'Handles resolve only against elements previously interacted with by that name on this route.';
     }
     throw missErr; // escalate = original "Element not found" error
   }

@@ -92,7 +92,19 @@ export function getToolSchemas(): ToolSchema[] {
                     'wait: if selector is provided, polls for the element every 100ms and resolves immediately when found (rejects on timeout). ' +
                     'If only timeout is provided, pauses for that fixed duration.',
                 },
-                selector: { type: 'string', description: 'CSS selector for the target element. Supports :has-text("...") for text matching, e.g. button:has-text("Submit"). For wait: element to poll for existence.' },
+                selector: {
+                  type: 'string',
+                  description:
+                    'CSS selector for the target element. Supports :has-text("...") for text matching, ' +
+                    'e.g. button:has-text("Submit"). For wait: element to poll for existence. ' +
+                    'You may also pass a handle you named earlier — a bare multi-word snake_case name ' +
+                    'such as "tweet_button" (no dots, hashes, brackets or spaces) — and the server ' +
+                    'resolves it to the element that name was recorded against on this exact domain + ' +
+                    'URL path (no cross-route matching), healing it if the page changed. Only works ' +
+                    'when the `fingerprinting` experiment is enabled (off by default) — otherwise the ' +
+                    'handle is not recognized and falls through to the CSS path. Single words are ' +
+                    'always read as CSS tag selectors, never handles.',
+                },
                 text: { type: 'string', description: 'Text to type (for type action)' },
                 key: { type: 'string', description: 'Key to press (for press_key action)' },
                 value: { type: 'string', description: 'Option value or text (for select_option and select_custom)' },

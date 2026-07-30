@@ -15,6 +15,7 @@ import { createLog } from './logger';
 import { UsageMetricsLogger } from './usage-metrics-logger';
 import { getExperimentalToolSchemas, experimentRegistry } from './experimental/index';
 import { resolveWithHealing, captureInContext, healInContext, domainOf, routeOf } from './experimental/fingerprinting/index';
+import { resolveSelectorOrHandle } from './experimental/fingerprinting/handle-resolve';
 
 import { getToolSchemas } from './tools/schemas';
 import { cdp as cdpFn, evalExpr as evalFn } from './tools/lib/cdp';
@@ -79,7 +80,12 @@ export class BrowserBridge {
     const ext = this.ext!;
     const evalFnBound = (expression: string, awaitPromise = true) =>
       evalFn(ext, expression, awaitPromise, tabId);
-    const emitHandle = (ev: import('./experimental/fingerprinting/index').HandleEvent) =>
+    // Handle→selector translation. Synchronous and idempotent; a plain CSS selector
+    // costs one regex test. Gate + store access live in the experimental module —
+    // this is the thin delegation hook.
+    const resolveSelectorSync = (selector: string): string =>
+      resolveSelectorOrHandle(this.connectionManager?.getAttachedTab()?.url, selector).selector;
+    const emitHandle = (ev: import('./experimental/fingerprinting/index').AnyHandleEvent) =>
       this.metricsLogger?.write({
         session_id: this.connectionManager?.clientId ?? 'unknown',
         tool: 'handle',
@@ -147,7 +153,8 @@ export class BrowserBridge {
           });
           return { cx: hit.cx, cy: hit.cy, score: hit.score };
         }),
-      getSelectorExpression,
+      resolveSelector: resolveSelectorSync,
+      getSelectorExpression: (selector: string) => getSelectorExpression(resolveSelectorSync(selector)),
       findAlternativeSelectors: (selector: string) => findAlternativeSelectors(evalFnBound, selector),
       formatResult: (name, result, options) =>
         formatResult(name, result, options, this.connectionManager),
