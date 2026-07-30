@@ -29,18 +29,20 @@ const state: PopupState = {
   version: '0.1.0',
   projectName: null,
   domainWhitelistEnabled: false,
+  keepBrowserOnSessionEnd: true,
   profileName: null,
 };
 
 /** Hydrate state from chrome.storage.local and the extension manifest. */
 async function loadState(): Promise<void> {
   const result = await browserAPI.storage.local.get([
-    'extensionEnabled', 'mcpPort', 'debugMode', 'domainWhitelistEnabled', 'supersurf_profile',
+    'extensionEnabled', 'mcpPort', 'debugMode', 'domainWhitelistEnabled', 'keepBrowserOnSessionEnd', 'supersurf_profile',
   ]);
   state.enabled = result.extensionEnabled !== false;
   state.port = result.mcpPort || '5555';
   state.debugMode = result.debugMode === true;
   state.domainWhitelistEnabled = result.domainWhitelistEnabled === true;
+  state.keepBrowserOnSessionEnd = result.keepBrowserOnSessionEnd !== false;
   state.profileName = result.supersurf_profile || null;
 
   const manifest = browserAPI.runtime.getManifest();
@@ -80,11 +82,17 @@ async function saveSettings(): Promise<void> {
     mcpPort: state.port,
     debugMode: state.debugMode,
     domainWhitelistEnabled: state.domainWhitelistEnabled,
+    keepBrowserOnSessionEnd: state.keepBrowserOnSessionEnd,
   });
 
   // Notify background to enable/disable whitelist
   (browserAPI.runtime.sendMessage({
     type: state.domainWhitelistEnabled ? 'enableWhitelist' : 'disableWhitelist',
+  }) as unknown as Promise<any>).catch(() => {});
+
+  (browserAPI.runtime.sendMessage({
+    type: 'setKeepBrowserOnSessionEnd',
+    value: state.keepBrowserOnSessionEnd,
   }) as unknown as Promise<any>).catch(() => {});
 
   state.showSettings = false;
@@ -121,6 +129,10 @@ function attachEventListeners(): void {
 
     document.getElementById('domainWhitelistCheckbox')?.addEventListener('change', (e) => {
       state.domainWhitelistEnabled = (e.target as HTMLInputElement).checked;
+    });
+
+    document.getElementById('keepBrowserCheckbox')?.addEventListener('change', (e) => {
+      state.keepBrowserOnSessionEnd = (e.target as HTMLInputElement).checked;
     });
   } else {
     document.getElementById('toggleButton')?.addEventListener('click', toggleEnabled);

@@ -230,6 +230,11 @@ export class WebSocketConnection {
     this.send({ jsonrpc: '2.0', method, params });
   }
 
+  notifyKeepBrowserOnSessionEnd(keepBrowserOnSessionEnd: boolean): void {
+    if (!this.isConnected) return;
+    this.sendNotification('session/keep_browser', { keepBrowserOnSessionEnd });
+  }
+
   // ── Internal handlers ──
 
   /** On successful connection: update state, send handshake with browser metadata. */
@@ -245,12 +250,18 @@ export class WebSocketConnection {
     try { this.browser.runtime.sendMessage({ type: 'statusChanged' }); } catch {}
 
     // Resolve profile name: chrome.storage.local first, then cookie fallback
-    this._resolveProfile().then((profile) => {
+    this._resolveProfile().then(async (profile) => {
+      let keepBrowserOnSessionEnd = true;
+      try {
+        const stored = await this.browser.storage.local.get(['keepBrowserOnSessionEnd']);
+        keepBrowserOnSessionEnd = stored?.keepBrowserOnSessionEnd !== false;
+      } catch {}
       this.send({
         type: 'handshake',
         browser: this._getBrowserName(),
         version: this.browser.runtime.getManifest().version,
         buildTimestamp: this.buildTimestamp,
+        keepBrowserOnSessionEnd,
         ...(profile ? { profile } : {}),
       });
     });

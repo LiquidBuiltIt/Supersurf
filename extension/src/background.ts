@@ -716,6 +716,13 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
       sendResponse(domainWhitelist?.getStats() || { enabled: false, domainCount: 0, lastFetch: 0 });
       return true;
     }
+    if (message.type === 'setKeepBrowserOnSessionEnd') {
+      const value = message.value !== false;
+      chrome.storage.local.set({ keepBrowserOnSessionEnd: value });
+      wsConnection.notifyKeepBrowserOnSessionEnd(value);
+      sendResponse({ ok: true });
+      return true;
+    }
     return false;
   });
 

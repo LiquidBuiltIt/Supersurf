@@ -337,5 +337,5 @@ Every tool response starts with a status line:
 - You talk to an MCP server over stdio. The server talks to a daemon over a Unix socket. The daemon talks to a Chrome extension over WebSocket. The extension controls Chrome.
 - The extension runs in Chrome's isolated world — page JavaScript cannot detect it.
 - CDP is only used for screenshots, network interception, and PDF generation. All DOM interaction goes through content scripts.
-- The daemon persists across sessions. When you disconnect, your tabs and profile state survive for the next connection.
+- The daemon persists across sessions. Managed Chromium stays open after disconnect by default (extension setting); profile cookies/logins always persist on disk. Daemon idle timeout or shutdown can still quit daemon-owned browsers.
 - Every tool call is audit-logged to `~/.supersurf/logs/sessions/`.

@@ -24,6 +24,7 @@ import type { ProfileRegistry } from './profiles/registry';
 import type { Matchmaker } from './profiles/matchmaker';
 import { spawnChromium, appendPidLog } from './profiles/chrome';
 import { getExtensionDir } from './profiles/extension-source';
+import { shouldKeepBrowserOnSessionEnd } from './profiles/keep-browser';
 
 const debugLog = (...args: unknown[]) => {
   const logger = (global as any).DAEMON_LOGGER as FileLogger | undefined;
@@ -210,16 +211,24 @@ export class IPCServer {
           // Kill Chromium if no other sessions are using this profile.
           // User-owned browsers (launched via `supersurf profiles open`) are
           // never killed by session lifecycle — the human closes them.
+          // Daemon-owned browsers are kept unless keepBrowserOnSessionEnd is false.
           const remaining = this.sessions.getSessionsForProfile(profileId);
           if (remaining.length === 0) {
             const pid = this.profileRegistry.getRunningPid(profileId);
-            if (pid && !this.profileRegistry.isUserOwned(profileId)) {
+            const extConn = this.bridge.matchmaker.getConnectionForProfile(profileId);
+            if (
+              pid &&
+              !this.profileRegistry.isUserOwned(profileId) &&
+              !shouldKeepBrowserOnSessionEnd(extConn)
+            ) {
               debugLog(`Last session for profile "${profileId}" disconnected — killing Chromium (pid ${pid})`);
               try {
                 process.kill(pid, 'SIGTERM');
                 appendPidLog({ action: 'kill', profile: profileId, pid, ts: new Date().toISOString() });
               } catch {}
               this.profileRegistry.clearRunningPid(profileId);
+            } else if (pid && shouldKeepBrowserOnSessionEnd(extConn)) {
+              debugLog(`Last session for profile "${profileId}" disconnected — keeping Chromium (pid ${pid})`);
             }
           }
         } else {

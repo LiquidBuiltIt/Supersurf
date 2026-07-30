@@ -25,17 +25,19 @@ const state = {
     version: '0.1.0',
     projectName: null,
     domainWhitelistEnabled: false,
+    keepBrowserOnSessionEnd: true,
     profileName: null,
 };
 /** Hydrate state from chrome.storage.local and the extension manifest. */
 async function loadState() {
     const result = await browserAPI.storage.local.get([
-        'extensionEnabled', 'mcpPort', 'debugMode', 'domainWhitelistEnabled', 'supersurf_profile',
+        'extensionEnabled', 'mcpPort', 'debugMode', 'domainWhitelistEnabled', 'keepBrowserOnSessionEnd', 'supersurf_profile',
     ]);
     state.enabled = result.extensionEnabled !== false;
     state.port = result.mcpPort || '5555';
     state.debugMode = result.debugMode === true;
     state.domainWhitelistEnabled = result.domainWhitelistEnabled === true;
+    state.keepBrowserOnSessionEnd = result.keepBrowserOnSessionEnd !== false;
     state.profileName = result.supersurf_profile || null;
     const manifest = browserAPI.runtime.getManifest();
     state.version = manifest.version;
@@ -71,10 +73,15 @@ async function saveSettings() {
         mcpPort: state.port,
         debugMode: state.debugMode,
         domainWhitelistEnabled: state.domainWhitelistEnabled,
+        keepBrowserOnSessionEnd: state.keepBrowserOnSessionEnd,
     });
     // Notify background to enable/disable whitelist
     browserAPI.runtime.sendMessage({
         type: state.domainWhitelistEnabled ? 'enableWhitelist' : 'disableWhitelist',
+    }).catch(() => { });
+    browserAPI.runtime.sendMessage({
+        type: 'setKeepBrowserOnSessionEnd',
+        value: state.keepBrowserOnSessionEnd,
     }).catch(() => { });
     state.showSettings = false;
     render();
@@ -104,6 +111,9 @@ function attachEventListeners() {
         });
         document.getElementById('domainWhitelistCheckbox')?.addEventListener('change', (e) => {
             state.domainWhitelistEnabled = e.target.checked;
+        });
+        document.getElementById('keepBrowserCheckbox')?.addEventListener('change', (e) => {
+            state.keepBrowserOnSessionEnd = e.target.checked;
         });
     }
     else {

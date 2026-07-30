@@ -135,6 +135,21 @@ export function renderSettings(state) {
               Restrict automated navigation to Tranco top 100K domains
             </p>
           </div>
+
+          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #2a2a30">
+            <label class="settings-label" style="flex-direction: row; align-items: center; cursor: pointer">
+              <input
+                type="checkbox"
+                id="keepBrowserCheckbox"
+                ${state.keepBrowserOnSessionEnd ? 'checked' : ''}
+                style="width: 16px; height: 16px; margin-right: 8px; cursor: pointer; accent-color: #c0c0c0"
+              />
+              <span>Keep browser after session ends</span>
+            </label>
+            <p class="settings-help" style="margin-top: 4px; margin-left: 24px">
+              When on, closing the agent session does not quit this Chromium. Daemon idle or shutdown can still quit it.
+            </p>
+          </div>
         </div>
 
         <div class="settings-actions">

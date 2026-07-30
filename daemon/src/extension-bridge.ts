@@ -16,6 +16,7 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { FileLogger } from 'shared';
 import { Matchmaker } from './profiles/matchmaker';
+import { applyKeepBrowserPreference } from './profiles/keep-browser';
 import type { PooledConnection } from './profiles/types';
 
 const debugLog = (...args: unknown[]) => {
@@ -129,6 +130,7 @@ export class ExtensionBridge {
           buildTimestamp: null,
           pingInterval: null,
           inflight: new Map(),
+          keepBrowserOnSessionEnd: true,
         };
 
         // Keep-alive ping every 10s
@@ -195,6 +197,7 @@ export class ExtensionBridge {
         debugLog('Handshake received:', message);
         conn.browser = message.browser || 'chrome';
         conn.buildTimestamp = message.buildTimestamp || null;
+        applyKeepBrowserPreference(conn, message.keepBrowserOnSessionEnd);
 
         // Profile field in handshake (subsequent launches)
         if (message.profile) {
@@ -208,6 +211,12 @@ export class ExtensionBridge {
       if (message.method === 'profile_announce' && message.params?.profile) {
         debugLog('Profile announcement:', message.params.profile);
         this.matchmaker.updateProfile(ws, message.params.profile);
+        return;
+      }
+
+      if (message.method === 'session/keep_browser') {
+        applyKeepBrowserPreference(conn, message.params?.keepBrowserOnSessionEnd);
+        debugLog('keepBrowserOnSessionEnd updated:', conn.keepBrowserOnSessionEnd);
         return;
       }
 
