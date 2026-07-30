@@ -34,7 +34,9 @@ function cleanCSSFilename(href: string): string {
  * @param args - `{ selector: string, property?: string, pseudoState?: string[] }`
  */
 export async function onGetElementStyles(ctx: ToolContext, args: any, options: any): Promise<any> {
-  const selector = args.selector as string;
+  // Raw-CDP site: bypasses getSelectorExpression, so translate the handle here.
+  const rawSelector = args.selector as string;
+  const selector = ctx.resolveSelector?.(rawSelector) ?? rawSelector;
   const propertyFilter = args.property ? (args.property as string).toLowerCase() : null;
   let pseudoState = args.pseudoState || [];
   if (typeof pseudoState === 'string') {

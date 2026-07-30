@@ -74,3 +74,41 @@ describe('ToolContext handle translation', () => {
     expect(ctxAt(url).resolveSelector('tweet_button')).toBe('tweet_button');
   });
 });
+
+describe('raw-CDP selector sites translate handles', () => {
+  /** Minimal ToolContext that records every CDP call and fakes handle translation. */
+  function ctxSpy() {
+    const calls: Array<{ method: string; params: any }> = [];
+    const ctx: any = {
+      resolveSelector: (s: string) => (s === 'tweet_button' ? '#post' : s),
+      getSelectorExpression: (s: string) => `(()=>document.querySelector(${JSON.stringify(s)}))()`,
+      cdp: async (method: string, params: any) => {
+        calls.push({ method, params });
+        if (method === 'DOM.getDocument') return { root: { nodeId: 1 } };
+        if (method === 'DOM.querySelector') return { nodeId: 7 };
+        if (method === 'CSS.getMatchedStylesForNode') return { matchedCSSRules: [], inlineStyle: null };
+        if (method === 'CSS.getComputedStyleForNode') return { computedStyle: [] };
+        return {};
+      },
+      eval: async () => [],
+      formatResult: (_n: string, r: any) => r,
+      error: (m: string) => new Error(m),
+    };
+    return { ctx, calls };
+  }
+
+  it('force_pseudo_state queries the translated selector', async () => {
+    const { executeAction } = await import('../src/tools/interaction/registry');
+    await import('../src/tools/interaction/force-pseudo-state'); // registers as a side effect
+    const { ctx, calls } = ctxSpy();
+    await executeAction(ctx, { type: 'force_pseudo_state', selector: 'tweet_button', pseudoStates: ['hover'] });
+    expect(calls.find(c => c.method === 'DOM.querySelector')?.params.selector).toBe('#post');
+  });
+
+  it('browser_get_element_styles queries the translated selector', async () => {
+    const { onGetElementStyles } = await import('../src/tools/styles');
+    const { ctx, calls } = ctxSpy();
+    await onGetElementStyles(ctx, { selector: 'tweet_button' }, {});
+    expect(calls.find(c => c.method === 'DOM.querySelector')?.params.selector).toBe('#post');
+  });
+});
