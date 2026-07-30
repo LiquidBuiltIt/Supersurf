@@ -24,4 +24,18 @@ describe('browser_interact schema — handle fields', () => {
     // Still documents the CSS surface it always did.
     expect(desc).toContain(':has-text');
   });
+  it('discloses the fingerprinting experiment gate on the selector description', () => {
+    const interact = getToolSchemas().find(s => s.name === 'browser_interact')!;
+    const itemProps = (interact.inputSchema as any).properties.actions.items.properties;
+    const desc = itemProps.selector.description as string;
+    expect(desc).toContain('fingerprinting');
+    expect(desc).toContain('off by default');
+  });
+  it('discloses the domain + URL path scope of handle resolution on the selector description', () => {
+    const interact = getToolSchemas().find(s => s.name === 'browser_interact')!;
+    const itemProps = (interact.inputSchema as any).properties.actions.items.properties;
+    const desc = itemProps.selector.description as string;
+    expect(desc).toContain('URL path');
+    expect(desc).toContain('no cross-route matching');
+  });
 });

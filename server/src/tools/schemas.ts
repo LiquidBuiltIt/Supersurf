@@ -97,10 +97,13 @@ export function getToolSchemas(): ToolSchema[] {
                   description:
                     'CSS selector for the target element. Supports :has-text("...") for text matching, ' +
                     'e.g. button:has-text("Submit"). For wait: element to poll for existence. ' +
-                    'You may also pass a handle you named earlier on this page — a bare multi-word ' +
-                    'snake_case name such as "tweet_button" (no dots, hashes, brackets or spaces) — and ' +
-                    'the server resolves it to the element that name was recorded against, healing it if ' +
-                    'the page changed. Single words are always read as CSS tag selectors, never handles.',
+                    'You may also pass a handle you named earlier — a bare multi-word snake_case name ' +
+                    'such as "tweet_button" (no dots, hashes, brackets or spaces) — and the server ' +
+                    'resolves it to the element that name was recorded against on this exact domain + ' +
+                    'URL path (no cross-route matching), healing it if the page changed. Only works ' +
+                    'when the `fingerprinting` experiment is enabled (off by default) — otherwise the ' +
+                    'handle is not recognized and falls through to the CSS path. Single words are ' +
+                    'always read as CSS tag selectors, never handles.',
                 },
                 text: { type: 'string', description: 'Text to type (for type action)' },
                 key: { type: 'string', description: 'Key to press (for press_key action)' },
