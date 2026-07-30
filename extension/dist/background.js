@@ -29,6 +29,7 @@ import { registerMouseHandlers, handleIdleDrift } from './experimental/mouse-hum
 import { registerSecureEvalHandlers } from './security/secure-eval/index.js';
 import { SessionContext } from './session-context.js';
 import { DomainWhitelist } from './domain-whitelist.js';
+import { applyProfileRegister } from './handlers/profile-register.js';
 // chrome.debugger is a reserved word — access via bracket notation
 const chromeDebugger = chrome['debugger'];
 // Top-level variables
@@ -231,12 +232,10 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
             techStackInfo[sender.tab.id] = message.data;
             tabHandlers.setTechStackInfo(sender.tab.id, message.data);
         }
-        // Profile registration from daemon's registration page
+        // Profile registration from daemon's registration page — keep the tab open
+        // so a sole registration tab does not quit Chromium mid-connect.
         if (message.type === 'profileRegister' && message.profile) {
-            chrome.storage.local.set({ supersurf_profile: message.profile });
-            // Close the registration tab
-            if (sender.tab?.id)
-                chrome.tabs.remove(sender.tab.id);
+            void applyProfileRegister(message.profile, sender.tab?.id, chrome.storage, chrome.tabs);
         }
     });
     // When a profile is registered in storage, reconnect to the daemon.

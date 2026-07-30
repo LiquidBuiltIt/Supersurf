@@ -19,6 +19,7 @@ exports.ExtensionBridge = void 0;
 const http_1 = __importDefault(require("http"));
 const ws_1 = require("ws");
 const matchmaker_1 = require("./profiles/matchmaker");
+const registration_page_1 = require("./profiles/registration-page");
 const debugLog = (...args) => {
     const logger = global.DAEMON_LOGGER;
     if (logger)
@@ -26,18 +27,6 @@ const debugLog = (...args) => {
     else if (global.DAEMON_DEBUG)
         console.error('[WS]', ...args);
 };
-/** Registration HTML template served at /register/:name. */
-function registrationHtml(profileName) {
-    return `<html>
-<head><title>Registering Profile...</title></head>
-<body>
-<p>Registering profile "${profileName}"... This tab will close automatically.</p>
-<script>
-  window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${profileName}' }, '*');
-</script>
-</body>
-</html>`;
-}
 /**
  * WebSocket server that bridges the daemon to Chrome extension(s).
  * Routes connections via the Matchmaker pool; unmanaged connections (no profile) are supported.
@@ -88,7 +77,7 @@ class ExtensionBridge {
                             'Content-Type': 'text/html',
                             'Set-Cookie': `supersurf_profile=${profileName}; Path=/; SameSite=Lax`,
                         });
-                        res.end(registrationHtml(profileName));
+                        res.end((0, registration_page_1.registrationHtml)(profileName));
                         return;
                     }
                 }

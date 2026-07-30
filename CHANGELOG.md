@@ -6,6 +6,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- fix: do not auto-close the managed-profile registration tab — closing the sole startup tab quit Chromium (exit 0) right after a successful `connect`, so `browser_tabs` failed with `No extension connected for profile …`. Registration page now stays open with a success UI (“Profile ready”); user may close it manually.
 - feat: extension Settings “Keep browser after session ends” (default on) — daemon skips SIGTERM on last MCP session disconnect; idle/shutdown/orphan kills unchanged
 - **feat: `profiles.chrome_path` in `~/.supersurf/config.json`** — set an absolute Chrome/Chromium binary for managed-profile spawns (skips PATH auto-detect). `null`/omit keeps auto-detect. Also probes macOS `/Applications/Google Chrome.app/...` and Chromium.app. Requires daemon restart.
 - fix(interact): `type` action now inserts real line breaks for `\n` in multi-line text (dispatches the Enter keyDown/keyUp pair instead of a silently-dropped `char` event; CRLF normalized to a single Enter)
