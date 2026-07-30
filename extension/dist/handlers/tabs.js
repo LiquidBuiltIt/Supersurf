@@ -10,10 +10,6 @@
  *
  * Adapted from Blueprint MCP (Apache 2.0)
  */
-/** Rotating palette for session tab groups — each session gets the next color. */
-const GROUP_COLORS = [
-    'blue', 'red', 'green', 'yellow', 'purple', 'cyan', 'pink', 'orange', 'grey',
-];
 /**
  * Manages browser tab CRUD, attaching/detaching, stealth mode tracking,
  * tech stack metadata, and per-session tab group isolation.
@@ -31,6 +27,11 @@ export class TabHandlers {
     sessionGroups = new Map(); // sessionId → Chrome groupId
     groupSessions = new Map(); // groupId → sessionId (reverse)
     colorIndex = 0;
+    static COLOR_STORE_KEY = 'supersurf.sessionGroupColors';
+    /** Active colors only — never assign grey as the live session color. */
+    static ACTIVE_GROUP_COLORS = [
+        'blue', 'red', 'green', 'yellow', 'purple', 'cyan', 'pink', 'orange',
+    ];
     consoleInjector = null;
     dialogInjector = null;
     /**
@@ -173,19 +174,29 @@ export class TabHandlers {
      * Assign a tab to a session's group. Creates the group lazily on first tab.
      */
     async assignTabToGroup(tabId, sessionId) {
-        const existingGroupId = this.sessionGroups.get(sessionId);
-        if (existingGroupId !== undefined) {
-            // Add to existing group
-            await this.browser.tabs.group({ tabIds: [tabId], groupId: existingGroupId });
-            return existingGroupId;
+        const existing = await this.findGroupByClientId(sessionId);
+        if (existing) {
+            const stored = await this.loadStoredColor(sessionId);
+            const restore = stored ?? (existing.color !== 'grey' ? existing.color : null);
+            if (restore && existing.color !== restore) {
+                await this.browser.tabGroups.update(existing.id, { color: restore, title: sessionId });
+            }
+            else if (existing.title !== sessionId) {
+                await this.browser.tabGroups.update(existing.id, { title: sessionId });
+            }
+            await this.browser.tabs.group({ tabIds: [tabId], groupId: existing.id });
+            this.cacheGroup(sessionId, existing.id);
+            return existing.id;
         }
-        // Create new group with this tab
         const groupId = await this.browser.tabs.group({ tabIds: [tabId] });
-        const color = GROUP_COLORS[this.colorIndex % GROUP_COLORS.length];
-        this.colorIndex++;
+        const stored = await this.loadStoredColor(sessionId);
+        const color = stored ?? TabHandlers.ACTIVE_GROUP_COLORS[this.colorIndex % TabHandlers.ACTIVE_GROUP_COLORS.length];
+        if (!stored) {
+            this.colorIndex++;
+        }
         await this.browser.tabGroups.update(groupId, { title: sessionId, color });
-        this.sessionGroups.set(sessionId, groupId);
-        this.groupSessions.set(groupId, sessionId);
+        await this.saveStoredColor(sessionId, color);
+        this.cacheGroup(sessionId, groupId);
         this.logger.log(`Created tab group ${groupId} (${color}) for session "${sessionId}"`);
         return groupId;
     }
@@ -200,10 +211,10 @@ export class TabHandlers {
         const sessionGroupId = this.sessionGroups.get(sessionId);
         if (sessionGroupId !== undefined && groupId === sessionGroupId)
             return 'own';
-        // Check if it belongs to any known session
-        if (this.groupSessions.has(groupId))
-            return 'other';
-        // Unknown group (user-created) — treat as ungrouped
+        if (this.groupSessions.has(groupId)) {
+            return this.groupSessions.get(groupId) === sessionId ? 'own' : 'other';
+        }
+        // Unknown in cache — treat as ungrouped for claim (async title hydrate happens in assign/list paths)
         return 'ungrouped';
     }
     handleGroupRemoved(groupId) {
@@ -214,32 +225,73 @@ export class TabHandlers {
             this.logger.log(`Tab group ${groupId} removed — cleared session "${sessionId}" mapping`);
         }
     }
-    /**
-     * Called when a session disconnects. Ungroups its tabs so they become available again.
-     */
-    async handleSessionDisconnect(sessionId) {
-        const groupId = this.sessionGroups.get(sessionId);
-        if (groupId === undefined) {
-            return { success: true, message: `No tab group for session "${sessionId}"` };
-        }
-        // Find all tabs in this group and ungroup them
-        try {
-            const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
-            const groupTabIds = allTabs
-                .filter(t => (t.groupId ?? -1) === groupId)
-                .map(t => t.id)
-                .filter(Boolean);
-            if (groupTabIds.length > 0) {
-                await this.browser.tabs.ungroup(groupTabIds);
+    async loadColorStore() {
+        const raw = await this.browser.storage.local.get([TabHandlers.COLOR_STORE_KEY]);
+        const value = raw[TabHandlers.COLOR_STORE_KEY];
+        return value && typeof value === 'object' ? { ...value } : {};
+    }
+    async loadStoredColor(clientId) {
+        const store = await this.loadColorStore();
+        const c = store[clientId];
+        return c && c !== 'grey' ? c : null;
+    }
+    async saveStoredColor(clientId, color) {
+        if (color === 'grey')
+            return;
+        const store = await this.loadColorStore();
+        store[clientId] = color;
+        await this.browser.storage.local.set({ [TabHandlers.COLOR_STORE_KEY]: store });
+    }
+    async findGroupByClientId(clientId) {
+        const cached = this.sessionGroups.get(clientId);
+        if (cached !== undefined) {
+            let stale = false;
+            try {
+                const g = await this.browser.tabGroups.get(cached);
+                if (g?.title === clientId)
+                    return g;
+                stale = true;
+            }
+            catch {
+                stale = true;
+            }
+            if (stale) {
+                this.sessionGroups.delete(clientId);
+                this.groupSessions.delete(cached);
             }
         }
-        catch (err) {
-            this.logger.log(`Error ungrouping tabs for session "${sessionId}":`, err);
+        const matches = await this.browser.tabGroups.query({ title: clientId });
+        const g = matches[0] ?? null;
+        if (g) {
+            this.sessionGroups.set(clientId, g.id);
+            this.groupSessions.set(g.id, clientId);
         }
-        this.sessionGroups.delete(sessionId);
-        this.groupSessions.delete(groupId);
-        this.logger.log(`Session "${sessionId}" disconnected — ungrouped tabs from group ${groupId}`);
-        return { success: true, message: `Ungrouped tabs for session "${sessionId}"` };
+        return g;
+    }
+    cacheGroup(clientId, groupId) {
+        this.sessionGroups.set(clientId, groupId);
+        this.groupSessions.set(groupId, clientId);
+    }
+    /**
+     * Called when a session disconnects. Greys its tab group without ungrouping.
+     */
+    async handleSessionDisconnect(sessionId) {
+        const group = await this.findGroupByClientId(sessionId);
+        if (!group) {
+            return { success: true, message: `No tab group for session "${sessionId}"` };
+        }
+        try {
+            // Persist active color before greying (no-op if already grey / missing)
+            if (group.color && group.color !== 'grey') {
+                await this.saveStoredColor(sessionId, group.color);
+            }
+            await this.browser.tabGroups.update(group.id, { color: 'grey' });
+        }
+        catch (err) {
+            this.logger.log(`Error greying group for session "${sessionId}":`, err);
+        }
+        this.logger.log(`Session "${sessionId}" disconnected — group ${group.id} set to grey (tabs kept)`);
+        return { success: true, message: `Greyed tab group for session "${sessionId}"` };
     }
     // ─── Core Tab Operations ───────────────────────────────────────
     /**
@@ -247,8 +299,11 @@ export class TabHandlers {
      * to other sessions' groups while showing own + ungrouped tabs.
      */
     async getTabs(params) {
-        const allTabs = await this.browser.tabs.query({});
         const sessionId = params?._sessionId;
+        if (sessionId) {
+            await this.findGroupByClientId(sessionId);
+        }
+        const allTabs = await this.browser.tabs.query({});
         // Resolve window types for all tabs
         const windowCache = new Map();
         for (const tab of allTabs) {

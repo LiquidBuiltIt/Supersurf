@@ -42,6 +42,11 @@ export function createMockChrome() {
         url: 'https://example.com',
         windowId: 1,
       })),
+      group: vi.fn(async (opts: { tabIds: number | number[]; groupId?: number }) => {
+        if (opts.groupId !== undefined) return opts.groupId;
+        return 9001;
+      }),
+      ungroup: vi.fn(async () => {}),
       onUpdated: makeEvent(),
       onRemoved: makeEvent(),
       onActivated: makeEvent(),
@@ -116,7 +121,15 @@ export function createMockChrome() {
     },
 
     tabGroups: {
-      update: vi.fn(async () => ({})),
+      update: vi.fn(async (_id: number, props: any) => ({ id: _id, ...props })),
+      get: vi.fn(async (id: number) => ({
+        id,
+        collapsed: false,
+        color: 'blue',
+        title: '',
+        windowId: 1,
+      })),
+      query: vi.fn(async (_q: any) => []),
       onRemoved: makeEvent(),
     },
 
