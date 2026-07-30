@@ -6,6 +6,8 @@
 
 import { loadDomain } from './store';
 import { normalizeName } from './naming';
+import { domainOf, routeOf } from './url';
+import { experimentRegistry } from '../index';
 import type { FingerprintRecord } from './types';
 
 /**
@@ -79,4 +81,43 @@ export function resolveHandleName(
   const record = tier.sort(bestFirst)[0];
 
   return { selector: record.selector, record, match, candidateCount };
+}
+
+/** What a translation attempt produced. */
+export interface SelectorOrHandle {
+  /** The selector to query with — the translated one on a hit, the input otherwise. */
+  selector: string;
+  /** Non-null only when a handle name matched a stored record. */
+  handle: HandleResolution | null;
+  /** True when the input looked like a handle and a lookup actually ran, so a
+   *  `null` handle means "miss", not "this was a plain selector". */
+  attempted: boolean;
+}
+
+/**
+ * The single gated entry point for handle translation. Idempotent: a real CSS
+ * selector (or an already-translated one) costs one regex test and comes back
+ * unchanged, so every existing call path is untouched.
+ *
+ * A miss deliberately returns the input rather than throwing — the caller then
+ * runs the normal CSS path, which either finds a real element with that name
+ * (correct, it WAS a selector) or produces the normal not-found error. There is
+ * no path on which a handle can resolve to the wrong element.
+ */
+export function resolveSelectorOrHandle(
+  url: string | undefined,
+  selector: string,
+): SelectorOrHandle {
+  const miss: SelectorOrHandle = { selector, handle: null, attempted: false };
+  if (!experimentRegistry.isEnabled('fingerprinting')) return miss;
+  if (!looksLikeHandle(selector)) return miss;
+
+  const domain = domainOf(url);
+  // Nothing is ever persisted into the 'unknown' bucket (see captureOnResolve),
+  // so there is nothing to resolve against.
+  if (domain === 'unknown') return miss;
+
+  const handle = resolveHandleName(domain, routeOf(url), selector);
+  if (!handle) return { selector, handle: null, attempted: true };
+  return { selector: handle.selector, handle, attempted: true };
 }
