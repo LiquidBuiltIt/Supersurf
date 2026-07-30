@@ -71,6 +71,14 @@ export interface ToolContext {
    * experiment. Optional — wired by BrowserBridge.
    */
   healFingerprintInContext?(contextId: number, selector: string): Promise<{ cx: number; cy: number; score: number } | null>;
+  /**
+   * Translate a playbook handle name (bare snake_case, e.g. `tweet_button`) into the
+   * selector it was fingerprinted against. Synchronous, idempotent, and gated by the
+   * `fingerprinting` experiment — a real CSS selector, or an unknown handle, comes back
+   * unchanged. `getSelectorExpression` already applies this; call it directly only at
+   * raw-CDP sites that bypass the expression builder. Optional — wired by BrowserBridge.
+   */
+  resolveSelector?(selector: string): string;
   /** Convert a selector string (including `:has-text()`) to a JS querySelector expression. */
   getSelectorExpression(selector: string): string;
   /** Search the page for elements matching partial text when a selector fails. */
