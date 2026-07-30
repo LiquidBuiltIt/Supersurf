@@ -16,6 +16,7 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { FileLogger } from 'shared';
 import { Matchmaker } from './profiles/matchmaker';
+import { registrationHtml } from './profiles/registration-page';
 import type { PooledConnection } from './profiles/types';
 
 const debugLog = (...args: unknown[]) => {
@@ -23,19 +24,6 @@ const debugLog = (...args: unknown[]) => {
   if (logger) logger.log('[WS]', ...args);
   else if ((global as any).DAEMON_DEBUG) console.error('[WS]', ...args);
 };
-
-/** Registration HTML template served at /register/:name. */
-function registrationHtml(profileName: string): string {
-  return `<html>
-<head><title>Registering Profile...</title></head>
-<body>
-<p>Registering profile "${profileName}"... This tab will close automatically.</p>
-<script>
-  window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${profileName}' }, '*');
-</script>
-</body>
-</html>`;
-}
 
 /**
  * WebSocket server that bridges the daemon to Chrome extension(s).
