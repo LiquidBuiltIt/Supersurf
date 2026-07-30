@@ -22,6 +22,8 @@ export declare function isSnapOnlySystem(): boolean;
 /** Optional Chromium spawn flags resolved from ConfigService. */
 export interface StartupOpts {
     disableGpu?: boolean;
+    /** Absolute path from `profiles.chrome_path`; when set, skips auto-detect. */
+    chromePath?: string | null;
 }
 /**
  * Spawn a Chromium instance for a managed profile.

@@ -466,6 +466,7 @@ async function main() {
     const version = getVersion();
     const startupOpts = {
         disableGpu: cfg.get().profiles.startup_opts.disable_gpu,
+        chromePath: cfg.get().profiles.chrome_path,
     };
     const ipc = new ipc_1.IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version, startupOpts });
     // Watch ~/.supersurf/config.json for post-startup edits. The daemon snapshots

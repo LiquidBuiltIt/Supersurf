@@ -74,6 +74,8 @@ export class ConfigService {
       v === 'tranco' || v === 'custom' || v === 'both';
     const isDebugMode = (v: unknown): v is DebugMode =>
       v === false || v === 'truncate' || v === 'no_truncate';
+    const isChromePath = (v: unknown): v is string | null =>
+      v === null || (typeof v === 'string' && v.trim().length > 0);
 
     const pick = this.pick.bind(this);
 
@@ -134,6 +136,11 @@ export class ConfigService {
           inp.file.logging?.usage_metrics, D.logging.usage_metrics, isBool, warn),
       },
       profiles: {
+        chrome_path: pick('profiles.chrome_path',
+          inp.cli.profiles?.chrome_path,
+          inp.env.profiles?.chrome_path,
+          inp.file.profiles?.chrome_path,
+          D.profiles.chrome_path, isChromePath, warn),
         startup_opts: {
           disable_gpu: pick('profiles.startup_opts.disable_gpu',
             inp.cli.profiles?.startup_opts?.disable_gpu,

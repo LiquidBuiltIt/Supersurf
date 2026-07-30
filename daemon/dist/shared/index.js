@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SUPERSURF_SERVICE = exports.KeychainNotAvailableError = exports.KeychainError = exports.LinuxKeychainBackend = exports.MacosKeychainBackend = exports.InMemoryKeychainBackend = exports.getKeychainBackend = exports.ensureConfigFile = exports.loadEnvConfig = exports.loadJsonConfig = exports.SCAFFOLD_DEFAULTS = exports.HARDCODED_DEFAULTS = exports.ConfigService = exports.replacer = exports.truncateString = exports.sanitizeFilename = exports.LOG_ROOT = exports.FileLogger = void 0;
+exports.SUPERSURF_SERVICE = exports.KeychainNotAvailableError = exports.KeychainError = exports.LinuxKeychainBackend = exports.MacosKeychainBackend = exports.InMemoryKeychainBackend = exports.getKeychainBackend = exports.QUERY_ALL_DEEP_SOURCE = exports.QUERY_DEEP_SOURCE = exports.ensureConfigFile = exports.loadEnvConfig = exports.loadJsonConfig = exports.SCAFFOLD_DEFAULTS = exports.HARDCODED_DEFAULTS = exports.ConfigService = exports.replacer = exports.truncateString = exports.sanitizeFilename = exports.LOG_ROOT = exports.FileLogger = void 0;
 var logger_1 = require("./logger/logger");
 Object.defineProperty(exports, "FileLogger", { enumerable: true, get: function () { return logger_1.FileLogger; } });
 Object.defineProperty(exports, "LOG_ROOT", { enumerable: true, get: function () { return logger_1.LOG_ROOT; } });
@@ -14,6 +14,9 @@ Object.defineProperty(exports, "SCAFFOLD_DEFAULTS", { enumerable: true, get: fun
 Object.defineProperty(exports, "loadJsonConfig", { enumerable: true, get: function () { return index_1.loadJsonConfig; } });
 Object.defineProperty(exports, "loadEnvConfig", { enumerable: true, get: function () { return index_1.loadEnvConfig; } });
 Object.defineProperty(exports, "ensureConfigFile", { enumerable: true, get: function () { return index_1.ensureConfigFile; } });
+var shadow_walker_1 = require("./dom/shadow-walker");
+Object.defineProperty(exports, "QUERY_DEEP_SOURCE", { enumerable: true, get: function () { return shadow_walker_1.QUERY_DEEP_SOURCE; } });
+Object.defineProperty(exports, "QUERY_ALL_DEEP_SOURCE", { enumerable: true, get: function () { return shadow_walker_1.QUERY_ALL_DEEP_SOURCE; } });
 var index_2 = require("./keychain/index");
 Object.defineProperty(exports, "getKeychainBackend", { enumerable: true, get: function () { return index_2.getKeychainBackend; } });
 Object.defineProperty(exports, "InMemoryKeychainBackend", { enumerable: true, get: function () { return index_2.InMemoryKeychainBackend; } });

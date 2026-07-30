@@ -53,6 +53,7 @@ class ConfigService {
         const isStrArr = (v) => Array.isArray(v) && v.every((x) => typeof x === 'string');
         const isMode = (v) => v === 'tranco' || v === 'custom' || v === 'both';
         const isDebugMode = (v) => v === false || v === 'truncate' || v === 'no_truncate';
+        const isChromePath = (v) => v === null || (typeof v === 'string' && v.trim().length > 0);
         const pick = this.pick.bind(this);
         return {
             experiments: {
@@ -79,6 +80,7 @@ class ConfigService {
                 usage_metrics: pick('logging.usage_metrics', inp.cli.logging?.usage_metrics, inp.env.logging?.usage_metrics, inp.file.logging?.usage_metrics, D.logging.usage_metrics, isBool, warn),
             },
             profiles: {
+                chrome_path: pick('profiles.chrome_path', inp.cli.profiles?.chrome_path, inp.env.profiles?.chrome_path, inp.file.profiles?.chrome_path, D.profiles.chrome_path, isChromePath, warn),
                 startup_opts: {
                     disable_gpu: pick('profiles.startup_opts.disable_gpu', inp.cli.profiles?.startup_opts?.disable_gpu, inp.env.profiles?.startup_opts?.disable_gpu, inp.file.profiles?.startup_opts?.disable_gpu, D.profiles.startup_opts.disable_gpu, isBool, warn),
                 },

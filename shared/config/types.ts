@@ -25,6 +25,8 @@ export interface Config {
     usage_metrics: boolean;
   };
   profiles: {
+    /** Absolute path to Chrome/Chromium binary, or null to auto-detect. */
+    chrome_path: string | null;
     startup_opts: {
       disable_gpu: boolean;
     };
@@ -41,6 +43,7 @@ export type PartialConfig = {
   daemon?: Partial<Config['daemon']>;
   logging?: Partial<Config['logging']>;
   profiles?: {
+    chrome_path?: string | null;
     startup_opts?: Partial<Config['profiles']['startup_opts']>;
   };
   tips?: boolean;

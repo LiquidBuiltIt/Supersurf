@@ -40,6 +40,7 @@ export interface IPCServerMeta {
   version: string;
   startupOpts?: {
     disableGpu?: boolean;
+    chromePath?: string | null;
   };
 }
 

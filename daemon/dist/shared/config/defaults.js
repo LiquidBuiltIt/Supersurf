@@ -26,6 +26,7 @@ exports.HARDCODED_DEFAULTS = {
         usage_metrics: false,
     },
     profiles: {
+        chrome_path: null,
         startup_opts: {
             disable_gpu: false,
         },
@@ -42,6 +43,7 @@ exports.SCAFFOLD_DEFAULTS = {
     daemon: { ...exports.HARDCODED_DEFAULTS.daemon },
     logging: { ...exports.HARDCODED_DEFAULTS.logging, usage_metrics: true },
     profiles: {
+        chrome_path: exports.HARDCODED_DEFAULTS.profiles.chrome_path,
         startup_opts: { ...exports.HARDCODED_DEFAULTS.profiles.startup_opts },
     },
 };

@@ -461,6 +461,7 @@ async function main(): Promise<void> {
   const version = getVersion();
   const startupOpts = {
     disableGpu: cfg.get().profiles.startup_opts.disable_gpu,
+    chromePath: cfg.get().profiles.chrome_path,
   };
   const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version, startupOpts });
 

@@ -27,6 +27,9 @@ const CHROMIUM_PATHS = [
   '/opt/homebrew/bin/google-chrome',
   '/usr/local/bin/chromium',
   '/usr/local/bin/google-chrome',
+  // macOS (.app bundles — not normally on PATH)
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Chromium.app/Contents/MacOS/Chromium',
   // Linux (deb / system)
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser',
@@ -106,6 +109,8 @@ function buildChromiumNotFoundError(): string {
 /** Optional Chromium spawn flags resolved from ConfigService. */
 export interface StartupOpts {
   disableGpu?: boolean;
+  /** Absolute path from `profiles.chrome_path`; when set, skips auto-detect. */
+  chromePath?: string | null;
 }
 
 /**
@@ -129,7 +134,24 @@ export function spawnChromium(
   openRegistration: boolean,
   startupOpts: StartupOpts = {},
 ): ChildProcess {
-  const binary = findChromiumBinary();
+  const configured = startupOpts.chromePath?.trim() || null;
+  let binary: string | null;
+  if (configured) {
+    if (!fs.existsSync(configured)) {
+      throw new Error(
+        `Chrome binary not found at profiles.chrome_path: ${configured}`,
+      );
+    }
+    if (isSnapBinary(configured)) {
+      throw new Error(
+        `profiles.chrome_path points to a Snap-confined binary (${configured}), ` +
+        `which cannot access ~/.supersurf/. Use a deb/Homebrew Chrome or Google Chrome.app.`,
+      );
+    }
+    binary = configured;
+  } else {
+    binary = findChromiumBinary();
+  }
   if (!binary) {
     throw new Error(buildChromiumNotFoundError());
   }
