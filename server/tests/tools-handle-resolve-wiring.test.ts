@@ -111,4 +111,76 @@ describe('raw-CDP selector sites translate handles', () => {
     await onGetElementStyles(ctx, { selector: 'tweet_button' }, {});
     expect(calls.find(c => c.method === 'DOM.querySelector')?.params.selector).toBe('#post');
   });
+
+  it('force_pseudo_state success text reports the handle, not the translated selector', async () => {
+    const { executeAction } = await import('../src/tools/interaction/registry');
+    await import('../src/tools/interaction/force-pseudo-state');
+    const { ctx } = ctxSpy();
+    const result = await executeAction(ctx, { type: 'force_pseudo_state', selector: 'tweet_button', pseudoStates: ['hover'] });
+    expect(result).toContain('tweet_button');
+    expect(result).not.toContain('#post');
+  });
+
+  it('browser_get_element_styles text output reports the handle, not the translated selector', async () => {
+    const { onGetElementStyles } = await import('../src/tools/styles');
+    const { ctx } = ctxSpy();
+    const result = await onGetElementStyles(ctx, { selector: 'tweet_button' }, {});
+    expect(result.content[0].text).toContain('tweet_button');
+    expect(result.content[0].text).not.toContain('#post');
+  });
+
+  it('browser_get_element_styles rawResult echoes the handle, not the translated selector', async () => {
+    const { onGetElementStyles } = await import('../src/tools/styles');
+    const { ctx } = ctxSpy();
+    const result = await onGetElementStyles(ctx, { selector: 'tweet_button' }, { rawResult: true });
+    expect(result.selector).toBe('tweet_button');
+  });
+});
+
+describe('raw-CDP error text reports the handle, not the translated selector', () => {
+  /** Same shape as ctxSpy() above, but DOM.querySelector and the frame walk both miss,
+   *  forcing each site down its "Element not found" path. */
+  function ctxSpyMiss() {
+    const ctx: any = {
+      resolveSelector: (s: string) => (s === 'tweet_button' ? '#post' : s),
+      getSelectorExpression: (s: string) => `(()=>document.querySelector(${JSON.stringify(s)}))()`,
+      cdp: async (method: string) => {
+        if (method === 'DOM.getDocument') return { root: { nodeId: 1 } };
+        if (method === 'DOM.querySelector') return { nodeId: 0 };
+        if (method === 'Page.getFrameTree') return {}; // no frameTree => findElementInFrames misses
+        return {};
+      },
+      eval: async () => [],
+      formatResult: (_n: string, r: any) => r,
+      error: (m: string) => new Error(m),
+    };
+    return ctx;
+  }
+
+  it('force_pseudo_state "Element not found" reports the handle, not the translated selector', async () => {
+    const { executeAction } = await import('../src/tools/interaction/registry');
+    await import('../src/tools/interaction/force-pseudo-state');
+    const ctx = ctxSpyMiss();
+    let err: Error | undefined;
+    try {
+      await executeAction(ctx, { type: 'force_pseudo_state', selector: 'tweet_button', pseudoStates: ['hover'] });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err?.message).toContain('tweet_button');
+    expect(err?.message).not.toContain('#post');
+  });
+
+  it('browser_get_element_styles "Element not found" reports the handle, not the translated selector', async () => {
+    const { onGetElementStyles } = await import('../src/tools/styles');
+    const ctx = ctxSpyMiss();
+    let err: Error | undefined;
+    try {
+      await onGetElementStyles(ctx, { selector: 'tweet_button' }, {});
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err?.message).toContain('tweet_button');
+    expect(err?.message).not.toContain('#post');
+  });
 });

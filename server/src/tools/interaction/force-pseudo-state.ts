@@ -16,16 +16,16 @@ registerAction({
     if (!nodeId) {
       const selectorExpr = ctx.getSelectorExpression(selector);
       const match = await findElementInFrames(ctx, selectorExpr);
-      if (!match) throw new Error(`Element not found: ${selector}`);
+      if (!match) throw new Error(`Element not found: ${action.selector}`);
       const req = await ctx.cdp('DOM.requestNode', { objectId: match.objectId });
       nodeId = req.nodeId;
     }
-    if (!nodeId) throw new Error(`Element not found: ${selector}`);
+    if (!nodeId) throw new Error(`Element not found: ${action.selector}`);
 
     await ctx.cdp('CSS.forcePseudoState', {
       nodeId,
       forcedPseudoClasses: pseudoStates,
     });
-    return `Forced pseudo-states [${pseudoStates.join(', ')}] on ${selector}`;
+    return `Forced pseudo-states [${pseudoStates.join(', ')}] on ${action.selector}`;
   },
 });
