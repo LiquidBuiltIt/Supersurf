@@ -245,6 +245,34 @@ describe('getCenterInFrame', () => {
     expect(ctx.captureFingerprintInContext).toHaveBeenCalledWith(7, '#btn', undefined);
   });
 
+  it('iframe-fallback: translates a handle before firing captureFingerprintInContext (not the raw handle)', async () => {
+    const ctx = mockCtx(async (method, params) => {
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [{ frame: { id: 'c' }, childFrames: [] }] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+      if (method === 'Runtime.evaluate' && params.contextId === 7) {
+        if (params.returnByValue) return { result: { value: { left: 10, top: 20, width: 40, height: 30 } } };
+        return { result: { objectId: 'el-obj' } };
+      }
+      if (method === 'DOM.getFrameOwner' && params.frameId === 'c') return { backendNodeId: 99 };
+      if (method === 'DOM.resolveNode') return { object: { objectId: 'iframe-obj' } };
+      if (method === 'Runtime.callFunctionOn' && params.objectId === 'iframe-obj') {
+        return { result: { value: { left: 100, top: 50 } } };
+      }
+    });
+    ctx.getElementCenter = vi.fn().mockRejectedValue(new Error('Element not found: `tweet_button`'));
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    ctx.resolveSelector = vi.fn((s: string) => (s === 'tweet_button' ? '#post' : s));
+    ctx.captureFingerprintInContext = vi.fn();
+    const result = await getCenterInFrame(ctx, 'tweet_button');
+    expect(result).toEqual({ x: 130, y: 85, contextId: 7 });
+    // Bug would pass the raw handle here — the capture key must be the translated selector,
+    // since the fingerprint store's keys are real CSS selectors, not handle names.
+    expect(ctx.captureFingerprintInContext).toHaveBeenCalledWith(7, '#post', undefined);
+    expect(ctx.captureFingerprintInContext).not.toHaveBeenCalledWith(7, 'tweet_button', undefined);
+  });
+
   it('top-frame happy path does NOT fire captureFingerprintInContext (capture handled in getElementCenter)', async () => {
     const ctx = mockCtx(async () => { throw new Error('cdp should not be called'); });
     ctx.getElementCenter = vi.fn().mockResolvedValue({ x: 100, y: 200 });
@@ -302,6 +330,32 @@ describe('getCenterInFrame', () => {
     const result = await getCenterInFrame(ctx, '#btn');
     // Winner is c2 (score 0.95): local (5,5) + offset (200,100) = (205, 105), contextId 22.
     expect(result).toEqual({ x: 205, y: 105, contextId: 22 });
+  });
+
+  it('iframe heal: translates a handle before calling healFingerprintInContext (not the raw handle)', async () => {
+    const ctx = mockCtx(async (method, params) => {
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [{ frame: { id: 'c' }, childFrames: [] }] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+      // findElementInFrames probe: selector matches nothing in any frame.
+      if (method === 'Runtime.evaluate' && !params.returnByValue) return { result: {} };
+      if (method === 'DOM.getFrameOwner' && params.frameId === 'c') return { backendNodeId: 99 };
+      if (method === 'DOM.resolveNode' && params.backendNodeId === 99) return { object: { objectId: 'iframe-obj' } };
+      if (method === 'Runtime.callFunctionOn' && params.objectId === 'iframe-obj') {
+        return { result: { value: { left: 100, top: 50 } } };
+      }
+    });
+    ctx.getElementCenter = vi.fn().mockRejectedValue(new Error('Element not found: `tweet_button`'));
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    ctx.resolveSelector = vi.fn((s: string) => (s === 'tweet_button' ? '#post' : s));
+    ctx.healFingerprintInContext = vi.fn().mockResolvedValue({ cx: 30, cy: 35, score: 0.9 });
+    const result = await getCenterInFrame(ctx, 'tweet_button');
+    expect(result).toEqual({ x: 130, y: 85, contextId: 7 });
+    // Bug would pass the raw handle here — store keys are real CSS selectors, so a
+    // handle-keyed heal lookup can never hit.
+    expect(ctx.healFingerprintInContext).toHaveBeenCalledWith(7, '#post');
+    expect(ctx.healFingerprintInContext).not.toHaveBeenCalledWith(7, 'tweet_button');
   });
 
   it('iframe heal: throws the original top-frame error when no frame yields a gate-passing hit', async () => {

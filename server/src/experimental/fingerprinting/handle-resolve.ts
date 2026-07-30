@@ -2,7 +2,8 @@
 //
 // The read side of playbooks: translate an agent-supplied handle name
 // (`tweet_button`) back into the selector of the element it was bound to at
-// capture time. Pure + synchronous; the caller owns the experiment gate.
+// capture time. Pure + synchronous; `resolveSelectorOrHandle` checks the
+// `fingerprinting` experiment gate itself, so callers don't have to.
 
 import { loadDomain } from './store';
 import { normalizeName } from './naming';

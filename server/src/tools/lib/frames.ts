@@ -267,11 +267,16 @@ export async function getCenterInFrame(
     const { x, y } = await ctx.getElementCenter(selector, meta);
     return { x, y, contextId: null };
   } catch (topFrameErr) {
-    const expr = ctx.getSelectorExpression(selector);
+    // Translate a handle name once, up front: `query` is used for the page query,
+    // the fingerprint capture key AND the heal key below, and a raw handle name
+    // would miss on all three (store keys are real CSS selectors). Mirrors the
+    // top-frame split in `resolveWithHealing` (fingerprinting/index.ts).
+    const query = ctx.resolveSelector?.(selector) ?? selector;
+    const expr = ctx.getSelectorExpression(query);
     const match = await findElementInFrames(ctx, expr);
     if (!match) {
       // Selector matched no frame. Try a fingerprint heal across child frames.
-      const healed = await healInFrames(ctx, selector);
+      const healed = await healInFrames(ctx, query);
       if (healed) return healed;
       throw topFrameErr;
     }
@@ -299,7 +304,7 @@ export async function getCenterInFrame(
     const y = Math.round(rect.top + offset.offsetY + rect.height / 2);
     // Iframe-nested elements bypass the top-frame capture wrapper (ctx.getElementCenter),
     // so fingerprint capture is fired here, bound to the child frame's execution context.
-    ctx.captureFingerprintInContext?.(match.contextId, selector, meta);
+    ctx.captureFingerprintInContext?.(match.contextId, query, meta);
     return { x, y, contextId: match.contextId };
   }
 }
