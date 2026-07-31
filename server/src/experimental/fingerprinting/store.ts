@@ -5,9 +5,21 @@ import type { DomainStore, FingerprintRecord } from './types';
 
 let baseDir = path.join(os.homedir(), '.supersurf', 'fingerprints');
 
-/** Test-only override of the storage directory. */
+/**
+ * Parsed-domain memo, keyed by absolute file path.
+ *
+ * Guarded by mtime AND size rather than write-through invalidation: each MCP client
+ * runs its own server process and several can target the same domain file, so a
+ * write-through-only cache would serve another process's stale parse indefinitely.
+ * `statSync` is one syscall with no parse; `size` covers the case where two writes
+ * land inside the same filesystem mtime granularity.
+ */
+const cache = new Map<string, { mtimeMs: number; size: number; data: DomainStore }>();
+
+/** Test-only override of the storage directory. Clears the memo. */
 export function setBaseDirForTests(dir: string): void {
   baseDir = dir;
+  cache.clear();
 }
 
 function domainFile(domain: string): string {
@@ -16,17 +28,39 @@ function domainFile(domain: string): string {
   return path.join(baseDir, `${safe}.json`);
 }
 
+/**
+ * Read a domain store, reusing the last parse when the file on disk is unchanged.
+ *
+ * CONTRACT: the returned object is the cached instance, not a copy. Treat it as
+ * read-only — mutate a store only via `putRecord`, which saves and refreshes the
+ * memo in the same breath. Mutating without saving poisons the cache.
+ */
 export function loadDomain(domain: string): DomainStore {
+  const file = domainFile(domain);
   try {
-    return JSON.parse(fs.readFileSync(domainFile(domain), 'utf8')) as DomainStore;
+    const st = fs.statSync(file);
+    const hit = cache.get(file);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.data;
+    const data = JSON.parse(fs.readFileSync(file, 'utf8')) as DomainStore;
+    cache.set(file, { mtimeMs: st.mtimeMs, size: st.size, data });
+    return data;
   } catch {
+    // Missing or unparseable: drop any memo so a later valid write is picked up.
+    cache.delete(file);
     return { domain, routes: {} };
   }
 }
 
 export function saveDomain(store: DomainStore): void {
   fs.mkdirSync(baseDir, { recursive: true });
-  fs.writeFileSync(domainFile(store.domain), JSON.stringify(store, null, 2));
+  const file = domainFile(store.domain);
+  fs.writeFileSync(file, JSON.stringify(store, null, 2));
+  try {
+    const st = fs.statSync(file);
+    cache.set(file, { mtimeMs: st.mtimeMs, size: st.size, data: store });
+  } catch {
+    cache.delete(file);
+  }
 }
 
 export function getRecord(domain: string, route: string, selector: string): FingerprintRecord | undefined {
