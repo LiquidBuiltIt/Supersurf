@@ -10,6 +10,7 @@
  */
 
 import type { ToolContext } from './lib/types';
+import { annotateSelector } from '../experimental/fingerprinting/handle-annotate';
 
 /**
  * Coalesce adjacent `InlineTextBox` siblings under the same parent into a single
@@ -153,9 +154,13 @@ export async function onSnapshot(ctx: ToolContext, options: any): Promise<any> {
   if (!output) output = 'No meaningful accessibility nodes\n';
 
   if (formFields && formFields.length > 0) {
+    // ONE index build per call — never per field. The accessibility-tree loop above is
+    // deliberately untouched: CDP AX nodes carry no selector, so there is nothing to key
+    // a corpus lookup on and any match there would be a guess.
+    const handles = ctx.getHandleIndex?.() ?? new Map<string, string>();
     output += '\n---\n### Form Fields\n\n';
     for (const f of formFields) {
-      const parts = [`\`${f.selector}\``];
+      const parts = [`\`${annotateSelector(handles, f.selector)}\``];
       if (f.label) parts.push(`label="${f.label}"`);
       if (f.type) parts.push(`type=${f.type}`);
       if (f.required) parts.push('required');
@@ -251,10 +256,12 @@ export async function onLookup(ctx: ToolContext, args: any, options: any): Promi
     return { content: [{ type: 'text', text: `No elements found with text: "${searchText}"` }] };
   }
 
+  // ONE index build per call — never per match.
+  const handles = ctx.getHandleIndex?.() ?? new Map<string, string>();
   let output = `### Found ${data.total} element(s) with text: "${searchText}"\n\n`;
   matches.forEach((m: any, i: number) => {
     const vis = m.visible ? '✓' : '✗ hidden';
-    output += `${i + 1}. **${m.selector}** [${m.tag}] ${vis}\n`;
+    output += `${i + 1}. **${annotateSelector(handles, m.selector)}** [${m.tag}] ${vis}\n`;
     output += `   Text: "${m.text}"\n   Position: (${m.x}, ${m.y}) | Size: ${m.width}×${m.height}px\n`;
     if (m.formField) {
       const f = m.formField;

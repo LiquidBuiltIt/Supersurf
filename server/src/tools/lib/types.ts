@@ -79,6 +79,14 @@ export interface ToolContext {
    * raw-CDP sites that bypass the expression builder. Optional — wired by BrowserBridge.
    */
   resolveSelector?(selector: string): string;
+  /**
+   * Build the reader-side handle index for the currently attached tab's URL, so
+   * `browser_snapshot` / `browser_lookup` can show a recorded handle in place of a
+   * raw selector. Call ONCE per tool call and probe the returned Map — never call it
+   * per node. Gated by the `fingerprinting` experiment; returns an empty index when
+   * off. Optional — wired by BrowserBridge.
+   */
+  getHandleIndex?(): import('../../experimental/fingerprinting/handle-annotate').HandleIndex;
   /** Convert a selector string (including `:has-text()`) to a JS querySelector expression. */
   getSelectorExpression(selector: string): string;
   /** Search the page for elements matching partial text when a selector fails. */

@@ -16,6 +16,7 @@ import { UsageMetricsLogger } from './usage-metrics-logger';
 import { getExperimentalToolSchemas, experimentRegistry } from './experimental/index';
 import { resolveWithHealing, captureInContext, healInContext, domainOf, routeOf } from './experimental/fingerprinting/index';
 import { resolveSelectorOrHandle } from './experimental/fingerprinting/handle-resolve';
+import { buildHandleIndex } from './experimental/fingerprinting/handle-annotate';
 
 import { getToolSchemas } from './tools/schemas';
 import { cdp as cdpFn, evalExpr as evalFn } from './tools/lib/cdp';
@@ -154,6 +155,7 @@ export class BrowserBridge {
           return { cx: hit.cx, cy: hit.cy, score: hit.score };
         }),
       resolveSelector: resolveSelectorSync,
+      getHandleIndex: () => buildHandleIndex(this.connectionManager?.getAttachedTab()?.url),
       getSelectorExpression: (selector: string) => getSelectorExpression(resolveSelectorSync(selector)),
       findAlternativeSelectors: (selector: string) => findAlternativeSelectors(evalFnBound, selector),
       formatResult: (name, result, options) =>
