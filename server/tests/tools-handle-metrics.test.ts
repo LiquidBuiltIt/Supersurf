@@ -3,8 +3,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BrowserBridge } from '../src/tools';
-import { setBaseDirForTests } from '../src/experimental/fingerprinting/store';
+import { putRecord, setBaseDirForTests } from '../src/experimental/fingerprinting/store';
 import { experimentRegistry } from '../src/experimental/index';
+import type { FingerprintRecord } from '../src/experimental/fingerprinting/types';
 
 const FP = JSON.stringify({
   role: 'textbox', name: 'First name', text: '', tag: 'input', type: 'text',
@@ -86,5 +87,35 @@ describe('BrowserBridge — handle event emission', () => {
 
     const handleWrites = writes.filter((w) => w.tool === 'handle');
     expect(handleWrites.length).toBe(0);
+  });
+});
+
+describe('BrowserBridge — ctx.getHandleIndex wiring', () => {
+  // Proves tools.ts actually wires `getHandleIndex` to `buildHandleIndex`. Every other
+  // handle-index test either hand-builds a Map for a mock context or calls
+  // `buildHandleIndex` directly — nothing else exercises the seam that connects them,
+  // so a deleted wiring line would leave the whole feature dead with CI green.
+  it('ctx.getHandleIndex is a function that resolves to the seeded corpus for the attached tab', () => {
+    const rec: FingerprintRecord = {
+      role: 'button', name: 'Post', text: 'Post', tag: 'button', type: null,
+      attrs: {}, classList: [], htmlId: '', ordinal: 0, cx: 10, cy: 20,
+      neighborText: '', landmark: '',
+      selector: '#post', capturedAt: 1, lastSeenAt: 1, hits: 1,
+      handleName: 'tweet_button',
+    };
+    putRecord('ashbyhq.com', '/apply', '#post', rec);
+
+    const connectionManager: any = {
+      clientId: 'test',
+      getAttachedTab: () => ({ url: 'https://ashbyhq.com/apply' }),
+    };
+
+    const bridge = new BrowserBridge({}, {} as any);
+    (bridge as any).connectionManager = connectionManager;
+    const ctx = (bridge as any).buildContext(undefined);
+
+    expect(typeof ctx.getHandleIndex).toBe('function');
+    const index = ctx.getHandleIndex();
+    expect(index.get('#post')).toBe('tweet_button');
   });
 });

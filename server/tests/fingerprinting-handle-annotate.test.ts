@@ -111,6 +111,12 @@ describe('buildHandleIndex', () => {
     expect(buildHandleIndex('https://x.com/home').size).toBe(0);
   });
 
+  it('skips a pre-fix corpus record whose handleName is a single word (fails looksLikeHandle)', () => {
+    enableFingerprinting();
+    putRecord('x.com', '/home', '#submit', rec({ selector: '#submit', handleName: 'submit' }));
+    expect(buildHandleIndex('https://x.com/home').size).toBe(0);
+  });
+
   it('does not cross route boundaries', () => {
     enableFingerprinting();
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));

@@ -63,6 +63,8 @@ export function saveDomain(store: DomainStore): void {
   }
 }
 
+/** Returns the live cached record (same read-only contract as `loadDomain`) — mutate
+ *  only via `putRecord`, never in place, or the in-process memo goes stale. */
 export function getRecord(domain: string, route: string, selector: string): FingerprintRecord | undefined {
   const store = loadDomain(domain);
   const byRoute = store.routes[route];

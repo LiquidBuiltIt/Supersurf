@@ -10,7 +10,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 // every importer of 'node:fs', including store.ts.
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
-  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync), statSync: vi.fn(actual.statSync) };
 });
 
 import * as fs from 'node:fs';
@@ -23,6 +23,7 @@ setBaseDirForTests(TMP);
 
 afterEach(() => {
   (fs.readFileSync as unknown as ReturnType<typeof vi.fn>).mockClear();
+  (fs.statSync as unknown as ReturnType<typeof vi.fn>).mockClear();
   fs.rmSync(TMP, { recursive: true, force: true });
   setBaseDirForTests(TMP); // clears the memo between tests
 });
@@ -58,6 +59,28 @@ describe('loadDomain memoization', () => {
     fs.utimesSync(file, future, future);
 
     expect(Object.keys(loadDomain('x.com').routes['/home'])).toEqual(['#other']);
+  });
+
+  it('re-parses on a same-mtime write with a different size (the size half of the guard)', () => {
+    putRecord('w.com', '/home', '#post', rec('#post'));
+    expect(Object.keys(loadDomain('w.com').routes['/home'])).toEqual(['#post']);
+
+    const file = path.join(TMP, 'w.com.json');
+    const before = fs.statSync(file); // real stat — this is what got memoized
+    const store = { domain: 'w.com', routes: { '/home': { '#other': rec('#other') } } };
+    fs.writeFileSync(file, JSON.stringify(store, null, 2));
+
+    // Real filesystem mtime resolution varies by platform, so rather than fight OS
+    // precision to force a genuinely identical on-disk mtime, stub the NEXT statSync
+    // call `loadDomain` makes to report the cached mtimeMs verbatim but a different
+    // size — isolating the size half of the mtime+size guard from the mtime half.
+    (fs.statSync as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      ...before,
+      mtimeMs: before.mtimeMs,
+      size: before.size + 1,
+    } as unknown as ReturnType<typeof fs.statSync>);
+
+    expect(Object.keys(loadDomain('w.com').routes['/home'])).toEqual(['#other']);
   });
 
   it('returns an empty store and does not cache when the file is absent', () => {

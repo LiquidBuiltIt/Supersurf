@@ -43,13 +43,13 @@ describe('captureOnResolve — handle binding', () => {
     await captureOnResolve(fakeEval, 'https://ashbyhq.com/apply', '#fn', { name: 'first_name' });
     const events: any[] = [];
     await captureOnResolve(fakeEval, 'https://ashbyhq.com/apply', '#fn',
-      { name: 'firstNameInput' }, (ev) => events.push(ev));
+      { name: 'First Name Input' }, (ev) => events.push(ev));
 
     const rec = getRecord('ashbyhq.com', '/apply', '#fn');
     expect(rec?.handleName).toBe('first_name');
     expect((rec as Record<string, unknown> | undefined)?.aliases).toBeUndefined();
     expect(events.find(e => e.event === 'handle.capture')).toMatchObject({
-      outcome: 'ignored', name: 'first_name', ignoredName: 'firstnameinput',
+      outcome: 'ignored', name: 'first_name', ignoredName: 'first_name_input',
     });
     expect(events.some(e => e.event === 'handle.alias_added')).toBe(false);
   });

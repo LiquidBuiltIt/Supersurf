@@ -1,5 +1,6 @@
 // server/src/experimental/fingerprinting/handle-meta.ts
 import { normalizeName, wasNormalized } from './naming';
+import { looksLikeHandle } from './handle-resolve';
 
 export interface HandleMeta {
   name?: string;
@@ -37,8 +38,11 @@ export function mergeHandleMeta(existing: ExistingHandle, incoming: HandleMeta):
   const norm = normalizeName(incoming.name);
   const normalized = wasNormalized(incoming.name);
 
-  // No usable name — preserve identity, just carry purpose through.
-  if (!norm) {
+  // No usable name, or a name that doesn't have the mandatory underscore (e.g. a
+  // bare "submit") — preserve identity, just carry purpose through. A shape that
+  // fails `looksLikeHandle` can never be resolved back (see handle-resolve.ts), so
+  // persisting it as canonical would produce a name resolution permanently rejects.
+  if (!norm || !looksLikeHandle(norm)) {
     return { name: canonical, purpose, outcome: 'none', normalized: false };
   }
 
