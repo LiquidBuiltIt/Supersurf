@@ -45,7 +45,8 @@ describe('mergeHandleMeta', () => {
   });
 
   it('purpose is stored trimmed; empty purpose keeps the prior purpose', () => {
-    const r = mergeHandleMeta({ name: 'x', purpose: 'keep me' }, { name: 'x', purpose: '   ' });
+    const r = mergeHandleMeta({ name: 'save_button', purpose: 'keep me' }, { name: 'save_button', purpose: '   ' });
+    expect(r.outcome).toBe('existing'); // same name re-hit — not the single-word rejection branch
     expect(r.purpose).toBe('keep me');
   });
 
