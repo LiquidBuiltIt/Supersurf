@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onSnapshot, onLookup, onExtractContent } from '../src/tools/content';
 import { getSelectorExpression } from '../src/tools/lib/element-resolver';
 import type { ToolContext } from '../src/tools/lib/types';
+import type { HandleIndex } from '../src/experimental/fingerprinting/handle-annotate';
 
 // ── minimal fake DOM (mirrors server/tests/shadow-walker.test.ts) ─────────
 // queryDeep only touches querySelector/querySelectorAll/.shadowRoot, so this
@@ -117,7 +118,7 @@ function makeRealEval(doc: FakeDocument) {
   });
 }
 
-function createMockCtx(): ToolContext {
+function createMockCtx(handleIndex?: HandleIndex): ToolContext {
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
     connectionManager: null,
@@ -129,6 +130,7 @@ function createMockCtx(): ToolContext {
     findAlternativeSelectors: vi.fn().mockResolvedValue([]),
     formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
     error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
+    ...(handleIndex ? { getHandleIndex: vi.fn(() => handleIndex) } : {}),
   };
 }
 
@@ -474,5 +476,105 @@ describe('onExtractContent()', () => {
     const result = await onExtractContent(ctx, { mode: 'selector', selector: '.content' }, {});
     expect(result.content[0].text).toContain('Light content marker');
     expect(result.content[0].text).not.toContain('Shadow content marker');
+  });
+});
+
+describe('handle substitution in reader output', () => {
+  it('snapshot form fields show the recorded handle in front of the selector', async () => {
+    const ctx = createMockCtx(new Map([['input#fname', 'first_name_input']]));
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [],
+      formFields: [{ selector: 'input#fname', tag: 'input', type: 'text', label: 'First name' }],
+    });
+
+    const result = await onSnapshot(ctx, {});
+    expect(result.content[0].text).toContain('`first_name_input [input#fname]`');
+  });
+
+  it('snapshot leaves an unrecorded form field exactly as it renders today', async () => {
+    const ctx = createMockCtx(new Map([['input#fname', 'first_name_input']]));
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [],
+      formFields: [{ selector: 'input#lname', tag: 'input', type: 'text' }],
+    });
+
+    const result = await onSnapshot(ctx, {});
+    expect(result.content[0].text).toContain('`input#lname`');
+    expect(result.content[0].text).not.toContain('[input#lname]');
+  });
+
+  it('snapshot accessibility-tree lines are untouched — AX nodes carry no selector', async () => {
+    const ctx = createMockCtx(new Map([['button#post', 'tweet_button']]));
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [{ role: { value: 'button' }, name: { value: 'Post' }, depth: 0 }],
+      formFields: [],
+    });
+
+    const result = await onSnapshot(ctx, {});
+    expect(result.content[0].text).toContain('[button] Post');
+    expect(result.content[0].text).not.toContain('tweet_button');
+  });
+
+  it('lookup shows the recorded handle in front of the selector', async () => {
+    const ctx = createMockCtx(new Map([['button#post', 'tweet_button']]));
+    (ctx.eval as any).mockResolvedValue({
+      total: 1,
+      matches: [{ selector: 'button#post', tag: 'button', visible: true, text: 'Post', x: 1, y: 2, width: 3, height: 4 }],
+    });
+
+    const result = await onLookup(ctx, { text: 'Post' }, {});
+    expect(result.content[0].text).toContain('**tweet_button [button#post]**');
+  });
+
+  it('lookup leaves an unrecorded match exactly as it renders today', async () => {
+    const ctx = createMockCtx(new Map([['button#post', 'tweet_button']]));
+    (ctx.eval as any).mockResolvedValue({
+      total: 1,
+      matches: [{ selector: 'div.card', tag: 'div', visible: true, text: 'Post', x: 1, y: 2, width: 3, height: 4 }],
+    });
+
+    const result = await onLookup(ctx, { text: 'Post' }, {});
+    expect(result.content[0].text).toContain('**div.card**');
+  });
+
+  it('builds the index once per call, not once per match', async () => {
+    const ctx = createMockCtx(new Map([['button#post', 'tweet_button']]));
+    (ctx.eval as any).mockResolvedValue({
+      total: 3,
+      matches: [
+        { selector: 'button#post', tag: 'button', visible: true, text: 'a', x: 1, y: 2, width: 3, height: 4 },
+        { selector: 'button#b', tag: 'button', visible: true, text: 'b', x: 1, y: 2, width: 3, height: 4 },
+        { selector: 'button#c', tag: 'button', visible: true, text: 'c', x: 1, y: 2, width: 3, height: 4 },
+      ],
+    });
+
+    await onLookup(ctx, { text: 'x' }, {});
+    expect(ctx.getHandleIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('snapshot builds the index once per call, not once per form field', async () => {
+    const ctx = createMockCtx(new Map([['input#fname', 'first_name_input']]));
+    (ctx.ext.sendCmd as any).mockResolvedValue({
+      nodes: [],
+      formFields: [
+        { selector: 'input#fname', tag: 'input', type: 'text', label: 'First name' },
+        { selector: 'input#lname', tag: 'input', type: 'text', label: 'Last name' },
+        { selector: 'input#email', tag: 'input', type: 'email', label: 'Email' },
+      ],
+    });
+
+    await onSnapshot(ctx, {});
+    expect(ctx.getHandleIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders unchanged when the context has no getHandleIndex hook at all', async () => {
+    const ctx = createMockCtx(); // no hook — mirrors a context built before this feature
+    (ctx.eval as any).mockResolvedValue({
+      total: 1,
+      matches: [{ selector: 'button#post', tag: 'button', visible: true, text: 'Post', x: 1, y: 2, width: 3, height: 4 }],
+    });
+
+    const result = await onLookup(ctx, { text: 'Post' }, {});
+    expect(result.content[0].text).toContain('**button#post**');
   });
 });

@@ -25,14 +25,14 @@ function safeParse<T>(s: any): T | null {
 
 /** Handle-capture telemetry, written to the usage-metrics trail when the agent supplies a name. */
 export interface HandleEvent {
-  event: 'handle.capture' | 'handle.alias_added';
-  outcome: 'new' | 'alias' | 'existing' | 'none';
+  event: 'handle.capture';
+  outcome: 'new' | 'existing' | 'ignored' | 'none';
+  /** The canonical name now bound to this element. */
   name: string;
+  /** Set only on `outcome: 'ignored'` — the differing name the agent sent, which was discarded. */
+  ignoredName?: string;
   purpose_present: boolean;
   normalized: boolean;
-  aliasCount: number;
-  addedAlias?: string;
-  aliasFreq?: number;
   domain: string;
   route: string;
   selector: string;
@@ -44,7 +44,7 @@ export interface HandleResolveEvent {
   event: 'handle.resolved';
   /** The handle name the agent passed (normalized shape, as supplied). */
   name: string;
-  match: 'canonical' | 'alias' | 'miss';
+  match: 'canonical' | 'miss';
   /** Records in this domain+route carrying the name; 0 on a miss. */
   candidateCount: number;
   /** The translated selector; '' on a miss. */
@@ -57,7 +57,7 @@ export type AnyHandleEvent = HandleEvent | HandleResolveEvent;
 export type HandleEmit = (ev: AnyHandleEvent) => void;
 
 /** Fire-and-forget: fingerprint the just-resolved element and persist it, binding an
- *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws.
+ *  optional agent-supplied handle name/purpose via mergeHandleMeta (sticky-canonical, never an alias). Never throws.
  *  `preloadedRecord`, when passed (even as `null`), is reused as-is instead of re-reading via
  *  `getRecord` — callers that already looked up the record (e.g. `resolveWithHealing`, for its
  *  `hadRecord` telemetry) pass it through so the happy path stays at one file read, not two. */
@@ -82,7 +82,7 @@ export async function captureOnResolve(
     const now = Date.now();
 
     const merged = mergeHandleMeta(
-      existing ? { name: existing.handleName, purpose: existing.purpose, aliases: existing.aliases } : undefined,
+      existing ? { name: existing.handleName, purpose: existing.purpose } : undefined,
       meta ?? {},
     );
 
@@ -94,26 +94,22 @@ export async function captureOnResolve(
       // handle fields (only set when present, keeps records that never got a name clean)
       ...(merged.name !== undefined ? { handleName: merged.name } : {}),
       ...(merged.purpose !== undefined ? { purpose: merged.purpose } : {}),
-      ...(merged.aliases !== undefined ? { aliases: merged.aliases } : {}),
     };
     putRecord(domain, route, selector, rec);
 
     // Emit handle telemetry only when the agent actually supplied a usable name.
     if (emitHandle && merged.outcome !== 'none') {
-      const aliasCount = merged.aliases ? Object.keys(merged.aliases).length : 0;
-      const fire = (event: HandleEvent['event'], extra: Partial<HandleEvent> = {}) => {
-        try {
-          emitHandle({
-            event, outcome: merged.outcome,
-            name: merged.name ?? '', purpose_present: !!merged.purpose,
-            normalized: merged.normalized, aliasCount, domain, route, selector, ...extra,
-          });
-        } catch { /* telemetry must never break capture */ }
-      };
-      fire('handle.capture');
-      if (merged.outcome === 'alias') {
-        fire('handle.alias_added', { addedAlias: merged.addedAlias, aliasFreq: merged.aliasFreq });
-      }
+      try {
+        emitHandle({
+          event: 'handle.capture',
+          outcome: merged.outcome,
+          name: merged.name ?? '',
+          ...(merged.ignoredName !== undefined ? { ignoredName: merged.ignoredName } : {}),
+          purpose_present: !!merged.purpose,
+          normalized: merged.normalized,
+          domain, route, selector,
+        });
+      } catch { /* telemetry must never break capture */ }
     }
   } catch {
     /* capture is best-effort; never disrupt the resolve */
@@ -222,7 +218,7 @@ export async function resolveWithHealing(
       emitHandle?.({
         event: 'handle.resolved',
         name: selector,
-        match: translated.handle ? translated.handle.match : 'miss',
+        match: translated.handle ? 'canonical' : 'miss',
         candidateCount: translated.handle ? translated.handle.candidateCount : 0,
         selector: translated.handle ? query : '',
         domain, route,

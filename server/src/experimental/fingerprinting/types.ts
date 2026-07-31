@@ -26,7 +26,6 @@ export interface FingerprintRecord extends Fingerprint {
   // TS type-check, since it's required there, and at runtime by overwriting that signal).
   handleName?: string;   // canonical handle name (snake_case), first-seen wins
   purpose?: string;      // latest agent-supplied intent, trimmed
-  aliases?: Record<string, number>; // other names this element was labeled with -> frequency
 }
 
 export interface DomainStore {

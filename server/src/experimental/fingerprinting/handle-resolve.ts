@@ -33,9 +33,7 @@ export interface HandleResolution {
   /** The stored selector to actually query with. */
   selector: string;
   record: FingerprintRecord;
-  /** Whether the name matched the record's canonical handle or one of its aliases. */
-  match: 'canonical' | 'alias';
-  /** How many records in this domain+route carried the name (canonical + alias). */
+  /** How many records in this domain+route carried the name. */
   candidateCount: number;
 }
 
@@ -46,15 +44,16 @@ function bestFirst(a: FingerprintRecord, b: FingerprintRecord): number {
 
 /**
  * Look up a handle name in one domain store. Single file read (`loadDomain`),
- * never per-record `getRecord` — that re-reads and re-parses the whole domain
- * file on every call.
+ * never per-record `getRecord`.
  *
- * Canonical matches beat alias matches; ties inside a tier break on hits then
- * recency. Multiple records legitimately carry the same name (the same element
- * captured under two selector keys), so this picks a best candidate rather than
- * rejecting the ambiguity.
+ * A name matches only a record's canonical `handleName` — there is no second tier.
+ * The first name an element is given is permanently sticky, so a loosely reused name
+ * has no path to bind to an element it was never the canonical name for.
  *
- * Scoped to the exact `route` — route templating is deferred to round two.
+ * Multiple records legitimately carry the same name (the same element captured under
+ * two selector keys), so ties break on hits then recency rather than rejecting.
+ *
+ * Scoped to the exact `route` — route templating is deferred.
  */
 export function resolveHandleName(
   domain: string,
@@ -67,21 +66,14 @@ export function resolveHandleName(
   const byRoute = loadDomain(domain).routes[route];
   if (!byRoute) return null;
 
-  const canonical: FingerprintRecord[] = [];
-  const alias: FingerprintRecord[] = [];
+  const candidates: FingerprintRecord[] = [];
   for (const rec of Object.values(byRoute)) {
-    if (rec.handleName === norm) canonical.push(rec);
-    else if (rec.aliases && rec.aliases[norm] !== undefined) alias.push(rec);
+    if (rec.handleName === norm) candidates.push(rec);
   }
+  if (candidates.length === 0) return null;
 
-  const candidateCount = canonical.length + alias.length;
-  if (candidateCount === 0) return null;
-
-  const tier = canonical.length > 0 ? canonical : alias;
-  const match: HandleResolution['match'] = canonical.length > 0 ? 'canonical' : 'alias';
-  const record = tier.sort(bestFirst)[0];
-
-  return { selector: record.selector, record, match, candidateCount };
+  const record = candidates.sort(bestFirst)[0];
+  return { selector: record.selector, record, candidateCount: candidates.length };
 }
 
 /** What a translation attempt produced. */

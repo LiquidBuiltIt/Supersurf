@@ -1,5 +1,6 @@
 // server/src/experimental/fingerprinting/handle-meta.ts
 import { normalizeName, wasNormalized } from './naming';
+import { looksLikeHandle } from './handle-resolve';
 
 export interface HandleMeta {
   name?: string;
@@ -9,25 +10,26 @@ export interface HandleMeta {
 export interface MergeResult {
   name?: string;
   purpose?: string;
-  aliases?: Record<string, number>;
-  outcome: 'new' | 'alias' | 'existing' | 'none';
-  addedAlias?: string;
-  aliasFreq?: number;
+  outcome: 'new' | 'existing' | 'ignored' | 'none';
+  /** The differing name that was NOT stored. Telemetry only — never persisted. */
+  ignoredName?: string;
   normalized: boolean; // did the incoming name require normalization?
 }
 
-type ExistingHandle = { name?: string; purpose?: string; aliases?: Record<string, number> } | undefined;
+type ExistingHandle = { name?: string; purpose?: string } | undefined;
 
 /**
- * Pure decision of canonical-vs-alias for an incoming (name, purpose) against an existing record.
+ * Pure decision of the canonical handle name for an incoming (name, purpose) against an
+ * existing record.
  * - First-seen name becomes canonical.
- * - A differing normalized name is harvested as an alias (freq++), never overwriting canonical.
+ * - A differing normalized name is a NO-OP: canonical is sticky, and nothing about the
+ *   differing name is persisted. It is reported once as `outcome: 'ignored'` so the
+ *   naming-drift signal survives in the telemetry trail rather than in the corpus.
  * - purpose: latest non-empty value wins; empty preserves the prior.
  * Never throws.
  */
 export function mergeHandleMeta(existing: ExistingHandle, incoming: HandleMeta): MergeResult {
   const canonical = existing?.name;
-  const aliases: Record<string, number> = { ...(existing?.aliases ?? {}) };
 
   // purpose: latest non-empty wins, else keep prior.
   const incomingPurpose = typeof incoming.purpose === 'string' ? incoming.purpose.trim() : '';
@@ -36,15 +38,12 @@ export function mergeHandleMeta(existing: ExistingHandle, incoming: HandleMeta):
   const norm = normalizeName(incoming.name);
   const normalized = wasNormalized(incoming.name);
 
-  // No usable name — preserve identity, just carry purpose through.
-  if (!norm) {
-    return {
-      name: canonical,
-      purpose,
-      aliases: existing?.aliases,
-      outcome: 'none',
-      normalized: false,
-    };
+  // No usable name, or a name that doesn't have the mandatory underscore (e.g. a
+  // bare "submit") — preserve identity, just carry purpose through. A shape that
+  // fails `looksLikeHandle` can never be resolved back (see handle-resolve.ts), so
+  // persisting it as canonical would produce a name resolution permanently rejects.
+  if (!norm || !looksLikeHandle(norm)) {
+    return { name: canonical, purpose, outcome: 'none', normalized: false };
   }
 
   // First name for this element — becomes canonical.
@@ -52,21 +51,11 @@ export function mergeHandleMeta(existing: ExistingHandle, incoming: HandleMeta):
     return { name: norm, purpose, outcome: 'new', normalized };
   }
 
-  // Same as canonical — nothing new.
+  // Same as canonical — a plain re-hit.
   if (norm === canonical) {
-    return { name: canonical, purpose, aliases: existing?.aliases, outcome: 'existing', normalized };
+    return { name: canonical, purpose, outcome: 'existing', normalized };
   }
 
-  // Differing name — harvest as alias, never displace canonical.
-  const freq = (aliases[norm] ?? 0) + 1;
-  aliases[norm] = freq;
-  return {
-    name: canonical,
-    purpose,
-    aliases,
-    outcome: 'alias',
-    addedAlias: norm,
-    aliasFreq: freq,
-    normalized,
-  };
+  // Differing name — canonical wins and the new name is discarded.
+  return { name: canonical, purpose, outcome: 'ignored', ignoredName: norm, normalized };
 }

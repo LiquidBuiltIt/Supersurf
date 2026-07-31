@@ -8,56 +8,60 @@ describe('mergeHandleMeta', () => {
     expect(r.purpose).toBe('enter applicant first name');
     expect(r.outcome).toBe('new');
     expect(r.normalized).toBe(true);
-    expect(r.aliases).toBeUndefined();
+    expect(r.ignoredName).toBeUndefined();
   });
 
-  it('same canonical name on re-capture does not create an alias (outcome=existing)', () => {
-    const existing = { name: 'first_name', aliases: {} as Record<string, number> };
-    const r = mergeHandleMeta(existing, { name: 'first_name' });
+  it('same canonical name on re-capture is a plain re-hit (outcome=existing)', () => {
+    const r = mergeHandleMeta({ name: 'first_name' }, { name: 'first_name' });
     expect(r.name).toBe('first_name');
     expect(r.outcome).toBe('existing');
-    expect(r.addedAlias).toBeUndefined();
+    expect(r.ignoredName).toBeUndefined();
   });
 
-  it('a differing name is harvested as an alias, canonical is preserved (outcome=alias)', () => {
-    const existing = { name: 'first_name', aliases: {} as Record<string, number> };
-    const r = mergeHandleMeta(existing, { name: 'firstNameInput' });
-    expect(r.name).toBe('first_name'); // canonical untouched
-    // normalizeName does not split camelCase (see naming.ts / fingerprinting-naming.test.ts) —
-    // only separators collapse, so 'firstNameInput' normalizes to 'firstnameinput'.
-    expect(r.aliases).toEqual({ firstnameinput: 1 });
-    expect(r.outcome).toBe('alias');
-    expect(r.addedAlias).toBe('firstnameinput');
-    expect(r.aliasFreq).toBe(1);
-  });
-
-  it('re-seeing an existing alias increments its frequency, not a new key', () => {
-    const existing = { name: 'first_name', aliases: { first_name_input: 2 } };
-    const r = mergeHandleMeta(existing, { name: 'first-name-input' });
-    expect(r.aliases).toEqual({ first_name_input: 3 });
-    expect(r.outcome).toBe('alias');
-    expect(r.aliasFreq).toBe(3);
-  });
-
-  it('incoming name matching an existing alias still does not displace canonical', () => {
-    const existing = { name: 'first_name', aliases: { fname: 1 } };
-    const r = mergeHandleMeta(existing, { name: 'fname' });
+  it('a differing name is a NO-OP: canonical is sticky and nothing is stored for the new name', () => {
+    const r = mergeHandleMeta({ name: 'first_name' }, { name: 'First Name Input' });
     expect(r.name).toBe('first_name');
-    expect(r.aliases).toEqual({ fname: 2 });
+    expect(r.outcome).toBe('ignored');
+    expect(r.ignoredName).toBe('first_name_input');
+    // The whole point: no alias map comes back out of the merge.
+    expect((r as Record<string, unknown>).aliases).toBeUndefined();
   });
 
-  it('no usable name -> outcome=none, preserves existing name/aliases, updates purpose', () => {
-    const existing = { name: 'first_name', aliases: { fname: 1 }, purpose: 'old' };
-    const r = mergeHandleMeta(existing, { name: '   ', purpose: 'new intent' });
+  it('repeating the same differing name never accumulates state', () => {
+    const first = mergeHandleMeta({ name: 'first_name' }, { name: 'first_name_alt' });
+    const second = mergeHandleMeta({ name: 'first_name' }, { name: 'first_name_alt' });
+    expect(first.outcome).toBe('ignored');
+    expect(second.outcome).toBe('ignored');
+    expect(second.ignoredName).toBe('first_name_alt');
+    expect(second.name).toBe('first_name');
+  });
+
+  it('no usable name -> outcome=none, preserves canonical, updates purpose', () => {
+    const r = mergeHandleMeta({ name: 'first_name', purpose: 'old' }, { name: '   ', purpose: 'new intent' });
     expect(r.outcome).toBe('none');
     expect(r.name).toBe('first_name');
-    expect(r.aliases).toEqual({ fname: 1 });
     expect(r.purpose).toBe('new intent'); // latest non-empty purpose wins
+    expect(r.ignoredName).toBeUndefined();
   });
 
   it('purpose is stored trimmed; empty purpose keeps the prior purpose', () => {
-    const existing = { name: 'x', purpose: 'keep me' };
-    const r = mergeHandleMeta(existing, { name: 'x', purpose: '   ' });
+    const r = mergeHandleMeta({ name: 'save_button', purpose: 'keep me' }, { name: 'save_button', purpose: '   ' });
+    expect(r.outcome).toBe('existing'); // same name re-hit — not the single-word rejection branch
     expect(r.purpose).toBe('keep me');
+  });
+
+  it('a single-word name (no underscore) is not stored — it could never resolve back', () => {
+    const r = mergeHandleMeta(undefined, { name: 'submit', purpose: 'submit the form' });
+    expect(r.outcome).toBe('none');
+    expect(r.name).toBeUndefined(); // must NOT become the canonical name
+    expect(r.purpose).toBe('submit the form');
+    expect(r.ignoredName).toBeUndefined();
+  });
+
+  it('a single-word name never overrides an existing canonical name', () => {
+    const r = mergeHandleMeta({ name: 'first_name' }, { name: 'submit' });
+    expect(r.outcome).toBe('none');
+    expect(r.name).toBe('first_name'); // canonical untouched
+    expect(r.ignoredName).toBeUndefined();
   });
 });

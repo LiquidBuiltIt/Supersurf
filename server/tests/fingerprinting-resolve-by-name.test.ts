@@ -61,7 +61,6 @@ describe('resolveSelectorOrHandle', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const out = resolveSelectorOrHandle('https://x.com/home', 'tweet_button');
     expect(out.selector).toBe('#post');
-    expect(out.handle?.match).toBe('canonical');
     expect(out.attempted).toBe(true);
   });
 
