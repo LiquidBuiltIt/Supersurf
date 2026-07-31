@@ -17,25 +17,27 @@ import type { FingerprintRecord } from './types';
 export type HandleIndex = Map<string, string>;
 
 /**
- * Every selector shape a record could plausibly be recognised by downstream.
+ * Derived selector shapes a record could plausibly be recognised by downstream —
+ * everything EXCEPT the record's own stored selector (that one is registered
+ * separately, in its own pass; see `buildHandleIndex`).
  *
  * Exact-string keys only — no fuzzy matching. `browser_lookup` and the
  * `browser_snapshot` form-field collector both synthesise `tag#id` first and
- * `tag[name="..."]` second (see tools/content.ts), which is why those shapes are
- * indexed alongside the record's own stored selector.
+ * `tag[name="..."]` second (see tools/content.ts:88-96 and :196-201), which is why
+ * those two shapes are derived here. Neither collector ever emits a bare `#id` —
+ * both always prepend the tag name first — so a bare `#id` key is not derived; a
+ * record whose own stored selector genuinely is `#foo` is already covered by the
+ * own-selector pass.
  *
  * Class-based shapes (`tag.a.b`) are deliberately NOT indexed: framework-hashed
  * class names churn between deploys and the collectors truncate to the first two
  * classes in DOM order, so a class key would produce confident wrong answers. A
  * miss renders exactly as it does today, which is the correct failure mode.
  */
-function keysFor(rec: FingerprintRecord): string[] {
-  const keys: string[] = [rec.selector];
+function derivedKeysFor(rec: FingerprintRecord): string[] {
+  const keys: string[] = [];
   const tag = rec.tag || '';
-  if (rec.htmlId) {
-    if (tag) keys.push(`${tag}#${rec.htmlId}`);
-    keys.push(`#${rec.htmlId}`);
-  }
+  if (tag && rec.htmlId) keys.push(`${tag}#${rec.htmlId}`);
   const nameAttr = rec.attrs?.name;
   if (tag && nameAttr) keys.push(`${tag}[name="${nameAttr}"]`);
   return keys;
@@ -59,12 +61,22 @@ export function buildHandleIndex(url: string | undefined): HandleIndex {
   try {
     const byRoute = loadDomain(domain).routes[routeOf(url)];
     if (!byRoute) return index;
-    for (const rec of Object.values(byRoute)) {
-      if (!rec.handleName) continue;
-      for (const key of keysFor(rec)) {
-        // First writer wins. A record's own stored selector is its strongest key and
-        // is registered first, so an exact match is never displaced by a derived one.
-        if (!index.has(key)) index.set(key, rec.handleName);
+    const named = Object.values(byRoute).filter((rec) => rec.handleName);
+
+    // Two passes so a record's OWN stored selector always wins its exact-match slot,
+    // even when another record's DERIVED key would otherwise land on that same string
+    // first. Two records can legitimately describe the same element under different
+    // selector keys (see handle-resolve.ts:53-54) — without this ordering, record A's
+    // derived `tag#foo` could occupy the slot before record B's own stored selector of
+    // `tag#foo` is ever tried, permanently binding the wrong handle name to it.
+    for (const rec of named) {
+      // First writer wins among stored selectors too, in case two records were ever
+      // stored under the identical selector string (should not happen, but cheap to keep safe).
+      if (!index.has(rec.selector)) index.set(rec.selector, rec.handleName!);
+    }
+    for (const rec of named) {
+      for (const key of derivedKeysFor(rec)) {
+        if (!index.has(key)) index.set(key, rec.handleName!);
       }
     }
   } catch {

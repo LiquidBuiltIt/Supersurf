@@ -53,14 +53,37 @@ describe('buildHandleIndex', () => {
     expect(buildHandleIndex('https://x.com/home').get('#post')).toBe('tweet_button');
   });
 
-  it('indexes the tag#id and #id shapes the readers synthesise', () => {
+  it('indexes the tag#id shape the readers synthesise', () => {
     enableFingerprinting();
     putRecord('x.com', '/home', 'button:has-text("Post")', rec({
       selector: 'button:has-text("Post")', handleName: 'tweet_button', tag: 'button', htmlId: 'post',
     }));
     const idx = buildHandleIndex('https://x.com/home');
     expect(idx.get('button#post')).toBe('tweet_button');
-    expect(idx.get('#post')).toBe('tweet_button');
+  });
+
+  it('never indexes a bare #id shape — neither reader ever emits one', () => {
+    enableFingerprinting();
+    putRecord('x.com', '/home', 'button:has-text("Post")', rec({
+      selector: 'button:has-text("Post")', handleName: 'tweet_button', tag: 'button', htmlId: 'post',
+    }));
+    expect(buildHandleIndex('https://x.com/home').get('#post')).toBeUndefined();
+  });
+
+  it("a record's own stored selector always wins its exact-match slot over another record's derived key", () => {
+    enableFingerprinting();
+    // Record A's derived key (`button#post`) is the exact string record B is stored
+    // under. Insertion order matters here: A is written first so, under a naive
+    // single-pass first-writer-wins build, A's derived key would occupy the
+    // `button#post` slot before B's own stored selector is ever registered.
+    putRecord('x.com', '/home', 'button:has-text("Post")', rec({
+      selector: 'button:has-text("Post")', handleName: 'wrong_handle', tag: 'button', htmlId: 'post',
+    }));
+    putRecord('x.com', '/home', 'button#post', rec({
+      selector: 'button#post', handleName: 'right_handle', tag: 'button', htmlId: 'post',
+    }));
+    const idx = buildHandleIndex('https://x.com/home');
+    expect(idx.get('button#post')).toBe('right_handle');
   });
 
   it('indexes the tag[name="..."] shape for form fields without an id', () => {
