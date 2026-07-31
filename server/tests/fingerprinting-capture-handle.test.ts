@@ -34,11 +34,12 @@ describe('captureOnResolve — handle binding', () => {
     expect(rec?.handleName).toBe('first_name');
     expect(rec?.purpose).toBe('enter first name');
     const cap = events.find(e => e.event === 'handle.capture');
-    expect(cap).toMatchObject({ outcome: 'new', name: 'first_name', purpose_present: true, normalized: true, aliasCount: 0 });
+    expect(cap).toMatchObject({ outcome: 'new', name: 'first_name', purpose_present: true, normalized: true });
+    expect(cap.ignoredName).toBeUndefined();
     expect(events.some(e => e.event === 'handle.alias_added')).toBe(false);
   });
 
-  it('harvests a differing name as an alias without overwriting, emits both events', async () => {
+  it('discards a differing name without touching the record, and reports it once as ignored', async () => {
     await captureOnResolve(fakeEval, 'https://ashbyhq.com/apply', '#fn', { name: 'first_name' });
     const events: any[] = [];
     await captureOnResolve(fakeEval, 'https://ashbyhq.com/apply', '#fn',
@@ -46,9 +47,11 @@ describe('captureOnResolve — handle binding', () => {
 
     const rec = getRecord('ashbyhq.com', '/apply', '#fn');
     expect(rec?.handleName).toBe('first_name');
-    expect(rec?.aliases).toEqual({ firstnameinput: 1 });
-    expect(events.find(e => e.event === 'handle.capture')).toMatchObject({ outcome: 'alias', aliasCount: 1 });
-    expect(events.find(e => e.event === 'handle.alias_added')).toMatchObject({ addedAlias: 'firstnameinput', aliasFreq: 1 });
+    expect((rec as Record<string, unknown> | undefined)?.aliases).toBeUndefined();
+    expect(events.find(e => e.event === 'handle.capture')).toMatchObject({
+      outcome: 'ignored', name: 'first_name', ignoredName: 'firstnameinput',
+    });
+    expect(events.some(e => e.event === 'handle.alias_added')).toBe(false);
   });
 
   it('does not throw and emits nothing when no name is supplied', async () => {

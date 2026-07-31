@@ -65,29 +65,14 @@ describe('resolveHandleName', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const got = resolveHandleName('x.com', '/home', 'tweet_button');
     expect(got?.selector).toBe('#post');
-    expect(got?.match).toBe('canonical');
     expect(got?.candidateCount).toBe(1);
   });
 
-  it('resolves via an alias when no canonical match exists', () => {
-    putRecord('x.com', '/home', '#post', rec({
-      selector: '#post', handleName: 'tweet_button', aliases: { post_button: 3 },
-    }));
-    const got = resolveHandleName('x.com', '/home', 'post_button');
-    expect(got?.selector).toBe('#post');
-    expect(got?.match).toBe('alias');
-  });
-
-  it('prefers a canonical match over an alias match', () => {
-    putRecord('x.com', '/home', '#alias-holder', rec({
-      selector: '#alias-holder', handleName: 'other_thing', aliases: { tweet_button: 9 }, hits: 50,
-    }));
-    putRecord('x.com', '/home', '#canonical', rec({
-      selector: '#canonical', handleName: 'tweet_button', hits: 1,
-    }));
+  it('counts every record carrying the canonical name', () => {
+    putRecord('x.com', '/home', '#one', rec({ selector: '#one', handleName: 'tweet_button', hits: 1 }));
+    putRecord('x.com', '/home', '#two', rec({ selector: '#two', handleName: 'tweet_button', hits: 9 }));
     const got = resolveHandleName('x.com', '/home', 'tweet_button');
-    expect(got?.selector).toBe('#canonical');
-    expect(got?.match).toBe('canonical');
+    expect(got?.selector).toBe('#two'); // hits desc
     expect(got?.candidateCount).toBe(2);
   });
 

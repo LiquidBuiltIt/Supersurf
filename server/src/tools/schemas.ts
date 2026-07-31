@@ -125,8 +125,8 @@ export function getToolSchemas(): ToolSchema[] {
                     'Handle identity — a short, stable snake_case name for the element you are acting on ' +
                     '(e.g. "first_name_input", "submit_application"). REQUIRED for element-targeting actions ' +
                     '(click/type/clear/hover/select_option/select_custom/file_upload). Reuse the same name for ' +
-                    'the same logical element across pages. Normalized server-side; a differing name is recorded ' +
-                    'as an alias, not a rename.',
+                    'the same logical element across pages. Normalized server-side. The first name an element ' +
+                    'is given sticks — a later, differing name is ignored, not recorded as a rename.',
                 },
                 purpose: {
                   type: 'string',
