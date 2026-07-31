@@ -137,6 +137,34 @@ export function getToolSchemas(): ToolSchema[] {
                 },
               },
               required: ['type'],
+              allOf: [
+                {
+                  // Naming is mandatory for element-targeting actions that carry a selector.
+                  //
+                  // Conditional, not a flat `required`: scroll_by / press_key / wait / mouse_move
+                  // never target a named element, and click/type can be issued at raw coordinates
+                  // with no selector at all — a flat requirement would reject all of those.
+                  //
+                  // Deliberately NOT gated on the `fingerprinting` experiment. getToolSchemas() is
+                  // served at tools/list, which a client fetches BEFORE it can call connect — the
+                  // only place the experiment cache is populated — and this server emits no
+                  // notifications/tools/list_changed to invalidate a cached schema. A gated
+                  // requirement would always read "off" at the moment it mattered.
+                  if: {
+                    properties: {
+                      type: {
+                        enum: [
+                          'click', 'type', 'clear', 'hover',
+                          'select_option', 'select_custom', 'file_upload',
+                        ],
+                      },
+                      selector: { type: 'string' },
+                    },
+                    required: ['type', 'selector'],
+                  },
+                  then: { required: ['name', 'purpose'] },
+                },
+              ],
             },
           },
           onError: {
