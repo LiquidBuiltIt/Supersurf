@@ -138,35 +138,22 @@ export function getToolSchemas(): ToolSchema[] {
                     'identical-looking elements and groups actions into workflows.',
                 },
               },
+              // `type` is the ONLY structural requirement. The name/purpose requirement for
+              // element-targeting actions is carried in the field descriptions above as prose,
+              // deliberately NOT as a JSON Schema rule.
+              //
+              // A conditional `allOf`/`if`/`then` block lived here and was reverted: the MCP spec
+              // restricts tool inputSchema to type/properties/required, composition keywords are
+              // not part of it, and client support is unreliable (Claude Code — the primary
+              // install target — reportedly mishandles them). The failure mode is the whole tool
+              // vanishing from tools/list, not a soft degrade. It bought nothing to offset that:
+              // this server never validates tool inputs (cli.ts uses the low-level SDK `Server`,
+              // which only checks the {name, arguments} envelope), so the rule was advisory even
+              // where clients did honor it.
+              //
+              // Do not reintroduce composition keywords here without first measuring, via the
+              // expanded telemetry, whether prose alone is getting agents to supply names.
               required: ['type'],
-              allOf: [
-                {
-                  // Naming is mandatory for element-targeting actions that carry a selector.
-                  //
-                  // Conditional, not a flat `required`: scroll_by / press_key / wait / mouse_move
-                  // never target a named element, and click/type can be issued at raw coordinates
-                  // with no selector at all — a flat requirement would reject all of those.
-                  //
-                  // Deliberately NOT gated on the `fingerprinting` experiment. getToolSchemas() is
-                  // served at tools/list, which a client fetches BEFORE it can call connect — the
-                  // only place the experiment cache is populated — and this server emits no
-                  // notifications/tools/list_changed to invalidate a cached schema. A gated
-                  // requirement would always read "off" at the moment it mattered.
-                  if: {
-                    properties: {
-                      type: {
-                        enum: [
-                          'click', 'type', 'clear', 'hover',
-                          'select_option', 'select_custom', 'file_upload',
-                        ],
-                      },
-                      selector: { type: 'string' },
-                    },
-                    required: ['type', 'selector'],
-                  },
-                  then: { required: ['name', 'purpose'] },
-                },
-              ],
             },
           },
           onError: {

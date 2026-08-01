@@ -10,84 +10,50 @@ describe('browser_interact schema — handle fields', () => {
     expect(itemProps.purpose).toBeDefined();
     expect(itemProps.purpose.type).toBe('string');
   });
-  it('keeps the item-level required array at type only — the naming requirement is conditional', () => {
+  it('keeps the item-level required array at type only', () => {
     const interact = getToolSchemas().find(s => s.name === 'browser_interact')!;
     const items = (interact.inputSchema as any).properties.actions.items;
-    // Unconditional `required` would reject scroll_by/press_key/wait, which never target an
-    // element. The requirement rides the allOf/if/then block below instead.
+    // Naming is advisory — carried in the field descriptions, never as a structural rule.
     expect(items.required).toEqual(['type']);
   });
 
-  it('requires name and purpose for element-targeting actions that carry a selector', () => {
+  it('uses NO JSON Schema composition keywords anywhere in the tool schema', () => {
+    // Regression lock. A conditional allOf/if/then naming requirement shipped here and was
+    // reverted: the MCP spec restricts inputSchema to type/properties/required, and a client
+    // that chokes on composition keywords drops the ENTIRE tool from tools/list rather than
+    // ignoring the keyword. Silent and total. Walk the whole schema, not just the action item,
+    // so a keyword reintroduced at any depth (top level, a nested array item, a sub-object)
+    // is caught rather than only the one spot the original block happened to live in.
     const interact = getToolSchemas().find(s => s.name === 'browser_interact')!;
-    const items = (interact.inputSchema as any).properties.actions.items;
-    expect(Array.isArray(items.allOf)).toBe(true);
+    const banned = ['allOf', 'anyOf', 'oneOf', 'not', 'if', 'then', 'else', '$ref', 'dependentSchemas'];
+    const hits: string[] = [];
 
-    const rule = items.allOf.find((r: any) => r.then?.required?.includes('name'));
-    expect(rule).toBeDefined();
-    expect(rule.then.required).toEqual(['name', 'purpose']);
+    function walk(node: unknown, path: string): void {
+      if (Array.isArray(node)) {
+        node.forEach((child, i) => walk(child, `${path}[${i}]`));
+        return;
+      }
+      if (node === null || typeof node !== 'object') return;
+      for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+        if (banned.includes(key)) hits.push(`${path}.${key}`);
+        walk(child, `${path}.${key}`);
+      }
+    }
+    walk(interact.inputSchema, 'inputSchema');
 
-    // Fires only when BOTH the action type is element-targeting AND a selector is present.
-    expect(rule.if.required).toEqual(['type', 'selector']);
-    expect(rule.if.properties.selector.type).toBe('string');
-    expect(rule.if.properties.type.enum).toEqual([
-      'click', 'type', 'clear', 'hover', 'select_option', 'select_custom', 'file_upload',
-    ]);
+    expect(hits).toEqual([]);
   });
 
-  it('behaviorally requires name/purpose only for element-targeting actions with a selector', () => {
+  it('still tells the agent in prose that naming is required for element-targeting actions', () => {
+    // The requirement did not disappear with the schema rule — it moved to the descriptions,
+    // which is the only channel every MCP client renders. If this prose is ever dropped, the
+    // requirement stops being communicated at all.
     const interact = getToolSchemas().find(s => s.name === 'browser_interact')!;
-    const items = (interact.inputSchema as any).properties.actions.items;
-    const rule = items.allOf.find((r: any) => r.then?.required?.includes('name'));
-
-    // Hand-rolled if/then evaluator driven off the LIVE schema object (rule.if / rule.then), not
-    // hardcoded constants — so it actually exercises what's shipped, not a re-implementation of
-    // what we intended to ship. Understands exactly `required` + `properties.{enum,type:string}`;
-    // any other JSON Schema keyword in the `if` block (e.g. `not`) throws rather than silently
-    // treating the condition as met, so a semantically-fatal but structurally-additive edit (like
-    // `not: {}`, which leaves every key the other tests read completely untouched) is caught here
-    // instead of passing invisibly.
-    const knownIfKeys = new Set(['required', 'properties']);
-    function ifMatches(ifBlock: any, action: Record<string, unknown>): boolean {
-      for (const key of Object.keys(ifBlock)) {
-        if (!knownIfKeys.has(key)) {
-          throw new Error(
-            `behavioral evaluator does not understand if-block keyword "${key}" — refusing to ` +
-            'assume the condition is met',
-          );
-        }
-      }
-      for (const key of ifBlock.required ?? []) {
-        if (!(key in action)) return false;
-      }
-      for (const [prop, propSchema] of Object.entries<any>(ifBlock.properties ?? {})) {
-        if (!(prop in action)) continue;
-        if (Array.isArray(propSchema.enum) && !propSchema.enum.includes(action[prop])) return false;
-        if (propSchema.type === 'string' && typeof action[prop] !== 'string') return false;
-      }
-      return true;
-    }
-    function requiresNaming(action: Record<string, unknown>): boolean {
-      if (!ifMatches(rule.if, action)) return false;
-      const thenRequired: string[] = rule.then?.required ?? [];
-      return thenRequired.includes('name') && thenRequired.includes('purpose');
-    }
-
-    expect(requiresNaming({ type: 'click', selector: '#a' })).toBe(true);
-    expect(requiresNaming({ type: 'click', x: 1, y: 2 })).toBe(false);
-    expect(requiresNaming({ type: 'wait', selector: '#a' })).toBe(false);
-    expect(requiresNaming({ type: 'file_upload', selector: '#f' })).toBe(true);
-  });
-
-  it('does not require naming for actions that never target an element', () => {
-    const interact = getToolSchemas().find(s => s.name === 'browser_interact')!;
-    const items = (interact.inputSchema as any).properties.actions.items;
-    const rule = items.allOf.find((r: any) => r.then?.required?.includes('name'));
-    for (const t of [
-      'mouse_move', 'mouse_click', 'press_key', 'wait',
-      'scroll_to', 'scroll_by', 'scroll_into_view', 'force_pseudo_state',
-    ]) {
-      expect(rule.if.properties.type.enum).not.toContain(t);
+    const itemProps = (interact.inputSchema as any).properties.actions.items.properties;
+    expect(itemProps.name.description).toContain('REQUIRED');
+    expect(itemProps.purpose.description).toContain('REQUIRED');
+    for (const t of ['click', 'type', 'clear', 'hover', 'select_option', 'select_custom', 'file_upload']) {
+      expect(itemProps.name.description).toContain(t);
     }
   });
 
