@@ -387,6 +387,34 @@ describe('onLookup()', () => {
     expect(result.content[0].text).toContain('Design');
     expect(result.content[0].text).toContain('Engineering');
   });
+
+  it('throws a clear error when text is missing', async () => {
+    await expect(onLookup(ctx, {}, {})).rejects.toThrow(
+      'browser_lookup requires a "text" parameter'
+    );
+    expect(ctx.eval).not.toHaveBeenCalled();
+  });
+
+  it('throws a clear error when text is undefined', async () => {
+    await expect(onLookup(ctx, { text: undefined }, {})).rejects.toThrow(
+      'browser_lookup requires a "text" parameter'
+    );
+    expect(ctx.eval).not.toHaveBeenCalled();
+  });
+
+  it('throws a clear error when text is not a string', async () => {
+    await expect(onLookup(ctx, { text: 42 }, {})).rejects.toThrow(
+      'browser_lookup requires a "text" parameter'
+    );
+    expect(ctx.eval).not.toHaveBeenCalled();
+  });
+
+  it('throws a clear error when text is whitespace-only', async () => {
+    await expect(onLookup(ctx, { text: '   ' }, {})).rejects.toThrow(
+      'browser_lookup requires a "text" parameter'
+    );
+    expect(ctx.eval).not.toHaveBeenCalled();
+  });
 });
 
 describe('onExtractContent()', () => {

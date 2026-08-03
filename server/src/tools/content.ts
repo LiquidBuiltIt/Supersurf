@@ -181,7 +181,10 @@ export async function onSnapshot(ctx: ToolContext, options: any): Promise<any> {
  * @param args - `{ text: string, limit?: number }`
  */
 export async function onLookup(ctx: ToolContext, args: any, options: any): Promise<any> {
-  const searchText = args.text as string;
+  const searchText = args.text;
+  if (typeof searchText !== 'string' || searchText.trim() === '') {
+    throw new Error('browser_lookup requires a "text" parameter — the visible text to search for.');
+  }
   const limit = (args.limit as number) || 10;
 
   const data = await ctx.eval(`
