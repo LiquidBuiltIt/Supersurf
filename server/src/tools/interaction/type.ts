@@ -1,5 +1,6 @@
 import { registerAction } from './registry';
 import { resolveInFrames, evalInFrameOrTop } from '../lib/frames';
+import { KEY_MAP } from './helpers';
 
 registerAction({
   name: 'type',
@@ -24,6 +25,19 @@ registerAction({
     }
 
     for (const char of action.text) {
+      if (char === '\r') continue; // CRLF normalization — the \n dispatches Enter
+      if (char === '\n') {
+        const enter = KEY_MAP.Enter;
+        await ctx.cdp('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key: enter.key, code: enter.code, keyCode: enter.keyCode, text: enter.text,
+        });
+        await ctx.cdp('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key: enter.key, code: enter.code, keyCode: enter.keyCode,
+        });
+        continue;
+      }
       await ctx.cdp('Input.dispatchKeyEvent', { type: 'char', text: char });
     }
 
