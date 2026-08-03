@@ -153,6 +153,42 @@ describe('onInteract()', () => {
     expect(result.content[0].text).toContain('Typed');
   });
 
+  it('dispatches keyDown/keyUp Enter for newline characters in type action', async () => {
+    await onInteract(ctx, {
+      actions: [{ type: 'type', text: 'line1\nline2', selector: '#input' }],
+    }, {});
+
+    const keyCalls = (ctx.cdp as any).mock.calls.filter(
+      (c: any) => c[0] === 'Input.dispatchKeyEvent'
+    );
+    // 10 char events (line1 + line2) + keyDown + keyUp for the \n
+    const charCalls = keyCalls.filter((c: any) => c[1]?.type === 'char');
+    const downCalls = keyCalls.filter((c: any) => c[1]?.type === 'keyDown' && c[1]?.key === 'Enter');
+    const upCalls = keyCalls.filter((c: any) => c[1]?.type === 'keyUp' && c[1]?.key === 'Enter');
+    expect(charCalls).toHaveLength(10);
+    expect(downCalls).toHaveLength(1);
+    expect(upCalls).toHaveLength(1);
+
+    // Enter keyDown must come between the two runs of char events (after 'line1')
+    const downIndex = keyCalls.findIndex((c: any) => c[1]?.type === 'keyDown' && c[1]?.key === 'Enter');
+    expect(downIndex).toBe(5);
+  });
+
+  it('does not double-fire Enter for CRLF sequences in type action', async () => {
+    await onInteract(ctx, {
+      actions: [{ type: 'type', text: 'a\r\nb', selector: '#input' }],
+    }, {});
+
+    const keyCalls = (ctx.cdp as any).mock.calls.filter(
+      (c: any) => c[0] === 'Input.dispatchKeyEvent'
+    );
+    const downCalls = keyCalls.filter((c: any) => c[1]?.type === 'keyDown' && c[1]?.key === 'Enter');
+    expect(downCalls).toHaveLength(1);
+    // 'a' and 'b' as char events; the \r must NOT be sent as a char event
+    const charCalls = keyCalls.filter((c: any) => c[1]?.type === 'char');
+    expect(charCalls).toHaveLength(2);
+  });
+
   // ── Press key ──
 
   it('handles press_key action', async () => {
