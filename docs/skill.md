@@ -245,11 +245,14 @@ Returns matched CSS rules with source file/line, computed values, and which rule
 ## Screenshots & PDFs
 
 ```
-browser_take_screenshot                                   → viewport JPEG (default)
+browser_take_screenshot                                   → viewport JPEG (default; inline image)
 browser_take_screenshot fullPage=true                     → entire page
 browser_take_screenshot selector='#chart'                 → crop to element
 browser_take_screenshot highlightClickables=true          → outline clickable elements
 browser_take_screenshot path='/tmp/screenshot.png'        → save to file
+
+When `path` is omitted, output follows `screenshot.omit_path` in `~/.supersurf/config.json`:
+`inline` (default), `path` (temp file under OS tmpdir, text only), or `both`. Env override: `SUPERSURF_SCREENSHOT_OMIT_PATH`.
 browser_pdf_save path='/tmp/page.pdf'                     → export as PDF
 ```
 

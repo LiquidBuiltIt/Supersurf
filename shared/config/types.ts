@@ -1,5 +1,8 @@
 import type { DebugMode } from '../logger/logger';
 
+/** When `browser_take_screenshot` omits `path`. Explicit `path` always saves to that file. */
+export type ScreenshotOmitPathMode = 'inline' | 'path' | 'both';
+
 export interface Config {
   experiments: {
     page_diffing: boolean;
@@ -31,6 +34,15 @@ export interface Config {
       disable_gpu: boolean;
     };
   };
+  /**
+   * Screenshot tool defaults.
+   * `omit_path`: what to return when the agent omits `path` —
+   * `inline` (default, current contract), `path` (temp file under OS tmpdir, text only),
+   * or `both` (temp file + inline image).
+   */
+  screenshot: {
+    omit_path: ScreenshotOmitPathMode;
+  };
   tips: boolean;
 }
 
@@ -46,6 +58,7 @@ export type PartialConfig = {
     chrome_path?: string | null;
     startup_opts?: Partial<Config['profiles']['startup_opts']>;
   };
+  screenshot?: Partial<Config['screenshot']>;
   tips?: boolean;
 };
 

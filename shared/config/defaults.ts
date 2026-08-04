@@ -30,6 +30,9 @@ export const HARDCODED_DEFAULTS: Config = {
       disable_gpu: false,
     },
   },
+  screenshot: {
+    omit_path: 'inline',
+  },
   tips: true,
 };
 
@@ -46,4 +49,5 @@ export const SCAFFOLD_DEFAULTS: Config = {
     chrome_path: HARDCODED_DEFAULTS.profiles.chrome_path,
     startup_opts: { ...HARDCODED_DEFAULTS.profiles.startup_opts },
   },
+  screenshot: { ...HARDCODED_DEFAULTS.screenshot },
 };

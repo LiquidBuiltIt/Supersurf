@@ -31,6 +31,9 @@ exports.HARDCODED_DEFAULTS = {
             disable_gpu: false,
         },
     },
+    screenshot: {
+        omit_path: 'inline',
+    },
     tips: true,
 };
 exports.SCAFFOLD_DEFAULTS = {
@@ -46,5 +49,6 @@ exports.SCAFFOLD_DEFAULTS = {
         chrome_path: exports.HARDCODED_DEFAULTS.profiles.chrome_path,
         startup_opts: { ...exports.HARDCODED_DEFAULTS.profiles.startup_opts },
     },
+    screenshot: { ...exports.HARDCODED_DEFAULTS.screenshot },
 };
 //# sourceMappingURL=defaults.js.map

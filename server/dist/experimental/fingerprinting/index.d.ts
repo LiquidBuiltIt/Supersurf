@@ -3,26 +3,40 @@ import type { FingerprintRecord, ScoreHit } from './types';
 import type { HandleMeta } from './handle-meta';
 export declare const THRESHOLD = 0.6;
 export declare const MARGIN = 0.1;
-export declare function domainOf(url: string | undefined): string;
-export declare function routeOf(url: string | undefined): string;
+export { domainOf, routeOf } from './url';
 export declare function passesGate(hit: ScoreHit): boolean;
 /** Handle-capture telemetry, written to the usage-metrics trail when the agent supplies a name. */
 export interface HandleEvent {
-    event: 'handle.capture' | 'handle.alias_added';
-    outcome: 'new' | 'alias' | 'existing' | 'none';
+    event: 'handle.capture';
+    outcome: 'new' | 'existing' | 'ignored' | 'none';
+    /** The canonical name now bound to this element. */
     name: string;
+    /** Set only on `outcome: 'ignored'` — the differing name the agent sent, which was discarded. */
+    ignoredName?: string;
     purpose_present: boolean;
     normalized: boolean;
-    aliasCount: number;
-    addedAlias?: string;
-    aliasFreq?: number;
     domain: string;
     route: string;
     selector: string;
 }
-export type HandleEmit = (ev: HandleEvent) => void;
+/** Resolve-by-name telemetry. Fires on every translation attempt, hit or miss, so the
+ *  usage-metrics trail can measure handle adoption and handle accuracy separately. */
+export interface HandleResolveEvent {
+    event: 'handle.resolved';
+    /** The handle name the agent passed (normalized shape, as supplied). */
+    name: string;
+    match: 'canonical' | 'miss';
+    /** Records in this domain+route carrying the name; 0 on a miss. */
+    candidateCount: number;
+    /** The translated selector; '' on a miss. */
+    selector: string;
+    domain: string;
+    route: string;
+}
+export type AnyHandleEvent = HandleEvent | HandleResolveEvent;
+export type HandleEmit = (ev: AnyHandleEvent) => void;
 /** Fire-and-forget: fingerprint the just-resolved element and persist it, binding an
- *  optional agent-supplied handle name/purpose (canonical-vs-alias via mergeHandleMeta). Never throws.
+ *  optional agent-supplied handle name/purpose via mergeHandleMeta (sticky-canonical, never an alias). Never throws.
  *  `preloadedRecord`, when passed (even as `null`), is reused as-is instead of re-reading via
  *  `getRecord` — callers that already looked up the record (e.g. `resolveWithHealing`, for its
  *  `hadRecord` telemetry) pass it through so the happy path stays at one file read, not two. */

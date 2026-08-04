@@ -16,6 +16,7 @@ export type {
   ConfigInputs,
   LoadResult,
   ScaffoldResult,
+  ScreenshotOmitPathMode,
 } from './config/index';
 
 export { QUERY_DEEP_SOURCE, QUERY_ALL_DEEP_SOURCE } from './dom/shadow-walker';

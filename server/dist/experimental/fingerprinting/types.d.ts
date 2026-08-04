@@ -20,7 +20,6 @@ export interface FingerprintRecord extends Fingerprint {
     hits: number;
     handleName?: string;
     purpose?: string;
-    aliases?: Record<string, number>;
 }
 export interface DomainStore {
     domain: string;
@@ -31,5 +30,13 @@ export interface ScoreHit {
     cy: number;
     score: number;
     margin: number;
+    role: string;
+    name: string;
+    tag: string;
+    type: string | null;
+    htmlId: string;
+    attrs: Record<string, string>;
+    classList: string[];
+    ordinal: number;
 }
 //# sourceMappingURL=types.d.ts.map

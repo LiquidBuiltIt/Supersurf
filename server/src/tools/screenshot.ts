@@ -7,14 +7,18 @@
  * then optionally downscaled using Sharp to prevent base64 token blowup
  * when returned inline to the agent. File saves bypass downscaling.
  *
- * Supports: format selection, quality, full-page, element crop via selector,
- * coordinate clipping, device scale, and clickable element highlighting.
+ * When `path` is omitted, behavior follows `config.screenshot.omit_path`
+ * (`inline` | `path` | `both`; default `inline`). Explicit `path` always
+ * saves to that file. Internal `rawResult` captures without `path` stay inline.
  *
  * @module tools/screenshot
  */
 
 import type { ToolContext } from './lib/types';
+import type { ScreenshotOmitPathMode } from 'shared';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import sharp from 'sharp';
 import sizeOf from 'image-size';
 import { createLog } from '../logger';
@@ -25,21 +29,49 @@ const log = createLog('[Screenshot]');
 /** Max pixel dimension for screenshots returned as base64 to the agent. */
 const SCREENSHOT_MAX_DIMENSION = 2000;
 
+const DEFAULT_SCREENSHOT_DIR = path.join(os.tmpdir(), 'supersurf-screenshots');
+
+/** Build a unique temp path under `$TMPDIR/supersurf-screenshots/`. */
+export function defaultTempScreenshotPath(format: string = 'jpeg'): string {
+  fs.mkdirSync(DEFAULT_SCREENSHOT_DIR, { recursive: true });
+  const ext = format === 'png' ? 'png' : 'jpg';
+  const name = `screenshot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  return path.join(DEFAULT_SCREENSHOT_DIR, name);
+}
+
+function resolveOmitPathMode(ctx: ToolContext): ScreenshotOmitPathMode {
+  const mode = ctx.config?.get().screenshot?.omit_path;
+  if (mode === 'path' || mode === 'both' || mode === 'inline') return mode;
+  return 'inline';
+}
+
 /**
  * Capture a screenshot of the current page or a specific element/region.
  *
  * When saving to a file path, the original resolution is preserved.
- * When returning as base64 (no path), images wider/taller than
+ * When returning as base64 (no path / inline mode), images wider/taller than
  * {@link SCREENSHOT_MAX_DIMENSION} are downscaled with Lanczos3 to
  * keep MCP response sizes reasonable.
  *
  * @param args - Screenshot options (type, quality, fullPage, path, clip, selector, etc.)
  */
 export async function onScreenshot(ctx: ToolContext, args: any, options: any): Promise<any> {
-  const filePath = args.path as string | undefined;
+  const format = (args.type as string) || 'jpeg';
+  const explicitPath =
+    typeof args.path === 'string' && args.path.trim() ? args.path.trim() : undefined;
+  const omitMode = resolveOmitPathMode(ctx);
+  // Internal rawResult without path always stays inline (maybeAppendScreenshot).
+  // Explicit path always saves to disk and never returns an agent-facing inline image.
+  const wantDisk =
+    Boolean(explicitPath) ||
+    (!options.rawResult && (omitMode === 'path' || omitMode === 'both'));
+  const wantInline = options.rawResult
+    ? !explicitPath
+    : !explicitPath && (omitMode === 'inline' || omitMode === 'both');
+  const filePath = explicitPath ?? (wantDisk ? defaultTempScreenshotPath(format) : undefined);
 
   // Build capture params
-  const captureParams: any = { format: args.type || 'jpeg', tabId: ctx.tabId };
+  const captureParams: any = { format, tabId: ctx.tabId };
   if (args.quality) captureParams.quality = args.quality;
   if (args.clip_x !== undefined) {
     captureParams.clip = {
@@ -83,17 +115,26 @@ export async function onScreenshot(ctx: ToolContext, args: any, options: any): P
   }
 
   let buffer = Buffer.from(result.data, 'base64');
-  const format = (args.type as string) || 'jpeg';
 
-  // Save to file (no downscaling — file saves keep original resolution)
+  let safePath: string | undefined;
   if (filePath) {
-    const safePath = sandboxPath(filePath);
-    fs.writeFileSync(safePath, buffer);
-    if (options.rawResult) return { success: true, path: safePath, size: buffer.length };
+    // Explicit agent paths go through the $HOME sandbox; auto temp paths are trusted.
+    const resolvedPath = explicitPath ? sandboxPath(explicitPath) : filePath;
+    safePath = resolvedPath;
+    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+    fs.writeFileSync(resolvedPath, buffer);
+    if (options.rawResult && !wantInline) {
+      return { success: true, path: resolvedPath, size: buffer.length };
+    }
+  }
+
+  if (!wantInline) {
     return {
       content: [{ type: 'text', text: `Screenshot saved to ${safePath} (${buffer.length} bytes)` }],
     };
   }
+
+  const originalFileSize = buffer.length;
 
   // Track original dimensions for scale metadata
   let originalWidth: number | undefined;
@@ -142,15 +183,26 @@ export async function onScreenshot(ctx: ToolContext, args: any, options: any): P
     : undefined;
 
   const b64 = buffer.toString('base64');
-  if (options.rawResult) return { data: b64, mimeType: result.mimeType || `image/${format}`, ...scaleMeta };
+  if (options.rawResult) {
+    return {
+      data: b64,
+      mimeType: result.mimeType || `image/${format}`,
+      ...(safePath ? { path: safePath, size: originalFileSize } : {}),
+      ...scaleMeta,
+    };
+  }
 
   const scaleNote = scaleMeta && (scaleMeta.originalWidth !== scaleMeta.returnedWidth)
     ? `\n\n**Viewport mapping:** Original ${scaleMeta.originalWidth}×${scaleMeta.originalHeight} → Returned ${scaleMeta.returnedWidth}×${scaleMeta.returnedHeight}. Multiply screenshot coordinates by ${(scaleMeta.originalWidth / scaleMeta.returnedWidth).toFixed(4)} to get viewport coordinates.`
     : '';
 
+  const text = safePath
+    ? `Screenshot saved to ${safePath}${scaleNote}`
+    : `Screenshot captured${scaleNote}`;
+
   return {
     content: [
-      { type: 'text', text: `Screenshot captured${scaleNote}` },
+      { type: 'text', text },
       { type: 'image', data: b64, mimeType: result.mimeType || `image/${format}` },
     ],
   };

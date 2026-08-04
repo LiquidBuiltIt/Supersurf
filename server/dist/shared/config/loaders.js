@@ -116,6 +116,15 @@ function loadEnvConfig(env) {
             out.experiments = { ...(out.experiments || {}), ...expOut };
         }
     }
+    if (env.SUPERSURF_SCREENSHOT_OMIT_PATH !== undefined) {
+        const mode = env.SUPERSURF_SCREENSHOT_OMIT_PATH.trim().toLowerCase();
+        if (mode === 'inline' || mode === 'path' || mode === 'both') {
+            out.screenshot = { ...(out.screenshot || {}), omit_path: mode };
+        }
+        else {
+            warnings.push(`config: SUPERSURF_SCREENSHOT_OMIT_PATH=${env.SUPERSURF_SCREENSHOT_OMIT_PATH} is invalid (want inline|path|both) — ignored`);
+        }
+    }
     return { config: out, warnings };
 }
 //# sourceMappingURL=loaders.js.map

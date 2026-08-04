@@ -14,6 +14,7 @@ exports.coalesceInlineTextBoxes = coalesceInlineTextBoxes;
 exports.onSnapshot = onSnapshot;
 exports.onLookup = onLookup;
 exports.onExtractContent = onExtractContent;
+const handle_annotate_1 = require("../experimental/fingerprinting/handle-annotate");
 /**
  * Coalesce adjacent `InlineTextBox` siblings under the same parent into a single
  * text node. Chrome's AX tree splits long text runs into one `InlineTextBox` per
@@ -152,9 +153,13 @@ async function onSnapshot(ctx, options) {
     if (!output)
         output = 'No meaningful accessibility nodes\n';
     if (formFields && formFields.length > 0) {
+        // ONE index build per call — never per field. The accessibility-tree loop above is
+        // deliberately untouched: CDP AX nodes carry no selector, so there is nothing to key
+        // a corpus lookup on and any match there would be a guess.
+        const handles = ctx.getHandleIndex?.() ?? new Map();
         output += '\n---\n### Form Fields\n\n';
         for (const f of formFields) {
-            const parts = [`\`${f.selector}\``];
+            const parts = [`\`${(0, handle_annotate_1.annotateSelector)(handles, f.selector)}\``];
             if (f.label)
                 parts.push(`label="${f.label}"`);
             if (f.type)
@@ -180,6 +185,9 @@ async function onSnapshot(ctx, options) {
  */
 async function onLookup(ctx, args, options) {
     const searchText = args.text;
+    if (typeof searchText !== 'string' || searchText.trim() === '') {
+        throw new Error('browser_lookup requires a "text" parameter — the visible text to search for.');
+    }
     const limit = args.limit || 10;
     const data = await ctx.eval(`
     (() => {
@@ -251,10 +259,12 @@ async function onLookup(ctx, args, options) {
     if (matches.length === 0) {
         return { content: [{ type: 'text', text: `No elements found with text: "${searchText}"` }] };
     }
+    // ONE index build per call — never per match.
+    const handles = ctx.getHandleIndex?.() ?? new Map();
     let output = `### Found ${data.total} element(s) with text: "${searchText}"\n\n`;
     matches.forEach((m, i) => {
         const vis = m.visible ? '✓' : '✗ hidden';
-        output += `${i + 1}. **${m.selector}** [${m.tag}] ${vis}\n`;
+        output += `${i + 1}. **${(0, handle_annotate_1.annotateSelector)(handles, m.selector)}** [${m.tag}] ${vis}\n`;
         output += `   Text: "${m.text}"\n   Position: (${m.x}, ${m.y}) | Size: ${m.width}×${m.height}px\n`;
         if (m.formField) {
             const f = m.formField;

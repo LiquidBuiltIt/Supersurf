@@ -64,4 +64,15 @@ describe('loadEnvConfig', () => {
     expect((config.experiments as any)?.profiles).toBeUndefined();
     expect(warnings.some((w) => w.includes('profiles'))).toBe(true);
   });
+
+  it('maps SUPERSURF_SCREENSHOT_OMIT_PATH to screenshot.omit_path', () => {
+    const { config } = loadEnvConfig({ SUPERSURF_SCREENSHOT_OMIT_PATH: 'path' });
+    expect(config.screenshot?.omit_path).toBe('path');
+  });
+
+  it('warns on invalid SUPERSURF_SCREENSHOT_OMIT_PATH', () => {
+    const { config, warnings } = loadEnvConfig({ SUPERSURF_SCREENSHOT_OMIT_PATH: 'disk' });
+    expect(config.screenshot?.omit_path).toBeUndefined();
+    expect(warnings[0]).toMatch(/SUPERSURF_SCREENSHOT_OMIT_PATH/);
+  });
 });

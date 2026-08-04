@@ -54,6 +54,7 @@ class ConfigService {
         const isMode = (v) => v === 'tranco' || v === 'custom' || v === 'both';
         const isDebugMode = (v) => v === false || v === 'truncate' || v === 'no_truncate';
         const isChromePath = (v) => v === null || (typeof v === 'string' && v.trim().length > 0);
+        const isScreenshotOmitPath = (v) => v === 'inline' || v === 'path' || v === 'both';
         const pick = this.pick.bind(this);
         return {
             experiments: {
@@ -84,6 +85,9 @@ class ConfigService {
                 startup_opts: {
                     disable_gpu: pick('profiles.startup_opts.disable_gpu', inp.cli.profiles?.startup_opts?.disable_gpu, inp.env.profiles?.startup_opts?.disable_gpu, inp.file.profiles?.startup_opts?.disable_gpu, D.profiles.startup_opts.disable_gpu, isBool, warn),
                 },
+            },
+            screenshot: {
+                omit_path: pick('screenshot.omit_path', inp.cli.screenshot?.omit_path, inp.env.screenshot?.omit_path, inp.file.screenshot?.omit_path, D.screenshot.omit_path, isScreenshotOmitPath, warn),
             },
             tips: pick('tips', inp.cli.tips, inp.env.tips, inp.file.tips, D.tips, isBool, warn),
         };

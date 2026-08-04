@@ -33,7 +33,9 @@ function cleanCSSFilename(href) {
  * @param args - `{ selector: string, property?: string, pseudoState?: string[] }`
  */
 async function onGetElementStyles(ctx, args, options) {
-    const selector = args.selector;
+    // Raw-CDP site: bypasses getSelectorExpression, so translate the handle here.
+    const rawSelector = args.selector;
+    const selector = ctx.resolveSelector?.(rawSelector) ?? rawSelector;
     const propertyFilter = args.property ? args.property.toLowerCase() : null;
     let pseudoState = args.pseudoState || [];
     if (typeof pseudoState === 'string') {
@@ -51,7 +53,7 @@ async function onGetElementStyles(ctx, args, options) {
         selector,
     });
     if (!queryResult.nodeId)
-        throw new Error(`Element not found: ${selector}`);
+        throw new Error(`Element not found: ${rawSelector}`);
     // Force pseudo states if requested
     if (pseudoState.length > 0) {
         await ctx.cdp('CSS.forcePseudoState', {
@@ -157,9 +159,9 @@ async function onGetElementStyles(ctx, args, options) {
     if (options.rawResult) {
         const properties = {};
         propMap.forEach((v, k) => { properties[k] = v; });
-        return { success: true, selector, propertyCount: propMap.size, properties };
+        return { success: true, selector: rawSelector, propertyCount: propMap.size, properties };
     }
-    let output = `### Element Styles: \`${selector}\`\n\n`;
+    let output = `### Element Styles: \`${rawSelector}\`\n\n`;
     if (pseudoState.length > 0) {
         output += `**Forced pseudo-state:** \`${pseudoState.map((s) => `:${s}`).join(', ')}\`\n\n`;
     }

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const registry_1 = require("./registry");
 const frames_1 = require("../lib/frames");
+const helpers_1 = require("./helpers");
 (0, registry_1.registerAction)({
     name: 'type',
     async run(ctx, action) {
@@ -26,6 +27,20 @@ const frames_1 = require("../lib/frames");
                 throw new Error(`Failed to focus ${action.selector}`);
         }
         for (const char of action.text) {
+            if (char === '\r')
+                continue; // CRLF normalization — the \n dispatches Enter
+            if (char === '\n') {
+                const enter = helpers_1.KEY_MAP.Enter;
+                await ctx.cdp('Input.dispatchKeyEvent', {
+                    type: 'keyDown',
+                    key: enter.key, code: enter.code, keyCode: enter.keyCode, text: enter.text,
+                });
+                await ctx.cdp('Input.dispatchKeyEvent', {
+                    type: 'keyUp',
+                    key: enter.key, code: enter.code, keyCode: enter.keyCode,
+                });
+                continue;
+            }
             await ctx.cdp('Input.dispatchKeyEvent', { type: 'char', text: char });
         }
         if (action.selector) {

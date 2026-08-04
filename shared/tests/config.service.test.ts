@@ -107,6 +107,41 @@ describe('ConfigService', () => {
     expect(warns.some((w) => w.includes('profiles.chrome_path'))).toBe(true);
   });
 
+  it('screenshot.omit_path defaults to inline', () => {
+    const s = new ConfigService({ cli: {}, env: {}, file: {} });
+    expect(s.get().screenshot.omit_path).toBe('inline');
+    expect(s.sourceOf('screenshot.omit_path')).toBe('default');
+  });
+
+  it('screenshot.omit_path accepts path and both via file', () => {
+    const pathMode = new ConfigService({
+      cli: {},
+      env: {},
+      file: { screenshot: { omit_path: 'path' } },
+    });
+    expect(pathMode.get().screenshot.omit_path).toBe('path');
+    expect(pathMode.sourceOf('screenshot.omit_path')).toBe('file');
+
+    const bothMode = new ConfigService({
+      cli: {},
+      env: {},
+      file: { screenshot: { omit_path: 'both' } },
+    });
+    expect(bothMode.get().screenshot.omit_path).toBe('both');
+  });
+
+  it('screenshot.omit_path rejects invalid values with warning', () => {
+    const warns: string[] = [];
+    const s = new ConfigService({
+      cli: {},
+      env: {},
+      file: { screenshot: { omit_path: 'disk' as any } },
+      onWarn: (m) => warns.push(m),
+    });
+    expect(s.get().screenshot.omit_path).toBe('inline');
+    expect(warns.some((w) => w.includes('screenshot.omit_path'))).toBe(true);
+  });
+
   it('warns on wrong type and falls back to default', () => {
     const warns: string[] = [];
     const s = new ConfigService({
