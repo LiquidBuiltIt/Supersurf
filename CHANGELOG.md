@@ -1,3 +1,33 @@
+<!--
+CHANGELOG PARSER CONTRACT — read before editing. Parsed by scripts/changelog.ts
+(`npm run changelog`). This is regex-driven: deviate and an entry is either
+silently mis-rendered or silently dropped with no error.
+
+1. Section headers MUST start with exactly "## " (two hashes, one space) at
+   column 0.
+   - Unreleased: exactly `## Unreleased` (case-insensitive) — nothing else on
+     that line, no trailing date/text.
+   - Released:   `## X.Y.Z` then anything — e.g. `## 3.2.0 — 2026-07-03`. Only
+     the three dot-separated integers are read; everything after is free text.
+   - Any other "## " header (typo, missing patch digit, extra text on the
+     Unreleased line) is SILENTLY DROPPED — header and every bullet under it
+     vanish with no error.
+2. Use an em dash "—" (not a hyphen) before the date. Section splitting
+   doesn't care, but `npm run changelog -- ls`'s date column only recognizes
+   the em-dash form.
+3. Do NOT use "### " subsections (e.g. "### Added" / "### Changed"). The
+   parser has no concept of them — a "### " line isn't a header at all, so
+   its bullets silently collapse into the flat bullet list of whichever
+   section they sit inside, with the category label lost. One flat bullet
+   list per section, period.
+4. Entries are top-level bullets: "- " or "* " at column 0, no leading
+   indentation — indented/nested bullets are invisible in the default
+   (non-verbose) view.
+5. Lead each bullet with a **bold** summary phrase, or a sentence ending in
+   . ! or ? — that's what the default compact view extracts as the one-line
+   change statement.
+-->
+
 # Changelog
 
 All notable changes to SuperSurf are documented in this file.
@@ -26,11 +56,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 - **Named capture (playbooks write-side):** `browser_interact` actions now accept `name` (snake_case handle identity) and `purpose` (intent) fields. When the `fingerprinting` experiment is on, these bind to the element's fingerprint record on every element-targeting `browser_interact` action (click/hover/type/clear/select_option/select_custom/file_upload) via a centralized capture path shared by the coordinate and context resolvers — first-seen name is canonical and permanently sticky; a later differing name is a no-op. Emits `handle.capture` events to the usage-metrics trail. Gated behind `fingerprinting`; no-op when off. Never rejects a missing/malformed name (normalized server-side).
 - **`supersurf export` command** — bundles usage-metrics logs (`metrics-*.ndjson` + legacy `audit-*.ndjson`) from `~/.supersurf/logs/sessions/` into a timestamped `.zip` in the current directory. Shells out to the OS `zip` CLI; no redaction (logs ship as-stored, already redacted by the usage-metrics logger).
 - **fix: `browser_verify_element_visible` and `browser_extract_content` (selector mode) now pierce open shadow roots too.** Both hand-rolled their own `document.querySelector(...)` instead of routing through `getSelectorExpression`, so they were still blind to shadow-nested elements after the shadow-piercing walker landed for `browser_interact`/`browser_fill_form`/`getElementCenter`. Same non-breaking guarantee: an existing selector still resolves to the same light-DOM element.
-
-### Added
 - **Resolve-by-name (playbooks read side, round one)** — any selector field on `browser_interact` (and `browser_get_element_styles`, `browser_fill_form`, `browser_extract_content`, `browser_verify_element_visible`) now accepts a handle you named earlier: pass a bare multi-word `snake_case` name like `tweet_button` and the server resolves it to the element that name was fingerprinted against, healing on a page change. Multiple records can legitimately carry the same canonical name; ties break on hit count then recency. An unrecognized name falls through to the normal CSS path and the not-found error gains a line explaining that no such handle was recorded. Single-word names are always read as CSS tag selectors. Gated by the `fingerprinting` experiment. Emits `handle.resolved` (name, match tier, candidate count) to the usage-metrics trail.
-
-### Changed
 - **Fingerprint match scorer now returns the winning element's identity** (`role`, `name`, `tag`, `type`, `htmlId`, `attrs`, `classList`, `ordinal`) alongside its coordinates and score. Previously it computed all of it in-page and serialized only `{cx, cy, score, margin}`, which made a healed match impossible to turn back into a selector.
 
 ## 3.2.0 — 2026-07-03
