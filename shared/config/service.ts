@@ -1,4 +1,4 @@
-import type { Config, PartialConfig, ConfigSource } from './types';
+import type { Config, PartialConfig, ConfigSource, ScreenshotOmitPathMode } from './types';
 import type { DebugMode } from '../logger/logger';
 import { HARDCODED_DEFAULTS } from './defaults';
 
@@ -74,6 +74,10 @@ export class ConfigService {
       v === 'tranco' || v === 'custom' || v === 'both';
     const isDebugMode = (v: unknown): v is DebugMode =>
       v === false || v === 'truncate' || v === 'no_truncate';
+    const isChromePath = (v: unknown): v is string | null =>
+      v === null || (typeof v === 'string' && v.trim().length > 0);
+    const isScreenshotOmitPath = (v: unknown): v is ScreenshotOmitPathMode =>
+      v === 'inline' || v === 'path' || v === 'both';
 
     const pick = this.pick.bind(this);
 
@@ -134,6 +138,11 @@ export class ConfigService {
           inp.file.logging?.usage_metrics, D.logging.usage_metrics, isBool, warn),
       },
       profiles: {
+        chrome_path: pick('profiles.chrome_path',
+          inp.cli.profiles?.chrome_path,
+          inp.env.profiles?.chrome_path,
+          inp.file.profiles?.chrome_path,
+          D.profiles.chrome_path, isChromePath, warn),
         startup_opts: {
           disable_gpu: pick('profiles.startup_opts.disable_gpu',
             inp.cli.profiles?.startup_opts?.disable_gpu,
@@ -141,6 +150,13 @@ export class ConfigService {
             inp.file.profiles?.startup_opts?.disable_gpu,
             D.profiles.startup_opts.disable_gpu, isBool, warn),
         },
+      },
+      screenshot: {
+        omit_path: pick('screenshot.omit_path',
+          inp.cli.screenshot?.omit_path,
+          inp.env.screenshot?.omit_path,
+          inp.file.screenshot?.omit_path,
+          D.screenshot.omit_path, isScreenshotOmitPath, warn),
       },
       tips: pick('tips', inp.cli.tips, inp.env.tips, inp.file.tips, D.tips, isBool, warn),
     };

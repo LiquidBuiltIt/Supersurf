@@ -245,11 +245,14 @@ Returns matched CSS rules with source file/line, computed values, and which rule
 ## Screenshots & PDFs
 
 ```
-browser_take_screenshot                                   → viewport JPEG (default)
+browser_take_screenshot                                   → viewport JPEG (default; inline image)
 browser_take_screenshot fullPage=true                     → entire page
 browser_take_screenshot selector='#chart'                 → crop to element
 browser_take_screenshot highlightClickables=true          → outline clickable elements
 browser_take_screenshot path='/tmp/screenshot.png'        → save to file
+
+When `path` is omitted, output follows `screenshot.omit_path` in `~/.supersurf/config.json`:
+`inline` (default), `path` (temp file under OS tmpdir, text only), or `both`. Env override: `SUPERSURF_SCREENSHOT_OMIT_PATH`.
 browser_pdf_save path='/tmp/page.pdf'                     → export as PDF
 ```
 
@@ -337,5 +340,5 @@ Every tool response starts with a status line:
 - You talk to an MCP server over stdio. The server talks to a daemon over a Unix socket. The daemon talks to a Chrome extension over WebSocket. The extension controls Chrome.
 - The extension runs in Chrome's isolated world — page JavaScript cannot detect it.
 - CDP is only used for screenshots, network interception, and PDF generation. All DOM interaction goes through content scripts.
-- The daemon persists across sessions. When you disconnect, your tabs and profile state survive for the next connection.
+- The daemon persists across sessions. Managed Chromium quits on disconnect by default; enable extension Settings “Keep browser after session ends” to keep the window open. Profile cookies/logins always persist on disk. Daemon idle timeout or shutdown can still quit daemon-owned browsers.
 - Every tool call is audit-logged to `~/.supersurf/logs/sessions/`.

@@ -16,6 +16,8 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { FileLogger } from 'shared';
 import { Matchmaker } from './profiles/matchmaker';
+import { applyKeepBrowserPreference } from './profiles/keep-browser';
+import { registrationHtml } from './profiles/registration-page';
 import type { PooledConnection } from './profiles/types';
 
 const debugLog = (...args: unknown[]) => {
@@ -23,19 +25,6 @@ const debugLog = (...args: unknown[]) => {
   if (logger) logger.log('[WS]', ...args);
   else if ((global as any).DAEMON_DEBUG) console.error('[WS]', ...args);
 };
-
-/** Registration HTML template served at /register/:name. */
-function registrationHtml(profileName: string): string {
-  return `<html>
-<head><title>Registering Profile...</title></head>
-<body>
-<p>Registering profile "${profileName}"... This tab will close automatically.</p>
-<script>
-  window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${profileName}' }, '*');
-</script>
-</body>
-</html>`;
-}
 
 /**
  * WebSocket server that bridges the daemon to Chrome extension(s).
@@ -129,6 +118,7 @@ export class ExtensionBridge {
           buildTimestamp: null,
           pingInterval: null,
           inflight: new Map(),
+          keepBrowserOnSessionEnd: false,
         };
 
         // Keep-alive ping every 10s
@@ -195,6 +185,7 @@ export class ExtensionBridge {
         debugLog('Handshake received:', message);
         conn.browser = message.browser || 'chrome';
         conn.buildTimestamp = message.buildTimestamp || null;
+        applyKeepBrowserPreference(conn, message.keepBrowserOnSessionEnd);
 
         // Profile field in handshake (subsequent launches)
         if (message.profile) {
@@ -208,6 +199,12 @@ export class ExtensionBridge {
       if (message.method === 'profile_announce' && message.params?.profile) {
         debugLog('Profile announcement:', message.params.profile);
         this.matchmaker.updateProfile(ws, message.params.profile);
+        return;
+      }
+
+      if (message.method === 'session/keep_browser') {
+        applyKeepBrowserPreference(conn, message.params?.keepBrowserOnSessionEnd);
+        debugLog('keepBrowserOnSessionEnd updated:', conn.keepBrowserOnSessionEnd);
         return;
       }
 

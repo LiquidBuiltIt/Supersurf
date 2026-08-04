@@ -19,6 +19,8 @@ exports.ExtensionBridge = void 0;
 const http_1 = __importDefault(require("http"));
 const ws_1 = require("ws");
 const matchmaker_1 = require("./profiles/matchmaker");
+const keep_browser_1 = require("./profiles/keep-browser");
+const registration_page_1 = require("./profiles/registration-page");
 const debugLog = (...args) => {
     const logger = global.DAEMON_LOGGER;
     if (logger)
@@ -26,18 +28,6 @@ const debugLog = (...args) => {
     else if (global.DAEMON_DEBUG)
         console.error('[WS]', ...args);
 };
-/** Registration HTML template served at /register/:name. */
-function registrationHtml(profileName) {
-    return `<html>
-<head><title>Registering Profile...</title></head>
-<body>
-<p>Registering profile "${profileName}"... This tab will close automatically.</p>
-<script>
-  window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${profileName}' }, '*');
-</script>
-</body>
-</html>`;
-}
 /**
  * WebSocket server that bridges the daemon to Chrome extension(s).
  * Routes connections via the Matchmaker pool; unmanaged connections (no profile) are supported.
@@ -88,7 +78,7 @@ class ExtensionBridge {
                             'Content-Type': 'text/html',
                             'Set-Cookie': `supersurf_profile=${profileName}; Path=/; SameSite=Lax`,
                         });
-                        res.end(registrationHtml(profileName));
+                        res.end((0, registration_page_1.registrationHtml)(profileName));
                         return;
                     }
                 }
@@ -120,6 +110,7 @@ class ExtensionBridge {
                     buildTimestamp: null,
                     pingInterval: null,
                     inflight: new Map(),
+                    keepBrowserOnSessionEnd: false,
                 };
                 // Keep-alive ping every 10s
                 conn.pingInterval = setInterval(() => {
@@ -176,6 +167,7 @@ class ExtensionBridge {
                 debugLog('Handshake received:', message);
                 conn.browser = message.browser || 'chrome';
                 conn.buildTimestamp = message.buildTimestamp || null;
+                (0, keep_browser_1.applyKeepBrowserPreference)(conn, message.keepBrowserOnSessionEnd);
                 // Profile field in handshake (subsequent launches)
                 if (message.profile) {
                     this.matchmaker.updateProfile(ws, message.profile);
@@ -186,6 +178,11 @@ class ExtensionBridge {
             if (message.method === 'profile_announce' && message.params?.profile) {
                 debugLog('Profile announcement:', message.params.profile);
                 this.matchmaker.updateProfile(ws, message.params.profile);
+                return;
+            }
+            if (message.method === 'session/keep_browser') {
+                (0, keep_browser_1.applyKeepBrowserPreference)(conn, message.params?.keepBrowserOnSessionEnd);
+                debugLog('keepBrowserOnSessionEnd updated:', conn.keepBrowserOnSessionEnd);
                 return;
             }
             // Tab info notification

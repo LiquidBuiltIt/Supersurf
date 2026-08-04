@@ -87,7 +87,18 @@ function getToolSchemas() {
                                         'wait: if selector is provided, polls for the element every 100ms and resolves immediately when found (rejects on timeout). ' +
                                         'If only timeout is provided, pauses for that fixed duration.',
                                 },
-                                selector: { type: 'string', description: 'CSS selector for the target element. Supports :has-text("...") for text matching, e.g. button:has-text("Submit"). For wait: element to poll for existence.' },
+                                selector: {
+                                    type: 'string',
+                                    description: 'CSS selector for the target element. Supports :has-text("...") for text matching, ' +
+                                        'e.g. button:has-text("Submit"). For wait: element to poll for existence. ' +
+                                        'You may also pass a handle you named earlier — a bare multi-word snake_case name ' +
+                                        'such as "tweet_button" (no dots, hashes, brackets or spaces) — and the server ' +
+                                        'resolves it to the element that name was recorded against on this exact domain + ' +
+                                        'URL path (no cross-route matching), healing it if the page changed. Only works ' +
+                                        'when the `fingerprinting` experiment is enabled (off by default) — otherwise the ' +
+                                        'handle is not recognized and falls through to the CSS path. Single words are ' +
+                                        'always read as CSS tag selectors, never handles.',
+                                },
                                 text: { type: 'string', description: 'Text to type (for type action)' },
                                 key: { type: 'string', description: 'Key to press (for press_key action)' },
                                 value: { type: 'string', description: 'Option value or text (for select_option and select_custom)' },
@@ -106,9 +117,11 @@ function getToolSchemas() {
                                     type: 'string',
                                     description: 'Handle identity — a short, stable snake_case name for the element you are acting on ' +
                                         '(e.g. "first_name_input", "submit_application"). REQUIRED for element-targeting actions ' +
-                                        '(click/type/clear/hover/select_option/select_custom/file_upload). Reuse the same name for ' +
-                                        'the same logical element across pages. Normalized server-side; a differing name is recorded ' +
-                                        'as an alias, not a rename.',
+                                        '(click/type/clear/hover/select_option/select_custom/file_upload). Must be at least two ' +
+                                        'lowercase words joined by underscores (e.g. "first_name_input") — a name not in that shape ' +
+                                        'is not recorded. Reuse the same name for the same logical element across pages. Normalized ' +
+                                        'server-side. The first name an element is given sticks — a later, differing name is ' +
+                                        'ignored, not recorded as a rename.',
                                 },
                                 purpose: {
                                     type: 'string',
@@ -117,6 +130,21 @@ function getToolSchemas() {
                                         'identical-looking elements and groups actions into workflows.',
                                 },
                             },
+                            // `type` is the ONLY structural requirement. The name/purpose requirement for
+                            // element-targeting actions is carried in the field descriptions above as prose,
+                            // deliberately NOT as a JSON Schema rule.
+                            //
+                            // A conditional `allOf`/`if`/`then` block lived here and was reverted: the MCP spec
+                            // restricts tool inputSchema to type/properties/required, composition keywords are
+                            // not part of it, and client support is unreliable (Claude Code — the primary
+                            // install target — reportedly mishandles them). The failure mode is the whole tool
+                            // vanishing from tools/list, not a soft degrade. It bought nothing to offset that:
+                            // this server never validates tool inputs (cli.ts uses the low-level SDK `Server`,
+                            // which only checks the {name, arguments} envelope), so the rule was advisory even
+                            // where clients did honor it.
+                            //
+                            // Do not reintroduce composition keywords here without first measuring, via the
+                            // expanded telemetry, whether prose alone is getting agents to supply names.
                             required: ['type'],
                         },
                     },
@@ -196,14 +224,17 @@ function getToolSchemas() {
         // ── Screenshot ──
         {
             name: 'browser_take_screenshot',
-            description: 'Capture a screenshot. Defaults to JPEG quality 80, viewport-only. Options: full page, element crop, coordinate clip, clickable highlights.',
+            description: 'Capture a screenshot. Defaults to JPEG quality 80, viewport-only. When `path` is omitted, output follows `screenshot.omit_path` in config (`inline` default | `path` | `both`). Options: full page, element crop, coordinate clip, clickable highlights.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     type: { type: 'string', enum: ['png', 'jpeg'], description: 'Image format (default: jpeg)' },
                     fullPage: { type: 'boolean', description: 'Full page (default: false)' },
                     quality: { type: 'number', description: 'JPEG quality 0-100 (default: 80)' },
-                    path: { type: 'string', description: 'File path to save (returns data if omitted)' },
+                    path: {
+                        type: 'string',
+                        description: 'File path to save (relative to $HOME). When omitted, behavior follows `screenshot.omit_path` in ~/.supersurf/config.json: `inline` (default, return image), `path` (temp file under OS tmpdir, text only), or `both`.',
+                    },
                     highlightClickables: { type: 'boolean', description: 'Highlight clickable elements (default: false)' },
                     deviceScale: { type: 'number', description: 'Scale factor: 1=CSS pixels, 0=native resolution' },
                     selector: { type: 'string', description: 'CSS selector for partial screenshot' },

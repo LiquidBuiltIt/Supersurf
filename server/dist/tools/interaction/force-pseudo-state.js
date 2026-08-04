@@ -6,14 +6,16 @@ const frames_1 = require("../lib/frames");
     name: 'force_pseudo_state',
     async run(ctx, action) {
         const pseudoStates = action.pseudoStates || [];
+        // Raw-CDP site: bypasses getSelectorExpression, so translate the handle here.
+        const selector = ctx.resolveSelector?.(action.selector) ?? action.selector;
         const doc = await ctx.cdp('DOM.getDocument', {});
         const topResult = await ctx.cdp('DOM.querySelector', {
             nodeId: doc.root.nodeId,
-            selector: action.selector,
+            selector,
         });
         let nodeId = topResult.nodeId;
         if (!nodeId) {
-            const selectorExpr = ctx.getSelectorExpression(action.selector);
+            const selectorExpr = ctx.getSelectorExpression(selector);
             const match = await (0, frames_1.findElementInFrames)(ctx, selectorExpr);
             if (!match)
                 throw new Error(`Element not found: ${action.selector}`);

@@ -21,6 +21,7 @@ function mockConn(ws: WebSocket, profile: string | null = null): PooledConnectio
     buildTimestamp: null,
     pingInterval: null,
     inflight: new Map(),
+    keepBrowserOnSessionEnd: true,
   };
 }
 

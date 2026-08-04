@@ -269,4 +269,22 @@ describe('spawnChromium startupOpts', () => {
     const args = spawnMock.mock.calls[0][1] as string[];
     expect(args).not.toContain('--disable-gpu');
   });
+
+  it('uses startupOpts.chromePath as the spawn binary when set', () => {
+    const chromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    spawnChromium('p', '/ext', 5555, false, { chromePath });
+    expect(spawnMock.mock.calls[0][0]).toBe(chromePath);
+  });
+
+  it('throws when chromePath is set but the binary does not exist', () => {
+    existsSpy.mockImplementation((p: any) => {
+      if (String(p).includes('Google Chrome')) return false;
+      return true;
+    });
+    expect(() =>
+      spawnChromium('p', '/ext', 5555, false, {
+        chromePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      }),
+    ).toThrow(/chrome_path|Chrome binary not found/i);
+  });
 });

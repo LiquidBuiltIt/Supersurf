@@ -674,4 +674,57 @@ describe('TabHandlers', () => {
       expect(result.tabs[0].techStack).toEqual({ react: '18.2', nextjs: true });
     });
   });
+
+  describe('session tab groups (client_id persist)', () => {
+    it('disconnect greys group and does not ungroup', async () => {
+      mockChrome.tabs.group.mockResolvedValue(42);
+      mockChrome.tabGroups.query.mockResolvedValue([
+        { id: 42, title: 'proj-abc12', color: 'blue', collapsed: false, windowId: 1 },
+      ]);
+      mockChrome.tabs.create.mockResolvedValue({
+        id: 100, index: 0, title: 't', url: 'https://example.com', groupId: -1, windowId: 1,
+      });
+
+      await tabs.createTab({ url: 'https://example.com', _sessionId: 'proj-abc12' });
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 100, index: 0, title: 't', url: 'https://example.com', groupId: 42, windowId: 1 },
+      ]);
+      await tabs.handleSessionDisconnect('proj-abc12');
+
+      expect(mockChrome.tabs.ungroup).not.toHaveBeenCalled();
+      expect(mockChrome.tabGroups.update).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ color: 'grey' }),
+      );
+      const stored = mockChrome.storage._data['supersurf.sessionGroupColors'];
+      expect(stored?.['proj-abc12']).toBe('blue');
+      expect(stored?.['proj-abc12']).not.toBe('grey');
+    });
+
+    it('reclaim by title restores stored color after cold cache', async () => {
+      // Simulate SW restart: new TabHandlers instance, storage still has color
+      mockChrome.storage._data['supersurf.sessionGroupColors'] = { 'proj-abc12': 'red' };
+      mockChrome.tabGroups.query.mockResolvedValue([
+        { id: 77, title: 'proj-abc12', color: 'grey', collapsed: false, windowId: 1 },
+      ]);
+      mockChrome.tabs.create.mockResolvedValue({
+        id: 200, index: 0, title: 't', url: 'https://example.com', groupId: -1, windowId: 1,
+      });
+      mockChrome.tabs.group.mockResolvedValue(77);
+
+      const fresh = new TabHandlers(mockChrome, mockLogger, mockIconManager, new SessionContext());
+      await fresh.createTab({ url: 'https://example.com', _sessionId: 'proj-abc12' });
+
+      expect(mockChrome.tabGroups.query).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'proj-abc12' }),
+      );
+      expect(mockChrome.tabGroups.update).toHaveBeenCalledWith(
+        77,
+        expect.objectContaining({ color: 'red' }),
+      );
+      expect(mockChrome.tabs.group).toHaveBeenCalledWith(
+        expect.objectContaining({ groupId: 77, tabIds: [200] }),
+      );
+    });
+  });
 });

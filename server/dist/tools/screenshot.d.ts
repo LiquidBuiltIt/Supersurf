@@ -7,17 +7,20 @@
  * then optionally downscaled using Sharp to prevent base64 token blowup
  * when returned inline to the agent. File saves bypass downscaling.
  *
- * Supports: format selection, quality, full-page, element crop via selector,
- * coordinate clipping, device scale, and clickable element highlighting.
+ * When `path` is omitted, behavior follows `config.screenshot.omit_path`
+ * (`inline` | `path` | `both`; default `inline`). Explicit `path` always
+ * saves to that file. Internal `rawResult` captures without `path` stay inline.
  *
  * @module tools/screenshot
  */
 import type { ToolContext } from './lib/types';
+/** Build a unique temp path under `$TMPDIR/supersurf-screenshots/`. */
+export declare function defaultTempScreenshotPath(format?: string): string;
 /**
  * Capture a screenshot of the current page or a specific element/region.
  *
  * When saving to a file path, the original resolution is preserved.
- * When returning as base64 (no path), images wider/taller than
+ * When returning as base64 (no path / inline mode), images wider/taller than
  * {@link SCREENSHOT_MAX_DIMENSION} are downscaled with Lanczos3 to
  * keep MCP response sizes reasonable.
  *

@@ -14,6 +14,8 @@ exports.BrowserBridge = void 0;
 const logger_1 = require("./logger");
 const index_1 = require("./experimental/index");
 const index_2 = require("./experimental/fingerprinting/index");
+const handle_resolve_1 = require("./experimental/fingerprinting/handle-resolve");
+const handle_annotate_1 = require("./experimental/fingerprinting/handle-annotate");
 const schemas_1 = require("./tools/schemas");
 const cdp_1 = require("./tools/lib/cdp");
 const element_resolver_1 = require("./tools/lib/element-resolver");
@@ -60,6 +62,10 @@ class BrowserBridge {
     buildContext(tabId) {
         const ext = this.ext;
         const evalFnBound = (expression, awaitPromise = true) => (0, cdp_1.evalExpr)(ext, expression, awaitPromise, tabId);
+        // Handle→selector translation. Synchronous and idempotent; a plain CSS selector
+        // costs one regex test. Gate + store access live in the experimental module —
+        // this is the thin delegation hook.
+        const resolveSelectorSync = (selector) => (0, handle_resolve_1.resolveSelectorOrHandle)(this.connectionManager?.getAttachedTab()?.url, selector).selector;
         const emitHandle = (ev) => this.metricsLogger?.write({
             session_id: this.connectionManager?.clientId ?? 'unknown',
             tool: 'handle',
@@ -107,7 +113,9 @@ class BrowserBridge {
                 });
                 return { cx: hit.cx, cy: hit.cy, score: hit.score };
             }),
-            getSelectorExpression: element_resolver_1.getSelectorExpression,
+            resolveSelector: resolveSelectorSync,
+            getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.connectionManager?.getAttachedTab()?.url),
+            getSelectorExpression: (selector) => (0, element_resolver_1.getSelectorExpression)(resolveSelectorSync(selector)),
             findAlternativeSelectors: (selector) => (0, element_resolver_1.findAlternativeSelectors)(evalFnBound, selector),
             formatResult: (name, result, options) => (0, result_formatter_1.formatResult)(name, result, options, this.connectionManager),
             error: (message, options) => (0, result_formatter_1.formatError)(message, options),

@@ -603,11 +603,14 @@ describe('IPCServer', () => {
       expect(profileRegistry.getRunningPid('dev')).toBe(999999); // untouched
     });
 
-    it('kills (clears) a daemon-owned Chromium when the last session disconnects', async () => {
+    it('kills (clears) a daemon-owned Chromium when keepBrowserOnSessionEnd is false', async () => {
       await ipc.start();
       profileRegistry.create('dev');
       profileRegistry.setRunningPid('dev', 999999, 'daemon');
-      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({ profile: 'dev' });
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({
+        profile: 'dev',
+        keepBrowserOnSessionEnd: false,
+      });
       (bridge as any).matchmaker.requestMatch.mockResolvedValue({ profile: 'dev' });
 
       const client = await connectToSocket(sockPath);
@@ -620,6 +623,68 @@ describe('IPCServer', () => {
       await new Promise((r) => setTimeout(r, 150));
 
       expect(profileRegistry.getRunningPid('dev')).toBeNull(); // kill path ran, pid cleared
+    });
+
+    it('does NOT kill daemon-owned Chromium when keepBrowserOnSessionEnd is true', async () => {
+      await ipc.start();
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 999999, 'daemon');
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({
+        profile: 'dev',
+        keepBrowserOnSessionEnd: true,
+      });
+      (bridge as any).matchmaker.requestMatch.mockResolvedValue({ profile: 'dev' });
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'keep-true' });
+      await readLine(client);
+      writeLine(client, { jsonrpc: '2.0', id: 'c', method: 'profiles.connect', params: { profile: 'dev' } });
+      await readLine(client);
+
+      client.end();
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(profileRegistry.getRunningPid('dev')).toBe(999999);
+    });
+
+    it('kills daemon-owned Chromium when keep field is missing (opt-in default)', async () => {
+      await ipc.start();
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 999999, 'daemon');
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({ profile: 'dev' });
+      (bridge as any).matchmaker.requestMatch.mockResolvedValue({ profile: 'dev' });
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'keep-default' });
+      await readLine(client);
+      writeLine(client, { jsonrpc: '2.0', id: 'c', method: 'profiles.connect', params: { profile: 'dev' } });
+      await readLine(client);
+
+      client.end();
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(profileRegistry.getRunningPid('dev')).toBeNull();
+    });
+
+    it('does NOT kill when no extension connection is pooled', async () => {
+      await ipc.start();
+      profileRegistry.create('dev');
+      // Live pid so isRunning() does not self-heal/clear (dead 999999 would spawn).
+      const livePid = process.pid;
+      profileRegistry.setRunningPid('dev', livePid, 'daemon');
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue(null);
+      (bridge as any).matchmaker.requestMatch.mockResolvedValue({ profile: 'dev' });
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'keep-nopool' });
+      await readLine(client);
+      writeLine(client, { jsonrpc: '2.0', id: 'c', method: 'profiles.connect', params: { profile: 'dev' } });
+      await readLine(client);
+
+      client.end();
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(profileRegistry.getRunningPid('dev')).toBe(livePid);
     });
 
     it('profiles.list includes owner and connected fields', async () => {
