@@ -40,8 +40,8 @@ export interface PooledConnection {
   pingInterval: ReturnType<typeof setInterval> | null;
   inflight: Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>;
   /**
-   * When true (default), daemon does not kill this Chromium on last MCP session disconnect.
-   * Idle / shutdown / orphan paths ignore this flag.
+   * When true, daemon does not kill this Chromium on last MCP session disconnect.
+   * Default false (opt-in). Idle / shutdown / orphan paths ignore this flag.
    */
   keepBrowserOnSessionEnd: boolean;
 }

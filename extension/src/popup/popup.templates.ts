@@ -167,7 +167,7 @@ export function renderSettings(state: PopupState): string {
               <span>Keep browser after session ends</span>
             </label>
             <p class="settings-help" style="margin-top: 4px; margin-left: 24px">
-              When on, closing the agent session does not quit this Chromium. Daemon idle or shutdown can still quit it.
+              Opt-in: when checked, closing the agent session does not quit this Chromium. Daemon idle or shutdown can still quit it.
             </p>
           </div>
         </div>

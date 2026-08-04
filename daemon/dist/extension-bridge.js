@@ -19,6 +19,7 @@ exports.ExtensionBridge = void 0;
 const http_1 = __importDefault(require("http"));
 const ws_1 = require("ws");
 const matchmaker_1 = require("./profiles/matchmaker");
+const keep_browser_1 = require("./profiles/keep-browser");
 const registration_page_1 = require("./profiles/registration-page");
 const debugLog = (...args) => {
     const logger = global.DAEMON_LOGGER;
@@ -109,6 +110,7 @@ class ExtensionBridge {
                     buildTimestamp: null,
                     pingInterval: null,
                     inflight: new Map(),
+                    keepBrowserOnSessionEnd: false,
                 };
                 // Keep-alive ping every 10s
                 conn.pingInterval = setInterval(() => {
@@ -165,6 +167,7 @@ class ExtensionBridge {
                 debugLog('Handshake received:', message);
                 conn.browser = message.browser || 'chrome';
                 conn.buildTimestamp = message.buildTimestamp || null;
+                (0, keep_browser_1.applyKeepBrowserPreference)(conn, message.keepBrowserOnSessionEnd);
                 // Profile field in handshake (subsequent launches)
                 if (message.profile) {
                     this.matchmaker.updateProfile(ws, message.profile);
@@ -175,6 +178,11 @@ class ExtensionBridge {
             if (message.method === 'profile_announce' && message.params?.profile) {
                 debugLog('Profile announcement:', message.params.profile);
                 this.matchmaker.updateProfile(ws, message.params.profile);
+                return;
+            }
+            if (message.method === 'session/keep_browser') {
+                (0, keep_browser_1.applyKeepBrowserPreference)(conn, message.params?.keepBrowserOnSessionEnd);
+                debugLog('keepBrowserOnSessionEnd updated:', conn.keepBrowserOnSessionEnd);
                 return;
             }
             // Tab info notification

@@ -231,10 +231,10 @@ export class WebSocketConnection {
         catch { }
         // Resolve profile name: chrome.storage.local first, then cookie fallback
         this._resolveProfile().then(async (profile) => {
-            let keepBrowserOnSessionEnd = true;
+            let keepBrowserOnSessionEnd = false;
             try {
                 const stored = await this.browser.storage.local.get(['keepBrowserOnSessionEnd']);
-                keepBrowserOnSessionEnd = stored?.keepBrowserOnSessionEnd !== false;
+                keepBrowserOnSessionEnd = stored?.keepBrowserOnSessionEnd === true;
             }
             catch { }
             this.send({

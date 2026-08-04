@@ -21,6 +21,7 @@ const types_1 = require("./experiments/types");
 const types_2 = require("./profiles/types");
 const chrome_1 = require("./profiles/chrome");
 const extension_source_1 = require("./profiles/extension-source");
+const keep_browser_1 = require("./profiles/keep-browser");
 const debugLog = (...args) => {
     const logger = global.DAEMON_LOGGER;
     if (logger)
@@ -166,10 +167,14 @@ class IPCServer {
                     // Kill Chromium if no other sessions are using this profile.
                     // User-owned browsers (launched via `supersurf profiles open`) are
                     // never killed by session lifecycle — the human closes them.
+                    // Daemon-owned browsers are killed unless keepBrowserOnSessionEnd is true.
                     const remaining = this.sessions.getSessionsForProfile(profileId);
                     if (remaining.length === 0) {
                         const pid = this.profileRegistry.getRunningPid(profileId);
-                        if (pid && !this.profileRegistry.isUserOwned(profileId)) {
+                        const extConn = this.bridge.matchmaker.getConnectionForProfile(profileId);
+                        if (pid &&
+                            !this.profileRegistry.isUserOwned(profileId) &&
+                            !(0, keep_browser_1.shouldKeepBrowserOnSessionEnd)(extConn)) {
                             debugLog(`Last session for profile "${profileId}" disconnected — killing Chromium (pid ${pid})`);
                             try {
                                 process.kill(pid, 'SIGTERM');
@@ -177,6 +182,9 @@ class IPCServer {
                             }
                             catch { }
                             this.profileRegistry.clearRunningPid(profileId);
+                        }
+                        else if (pid && (0, keep_browser_1.shouldKeepBrowserOnSessionEnd)(extConn)) {
+                            debugLog(`Last session for profile "${profileId}" disconnected — keeping Chromium (pid ${pid})`);
                         }
                     }
                 }

@@ -29,7 +29,7 @@ const state: PopupState = {
   version: '0.1.0',
   projectName: null,
   domainWhitelistEnabled: false,
-  keepBrowserOnSessionEnd: true,
+  keepBrowserOnSessionEnd: false,
   profileName: null,
 };
 
@@ -42,7 +42,7 @@ async function loadState(): Promise<void> {
   state.port = result.mcpPort || '5555';
   state.debugMode = result.debugMode === true;
   state.domainWhitelistEnabled = result.domainWhitelistEnabled === true;
-  state.keepBrowserOnSessionEnd = result.keepBrowserOnSessionEnd !== false;
+  state.keepBrowserOnSessionEnd = result.keepBrowserOnSessionEnd === true;
   state.profileName = result.supersurf_profile || null;
 
   const manifest = browserAPI.runtime.getManifest();

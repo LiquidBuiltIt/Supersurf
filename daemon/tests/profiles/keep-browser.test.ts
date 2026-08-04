@@ -5,20 +5,20 @@ import {
 } from '../../src/profiles/keep-browser';
 
 describe('shouldKeepBrowserOnSessionEnd', () => {
-  it('returns true when conn is null/undefined', () => {
+  it('returns true when conn is null/undefined (no preference → do not kill)', () => {
     expect(shouldKeepBrowserOnSessionEnd(null)).toBe(true);
     expect(shouldKeepBrowserOnSessionEnd(undefined)).toBe(true);
   });
 
-  it('returns true when field is missing', () => {
-    expect(shouldKeepBrowserOnSessionEnd({})).toBe(true);
+  it('returns false when field is missing on a pooled connection (opt-in default)', () => {
+    expect(shouldKeepBrowserOnSessionEnd({})).toBe(false);
   });
 
-  it('returns true when field is true', () => {
+  it('returns true only when field is explicitly true', () => {
     expect(shouldKeepBrowserOnSessionEnd({ keepBrowserOnSessionEnd: true })).toBe(true);
   });
 
-  it('returns false only when field is explicitly false', () => {
+  it('returns false when field is false', () => {
     expect(shouldKeepBrowserOnSessionEnd({ keepBrowserOnSessionEnd: false })).toBe(false);
   });
 });

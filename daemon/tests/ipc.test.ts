@@ -647,7 +647,7 @@ describe('IPCServer', () => {
       expect(profileRegistry.getRunningPid('dev')).toBe(999999);
     });
 
-    it('does NOT kill daemon-owned Chromium when keep field is missing (default keep)', async () => {
+    it('kills daemon-owned Chromium when keep field is missing (opt-in default)', async () => {
       await ipc.start();
       profileRegistry.create('dev');
       profileRegistry.setRunningPid('dev', 999999, 'daemon');
@@ -663,7 +663,7 @@ describe('IPCServer', () => {
       client.end();
       await new Promise((r) => setTimeout(r, 150));
 
-      expect(profileRegistry.getRunningPid('dev')).toBe(999999);
+      expect(profileRegistry.getRunningPid('dev')).toBeNull();
     });
 
     it('does NOT kill when no extension connection is pooled', async () => {

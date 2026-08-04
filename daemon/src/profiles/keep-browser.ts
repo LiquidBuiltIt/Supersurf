@@ -1,8 +1,13 @@
-/** Session-end kill is skipped unless the extension explicitly opts out (false). */
+/**
+ * Whether to skip SIGTERM on last MCP session disconnect.
+ * - No pooled connection → true (do not kill; preference unknown).
+ * - Otherwise → only when the extension explicitly opted in (`=== true`).
+ */
 export function shouldKeepBrowserOnSessionEnd(
   conn: { keepBrowserOnSessionEnd?: boolean } | null | undefined,
 ): boolean {
-  return conn?.keepBrowserOnSessionEnd !== false;
+  if (conn == null) return true;
+  return conn.keepBrowserOnSessionEnd === true;
 }
 
 export function applyKeepBrowserPreference(
@@ -12,5 +17,5 @@ export function applyKeepBrowserPreference(
   if (typeof value === 'boolean') {
     conn.keepBrowserOnSessionEnd = value;
   }
-  // non-boolean / missing: leave existing (already defaulted true on create)
+  // non-boolean / missing: leave existing (already defaulted false on create)
 }

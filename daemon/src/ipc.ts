@@ -211,7 +211,7 @@ export class IPCServer {
           // Kill Chromium if no other sessions are using this profile.
           // User-owned browsers (launched via `supersurf profiles open`) are
           // never killed by session lifecycle — the human closes them.
-          // Daemon-owned browsers are kept unless keepBrowserOnSessionEnd is false.
+          // Daemon-owned browsers are killed unless keepBrowserOnSessionEnd is true.
           const remaining = this.sessions.getSessionsForProfile(profileId);
           if (remaining.length === 0) {
             const pid = this.profileRegistry.getRunningPid(profileId);

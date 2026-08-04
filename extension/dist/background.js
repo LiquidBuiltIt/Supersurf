@@ -655,7 +655,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
             return true;
         }
         if (message.type === 'setKeepBrowserOnSessionEnd') {
-            const value = message.value !== false;
+            const value = message.value === true;
             chrome.storage.local.set({ keepBrowserOnSessionEnd: value });
             wsConnection.notifyKeepBrowserOnSessionEnd(value);
             sendResponse({ ok: true });
