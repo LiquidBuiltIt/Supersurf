@@ -36,6 +36,8 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+## 3.3.0 — 2026-08-05
+
 - fix(keep-browser): session-end browser kill now fails closed — a profile whose extension connection isn't pooled at disconnect (mid-reconnect blip) is killed like any other unless the user opted into keep-browser (was: silently kept alive, violating the opt-in default)
 - fix: do not auto-close the managed-profile registration tab — closing the sole startup tab quit Chromium (exit 0) right after a successful `connect`, so `browser_tabs` failed with `No extension connected for profile …`. Registration page now stays open with a success UI (“Profile ready”); user may close it manually. *(contributed by @df007df in #14)*
 - feat: extension Settings “Keep browser after session ends” (**opt-in**, default off) — when enabled, daemon skips SIGTERM on last MCP session disconnect; idle/shutdown/orphan kills unchanged *(contributed by @df007df in #14)*
