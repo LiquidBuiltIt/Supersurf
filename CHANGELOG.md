@@ -36,6 +36,8 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- chore(release): `version.bump` now auto-cuts the Unreleased changelog section into the new version's heading (em-dash date), leaving a fresh empty Unreleased
+
 ## 3.3.0 — 2026-08-05
 
 - fix(keep-browser): session-end browser kill now fails closed — a profile whose extension connection isn't pooled at disconnect (mid-reconnect blip) is killed like any other unless the user opted into keep-browser (was: silently kept alive, violating the opt-in default)
