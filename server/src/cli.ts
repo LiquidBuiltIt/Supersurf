@@ -32,6 +32,8 @@ import {
   ConfigService,
   loadJsonConfig,
   loadEnvConfig,
+  checkAndTouchVersionState,
+  UPGRADE_NOTICE_MESSAGE,
   type PartialConfig,
 } from 'shared';
 
@@ -71,7 +73,7 @@ function buildConfig(options: any): ConfigService {
 }
 
 /** Build a BackendConfig from a resolved ConfigService snapshot. */
-function backendConfigFrom(configService: ConfigService): BackendConfig {
+function backendConfigFrom(configService: ConfigService, showUpgradeNotice: boolean): BackendConfig {
   const c = configService.get();
   return {
     debug: !!c.logging.debug,
@@ -84,6 +86,7 @@ function backendConfigFrom(configService: ConfigService): BackendConfig {
       .filter(([k, v]) => v && k !== 'profiles')
       .map(([k]) => k),
     configService,
+    showUpgradeNotice,
   };
 }
 
@@ -197,6 +200,14 @@ async function main(options: any): Promise<void> {
   // Load .env from cwd before anything reads process.env
   loadDotenv(process.cwd());
 
+  // This process is always a JSON-RPC transport over stdout (MCP protocol) —
+  // the upgrade notice MUST go to stderr, never stdout, or it corrupts the
+  // protocol stream. Checked/recorded before any other output.
+  const versionCheck = checkAndTouchVersionState(VERSION);
+  if (versionCheck.shouldNotify) {
+    console.error(UPGRADE_NOTICE_MESSAGE);
+  }
+
   const configService = buildConfig(options);
   const debugSetting = configService.get().logging.debug;
   const debugMode: DebugMode = debugSetting === 'no_truncate'
@@ -221,7 +232,7 @@ async function main(options: any): Promise<void> {
     }
   }
 
-  const config = backendConfigFrom(configService);
+  const config = backendConfigFrom(configService, versionCheck.shouldNotify);
   const backend = new ConnectionManager(config);
 
   if ((global as any).DEBUG_MODE) {
@@ -277,8 +288,13 @@ program
   .action(async (options) => {
     if (options.scriptMode) {
       loadDotenv(process.cwd());
+      // Script mode is JSON-RPC over stdio too — same stderr-only rule as MCP mode.
+      const versionCheck = checkAndTouchVersionState(VERSION);
+      if (versionCheck.shouldNotify) {
+        console.error(UPGRADE_NOTICE_MESSAGE);
+      }
       const configService = buildConfig(options);
-      const config = backendConfigFrom(configService);
+      const config = backendConfigFrom(configService, versionCheck.shouldNotify);
       await startScriptMode(config);
       return;
     }

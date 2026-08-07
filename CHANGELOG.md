@@ -37,6 +37,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 ## Unreleased
 
 - chore(release): `version.bump` now auto-cuts the Unreleased changelog section into the new version's heading (em-dash date), leaving a fresh empty Unreleased
+- feat: major-version upgrade notice — CLIs and the `connect` tool now greet you after a major update with a pointer to the changelog, tracked via `~/.supersurf/version-state.json` (stderr-only in MCP/script modes so the JSON-RPC stream stays clean)
 
 ## 3.3.0 — 2026-08-05
 

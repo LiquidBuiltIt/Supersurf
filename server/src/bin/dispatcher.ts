@@ -1,3 +1,7 @@
+import { checkAndTouchVersionState, UPGRADE_NOTICE_MESSAGE } from 'shared';
+
+const { version: VERSION } = require('../../package.json');
+
 export type Target = 'mcp' | 'daemon' | 'profiles' | 'export' | 'creds' | 'help';
 
 export interface DispatchPlan {
@@ -43,6 +47,17 @@ export function pickTarget(argv: string[]): DispatchPlan {
 
 export async function dispatch(argv: string[]): Promise<void> {
   const { target, remainingArgv } = pickTarget(argv);
+
+  // `mcp` (JSON-RPC over stdout — see cli.ts) and `daemon` (its own CLI in
+  // daemon/src/main.ts, imported below) each own their own stderr-only/human
+  // notice check. Every other subcommand here — profiles, export, help/usage
+  // errors — is plain human-facing stdio, so the notice is safe on stdout.
+  if (target !== 'mcp' && target !== 'daemon') {
+    const versionCheck = checkAndTouchVersionState(VERSION);
+    if (versionCheck.shouldNotify) {
+      console.log(UPGRADE_NOTICE_MESSAGE);
+    }
+  }
 
   if (target === 'help') {
     const sub = argv[2];

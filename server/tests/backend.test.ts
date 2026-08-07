@@ -266,6 +266,24 @@ describe('ConnectionManager', () => {
       const result = await backend.callTool('connect', { client_id: '  trimmed  ' }, { rawResult: true });
       expect(result.client_id).toBe('trimmed');
     });
+
+    it('includes the upgrade notice in the response text when the startup flag is set', async () => {
+      const noticeBackend = new ConnectionManager(makeConfig({ showUpgradeNotice: true }));
+      await noticeBackend.initialize(makeMockServer(), {});
+
+      const result = await noticeBackend.callTool('connect', { client_id: 'test' });
+      expect(result.content[0].text).toContain(
+        "Hey! It looks like it's been a while since you've used this tool!",
+      );
+      expect(result.content[0].text).toContain(
+        'https://github.com/LiquidBuiltIt/Supersurf/blob/main/CHANGELOG.md',
+      );
+    });
+
+    it('omits the upgrade notice when the startup flag is not set', async () => {
+      const result = await backend.callTool('connect', { client_id: 'test' });
+      expect(result.content[0].text).not.toContain("it's been a while");
+    });
   });
 
   // ---- callTool('disconnect') ----
