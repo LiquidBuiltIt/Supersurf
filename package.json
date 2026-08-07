@@ -28,6 +28,7 @@
     "cws.publish": "npx tsx scripts/cws.publish.ts",
     "publish": "npx tsx scripts/publish.ts",
     "smoke.pack": "npx tsx scripts/smoke-pack.ts",
-    "tree": "npx tsx scripts/tree.ts"
+    "tree": "npx tsx scripts/tree.ts",
+    "changelog": "npx tsx scripts/changelog.ts"
   }
 }

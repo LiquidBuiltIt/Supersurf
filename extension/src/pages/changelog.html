@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperSurf — What's New</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #1a1a1e;
+      --bg-surface: #222228;
+      --bg-elevated: #2a2a30;
+      --border: #2a2a30;
+      --text-primary: #f0f0f0;
+      --text-secondary: #c0c0c0;
+      --text-muted: #888;
+      --accent: #a0a0a0;
+      --accent-bright: #ffffff;
+    }
+
+    html, body {
+      min-height: 100%;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text-secondary);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 64px 32px 60px;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .hero-logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 16px;
+      margin-bottom: 20px;
+      filter: drop-shadow(0 0 40px rgba(255,255,255,0.08));
+    }
+
+    .hero h1 {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -1px;
+      margin-bottom: 10px;
+    }
+
+    .hero .tagline {
+      font-size: 15px;
+      font-weight: 300;
+      color: var(--text-muted);
+      letter-spacing: 0.2px;
+    }
+
+    /* ── Version blocks ── */
+    #sections {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .version-block {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 32px;
+    }
+
+    .version-heading {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.2px;
+      margin-bottom: 16px;
+    }
+
+    .bullet-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .bullet-list li {
+      position: relative;
+      padding-left: 18px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+
+    .bullet-list li::before {
+      content: '\2022';
+      position: absolute;
+      left: 0;
+      color: var(--text-muted);
+    }
+
+    .bullet-list code {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 12.5px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: var(--text-muted);
+    }
+
+    .bullet-list strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    /* ── Fallback ── */
+    #fallback {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      text-align: center;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    #fallback[hidden] { display: none; }
+
+    #fallback a {
+      color: var(--text-primary);
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    #fallback a:hover { text-decoration: underline; }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: #555;
+    }
+
+    footer a {
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+
+    footer a:hover { color: var(--text-primary); }
+
+    @media (max-width: 600px) {
+      .page { padding: 40px 20px 40px; }
+      .hero h1 { font-size: 26px; }
+      .version-block { padding: 20px 22px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page">
+
+    <div class="hero">
+      <img src="../../assets/icons/icon-128.png" alt="SuperSurf" class="hero-logo">
+      <h1>What's New in SuperSurf</h1>
+      <p class="tagline">You've updated from <span id="from-version">a previous version</span> to <span id="current-version">this version</span> — here's everything you missed.</p>
+    </div>
+
+    <div id="sections"></div>
+
+    <div id="fallback" hidden>
+      <p>Couldn't load the changelog for this update.</p>
+      <p><a href="https://github.com/LiquidBuiltIt/Supersurf/blob/main/CHANGELOG.md" target="_blank" rel="noopener">See the full changelog on GitHub</a></p>
+    </div>
+
+    <footer>
+      <p>SuperSurf is 100% open source — <a href="https://github.com/liquidbuiltit/supersurf" target="_blank" rel="noopener">every line of code is on GitHub</a>.</p>
+    </footer>
+
+  </div>
+
+  <script type="module" src="changelog.js"></script>
+
+</body>
+</html>
