@@ -16,6 +16,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve, join } from 'path';
 import { execSync } from 'child_process';
+import { cutUnreleased } from './changelog-cut';
 
 // ANSI colors
 const yellow = '\x1b[33m';
@@ -27,6 +28,8 @@ const reset = '\x1b[0m';
 const root = resolve(__dirname, '..');
 const git = (cmd: string) => execSync(cmd, { cwd: root, stdio: 'inherit' });
 const gitCapture = (cmd: string) => execSync(cmd, { cwd: root, encoding: 'utf8' }).trim();
+const CHANGELOG_PATH = join(root, 'CHANGELOG.md');
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const bumpType = process.argv[2] as 'patch' | 'minor' | 'major' | 'rollback';
 const commitMsg = process.argv.slice(3).join(' ').trim() || '';
@@ -100,6 +103,32 @@ const next =
   bumpType === 'major' ? `${major + 1}.0.0` :
   bumpType === 'minor' ? `${major}.${minor + 1}.0` :
   `${major}.${minor}.${patch + 1}`;
+
+// ── Changelog cut ─────────────────────────────────────────────
+// Move everything under `## Unreleased` into a new `## <next> — <date>`
+// section before touching any version files, so a duplicate-section error
+// aborts the bump before anything is written or committed.
+
+const changelogDate = todayISO();
+let changelogContent: string | null = null;
+
+try {
+  const raw = readFileSync(CHANGELOG_PATH, 'utf8');
+  const result = cutUnreleased(raw, next, changelogDate);
+  if ('warning' in result) {
+    console.warn(`${yellow}⚠ ${result.warning}${reset}`);
+  } else {
+    changelogContent = result.content;
+    console.log(`  CHANGELOG.md: moved ${result.moved} Unreleased entr${result.moved === 1 ? 'y' : 'ies'} into ## ${next} — ${changelogDate}`);
+  }
+} catch (err) {
+  console.error(`${red}${(err as Error).message}${reset}`);
+  process.exit(1);
+}
+
+if (changelogContent !== null) {
+  writeFileSync(CHANGELOG_PATH, changelogContent);
+}
 
 for (const rel of targets) {
   const file = join(root, rel);
