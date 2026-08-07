@@ -20,6 +20,7 @@ import { createLog, getRegistry } from '../logger';
 import { experimentRegistry, applyInitialState } from '../experimental/index';
 import { destroySession as destroyHumanization } from '../experimental/mouse-humanization/index';
 import { clearTipCounters } from '../tips';
+import { UPGRADE_NOTICE_MESSAGE } from 'shared';
 
 const log = createLog('[Conn]');
 
@@ -199,6 +200,7 @@ export async function onConnect(
           type: 'text',
           text:
             mgr.statusHeader() +
+            (mgr.config.showUpgradeNotice ? `${UPGRADE_NOTICE_MESSAGE}\n\n` : '') +
             `### Connected to Service\n\n` +
             `**State:** Active\n` +
             `**Browser:** ${mgr.connectedBrowserName}\n\n` +

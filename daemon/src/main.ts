@@ -32,6 +32,8 @@ import {
   ensureConfigFile,
   loadJsonConfig,
   loadEnvConfig,
+  checkAndTouchVersionState,
+  UPGRADE_NOTICE_MESSAGE,
 } from 'shared';
 import { ExtensionBridge } from './extension-bridge';
 import { SessionRegistry } from './session';
@@ -617,6 +619,16 @@ const isDirectRun = !process.env.VITEST;
 if (isDirectRun) {
   const { command } = parseArgs(process.argv);
   const isDaemonized = process.argv.includes('--_daemonized');
+
+  // Human-facing subcommands only (start/stop/restart/status/observe) — never the
+  // detached background daemon child (--_daemonized) or a silent programmatic spawn
+  // (e.g. ensureDaemon from the server), both of which have their stdio ignored anyway.
+  if (command !== undefined && !isDaemonized) {
+    const versionCheck = checkAndTouchVersionState(getVersion());
+    if (versionCheck.shouldNotify) {
+      console.log(UPGRADE_NOTICE_MESSAGE);
+    }
+  }
 
   if (command === 'start' || command === 'restart') {
     // Explicit CLI command — self-daemonize (fork + exit parent)

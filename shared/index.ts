@@ -22,6 +22,14 @@ export type {
 export { QUERY_DEEP_SOURCE, QUERY_ALL_DEEP_SOURCE } from './dom/shadow-walker';
 
 export {
+  shouldShowUpgradeNotice,
+  checkAndTouchVersionState,
+  defaultVersionStatePath,
+  UPGRADE_NOTICE_MESSAGE,
+} from './version-state/index';
+export type { VersionCheckResult, VersionState } from './version-state/index';
+
+export {
   getKeychainBackend,
   InMemoryKeychainBackend,
   MacosKeychainBackend,
