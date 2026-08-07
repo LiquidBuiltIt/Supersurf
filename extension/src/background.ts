@@ -32,6 +32,7 @@ import { registerSecureEvalHandlers } from './security/secure-eval/index.js';
 import { SessionContext } from './session-context.js';
 import { DomainWhitelist } from './domain-whitelist.js';
 import { applyProfileRegister } from './handlers/profile-register.js';
+import { isMajorJump } from './utils/version.js';
 
 // chrome.debugger is a reserved word — access via bracket notation
 const chromeDebugger = (chrome as any)['debugger'] as ChromeDebugger;
@@ -47,6 +48,12 @@ let wsConnection: WebSocketConnection;
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     chrome.tabs.create({ url: chrome.runtime.getURL('dist/pages/welcome.html') });
+  } else if (details.reason === 'update') {
+    const currentVersion = chrome.runtime.getManifest().version;
+    if (isMajorJump(details.previousVersion, currentVersion)) {
+      const url = `${chrome.runtime.getURL('dist/pages/changelog.html')}?from=${encodeURIComponent(details.previousVersion ?? '')}`;
+      chrome.tabs.create({ url });
+    }
   }
 });
 (chrome.runtime as any).onStartup.addListener(() => {

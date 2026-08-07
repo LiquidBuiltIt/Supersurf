@@ -22,7 +22,7 @@ declare namespace chrome {
       addListener(callback: (message: any, sender: any, sendResponse?: (response: any) => void) => void): void;
     };
     const onInstalled: {
-      addListener(callback: (details: { reason: string }) => void): void;
+      addListener(callback: (details: { reason: string; previousVersion?: string }) => void): void;
     };
     const id: string;
     const lastError: { message?: string } | undefined;
