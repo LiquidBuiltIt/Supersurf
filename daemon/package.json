@@ -40,7 +40,7 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc && npx tsx ../scripts/shared.bundle.ts daemon",
+    "build": "tsc && npx tsx ../scripts/shared.bundle.ts daemon && chmod +x dist/main.js",
     "prepublishOnly": "cp ../LICENSE . && npm run clean && npm run build",
     "test": "vitest run",
     "test.watch": "vitest"
