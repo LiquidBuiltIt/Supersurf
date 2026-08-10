@@ -62,6 +62,7 @@ const logger_1 = require("../logger");
 const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const tips_1 = require("../tips");
+const shared_1 = require("../shared");
 const log = (0, logger_1.createLog)('[Conn]');
 // Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
 let BrowserBridge = null;
@@ -201,6 +202,7 @@ async function onConnect(mgr, args = {}, options = {}) {
                 {
                     type: 'text',
                     text: mgr.statusHeader() +
+                        (mgr.config.showUpgradeNotice ? `${shared_1.UPGRADE_NOTICE_MESSAGE}\n\n` : '') +
                         `### Connected to Service\n\n` +
                         `**State:** Active\n` +
                         `**Browser:** ${mgr.connectedBrowserName}\n\n` +

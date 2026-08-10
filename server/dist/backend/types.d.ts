@@ -21,6 +21,9 @@ export interface BackendConfig {
     enabledExperiments?: string[];
     /** Resolved ConfigService (CLI + env + file + defaults). Threaded into ToolContext. */
     configService?: ConfigService;
+    /** True when this process detected a major-version upgrade at startup (checked once,
+     *  not re-read per tool call). Surfaced as a one-shot notice in the `connect` response. */
+    showUpgradeNotice?: boolean;
 }
 /** Metadata for the currently attached browser tab. */
 export interface TabInfo {

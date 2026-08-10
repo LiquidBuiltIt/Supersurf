@@ -36,6 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.HELP_TEXT = void 0;
 exports.pickTarget = pickTarget;
 exports.dispatch = dispatch;
+const shared_1 = require("../shared");
+const { version: VERSION } = require('../../package.json');
 exports.HELP_TEXT = `supersurf — MCP browser automation for AI agents
 
 Usage: supersurf <command> [options]
@@ -70,6 +72,16 @@ function pickTarget(argv) {
 }
 async function dispatch(argv) {
     const { target, remainingArgv } = pickTarget(argv);
+    // `mcp` (JSON-RPC over stdout — see cli.ts) and `daemon` (its own CLI in
+    // daemon/src/main.ts, imported below) each own their own stderr-only/human
+    // notice check. Every other subcommand here — profiles, export, help/usage
+    // errors — is plain human-facing stdio, so the notice is safe on stdout.
+    if (target !== 'mcp' && target !== 'daemon') {
+        const versionCheck = (0, shared_1.checkAndTouchVersionState)(VERSION);
+        if (versionCheck.shouldNotify) {
+            console.log(shared_1.UPGRADE_NOTICE_MESSAGE);
+        }
+    }
     if (target === 'help') {
         const sub = argv[2];
         if (sub === undefined || sub === '--help' || sub === '-h') {

@@ -99,7 +99,7 @@ function buildConfig(options) {
     });
 }
 /** Build a BackendConfig from a resolved ConfigService snapshot. */
-function backendConfigFrom(configService) {
+function backendConfigFrom(configService, showUpgradeNotice) {
     const c = configService.get();
     return {
         debug: !!c.logging.debug,
@@ -112,6 +112,7 @@ function backendConfigFrom(configService) {
             .filter(([k, v]) => v && k !== 'profiles')
             .map(([k]) => k),
         configService,
+        showUpgradeNotice,
     };
 }
 /**
@@ -204,6 +205,13 @@ function setupExitWatchdog(backend, server) {
 async function main(options) {
     // Load .env from cwd before anything reads process.env
     (0, dotenv_1.loadDotenv)(process.cwd());
+    // This process is always a JSON-RPC transport over stdout (MCP protocol) —
+    // the upgrade notice MUST go to stderr, never stdout, or it corrupts the
+    // protocol stream. Checked/recorded before any other output.
+    const versionCheck = (0, shared_1.checkAndTouchVersionState)(VERSION);
+    if (versionCheck.shouldNotify) {
+        console.error(shared_1.UPGRADE_NOTICE_MESSAGE);
+    }
     const configService = buildConfig(options);
     const debugSetting = configService.get().logging.debug;
     const debugMode = debugSetting === 'no_truncate'
@@ -225,7 +233,7 @@ async function main(options) {
             logger.log('[cli] Custom port:', options.port);
         }
     }
-    const config = backendConfigFrom(configService);
+    const config = backendConfigFrom(configService, versionCheck.shouldNotify);
     const backend = new backend_1.ConnectionManager(config);
     if (global.DEBUG_MODE) {
         console.error(`[cli] Creating MCP Server v${VERSION}...`);
@@ -266,8 +274,13 @@ program
     .action(async (options) => {
     if (options.scriptMode) {
         (0, dotenv_1.loadDotenv)(process.cwd());
+        // Script mode is JSON-RPC over stdio too — same stderr-only rule as MCP mode.
+        const versionCheck = (0, shared_1.checkAndTouchVersionState)(VERSION);
+        if (versionCheck.shouldNotify) {
+            console.error(shared_1.UPGRADE_NOTICE_MESSAGE);
+        }
         const configService = buildConfig(options);
-        const config = backendConfigFrom(configService);
+        const config = backendConfigFrom(configService, versionCheck.shouldNotify);
         await (0, stdio_1.startScriptMode)(config);
         return;
     }
