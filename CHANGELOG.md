@@ -39,6 +39,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 - chore(release): `version.bump` now auto-cuts the Unreleased changelog section into the new version's heading (em-dash date), leaving a fresh empty Unreleased
 - feat: major-version upgrade notice — CLIs and the `connect` tool now greet you after a major update with a pointer to the changelog, tracked via `~/.supersurf/version-state.json` (stderr-only in MCP/script modes so the JSON-RPC stream stays clean)
 - feat(extension): changelog page on major updates — `onInstalled` update with a major-version jump opens a bundled changelog view of everything since your previous version; welcome page still greets fresh installs. Content is emitted at build time by the new `npm run changelog -- json` subcommand.
+- fix(sandbox): `sandboxPath` no longer silently relocates out-of-$HOME save paths — an absolute path already inside $HOME is honored as-is (fixes a double-prefix bug where e.g. `$HOME/x.png` was rewritten to `$HOME$HOME/x.png`), and any path (absolute or `..` traversal) that resolves outside $HOME now throws a clear, actionable error instead of being quietly rewritten under $HOME. `browser_take_screenshot`, `browser_pdf_save`, and `browser_download` callers are unaffected, unchanged.
 
 ## 3.3.0 — 2026-08-05
 
