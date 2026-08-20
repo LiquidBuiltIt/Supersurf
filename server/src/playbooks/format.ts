@@ -69,7 +69,8 @@ export function formatSteps(pb: Playbook): string {
     const p = s.params as Record<string, unknown>;
     const name = typeof p.name === 'string' ? p.name : undefined;
     const selector = typeof p.selector === 'string' ? p.selector : undefined;
-    const target = name ?? selector ?? (typeof p.url === 'string' ? p.url : '');
+    const key = typeof p.key === 'string' ? p.key : undefined;
+    const target = name ?? selector ?? key ?? (typeof p.url === 'string' ? p.url : '');
     lines.push(`${String(i + 1).padStart(2)}. ${s.type.padEnd(10)} ${target}`.trimEnd());
   });
   return lines.join('\n');

@@ -76,4 +76,15 @@ describe('formatSteps', () => {
     expect(out).toContain('apply_button');
     expect(out).toContain('2');
   });
+
+  it('displays key for press_key steps with no selector or name', () => {
+    const pb: Playbook = {
+      name: 'submit_form', purpose: 'Submit a form', version: 1, createdAt: 0,
+      steps: [
+        { tool: 'browser_interact', type: 'press_key', params: { type: 'press_key', key: 'Enter' }, url: 'https://x.com/', sourceId: 21 },
+      ],
+    };
+    const out = formatSteps(pb);
+    expect(out).toContain('Enter');
+  });
 });
