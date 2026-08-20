@@ -11,6 +11,7 @@ import { createLog } from '../../logger';
 import { UsageMetricsLogger } from '../../usage-metrics-logger';
 import { callExperimentalTool, experimentRegistry } from '../../experimental/index';
 import { getTip } from '../../tips';
+import { actionTrail } from '../../playbooks/trail';
 
 import { onInteract } from '../interaction';
 import { onSnapshot, onLookup, onExtractContent } from '../content';
@@ -172,6 +173,25 @@ export async function dispatchTool(
       duration_ms: Date.now() - start,
       ...(tip ? { tip } : {}),
     });
+
+    // Action id. `browser_interact` is excluded because onInteract already
+    // recorded one entry per action in its array — a call-level entry here
+    // would double-count. `playbooks` is excluded because it is the tool that
+    // READS the trail; recording its own calls would let a history read appear
+    // in the next history read.
+    if (!options.rawResult && name !== 'browser_interact' && name !== 'playbooks') {
+      const id = actionTrail.record({
+        tool: name,
+        type: name,
+        outcome: callResult === 'error' ? 'error' : 'ok',
+        message: callError ?? 'ok',
+        params: args,
+        url,
+      });
+      if (result?.content?.[0]?.type === 'text') {
+        result.content[0].text = `#${id} ${result.content[0].text}`;
+      }
+    }
 
     if (tip && result?.content?.[0]?.type === 'text') {
       result.content[0].text += `\n\n---\n${tip}`;
