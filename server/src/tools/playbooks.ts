@@ -110,6 +110,14 @@ function doCreate(args: any): any {
         true,
       );
     }
+    if (entry.tool !== 'browser_interact') {
+      return text(
+        `Action #${id} is a \`${entry.tool}\` call, not a browser_interact action. Nothing was saved.\n\n` +
+        'Playbooks currently replay `browser_interact` actions only — cite the numbered ' +
+        '`#N ✓ <verb>:`-style interact action ids from `playbooks {action:"history"}`, not per-call tool ids.',
+        true,
+      );
+    }
     if (entry.outcome === 'error') failedIds.push(id);
     steps.push({ tool: entry.tool, type: entry.type, params: entry.params, url: entry.url, sourceId: id });
   }
@@ -164,6 +172,24 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
 
   for (let i = 0; i < total; i++) {
     const step = pb.steps[i];
+
+    // Imported playbook files bypass create's validation, so a non-interact
+    // step can reach run directly. executeAction only knows interact verbs —
+    // fail it here with an accurate cause instead of letting it throw
+    // "Unknown action type" and get mislabeled as a heal-eligible failure.
+    if (step.tool !== 'browser_interact') {
+      const message = `Playbooks can only replay \`browser_interact\` actions; this step is \`${step.tool}\`.`;
+      const id = actionTrail.record({
+        tool: step.tool, type: step.type, outcome: 'error',
+        message, params: step.params, url: step.url,
+      });
+      lines.push(`#${id} ✗ ${i + 1}/${total}  ${step.type}`);
+      lines.push(`        ${message}`);
+      lines.push('');
+      lines.push(`Stopped at step ${i + 1} of ${total}. Steps ${i + 2}-${total} not run.`);
+      return text(lines.join('\n'), true);
+    }
+
     try {
       const msg = await exec(ctx, step.params);
       const id = actionTrail.record({

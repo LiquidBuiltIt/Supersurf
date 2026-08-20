@@ -46,12 +46,16 @@ describe('dispatchTool — per-call action ids', () => {
     expect(actionTrail.size()).toBe(0);
   });
 
-  it('does not prefix in rawResult mode', async () => {
+  it('does not prefix in rawResult mode, but still records the call', async () => {
+    // script-mode (--script-mode) passes rawResult: true for every call. The
+    // trail still needs the entry so `playbooks history`/`run` see it there too —
+    // only the visible `#<id> ` text prefix is script-mode-specific.
     const ctx = makeCtx();
     const res = await dispatchTool(ctx, 'browser_snapshot', {}, { rawResult: true }, env);
     if (res?.content?.[0]?.type === 'text') {
       expect(res.content[0].text).not.toMatch(/^#\d+ /);
     }
+    expect(actionTrail.size()).toBe(1);
   });
 
   it('records an error outcome when the tool throws', async () => {

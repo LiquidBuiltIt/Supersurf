@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { onPlaybooks } from '../src/tools/playbooks';
 import { actionTrail } from '../src/playbooks/trail';
-import { setBaseDirForTests, loadPlaybook } from '../src/playbooks/store';
+import { setBaseDirForTests, loadPlaybook, savePlaybook } from '../src/playbooks/store';
 import { experimentRegistry } from '../src/experimental/index';
 
 let dir: string;
@@ -121,6 +121,18 @@ describe('playbooks — create', () => {
     expect(res.isError).toBe(true);
     expect(loadPlaybook('empty')).toBeNull();
   });
+
+  it('errors atomically when a cited id is a non-interact tool call', async () => {
+    // Per-call trail entries (browser_navigate, browser_fill_form, secure_fill,
+    // browser_snapshot, ...) are valid trail ids but not replayable by run —
+    // create must refuse them up front rather than freeze a step run cannot execute.
+    seedTrail();
+    actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'Navigated', params: { action: 'url', url: 'https://x.com/' }, url: 'https://x.com/' });
+    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'bad_verb', purpose: 'p', steps: [1, 4] }, {});
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('browser_navigate');
+    expect(loadPlaybook('bad_verb')).toBeNull();
+  });
 });
 
 describe('playbooks — run', () => {
@@ -190,6 +202,25 @@ describe('playbooks — run', () => {
       executeAction: vi.fn().mockResolvedValue('ok'),
     });
     expect(actionTrail.size()).toBe(before + 2);
+  });
+
+  it('stops with an accurate message on a non-interact step, without calling exec', async () => {
+    // Imported playbook files bypass create's validation, so a step can carry a
+    // non-interact tool directly on disk. run must not hand it to executeAction
+    // (which only knows interact verbs) or mislabel it with the heal note.
+    savePlaybook({
+      name: 'imported',
+      purpose: 'p',
+      steps: [{ tool: 'browser_navigate', type: 'browser_navigate', params: { action: 'url', url: 'https://x.com/' }, url: 'https://x.com/', sourceId: 1 }],
+      createdAt: Date.now(),
+      version: 1,
+    });
+    const interact = vi.fn().mockResolvedValue('ok');
+    const res = await onPlaybooks(makeCtx('https://x.com/'), { action: 'run', name: 'imported' }, {}, { executeAction: interact });
+    expect(res.isError).toBe(true);
+    expect(interact).not.toHaveBeenCalled();
+    expect(res.content[0].text).toContain('browser_navigate');
+    expect(res.content[0].text.toLowerCase()).not.toContain('no heal');
   });
 });
 

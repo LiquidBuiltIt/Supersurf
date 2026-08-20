@@ -181,7 +181,12 @@ export async function dispatchTool(
     // would double-count. `playbooks` is excluded because it is the tool that
     // READS the trail; recording its own calls would let a history read appear
     // in the next history read.
-    if (!options.rawResult && name !== 'browser_interact' && name !== 'playbooks') {
+    //
+    // Recording itself is unconditional — rawResult (script mode) still needs
+    // trail entries for `playbooks history`/`run` to see. Only the `#<id> `
+    // text-prefix mutation is skipped in rawResult mode, matching the
+    // untouched-result contract script-mode consumers rely on.
+    if (name !== 'browser_interact' && name !== 'playbooks') {
       const id = actionTrail.record({
         tool: name,
         type: name,
@@ -190,7 +195,7 @@ export async function dispatchTool(
         params: args,
         url,
       });
-      if (result?.content?.[0]?.type === 'text') {
+      if (!options.rawResult && result?.content?.[0]?.type === 'text') {
         result.content[0].text = `#${id} ${result.content[0].text}`;
       }
     }
