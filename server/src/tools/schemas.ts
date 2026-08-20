@@ -522,6 +522,50 @@ export function getToolSchemas(): ToolSchema[] {
       },
       annotations: { title: 'Secure credential fill', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
+
+    // ── Playbooks ──
+    {
+      name: 'playbooks',
+      description:
+        'Record and run named interaction sequences. `history` lists this session\'s ' +
+        'numbered actions; `create` freezes a cited sequence of those ids into a saved ' +
+        'playbook; `run` executes a saved playbook in order. Cite ids from `history` — ' +
+        'never invent them. Requires the `fingerprinting` experiment for create/run. ' +
+        'Listing, editing, removal, export and import live in the CLI: `supersurf playbook`.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['history', 'create', 'run'],
+            description: 'history = list this session\'s numbered actions; create = save a playbook from cited ids; run = execute a saved playbook.',
+          },
+          name: {
+            type: 'string',
+            description: 'Playbook name, snake_case. Required for create and run. Normalized automatically; an existing name is an error.',
+          },
+          purpose: {
+            type: 'string',
+            description: 'What this playbook accomplishes, in one line. Used by create.',
+          },
+          steps: {
+            type: 'array',
+            items: { type: 'number' },
+            description: 'Action ids to freeze into the playbook, in execution order, e.g. [5211, 5212, 5214]. Used by create. Drop the ids whose outcome you did not want.',
+          },
+          limit: {
+            type: 'number',
+            description: 'History window size. Default 50, max 500.',
+          },
+          offset: {
+            type: 'number',
+            description: 'History paging offset, counted back from the newest action. Default 0.',
+          },
+        },
+        required: ['action'],
+      },
+      annotations: { title: 'Playbooks', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
   ];
 
   // Inject the shared `tabId` param into every tab-scoped tool — concurrency

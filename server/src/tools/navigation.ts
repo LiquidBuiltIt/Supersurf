@@ -25,7 +25,7 @@ import { experimentRegistry } from '../experimental/index';
  * returns the post-nav URL instantly even while page JS is frozen. Returns null
  * if the lookup fails (caller surfaces a null URL rather than hanging).
  */
-async function getAttachedUrl(ctx: ToolContext): Promise<string | null> {
+export async function getAttachedUrl(ctx: ToolContext): Promise<string | null> {
   try {
     const res: any = await ctx.ext.sendCmd('getTabs', {});
     const tabs: any[] = res?.tabs || [];

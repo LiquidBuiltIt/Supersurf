@@ -21,6 +21,7 @@ import { onNetworkRequests, onConsoleMessages } from '../network';
 import { onBrowserTabs, onNavigate } from '../navigation';
 import { onFillForm, onDrag, onSecureFill } from '../forms';
 import { onBrowserDownload } from '../downloads';
+import { onPlaybooks } from '../playbooks';
 import {
   onWindow, onDialog,
   onVerifyTextVisible, onVerifyElementVisible,
@@ -84,6 +85,7 @@ export async function dispatchTool(
       case 'browser_performance_metrics': result = await onPerformanceMetrics(ctx, options); break;
       case 'browser_download':        result = await onBrowserDownload(ctx, args, options); break;
       case 'secure_fill':             result = await onSecureFill(ctx, args, options); break;
+      case 'playbooks':               result = await onPlaybooks(ctx, args, options); break;
       default: {
         const experimentalResult = await callExperimentalTool(name, ctx, args, options);
         if (experimentalResult !== null) { result = experimentalResult; break; }
