@@ -21,7 +21,7 @@ vi.mock('../src/experimental/index', () => ({
   formatDiffSection: vi.fn().mockReturnValue(''),
 }));
 
-function createMockCtx(): ToolContext {
+function createMockCtx(options: { clickResult?: string; clickError?: string } = {}): ToolContext {
   // Default cdp mock: top-frame Runtime.evaluate reports "element exists"
   // so resolveInFrames / findElementInFrames helpers don't DFS into child
   // frames for tests that don't opt in to iframe behavior.
@@ -40,7 +40,13 @@ function createMockCtx(): ToolContext {
     // don't throw for tests that don't opt in. Specific tests override as needed.
     eval: vi.fn().mockResolvedValue({ focused: true, scrolled: true, cleared: true, selected: true, optionText: 'ok', verified: true, found: true }),
     sleep: vi.fn().mockResolvedValue(undefined),
-    getElementCenter: vi.fn().mockResolvedValue({ x: 50, y: 50 }),
+    // clickError forces the click handler's element-resolution step to reject,
+    // which onInteract's catch branch turns into a `✗` result line. clickResult
+    // is accepted for readability at call sites but not otherwise wired — the
+    // default success path already yields a "Clicked ..." message.
+    getElementCenter: options.clickError
+      ? vi.fn().mockRejectedValue(new Error(options.clickError))
+      : vi.fn().mockResolvedValue({ x: 50, y: 50 }),
     getSelectorExpression: vi.fn((s) => `document.querySelector("${s}")`),
     findAlternativeSelectors: vi.fn().mockResolvedValue([]),
     formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
@@ -862,6 +868,48 @@ describe('onInteract()', () => {
       } finally {
         delete (globalThis as any).document;
       }
+    });
+  });
+
+  describe('browser_interact — action ids', () => {
+    beforeEach(async () => {
+      const { actionTrail } = await import('../src/playbooks/trail');
+      actionTrail._resetForTest();
+    });
+
+    it('prefixes each result line with a monotonic action id', async () => {
+      const localCtx = createMockCtx({ clickResult: 'Clicked #login at (10, 20)' });
+      const res = await onInteract(
+        localCtx,
+        { actions: [{ type: 'click', selector: '#login' }, { type: 'click', selector: '#next' }] },
+        {},
+      );
+      const lines = res.content[0].text.split('\n');
+      expect(lines[0]).toMatch(/^#1 ✓ click: /);
+      expect(lines[1]).toMatch(/^#2 ✓ click: /);
+    });
+
+    it('records failed actions in the trail and prefixes them too', async () => {
+      const { actionTrail } = await import('../src/playbooks/trail');
+      const localCtx = createMockCtx({ clickError: 'Element not found: #ghost' });
+      const res = await onInteract(localCtx, { actions: [{ type: 'click', selector: '#ghost' }] }, {});
+      expect(res.content[0].text).toMatch(/^#1 ✗ click: /);
+      expect(actionTrail.get(1)!.outcome).toBe('error');
+    });
+
+    it('stores the action params so a run can re-issue them', async () => {
+      const { actionTrail } = await import('../src/playbooks/trail');
+      const localCtx = createMockCtx({ clickResult: 'Clicked' });
+      await onInteract(localCtx, { actions: [{ type: 'click', selector: '#login', name: 'login_button' }] }, {});
+      const entry = actionTrail.get(1)!;
+      expect(entry.params).toEqual({ type: 'click', selector: '#login', name: 'login_button' });
+      expect(entry.tool).toBe('browser_interact');
+    });
+
+    it('does not prefix ids in rawResult mode', async () => {
+      const localCtx = createMockCtx({ clickResult: 'Clicked' });
+      const res = await onInteract(localCtx, { actions: [{ type: 'click', selector: '#a' }] }, { rawResult: true });
+      expect(res.actions[0]).not.toMatch(/^#\d+ /);
     });
   });
 });
