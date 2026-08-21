@@ -11,6 +11,7 @@ import { createLog } from '../../logger';
 import { UsageMetricsLogger } from '../../usage-metrics-logger';
 import { callExperimentalTool, experimentRegistry } from '../../experimental/index';
 import { getTip } from '../../tips';
+import { actionTrail } from '../../playbooks/trail';
 
 import { onInteract } from '../interaction';
 import { onSnapshot, onLookup, onExtractContent } from '../content';
@@ -20,6 +21,7 @@ import { onNetworkRequests, onConsoleMessages } from '../network';
 import { onBrowserTabs, onNavigate } from '../navigation';
 import { onFillForm, onDrag, onSecureFill } from '../forms';
 import { onBrowserDownload } from '../downloads';
+import { onPlaybooks } from '../playbooks';
 import {
   onWindow, onDialog,
   onVerifyTextVisible, onVerifyElementVisible,
@@ -83,6 +85,7 @@ export async function dispatchTool(
       case 'browser_performance_metrics': result = await onPerformanceMetrics(ctx, options); break;
       case 'browser_download':        result = await onBrowserDownload(ctx, args, options); break;
       case 'secure_fill':             result = await onSecureFill(ctx, args, options); break;
+      case 'playbooks':               result = await onPlaybooks(ctx, args, options); break;
       default: {
         const experimentalResult = await callExperimentalTool(name, ctx, args, options);
         if (experimentalResult !== null) { result = experimentalResult; break; }
@@ -172,6 +175,30 @@ export async function dispatchTool(
       duration_ms: Date.now() - start,
       ...(tip ? { tip } : {}),
     });
+
+    // Action id. `browser_interact` is excluded because onInteract already
+    // recorded one entry per action in its array — a call-level entry here
+    // would double-count. `playbooks` is excluded because it is the tool that
+    // READS the trail; recording its own calls would let a history read appear
+    // in the next history read.
+    //
+    // Recording itself is unconditional — rawResult (script mode) still needs
+    // trail entries for `playbooks history`/`run` to see. Only the `#<id> `
+    // text-prefix mutation is skipped in rawResult mode, matching the
+    // untouched-result contract script-mode consumers rely on.
+    if (name !== 'browser_interact' && name !== 'playbooks') {
+      const id = actionTrail.record({
+        tool: name,
+        type: name,
+        outcome: callResult === 'error' ? 'error' : 'ok',
+        message: callError ?? 'ok',
+        params: args,
+        url,
+      });
+      if (!options.rawResult && result?.content?.[0]?.type === 'text') {
+        result.content[0].text = `#${id} ${result.content[0].text}`;
+      }
+    }
 
     if (tip && result?.content?.[0]?.type === 'text') {
       result.content[0].text += `\n\n---\n${tip}`;

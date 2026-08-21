@@ -2,7 +2,7 @@ import { checkAndTouchVersionState, UPGRADE_NOTICE_MESSAGE } from 'shared';
 
 const { version: VERSION } = require('../../package.json');
 
-export type Target = 'mcp' | 'daemon' | 'profiles' | 'export' | 'creds' | 'help';
+export type Target = 'mcp' | 'daemon' | 'profiles' | 'export' | 'playbook' | 'creds' | 'help';
 
 export interface DispatchPlan {
   target: Target;
@@ -18,12 +18,14 @@ Commands:
   daemon    Manage the coordinator daemon: start | stop | restart | status | observe
   profiles  Manage browser profiles: ls | open <name>
   export    Bundle usage-metrics logs into a .zip in the current directory
+  playbook  Manage saved playbooks: ls | show | edit | rm | export | import
 
 Examples:
   npx supersurf-mcp@latest mcp
   supersurf daemon status
   supersurf profiles open dev
-  supersurf export`;
+  supersurf export
+  supersurf playbook ls`;
 
 export function pickTarget(argv: string[]): DispatchPlan {
   const subcommand = argv[2];
@@ -31,7 +33,8 @@ export function pickTarget(argv: string[]): DispatchPlan {
     subcommand === 'mcp' ||
     subcommand === 'daemon' ||
     subcommand === 'profiles' ||
-    subcommand === 'export'
+    subcommand === 'export' ||
+    subcommand === 'playbook'
   ) {
     return {
       target: subcommand,
@@ -93,6 +96,9 @@ export async function dispatch(argv: string[]): Promise<void> {
     const { runExportProgram } = await import('./export');
     const code = await runExportProgram(remainingArgv);
     process.exit(code);
+  } else if (target === 'playbook') {
+    const { runPlaybookProgram } = await import('./playbook-cli');
+    await runPlaybookProgram(remainingArgv);
   } else {
     // Unreachable until `creds` is re-listed in pickTarget — kept intentionally
     // (delisting is reversible; the keychain CLI is dead-but-ready, not deleted).

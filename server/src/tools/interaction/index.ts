@@ -15,6 +15,7 @@
 import type { ToolContext } from '../lib/types';
 import { experimentRegistry, diffSnapshots, calculateConfidence, formatDiffSection } from '../../experimental/index';
 import { executeAction } from './registry';
+import { actionTrail } from '../../playbooks/trail';
 
 // Side-effect: each module calls registerAction() at load time.
 import './mouse-move';
@@ -58,6 +59,8 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
     catch { /* silently skip — extension may not support it yet */ }
   }
 
+  const currentUrl: string | undefined = ctx.connectionManager?.getAttachedTab()?.url;
+
   for (const action of actions) {
     try {
       const msg = await executeAction(ctx, action);
@@ -66,9 +69,28 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
       // confirm). Strip the marker and use it as the line prefix instead of ✓.
       const isWarn = typeof msg === 'string' && msg.startsWith('⚠ ');
       const body = isWarn ? msg.slice(2) : msg;
-      results.push(`${isWarn ? '⚠' : '✓'} ${action.type}: ${body}`);
+      // Trail recording lives here rather than inside executeAction: that
+      // function returns a bare string and has several callers, so threading an
+      // id back out of it would ripple. The loop that owns the sequence records.
+      const id = actionTrail.record({
+        tool: 'browser_interact',
+        type: action.type,
+        outcome: isWarn ? 'warn' : 'ok',
+        message: body,
+        params: action,
+        url: currentUrl,
+      });
+      results.push(`${options.rawResult ? '' : `#${id} `}${isWarn ? '⚠' : '✓'} ${action.type}: ${body}`);
     } catch (error: any) {
-      results.push(`✗ ${action.type}: ${error.message}`);
+      const id = actionTrail.record({
+        tool: 'browser_interact',
+        type: action.type,
+        outcome: 'error',
+        message: error.message,
+        params: action,
+        url: currentUrl,
+      });
+      results.push(`${options.rawResult ? '' : `#${id} `}✗ ${action.type}: ${error.message}`);
       if (onError === 'stop') break;
     }
   }
@@ -90,11 +112,11 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
   }
 
   if (options.rawResult) {
-    return { success: !results.some(r => r.startsWith('✗')), actions: results };
+    return { success: !results.some(r => r.includes('✗ ')), actions: results };
   }
 
   return {
     content: [{ type: 'text', text: results.join('\n') + diffSection }],
-    isError: results.some(r => r.startsWith('✗')),
+    isError: results.some(r => r.includes('✗ ')),
   };
 }

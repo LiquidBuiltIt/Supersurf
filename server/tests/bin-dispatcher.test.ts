@@ -54,6 +54,16 @@ describe('pickTarget', () => {
     expect(result.target).toBe('export');
     expect(result.remainingArgv).toEqual(['node', 'supersurf']);
   });
+
+  it('routes the playbook subcommand', () => {
+    const plan = pickTarget(['node', 'supersurf', 'playbook', 'ls']);
+    expect(plan.target).toBe('playbook');
+    expect(plan.remainingArgv).toEqual(['node', 'supersurf', 'ls']);
+  });
+
+  it('lists playbook in the help text', () => {
+    expect(HELP_TEXT).toContain('playbook');
+  });
 });
 
 describe('pickTarget — creds is delisted', () => {
