@@ -151,6 +151,11 @@ function doCreate(args: any): any {
   return text(body);
 }
 
+function stepOpensOwnPage(step: PlaybookStep): boolean {
+  if (step.tool === 'browser_navigate') return true;
+  return step.tool === 'browser_tabs' && (step.params as any)?.action === 'new';
+}
+
 async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<any> {
   const blocked = gate();
   if (blocked) return text(blocked, true);
@@ -170,10 +175,11 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
 
   // Start point: step 1's recorded URL. Read the live URL rather than the
   // cached one — the cache is not reassigned after back/forward navigation.
-  // Skipped when step 1 is itself a navigate: replaying it lands on the
-  // right page anyway, and pre-navigating would load the URL twice.
+  // Skipped when step 1 is itself a navigate or opens a new tab: replaying it
+  // lands on the right page anyway, and pre-navigating would load the URL
+  // twice (or fail outright with no tab attached yet).
   const startUrl = pb.steps[0]?.url;
-  if (startUrl && pb.steps[0].tool !== 'browser_navigate') {
+  if (startUrl && !stepOpensOwnPage(pb.steps[0])) {
     const current = await getAttachedUrl(ctx);
     if (current !== startUrl) {
       await navigate(ctx, { action: 'url', url: startUrl }, { rawResult: true });

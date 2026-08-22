@@ -274,6 +274,27 @@ describe('playbooks — run (generic steps)', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  it('skips the start-URL auto-navigate when step 1 opens a new tab', async () => {
+    // browser_tabs new lands on its own URL in a fresh tab; pre-navigating the
+    // old tab would load the page twice and would fail outright with no tab attached.
+    savePlaybook({
+      name: 'tab_first',
+      purpose: 'p',
+      steps: [
+        { tool: 'browser_tabs', type: 'browser_tabs', params: { action: 'new', url: 'https://news.ycombinator.com' }, url: 'https://news.ycombinator.com', sourceId: 1 },
+        { tool: 'browser_extract_content', type: 'browser_extract_content', params: { mode: 'auto' }, url: 'https://news.ycombinator.com', sourceId: 2 },
+      ],
+      createdAt: 1,
+      version: 1,
+    });
+    const callHandler = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+    const navigate = vi.fn();
+    const res = await onPlaybooks(makeCtx('https://somewhere-else.com/'), { action: 'run', name: 'tab_first' }, {}, { executeAction: vi.fn(), navigate, callHandler });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(res.isError).toBeFalsy();
+    expect(callHandler).toHaveBeenNthCalledWith(1, expect.anything(), 'browser_tabs', { action: 'new', url: 'https://news.ycombinator.com' }, { rawResult: false });
+  });
+
   it('stops the run when a generic step returns isError', async () => {
     seedMixedPlaybook();
     const callHandler = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'Extension not connected' }], isError: true });
