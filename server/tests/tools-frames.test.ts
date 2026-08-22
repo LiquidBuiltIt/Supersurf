@@ -67,7 +67,7 @@ describe('findElementInFrames', () => {
   });
 });
 
-import { resolveInFrames } from '../src/tools/lib/frames';
+import { resolveInFrames, healSelectorAcrossFrames } from '../src/tools/lib/frames';
 
 describe('resolveInFrames', () => {
   it('returns top-frame result with contextId=null and frameId=null when top-frame eval finds the element', async () => {
@@ -78,7 +78,10 @@ describe('resolveInFrames', () => {
       throw new Error(`should not reach: ${method}`);
     });
     const result = await resolveInFrames(ctx, 'document.querySelector("#x")');
-    expect(result).toEqual({ objectId: 'top-obj', contextId: null, frameId: null });
+    expect(result).toEqual({
+      objectId: 'top-obj', contextId: null, frameId: null,
+      resolvedExpr: 'document.querySelector("#x")',
+    });
   });
 
   it('falls through to findElementInFrames when top-frame has no match', async () => {
@@ -96,7 +99,7 @@ describe('resolveInFrames', () => {
       throw new Error(`unexpected ${method}`);
     });
     const result = await resolveInFrames(ctx, 'expr');
-    expect(result).toEqual({ objectId: 'child-obj', contextId: 42, frameId: 'c' });
+    expect(result).toEqual({ objectId: 'child-obj', contextId: 42, frameId: 'c', resolvedExpr: 'expr' });
   });
 
   it('returns null when no frame contains the element', async () => {
@@ -106,6 +109,122 @@ describe('resolveInFrames', () => {
     });
     const result = await resolveInFrames(ctx, 'expr');
     expect(result).toBeNull();
+  });
+
+  it('fires captureFingerprintInContext(null, selector, meta) on a top-frame hit', async () => {
+    const ctx = mockCtx(async (method, params) => {
+      if (method === 'Runtime.evaluate' && params.contextId === undefined) {
+        return { result: { objectId: 'top-obj' } };
+      }
+      throw new Error(`should not reach: ${method}`);
+    });
+    ctx.captureFingerprintInContext = vi.fn();
+    const meta = { name: 'submit', purpose: 'submit form' };
+    await resolveInFrames(ctx, 'document.querySelector("#x")', '#x', meta);
+    expect(ctx.captureFingerprintInContext).toHaveBeenCalledWith(null, '#x', meta);
+  });
+
+  it('fires captureFingerprintInContext(contextId, selector, meta) on a child-frame hit', async () => {
+    const ctx = mockCtx(async (method, params) => {
+      if (method === 'Runtime.evaluate' && params.contextId === undefined) return { result: {} };
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [{ frame: { id: 'c' }, childFrames: [] }] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 42 };
+      if (method === 'Runtime.evaluate' && params.contextId === 42) return { result: { objectId: 'child-obj' } };
+      throw new Error(`unexpected ${method}`);
+    });
+    ctx.captureFingerprintInContext = vi.fn();
+    await resolveInFrames(ctx, 'expr', '#x');
+    expect(ctx.captureFingerprintInContext).toHaveBeenCalledWith(42, '#x', undefined);
+  });
+
+  it('does not attempt a heal when ctx.healFingerprintInContext is not wired (experiment disabled)', async () => {
+    const ctx = mockCtx(async (method) => {
+      if (method === 'Runtime.evaluate') return { result: {} };
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'top' }, childFrames: [] } };
+    });
+    // ctx.healFingerprintInContext left undefined (mockCtx default).
+    const result = await resolveInFrames(ctx, 'expr', '#x');
+    expect(result).toBeNull();
+  });
+
+  it('heals in the top frame when no frame matches the selector but the top-frame heal hook resolves', async () => {
+    const ctx = mockCtx(async (method) => {
+      if (method === 'Runtime.evaluate') return { result: {} };
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'top' }, childFrames: [] } };
+    });
+    ctx.healFingerprintInContext = vi.fn().mockResolvedValue({
+      cx: 10, cy: 10, score: 0.9, objectId: 'healed-obj', resolvedExpr: 'document.querySelector("#healed")',
+    });
+    const result = await resolveInFrames(ctx, 'expr', '#x');
+    expect(result).toEqual({
+      objectId: 'healed-obj', contextId: null, frameId: null,
+      resolvedExpr: 'document.querySelector("#healed")',
+    });
+    expect(ctx.healFingerprintInContext).toHaveBeenCalledWith(null, '#x');
+  });
+
+  it('heals in a child frame, picking the highest-scoring resolvable hit', async () => {
+    const ctxIds: Record<string, number> = { c1: 11, c2: 22 };
+    const ctx = mockCtx(async (method, params) => {
+      if (method === 'Runtime.evaluate') return { result: {} };
+      if (method === 'Page.getFrameTree') {
+        return {
+          frameTree: {
+            frame: { id: 'top' },
+            childFrames: [
+              { frame: { id: 'c1' }, childFrames: [] },
+              { frame: { id: 'c2' }, childFrames: [] },
+            ],
+          },
+        };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: ctxIds[params.frameId] };
+      throw new Error(`unexpected ${method}`);
+    });
+    ctx.healFingerprintInContext = vi.fn(async (contextId: number | null) => {
+      if (contextId === null) return null; // top frame: no hit
+      if (contextId === 11) return { cx: 1, cy: 1, score: 0.65, objectId: 'obj-c1', resolvedExpr: 'expr-c1' };
+      if (contextId === 22) return { cx: 5, cy: 5, score: 0.95, objectId: 'obj-c2', resolvedExpr: 'expr-c2' };
+      return null;
+    });
+    const result = await resolveInFrames(ctx, 'expr', '#x');
+    expect(result).toEqual({ objectId: 'obj-c2', contextId: 22, frameId: 'c2', resolvedExpr: 'expr-c2' });
+  });
+
+  it('does not heal when the heal hook returns a hit with no objectId/resolvedExpr (coordinate-only, unresolvable)', async () => {
+    const ctx = mockCtx(async (method) => {
+      if (method === 'Runtime.evaluate') return { result: {} };
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'top' }, childFrames: [] } };
+    });
+    ctx.healFingerprintInContext = vi.fn().mockResolvedValue({ cx: 10, cy: 10, score: 0.9 });
+    const result = await resolveInFrames(ctx, 'expr', '#x');
+    expect(result).toBeNull();
+  });
+});
+
+describe('healSelectorAcrossFrames', () => {
+  it('returns null when ctx.healFingerprintInContext is not wired', async () => {
+    const ctx = mockCtx(async () => { throw new Error('cdp should not be called'); });
+    const result = await healSelectorAcrossFrames(ctx, '#x');
+    expect(result).toBeNull();
+  });
+
+  it('scores the top frame and every child frame, returning the highest-scoring resolvable hit', async () => {
+    const ctx = mockCtx(async (method, params) => {
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [{ frame: { id: 'c' }, childFrames: [] }] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+      throw new Error(`unexpected ${method}`);
+    });
+    ctx.healFingerprintInContext = vi.fn(async (contextId: number | null) =>
+      contextId === null
+        ? { cx: 1, cy: 1, score: 0.6, objectId: 'top-heal', resolvedExpr: 'top-expr' }
+        : { cx: 2, cy: 2, score: 0.9, objectId: 'child-heal', resolvedExpr: 'child-expr' });
+    const result = await healSelectorAcrossFrames(ctx, '#x');
+    expect(result).toEqual({ objectId: 'child-heal', contextId: 7, frameId: 'c', resolvedExpr: 'child-expr' });
   });
 });
 

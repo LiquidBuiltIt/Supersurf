@@ -12,13 +12,14 @@ registerAction({
     if (!targetValue) throw new Error('select_custom requires a value');
 
     const expr = ctx.getSelectorExpression(triggerSelector);
-    const triggerMatch = await resolveInFrames(ctx, expr);
+    const meta = { name: action.name, purpose: action.purpose };
+    const triggerMatch = await resolveInFrames(ctx, expr, triggerSelector, meta);
     if (!triggerMatch) throw new Error(`No custom dropdown trigger found at ${triggerSelector}.`);
     const frameContextId = triggerMatch.contextId;
 
     const detection = await evalInFrameOrTop(ctx, `
       (() => {
-        const el = ${expr};
+        const el = ${triggerMatch.resolvedExpr};
         if (!el) return { found: false };
         const isCustomSelect =
           el.getAttribute('role') === 'combobox' ||
@@ -64,7 +65,6 @@ registerAction({
       })()
     `, frameContextId) || [];
 
-    const meta = { name: action.name, purpose: action.purpose };
     const { x, y } = await getCenterInFrame(ctx, triggerSelector, meta);
     await moveCursorTo(ctx, x, y, '_default');
     await ctx.cdp('Input.dispatchMouseEvent', {
@@ -142,7 +142,7 @@ registerAction({
 
     const verification: any = await evalInFrameOrTop(ctx, `
       (() => {
-        const el = ${expr};
+        const el = ${triggerMatch.resolvedExpr};
         if (!el) return { verified: false, currentText: '' };
         const currentText = el.textContent?.trim().substring(0, 100) || '';
         const before = ${JSON.stringify(detection.triggerText)};

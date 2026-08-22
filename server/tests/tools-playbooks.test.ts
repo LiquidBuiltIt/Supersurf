@@ -169,14 +169,27 @@ describe('playbooks — run', () => {
     expect(res.content[0].text).toContain('Stopped at step 1');
   });
 
-  it('notes that no heal was attempted for a verb healing does not cover', async () => {
-    // Healing covers click/hover/drag only. A `type` failure must say so, or the
-    // asymmetry looks like a bug rather than a known limitation.
+  it('notes that no heal was attempted for force_pseudo_state, the one verb healing does not cover', async () => {
+    // Every selector-resolving verb heals except force_pseudo_state (raw CDP
+    // objectId path, no fingerprint to heal against). Its failure must say so,
+    // or the asymmetry looks like a bug rather than a known limitation.
+    actionTrail.record({
+      tool: 'browser_interact', type: 'force_pseudo_state', outcome: 'ok', message: 'ok',
+      params: { type: 'force_pseudo_state', selector: '#a', state: 'hover' },
+      url: 'https://linkedin.com/jobs/1234',
+    });
+    await onPlaybooks(makeCtx(), { action: 'create', name: 'pseudo', purpose: 'p', steps: [1] }, {});
+    const interact = vi.fn().mockRejectedValue(new Error('Element not found'));
+    const res = await onPlaybooks(makeCtx(), { action: 'run', name: 'pseudo' }, {}, { executeAction: interact });
+    expect(res.content[0].text.toLowerCase()).toContain('no heal');
+  });
+
+  it('does NOT note "no heal" for a healed verb (e.g. type) that fails', async () => {
     seedTrail();
     await onPlaybooks(makeCtx(), { action: 'create', name: 'typing', purpose: 'p', steps: [2] }, {});
     const interact = vi.fn().mockRejectedValue(new Error('Element not found'));
     const res = await onPlaybooks(makeCtx(), { action: 'run', name: 'typing' }, {}, { executeAction: interact });
-    expect(res.content[0].text.toLowerCase()).toContain('no heal');
+    expect(res.content[0].text.toLowerCase()).not.toContain('no heal');
   });
 
   it('navigates to step 1 url when the browser is elsewhere', async () => {

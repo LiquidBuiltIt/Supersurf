@@ -98,16 +98,55 @@ export async function findElementInFrames(
 }
 
 /**
- * Resolve an element: try top frame first, then DFS child frames on miss.
- * `contextId` and `frameId` are both `null` when the element was found in
- * the top frame, otherwise they identify the child frame that owns it.
+ * Heal a resolveInFrames() total miss (selector matched neither the top frame
+ * nor any child frame) by scoring the stored fingerprint against the top
+ * frame first, then every child frame, and returning the highest-scoring
+ * gate-passing hit as a resolved element handle. Unlike click/hover's
+ * coordinate-only heal (`healInFrames` above), selector-resolving verbs
+ * (type, select_option, fill_form fields, file_upload, …) need a live
+ * element to act on, so only hits `ctx.healFingerprintInContext` could
+ * re-resolve (`objectId`/`resolvedExpr` both set) are eligible. Returns
+ * null when the experiment is off, no hook is wired, or no context yields
+ * a resolvable hit.
+ */
+export async function healSelectorAcrossFrames(
+  ctx: ToolContext,
+  selector: string
+): Promise<{ objectId: string; contextId: number | null; frameId: string | null; resolvedExpr: string } | null> {
+  if (!ctx.healFingerprintInContext) return null;
+
+  const candidates: Array<{ frameId: string | null; contextId: number | null }> = [
+    { frameId: null, contextId: null }, // top frame, default context
+    ...(await getChildFrameContexts(ctx)),
+  ];
+
+  let best: { frameId: string | null; contextId: number | null; objectId: string; resolvedExpr: string; score: number } | null = null;
+  for (const { frameId, contextId } of candidates) {
+    const hit = await ctx.healFingerprintInContext(contextId, selector);
+    if (hit?.objectId && hit.resolvedExpr && (!best || hit.score > best.score)) {
+      best = { frameId, contextId, objectId: hit.objectId, resolvedExpr: hit.resolvedExpr, score: hit.score };
+    }
+  }
+  if (!best) return null;
+  return { objectId: best.objectId, contextId: best.contextId, frameId: best.frameId, resolvedExpr: best.resolvedExpr };
+}
+
+/**
+ * Resolve an element: try top frame first, then DFS child frames on miss,
+ * then (when `selector` is supplied) a fingerprint heal across every frame.
+ * `contextId` and `frameId` are both `null` when the element was found (or
+ * healed) in the top frame, otherwise they identify the frame that owns it.
+ * `resolvedExpr` is the JS expression callers should re-evaluate to reach the
+ * element: `selectorExpr` unchanged on a direct hit, or a heal-synthesized
+ * expression (a re-queryable selector, or `elementFromPoint` as a last
+ * resort) when the original selector had to be healed.
  */
 export async function resolveInFrames(
   ctx: ToolContext,
   selectorExpr: string,
   selector?: string,
   meta?: import('../../experimental/fingerprinting/handle-meta').HandleMeta,
-): Promise<{ objectId: string; contextId: number | null; frameId: string | null } | null> {
+): Promise<{ objectId: string; contextId: number | null; frameId: string | null; resolvedExpr: string } | null> {
   const top = await ctx.cdp('Runtime.evaluate', {
     expression: selectorExpr,
     returnByValue: false,
@@ -115,13 +154,22 @@ export async function resolveInFrames(
   const topObjectId = top?.result?.objectId;
   if (topObjectId) {
     if (selector) ctx.captureFingerprintInContext?.(null, selector, meta); // top frame => null contextId
-    return { objectId: topObjectId, contextId: null, frameId: null };
+    return { objectId: topObjectId, contextId: null, frameId: null, resolvedExpr: selectorExpr };
   }
 
   const match = await findElementInFrames(ctx, selectorExpr);
-  if (!match) return null;
-  if (selector) ctx.captureFingerprintInContext?.(match.contextId, selector, meta);
-  return match;
+  if (match) {
+    if (selector) ctx.captureFingerprintInContext?.(match.contextId, selector, meta);
+    return { ...match, resolvedExpr: selectorExpr };
+  }
+
+  // Selector matched no frame. Try a fingerprint heal across the top frame and
+  // every child frame.
+  if (selector) {
+    const healed = await healSelectorAcrossFrames(ctx, selector);
+    if (healed) return healed;
+  }
+  return null;
 }
 
 /**

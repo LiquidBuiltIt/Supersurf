@@ -25,12 +25,15 @@ import { callToolHandler as realCallHandler } from './lib/handler-registry';
 const DEFAULT_LIMIT = 50;
 
 /**
- * Verbs whose selector resolution runs through the healed path
- * (`ctx.getElementCenter` → `resolveWithHealing`). Every other verb resolves raw.
- * Widening this is a separate chore — until then a run must SAY when a step
- * failed without a heal attempt, so the asymmetry reads as known, not broken.
+ * The `browser_interact` verbs that do not heal.
+ * `force_pseudo_state` drives CDP directly off a resolved `objectId`
+ * (`DOM.requestNode`) rather than through `resolveInFrames`/`getCenterInFrame`,
+ * so there is no fingerprint to heal against. `wait` polls for the ORIGINAL
+ * selector to appear — healing a miss into a look-alike would end the wait
+ * early and defeat its purpose. Every other selector-resolving verb heals
+ * (see `tools/lib/frames.ts`).
  */
-const HEALED_VERBS = new Set(['click', 'hover', 'drag']);
+const UNHEALED_VERBS = new Set(['force_pseudo_state', 'wait']);
 
 /** Seams for tests. Production passes nothing and gets the real implementations. */
 export interface PlaybookDeps {
@@ -209,10 +212,10 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
         });
         lines.push(`#${id} ✗ ${i + 1}/${total}  ${step.type}`);
         lines.push(`        ${err.message}`);
-        if (!HEALED_VERBS.has(step.type)) {
+        if (UNHEALED_VERBS.has(step.type)) {
           lines.push(
-            `        No heal attempted — healing currently covers ` +
-            `${[...HEALED_VERBS].join('/')} only.`,
+            `        No heal attempted — ${step.type} is not covered by healing ` +
+            `(force_pseudo_state resolves raw; wait asks whether the original selector appeared).`,
           );
         }
         lines.push('');

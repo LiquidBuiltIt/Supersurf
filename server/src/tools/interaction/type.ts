@@ -6,15 +6,17 @@ registerAction({
   name: 'type',
   async run(ctx, action) {
     let typeContextId: number | null = null;
+    let resolvedExpr: string | null = null;
     if (action.selector) {
       const selectorExpr = ctx.getSelectorExpression(action.selector);
       const meta = { name: action.name, purpose: action.purpose };
       const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
       if (!match) throw new Error(`Element not found: ${action.selector}`);
       typeContextId = match.contextId;
+      resolvedExpr = match.resolvedExpr;
       const focusExpr = `
         (() => {
-          const el = ${selectorExpr};
+          const el = ${resolvedExpr};
           if (!el) return { focused: false };
           el.focus();
           return { focused: document.activeElement === el };
@@ -42,8 +44,7 @@ registerAction({
     }
 
     if (action.selector) {
-      const selectorExpr = ctx.getSelectorExpression(action.selector);
-      const readExpr = `(() => { const el = ${selectorExpr}; return el?.value; })()`;
+      const readExpr = `(() => { const el = ${resolvedExpr}; return el?.value; })()`;
       const finalValue = await evalInFrameOrTop(ctx, readExpr, typeContextId);
       return `Typed "${action.text}" into ${action.selector} (value: "${finalValue ?? 'N/A'}")`;
     }

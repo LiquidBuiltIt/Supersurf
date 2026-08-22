@@ -17,6 +17,7 @@ import { getExperimentalToolSchemas, experimentRegistry } from './experimental/i
 import { resolveWithHealing, captureInContext, healInContext, domainOf, routeOf } from './experimental/fingerprinting/index';
 import { resolveSelectorOrHandle } from './experimental/fingerprinting/handle-resolve';
 import { buildHandleIndex } from './experimental/fingerprinting/handle-annotate';
+import { selectorFromHit } from './experimental/fingerprinting/selector-synthesis';
 
 import { getToolSchemas } from './tools/schemas';
 import { cdp as cdpFn, evalExpr as evalFn } from './tools/lib/cdp';
@@ -131,14 +132,16 @@ export class BrowserBridge {
           meta,
           emitHandle,
         ),
-      healFingerprintInContext: (contextId: number, selector: string) =>
+      healFingerprintInContext: (contextId: number | null, selector: string) =>
         healInContext(
-          (expr: string) =>
-            cdpFn(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true }, tabId)
-              .then((r: any) => r.result?.value),
+          (expr: string) => {
+            const params: any = { expression: expr, returnByValue: true };
+            if (contextId != null) params.contextId = contextId; // null => top-frame default context
+            return cdpFn(ext, 'Runtime.evaluate', params, tabId).then((r: any) => r.result?.value);
+          },
           this.connectionManager?.getAttachedTab()?.url,
           selector,
-        ).then((hit) => {
+        ).then(async (hit) => {
           if (!hit) return null;
           const url = this.connectionManager?.getAttachedTab()?.url;
           this.metricsLogger?.write({
@@ -152,7 +155,25 @@ export class BrowserBridge {
             result: 'ok',
             duration_ms: 0,
           });
-          return { cx: hit.cx, cy: hit.cy, score: hit.score };
+          // Best-effort: re-resolve a live element for the winning hit so callers
+          // that need more than coordinates (every selector-resolving verb besides
+          // click/hover/drag) can act on it. Synthesize a selector from the winner's
+          // stable identity first — robust to overlapping/hidden elements (e.g. a
+          // styled label sitting on top of a file input) — falling back to
+          // `elementFromPoint` at the winning coordinates. Failure here only omits
+          // `objectId`/`resolvedExpr`; the coordinate-only heal above is unaffected.
+          const synthesized = selectorFromHit(hit);
+          const objectExpr = synthesized ? getSelectorExpression(synthesized) : `document.elementFromPoint(${hit.cx}, ${hit.cy})`;
+          const objParams: any = { expression: objectExpr, returnByValue: false };
+          if (contextId != null) objParams.contextId = contextId;
+          let objectId: string | undefined;
+          try {
+            const r = await cdpFn(ext, 'Runtime.evaluate', objParams, tabId);
+            objectId = r?.result?.objectId;
+          } catch { /* best-effort */ }
+          return objectId
+            ? { cx: hit.cx, cy: hit.cy, score: hit.score, objectId, resolvedExpr: objectExpr }
+            : { cx: hit.cx, cy: hit.cy, score: hit.score };
         }),
       resolveSelector: resolveSelectorSync,
       getHandleIndex: () => buildHandleIndex(this.connectionManager?.getAttachedTab()?.url),
