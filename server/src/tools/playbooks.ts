@@ -43,6 +43,24 @@ function text(body: string, isError = false): any {
   return { content: [{ type: 'text', text: body }], isError };
 }
 
+/** Marker `formatResult` always appends after the status header (`backend/status.ts`). */
+const STATUS_HEADER_DIVIDER = '\n---\n\n';
+
+/**
+ * Handlers reached through `callHandler` route their result through
+ * `ctx.formatResult`, which unconditionally prepends the connection status
+ * header (version | browser | tab) for a live agent call. A replayed step
+ * is not a live call — strip that header here rather than widening the
+ * shared `formatResult` contract for this one caller. The divider is short
+ * and always leads the string, so bail if it turns up deep in the body —
+ * that's real content (e.g. a markdown rule), not our header.
+ */
+function stripStatusHeader(body: string): string {
+  const idx = body.indexOf(STATUS_HEADER_DIVIDER);
+  if (idx === -1 || idx > 400) return body;
+  return body.slice(idx + STATUS_HEADER_DIVIDER.length);
+}
+
 function gate(): string | null {
   if (experimentRegistry.isEnabled('fingerprinting')) return null;
   return 'Playbooks need the `fingerprinting` experiment, which is off.\n\n' +
@@ -207,7 +225,7 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
     try {
       res = await callHandler(ctx, step.tool, step.params, { rawResult: false });
       if (res === null) failure = `Unknown tool: \`${step.tool}\`. This step cannot replay on this server version.`;
-      else if (res.isError) failure = res.content?.find((b: any) => b?.type === 'text')?.text ?? 'unknown error';
+      else if (res.isError) failure = stripStatusHeader(res.content?.find((b: any) => b?.type === 'text')?.text ?? 'unknown error');
     } catch (err: any) {
       failure = err.message;
     }
@@ -224,7 +242,7 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
       return text(lines.join('\n'), true);
     }
 
-    const body: string = res.content?.find((b: any) => b?.type === 'text')?.text ?? '';
+    const body: string = stripStatusHeader(res.content?.find((b: any) => b?.type === 'text')?.text ?? '');
     const id = actionTrail.record({
       tool: step.tool, type: step.type, outcome: 'ok',
       message: body || 'ok', params: step.params, url: step.url,

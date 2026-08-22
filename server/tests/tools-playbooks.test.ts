@@ -6,6 +6,7 @@ import { onPlaybooks } from '../src/tools/playbooks';
 import { actionTrail } from '../src/playbooks/trail';
 import { setBaseDirForTests, loadPlaybook, savePlaybook } from '../src/playbooks/store';
 import { experimentRegistry } from '../src/experimental/index';
+import { formatResult } from '../src/tools/lib/result-formatter';
 
 let dir: string;
 
@@ -296,6 +297,28 @@ describe('playbooks — run (generic steps)', () => {
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('Unknown tool');
     expect(res.content[0].text).toContain('no_such_tool');
+  });
+
+  it('strips the connection status header a real handler prepends via formatResult', async () => {
+    // Regression for the header-leak finding: handlers reached through
+    // callHandler route through ctx.formatResult, which unconditionally
+    // prepends the status header. Exercise the REAL formatResult (not a
+    // pre-cleaned mock) so this actually proves the strip works against
+    // its real output shape.
+    seedMixedPlaybook();
+    const fakeCm = { statusHeader: () => '✅ v3.4.0 | 🌐 chrome | 📄 Tab 1: https://news.ycombinator.com\n---\n\n' };
+    const callHandler = vi.fn(async (_ctx: any, toolName: string, toolArgs: any, options: any) => {
+      const raw = toolName === 'browser_navigate'
+        ? { message: `Navigated to ${toolArgs.url}` }
+        : { text: 'COMMENT BODY TEXT' };
+      return formatResult(toolName, raw, options, fakeCm);
+    });
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const res = await onPlaybooks(makeCtx('https://news.ycombinator.com'), { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toContain('COMMENT BODY TEXT');
+    expect(res.content[0].text).not.toContain('\n---\n');
+    expect(res.content[0].text).not.toContain('✅');
   });
 });
 
