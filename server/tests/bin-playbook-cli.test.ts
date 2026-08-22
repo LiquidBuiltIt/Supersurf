@@ -132,6 +132,75 @@ describe('playbook edit', () => {
     expect(called).toBe(false);
   });
 
+  it('mentions the direct file path in the no-terminal message', async () => {
+    savePlaybook(makePlaybook('trim_me', 2));
+    let err: Error | undefined;
+    try {
+      await runEdit('trim_me', {}, { log, isTTY: false, spawnEditor: () => 0 });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toContain(path.join(dir, 'trim_me.json'));
+  });
+
+  it('throws with the direct file path and --drop when no editor is configured', async () => {
+    savePlaybook(makePlaybook('trim_me', 2));
+    const prevVisual = process.env.VISUAL;
+    const prevEditor = process.env.EDITOR;
+    delete process.env.VISUAL;
+    delete process.env.EDITOR;
+    let called = false;
+    let err: Error | undefined;
+    try {
+      await runEdit('trim_me', {}, {
+        log, isTTY: true,
+        spawnEditor: () => { called = true; return 0; },
+      });
+    } catch (e) {
+      err = e as Error;
+    } finally {
+      if (prevVisual === undefined) delete process.env.VISUAL; else process.env.VISUAL = prevVisual;
+      if (prevEditor === undefined) delete process.env.EDITOR; else process.env.EDITOR = prevEditor;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toContain(path.join(dir, 'trim_me.json'));
+    expect(err!.message).toContain('--drop');
+    expect(called).toBe(false);
+    expect(loadPlaybook('trim_me')!.steps).toHaveLength(2);
+    const tmpPath = path.join(os.tmpdir(), `supersurf-playbook-trim_me-${process.pid}.json`);
+    expect(fs.existsSync(tmpPath)).toBe(false);
+  });
+
+  it('throws when the editor fails to launch, cleans up the temp file, and names the command and file path', async () => {
+    savePlaybook(makePlaybook('trim_me', 2));
+    const prevVisual = process.env.VISUAL;
+    const prevEditor = process.env.EDITOR;
+    delete process.env.VISUAL;
+    process.env.EDITOR = 'nonexistent-editor';
+    let tempPathSeen = '';
+    let err: Error | undefined;
+    try {
+      await runEdit('trim_me', {}, {
+        log, isTTY: true,
+        spawnEditor: (_cmd, args) => {
+          tempPathSeen = args[args.length - 1];
+          return { status: null, error: new Error('spawn nonexistent-editor ENOENT') };
+        },
+      });
+    } catch (e) {
+      err = e as Error;
+    } finally {
+      if (prevVisual === undefined) delete process.env.VISUAL; else process.env.VISUAL = prevVisual;
+      if (prevEditor === undefined) delete process.env.EDITOR; else process.env.EDITOR = prevEditor;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('nonexistent-editor');
+    expect(err!.message).toContain(path.join(dir, 'trim_me.json'));
+    expect(fs.existsSync(tempPathSeen)).toBe(false);
+    expect(loadPlaybook('trim_me')!.steps).toHaveLength(2);
+  });
+
   it('opens the playbook in $EDITOR and saves the edited version', async () => {
     savePlaybook(makePlaybook('trim_me', 3));
     let tempPathSeen = '';

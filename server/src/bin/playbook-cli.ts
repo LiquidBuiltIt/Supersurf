@@ -17,19 +17,23 @@ import * as os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import {
   listPlaybooks, loadPlaybook, savePlaybook, removePlaybook,
-  playbookExists, normalizeName,
+  playbookExists, normalizeName, getBaseDir,
 } from '../playbooks/store';
 import { formatSteps } from '../playbooks/format';
 import type { Playbook } from '../playbooks/types';
 
+/** Either a bare exit status (legacy shape), or a status/error pair mirroring `spawnSync`'s result. */
+export type SpawnEditorResult = number | { status: number | null; error?: Error };
+
 export interface RunOpts {
   log?: (msg: string) => void;
-  spawnEditor?: (cmd: string, args: string[]) => number;
+  spawnEditor?: (cmd: string, args: string[]) => SpawnEditorResult;
   isTTY?: boolean;
 }
 
-function defaultSpawnEditor(cmd: string, args: string[]): number {
-  return spawnSync(cmd, args, { stdio: 'inherit' }).status ?? 1;
+function defaultSpawnEditor(cmd: string, args: string[]): SpawnEditorResult {
+  const result = spawnSync(cmd, args, { stdio: 'inherit' });
+  return { status: result.status, error: result.error };
 }
 
 export function buildPlaybookProgram(): Command {
@@ -126,23 +130,44 @@ export async function runEdit(
     return;
   }
 
+  const normalized = normalizeName(name);
+  const filePath = path.join(getBaseDir(), `${normalized}.json`);
+
   const isTTY = opts.isTTY ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!isTTY) {
-    throw new Error('No terminal attached. Pass --drop <step>, or run in an interactive shell to edit in $EDITOR.');
+    throw new Error(
+      `No terminal attached. Pass --drop <step>, edit the file directly at ${filePath}, ` +
+      'or run in an interactive shell to edit in $EDITOR.',
+    );
+  }
+
+  const editorCmd = process.env.VISUAL || process.env.EDITOR;
+  if (!editorCmd) {
+    throw new Error(
+      "No editor is configured. Set $EDITOR (or $VISUAL) to use 'playbook edit', " +
+      `or edit the playbook file directly at ${filePath}, or use --drop <step>.`,
+    );
   }
 
   const pb = loadPlaybook(name);
   if (!pb) throw new Error(`No playbook named '${name}'`);
-  const normalized = normalizeName(name);
 
   const original = JSON.stringify(pb, null, 2);
   const tmpPath = path.join(os.tmpdir(), `supersurf-playbook-${normalized}-${process.pid}.json`);
   fs.writeFileSync(tmpPath, original, { mode: 0o600 });
 
-  const editorCmd = process.env.VISUAL || process.env.EDITOR || 'vi';
   const [cmd, ...editorArgs] = editorCmd.split(/\s+/).filter(Boolean);
   const spawnEditor = opts.spawnEditor ?? defaultSpawnEditor;
-  const status = spawnEditor(cmd, [...editorArgs, tmpPath]);
+  const result = spawnEditor(cmd, [...editorArgs, tmpPath]);
+  const { status, error } = typeof result === 'number' ? { status: result, error: undefined } : result;
+
+  if (error) {
+    fs.rmSync(tmpPath, { force: true });
+    throw new Error(
+      `Could not launch editor '${editorCmd}': ${error.message}. ` +
+      `Edit the file directly at ${filePath}, or pass --drop <step>.`,
+    );
+  }
   if (status !== 0) {
     fs.rmSync(tmpPath, { force: true });
     throw new Error(`Editor exited with status ${status}; playbook unchanged.`);
