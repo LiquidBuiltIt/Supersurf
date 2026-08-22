@@ -532,7 +532,8 @@ export function getToolSchemas(): ToolSchema[] {
         'ids into a saved playbook; `run` replays a saved playbook in order — interact steps ' +
         'heal broken selectors, read steps (extract, snapshot, network…) return their output ' +
         'in the run result. Cite ids from `history` — never invent them. Requires the ' +
-        '`fingerprinting` experiment for create/run. ' +
+        '`fingerprinting` experiment for create/run. `run` works with no active session — ' +
+        'it connects implicitly, using `profile` or the playbook\'s own bound profile. ' +
         'Listing, editing, removal, export and import live in the CLI: `supersurf playbook`.',
       inputSchema: {
         type: 'object',
@@ -562,6 +563,14 @@ export function getToolSchemas(): ToolSchema[] {
           offset: {
             type: 'number',
             description: 'History paging offset, counted back from the newest action. Default 0.',
+          },
+          profile: {
+            type: 'string',
+            description: 'run only. Managed profile to run against. If omitted, falls back to the profile the playbook was created under, then a plain (no-profile) connect. With no active session, `run` connects implicitly using this resolved profile. With an active session, a resolved profile that differs from the session\'s bound profile is an error — it never re-binds mid-session.',
+          },
+          detach: {
+            type: 'boolean',
+            description: 'run only. When `run` triggered an implicit connect, disconnect again once the run finishes (success or failure) instead of leaving the session active. Default false.',
           },
         },
         required: ['action'],

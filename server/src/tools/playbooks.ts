@@ -73,6 +73,25 @@ function gate(): string | null {
     'would break on the first CSS change.';
 }
 
+/**
+ * Resolve which profile a `run` call should target: the explicit `profile`
+ * arg wins, else the playbook's own `profile` field (set by `create` when the
+ * recording session was profile-bound), else `undefined` (no profile).
+ *
+ * Exported so `backend/handlers.ts` can resolve the target profile BEFORE a
+ * bridge exists — passive-state `run` needs the answer to pick a profile for
+ * its implicit `connect`, and active-state `run` needs it to check for a
+ * mismatch against the session's already-bound profile.
+ */
+export function resolveRunProfile(args: any): string | undefined {
+  const explicit = typeof args.profile === 'string' && args.profile.trim() ? args.profile.trim() : undefined;
+  if (explicit) return explicit;
+  const name = typeof args.name === 'string' ? normalizeName(args.name) : '';
+  if (!name) return undefined;
+  const pb = loadPlaybook(name);
+  return pb?.profile;
+}
+
 export async function onPlaybooks(
   ctx: ToolContext,
   args: any,
@@ -81,7 +100,7 @@ export async function onPlaybooks(
 ): Promise<any> {
   switch (args.action) {
     case 'history': return doHistory(args);
-    case 'create':  return doCreate(args);
+    case 'create':  return doCreate(ctx, args);
     case 'run':     return doRun(ctx, args, deps);
     default:
       return text(
@@ -99,7 +118,7 @@ function doHistory(args: any): any {
   return text(formatHistory(entries, total, offset));
 }
 
-function doCreate(args: any): any {
+function doCreate(ctx: ToolContext, args: any): any {
   const blocked = gate();
   if (blocked) return text(blocked, true);
 
@@ -144,6 +163,10 @@ function doCreate(args: any): any {
     createdAt: Date.now(),
     version: 1,
   };
+  // Bind to the current session's managed profile, when there is one.
+  // Absent for unmanaged sessions — `run` then falls through to a plain connect.
+  const boundProfile = ctx.connectionManager?.profile;
+  if (typeof boundProfile === 'string' && boundProfile) pb.profile = boundProfile;
   savePlaybook(pb);
 
   let body = `Saved \`${name}\` — ${steps.length} steps.`;
