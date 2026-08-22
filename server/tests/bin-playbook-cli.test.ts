@@ -121,4 +121,99 @@ describe('playbook edit', () => {
     savePlaybook(makePlaybook('only_one', 1));
     await expect(runEdit('only_one', { drop: '1' }, { log })).rejects.toThrow();
   });
+
+  it('throws when no terminal is attached and --drop is absent', async () => {
+    savePlaybook(makePlaybook('trim_me', 2));
+    let called = false;
+    await expect(runEdit('trim_me', {}, {
+      log, isTTY: false,
+      spawnEditor: () => { called = true; return 0; },
+    })).rejects.toThrow(/No terminal attached/);
+    expect(called).toBe(false);
+  });
+
+  it('opens the playbook in $EDITOR and saves the edited version', async () => {
+    savePlaybook(makePlaybook('trim_me', 3));
+    let tempPathSeen = '';
+    await runEdit('trim_me', {}, {
+      log, isTTY: true,
+      spawnEditor: (_cmd, args) => {
+        tempPathSeen = args[args.length - 1];
+        const pb = JSON.parse(fs.readFileSync(tempPathSeen, 'utf8'));
+        pb.steps.pop();
+        fs.writeFileSync(tempPathSeen, JSON.stringify(pb, null, 2));
+        return 0;
+      },
+    });
+    const pb = loadPlaybook('trim_me')!;
+    expect(pb.steps).toHaveLength(2);
+    expect(fs.existsSync(tempPathSeen)).toBe(false);
+    expect(out.join('\n')).toMatch(/Saved 'trim_me'/);
+  });
+
+  it('keeps the temp file and rejects on invalid JSON', async () => {
+    savePlaybook(makePlaybook('trim_me', 2));
+    let tempPathSeen = '';
+    let err: Error | undefined;
+    try {
+      await runEdit('trim_me', {}, {
+        log, isTTY: true,
+        spawnEditor: (_cmd, args) => {
+          tempPathSeen = args[args.length - 1];
+          fs.writeFileSync(tempPathSeen, '{not json');
+          return 0;
+        },
+      });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toContain(tempPathSeen);
+    expect(fs.existsSync(tempPathSeen)).toBe(true);
+    expect(loadPlaybook('trim_me')!.steps).toHaveLength(2);
+    fs.rmSync(tempPathSeen, { force: true });
+  });
+
+  it('rejects and removes the temp file when the editor exits non-zero', async () => {
+    savePlaybook(makePlaybook('trim_me', 2));
+    let tempPathSeen = '';
+    await expect(runEdit('trim_me', {}, {
+      log, isTTY: true,
+      spawnEditor: (_cmd, args) => { tempPathSeen = args[args.length - 1]; return 1; },
+    })).rejects.toThrow(/Editor exited with status 1/);
+    expect(fs.existsSync(tempPathSeen)).toBe(false);
+    expect(loadPlaybook('trim_me')!.steps).toHaveLength(2);
+  });
+
+  it('logs no changes when the editor leaves the file untouched', async () => {
+    savePlaybook(makePlaybook('trim_me', 2));
+    await runEdit('trim_me', {}, {
+      log, isTTY: true,
+      spawnEditor: () => 0,
+    });
+    expect(out.join('\n')).toMatch(/No changes to 'trim_me'/);
+    expect(loadPlaybook('trim_me')!.steps).toHaveLength(2);
+  });
+
+  it('prefers VISUAL over EDITOR and splits multi-token commands', async () => {
+    savePlaybook(makePlaybook('trim_me', 2));
+    const prevVisual = process.env.VISUAL;
+    const prevEditor = process.env.EDITOR;
+    process.env.VISUAL = 'code --wait';
+    process.env.EDITOR = 'vim';
+    let seenCmd = '';
+    let seenArgs: string[] = [];
+    try {
+      await runEdit('trim_me', {}, {
+        log, isTTY: true,
+        spawnEditor: (cmd, args) => { seenCmd = cmd; seenArgs = args; return 0; },
+      });
+    } finally {
+      if (prevVisual === undefined) delete process.env.VISUAL; else process.env.VISUAL = prevVisual;
+      if (prevEditor === undefined) delete process.env.EDITOR; else process.env.EDITOR = prevEditor;
+    }
+    expect(seenCmd).toBe('code');
+    expect(seenArgs[0]).toBe('--wait');
+    expect(seenArgs[1]).toMatch(/supersurf-playbook-trim_me-\d+\.json$/);
+  });
 });
