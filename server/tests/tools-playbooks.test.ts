@@ -6,6 +6,7 @@ import { onPlaybooks } from '../src/tools/playbooks';
 import { actionTrail } from '../src/playbooks/trail';
 import { setBaseDirForTests, loadPlaybook, savePlaybook } from '../src/playbooks/store';
 import { experimentRegistry } from '../src/experimental/index';
+import { formatResult } from '../src/tools/lib/result-formatter';
 
 let dir: string;
 
@@ -122,16 +123,22 @@ describe('playbooks — create', () => {
     expect(loadPlaybook('empty')).toBeNull();
   });
 
-  it('errors atomically when a cited id is a non-interact tool call', async () => {
-    // Per-call trail entries (browser_navigate, browser_fill_form, secure_fill,
-    // browser_snapshot, ...) are valid trail ids but not replayable by run —
-    // create must refuse them up front rather than freeze a step run cannot execute.
-    seedTrail();
-    actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'Navigated', params: { action: 'url', url: 'https://x.com/' }, url: 'https://x.com/' });
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'bad_verb', purpose: 'p', steps: [1, 4] }, {});
+  it('freezes non-interact tool calls into steps', async () => {
+    actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'ok', params: { action: 'url', url: 'https://news.ycombinator.com' }, url: 'https://news.ycombinator.com' });
+    actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'ok', message: 'Clicked', params: { type: 'click', selector: '.subtext a' }, url: 'https://news.ycombinator.com' });
+    actionTrail.record({ tool: 'browser_extract_content', type: 'browser_extract_content', outcome: 'ok', message: 'ok', params: { mode: 'auto' }, url: 'https://news.ycombinator.com/item?id=1' });
+    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'hn_comments', purpose: 'p', steps: [1, 2, 3] }, {});
+    expect(res.isError).toBeFalsy();
+    const pb = loadPlaybook('hn_comments')!;
+    expect(pb.steps.map(s => s.tool)).toEqual(['browser_navigate', 'browser_interact', 'browser_extract_content']);
+    expect(pb.steps[0].params).toEqual({ action: 'url', url: 'https://news.ycombinator.com' });
+  });
+
+  it('still rejects atomically when one id is unknown in a mixed sequence', async () => {
+    actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'ok', params: { action: 'url', url: 'https://x.com' }, url: 'https://x.com' });
+    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'mixed_bad', purpose: 'p', steps: [1, 999] }, {});
     expect(res.isError).toBe(true);
-    expect(res.content[0].text).toContain('browser_navigate');
-    expect(loadPlaybook('bad_verb')).toBeNull();
+    expect(loadPlaybook('mixed_bad')).toBeNull();
   });
 });
 
@@ -204,10 +211,10 @@ describe('playbooks — run', () => {
     expect(actionTrail.size()).toBe(before + 2);
   });
 
-  it('stops with an accurate message on a non-interact step, without calling exec', async () => {
+  it('replays a non-interact step generically instead of erroring on it', async () => {
     // Imported playbook files bypass create's validation, so a step can carry a
     // non-interact tool directly on disk. run must not hand it to executeAction
-    // (which only knows interact verbs) or mislabel it with the heal note.
+    // (which only knows interact verbs) — it replays through callHandler instead.
     savePlaybook({
       name: 'imported',
       purpose: 'p',
@@ -216,11 +223,102 @@ describe('playbooks — run', () => {
       version: 1,
     });
     const interact = vi.fn().mockResolvedValue('ok');
-    const res = await onPlaybooks(makeCtx('https://x.com/'), { action: 'run', name: 'imported' }, {}, { executeAction: interact });
-    expect(res.isError).toBe(true);
+    const callHandler = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+    const res = await onPlaybooks(makeCtx('https://x.com/'), { action: 'run', name: 'imported' }, {}, { executeAction: interact, callHandler });
+    expect(res.isError).toBeFalsy();
     expect(interact).not.toHaveBeenCalled();
-    expect(res.content[0].text).toContain('browser_navigate');
-    expect(res.content[0].text.toLowerCase()).not.toContain('no heal');
+    expect(callHandler).toHaveBeenCalledWith(
+      expect.anything(), 'browser_navigate', { action: 'url', url: 'https://x.com/' }, { rawResult: false },
+    );
+  });
+});
+
+describe('playbooks — run (generic steps)', () => {
+  function seedMixedPlaybook() {
+    savePlaybook({
+      name: 'mixed_flow',
+      purpose: 'p',
+      steps: [
+        { tool: 'browser_navigate', type: 'browser_navigate', params: { action: 'url', url: 'https://news.ycombinator.com' }, url: 'https://news.ycombinator.com', sourceId: 1 },
+        { tool: 'browser_interact', type: 'click', params: { type: 'click', selector: '.subtext a' }, url: 'https://news.ycombinator.com', sourceId: 2 },
+        { tool: 'browser_extract_content', type: 'browser_extract_content', params: { mode: 'auto' }, url: 'https://news.ycombinator.com/item?id=1', sourceId: 3 },
+      ],
+      createdAt: 1,
+      version: 1,
+    });
+  }
+
+  it('replays non-interact steps through callHandler and appends their output', async () => {
+    seedMixedPlaybook();
+    const callHandler = vi.fn()
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: '{"success":true}' }] })
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'COMMENT BODY TEXT' }] });
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const navigate = vi.fn();
+    const res = await onPlaybooks(makeCtx('https://news.ycombinator.com'), { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate, callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(callHandler).toHaveBeenNthCalledWith(1, expect.anything(), 'browser_navigate', { action: 'url', url: 'https://news.ycombinator.com' }, { rawResult: false });
+    expect(callHandler).toHaveBeenNthCalledWith(2, expect.anything(), 'browser_extract_content', { mode: 'auto' }, { rawResult: false });
+    expect(executeAction).toHaveBeenCalledTimes(1);
+    expect(res.content[0].text).toContain('COMMENT BODY TEXT');
+    expect(res.content[0].text).toContain('3/3');
+  });
+
+  it('skips the start-URL auto-navigate when step 1 is itself a navigate', async () => {
+    seedMixedPlaybook();
+    const callHandler = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const navigate = vi.fn();
+    // Live URL differs from steps[0].url — without the guard this would fire deps.navigate.
+    await onPlaybooks(makeCtx('https://somewhere-else.com/'), { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate, callHandler });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('stops the run when a generic step returns isError', async () => {
+    seedMixedPlaybook();
+    const callHandler = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'Extension not connected' }], isError: true });
+    const executeAction = vi.fn();
+    const res = await onPlaybooks(makeCtx('https://news.ycombinator.com'), { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate: vi.fn(), callHandler });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('Stopped at step 1 of 3');
+    expect(executeAction).not.toHaveBeenCalled();
+  });
+
+  it('fails loudly on a step whose tool is unknown (hand-edited import)', async () => {
+    savePlaybook({
+      name: 'bogus_tool_flow',
+      purpose: 'p',
+      steps: [{ tool: 'no_such_tool', type: 'no_such_tool', params: {}, url: 'https://x.com/', sourceId: 1 }],
+      createdAt: 1,
+      version: 1,
+    });
+    const callHandler = vi.fn().mockResolvedValue(null);
+    const res = await onPlaybooks(makeCtx('https://x.com/'), { action: 'run', name: 'bogus_tool_flow' }, {}, { executeAction: vi.fn(), navigate: vi.fn(), callHandler });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('Unknown tool');
+    expect(res.content[0].text).toContain('no_such_tool');
+  });
+
+  it('strips the connection status header a real handler prepends via formatResult', async () => {
+    // Regression for the header-leak finding: handlers reached through
+    // callHandler route through ctx.formatResult, which unconditionally
+    // prepends the status header. Exercise the REAL formatResult (not a
+    // pre-cleaned mock) so this actually proves the strip works against
+    // its real output shape.
+    seedMixedPlaybook();
+    const fakeCm = { statusHeader: () => '✅ v3.4.0 | 🌐 chrome | 📄 Tab 1: https://news.ycombinator.com\n---\n\n' };
+    const callHandler = vi.fn(async (_ctx: any, toolName: string, toolArgs: any, options: any) => {
+      const raw = toolName === 'browser_navigate'
+        ? { message: `Navigated to ${toolArgs.url}` }
+        : { text: 'COMMENT BODY TEXT' };
+      return formatResult(toolName, raw, options, fakeCm);
+    });
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const res = await onPlaybooks(makeCtx('https://news.ycombinator.com'), { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toContain('COMMENT BODY TEXT');
+    expect(res.content[0].text).not.toContain('\n---\n');
+    expect(res.content[0].text).not.toContain('✅');
   });
 });
 

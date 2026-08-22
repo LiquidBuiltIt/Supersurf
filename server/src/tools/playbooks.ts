@@ -19,6 +19,7 @@ import { formatHistory } from '../playbooks/format';
 import { experimentRegistry } from '../experimental/index';
 import { executeAction as realExecuteAction } from './interaction/registry';
 import { onNavigate as realNavigate, getAttachedUrl } from './navigation';
+import { callToolHandler as realCallHandler } from './lib/handler-registry';
 
 /** Default history window. The busiest observed real session logged 5,215 actions. */
 const DEFAULT_LIMIT = 50;
@@ -35,10 +36,29 @@ const HEALED_VERBS = new Set(['click', 'hover', 'drag']);
 export interface PlaybookDeps {
   executeAction?: (ctx: ToolContext, action: any) => Promise<string>;
   navigate?: (ctx: ToolContext, args: any, options: any) => Promise<any>;
+  callHandler?: (ctx: ToolContext, name: string, args: Record<string, unknown>, options: { rawResult?: boolean }) => Promise<any | null>;
 }
 
 function text(body: string, isError = false): any {
   return { content: [{ type: 'text', text: body }], isError };
+}
+
+/** Marker `formatResult` always appends after the status header (`backend/status.ts`). */
+const STATUS_HEADER_DIVIDER = '\n---\n\n';
+
+/**
+ * Handlers reached through `callHandler` route their result through
+ * `ctx.formatResult`, which unconditionally prepends the connection status
+ * header (version | browser | tab) for a live agent call. A replayed step
+ * is not a live call — strip that header here rather than widening the
+ * shared `formatResult` contract for this one caller. The divider is short
+ * and always leads the string, so bail if it turns up deep in the body —
+ * that's real content (e.g. a markdown rule), not our header.
+ */
+function stripStatusHeader(body: string): string {
+  const idx = body.indexOf(STATUS_HEADER_DIVIDER);
+  if (idx === -1 || idx > 400) return body;
+  return body.slice(idx + STATUS_HEADER_DIVIDER.length);
 }
 
 function gate(): string | null {
@@ -110,14 +130,6 @@ function doCreate(args: any): any {
         true,
       );
     }
-    if (entry.tool !== 'browser_interact') {
-      return text(
-        `Action #${id} is a \`${entry.tool}\` call, not a browser_interact action. Nothing was saved.\n\n` +
-        'Playbooks currently replay `browser_interact` actions only — cite the numbered ' +
-        '`#N ✓ <verb>:`-style interact action ids from `playbooks {action:"history"}`, not per-call tool ids.',
-        true,
-      );
-    }
     if (entry.outcome === 'error') failedIds.push(id);
     steps.push({ tool: entry.tool, type: entry.type, params: entry.params, url: entry.url, sourceId: id });
   }
@@ -145,6 +157,7 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
 
   const exec = deps.executeAction ?? realExecuteAction;
   const navigate = deps.navigate ?? realNavigate;
+  const callHandler = deps.callHandler ?? realCallHandler;
 
   const name = normalizeName(String(args.name ?? ''));
   const pb = loadPlaybook(name);
@@ -157,8 +170,10 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
 
   // Start point: step 1's recorded URL. Read the live URL rather than the
   // cached one — the cache is not reassigned after back/forward navigation.
+  // Skipped when step 1 is itself a navigate: replaying it lands on the
+  // right page anyway, and pre-navigating would load the URL twice.
   const startUrl = pb.steps[0]?.url;
-  if (startUrl) {
+  if (startUrl && pb.steps[0].tool !== 'browser_navigate') {
     const current = await getAttachedUrl(ctx);
     if (current !== startUrl) {
       await navigate(ctx, { action: 'url', url: startUrl }, { rawResult: true });
@@ -173,46 +188,71 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
   for (let i = 0; i < total; i++) {
     const step = pb.steps[i];
 
-    // Imported playbook files bypass create's validation, so a non-interact
-    // step can reach run directly. executeAction only knows interact verbs —
-    // fail it here with an accurate cause instead of letting it throw
-    // "Unknown action type" and get mislabeled as a heal-eligible failure.
-    if (step.tool !== 'browser_interact') {
-      const message = `Playbooks can only replay \`browser_interact\` actions; this step is \`${step.tool}\`.`;
+    if (step.tool === 'browser_interact') {
+      try {
+        const msg = await exec(ctx, step.params);
+        const id = actionTrail.record({
+          tool: step.tool, type: step.type, outcome: 'ok',
+          message: msg, params: step.params, url: step.url,
+        });
+        lines.push(`#${id} ✓ ${i + 1}/${total}  ${step.type}`);
+      } catch (err: any) {
+        const id = actionTrail.record({
+          tool: step.tool, type: step.type, outcome: 'error',
+          message: err.message, params: step.params, url: step.url,
+        });
+        lines.push(`#${id} ✗ ${i + 1}/${total}  ${step.type}`);
+        lines.push(`        ${err.message}`);
+        if (!HEALED_VERBS.has(step.type)) {
+          lines.push(
+            `        No heal attempted — healing currently covers ` +
+            `${[...HEALED_VERBS].join('/')} only.`,
+          );
+        }
+        lines.push('');
+        lines.push(`Stopped at step ${i + 1} of ${total}. Steps ${i + 2}-${total} not run.`);
+        return text(lines.join('\n'), true);
+      }
+      continue;
+    }
+
+    // Generic replay: any other trail-recorded tool re-issues through the
+    // shared handler registry with its frozen params. No healing (nothing
+    // selector-shaped to heal) — failures report and stop, per the harness
+    // principle: replay faithfully, report truthfully.
+    let res: any;
+    let failure: string | null = null;
+    try {
+      res = await callHandler(ctx, step.tool, step.params, { rawResult: false });
+      if (res === null) failure = `Unknown tool: \`${step.tool}\`. This step cannot replay on this server version.`;
+      else if (res.isError) failure = stripStatusHeader(res.content?.find((b: any) => b?.type === 'text')?.text ?? 'unknown error');
+    } catch (err: any) {
+      failure = err.message;
+    }
+
+    if (failure !== null) {
       const id = actionTrail.record({
         tool: step.tool, type: step.type, outcome: 'error',
-        message, params: step.params, url: step.url,
+        message: failure, params: step.params, url: step.url,
       });
-      lines.push(`#${id} ✗ ${i + 1}/${total}  ${step.type}`);
-      lines.push(`        ${message}`);
+      lines.push(`#${id} ✗ ${i + 1}/${total}  ${step.tool}`);
+      lines.push(`        ${failure}`);
       lines.push('');
       lines.push(`Stopped at step ${i + 1} of ${total}. Steps ${i + 2}-${total} not run.`);
       return text(lines.join('\n'), true);
     }
 
-    try {
-      const msg = await exec(ctx, step.params);
-      const id = actionTrail.record({
-        tool: step.tool, type: step.type, outcome: 'ok',
-        message: msg, params: step.params, url: step.url,
-      });
-      lines.push(`#${id} ✓ ${i + 1}/${total}  ${step.type}`);
-    } catch (err: any) {
-      const id = actionTrail.record({
-        tool: step.tool, type: step.type, outcome: 'error',
-        message: err.message, params: step.params, url: step.url,
-      });
-      lines.push(`#${id} ✗ ${i + 1}/${total}  ${step.type}`);
-      lines.push(`        ${err.message}`);
-      if (!HEALED_VERBS.has(step.type)) {
-        lines.push(
-          `        No heal attempted — healing currently covers ` +
-          `${[...HEALED_VERBS].join('/')} only.`,
-        );
-      }
+    const body: string = stripStatusHeader(res.content?.find((b: any) => b?.type === 'text')?.text ?? '');
+    const id = actionTrail.record({
+      tool: step.tool, type: step.type, outcome: 'ok',
+      message: body || 'ok', params: step.params, url: step.url,
+    });
+    lines.push(`#${id} ✓ ${i + 1}/${total}  ${step.tool}`);
+    // Read-tool output belongs to the caller — append it in full beneath the
+    // step line. The frozen params (max_lines etc.) already bound its size.
+    if (body) {
+      lines.push(body);
       lines.push('');
-      lines.push(`Stopped at step ${i + 1} of ${total}. Steps ${i + 2}-${total} not run.`);
-      return text(lines.join('\n'), true);
     }
   }
 
