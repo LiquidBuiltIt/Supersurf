@@ -254,7 +254,7 @@ playbooks action='run' name='login_flow'        → replay a saved playbook
 3. `playbooks action='create' name='login_flow' purpose='...' steps=[5211, 5212, 5214]`.
 4. Later: `playbooks action='run' name='login_flow'`. Step 1's recorded URL becomes the run's start point — SuperSurf auto-navigates there first, unless step 1 is itself a navigate or a `browser_tabs action='new'` (in which case navigating first would either double-load the page or fail with no tab attached yet).
 
-`run` replays every step type, not only `browser_interact` — a frozen `browser_extract_content` or `browser_navigate` step re-issues with its original params, and its output is appended to the run result. Selector healing only covers `click`, `hover`, and `drag`; a `type` or `select_option` step fails outright if its selector has drifted. A run stops at the first failure and reports how far it got.
+`run` replays every step type, not only `browser_interact` — a frozen `browser_extract_content` or `browser_navigate` step re-issues with its original params, and its output is appended to the run result. Selector healing covers every selector-resolving `browser_interact` verb (`click`, `hover`, `drag`, `type`, `clear`, `select_option`, `select_custom`, `scroll_to`, `scroll_by`, `scroll_into_view`, `wait`, `file_upload`) plus `browser_fill_form` fields; only `force_pseudo_state` fails outright if its selector has drifted. A run stops at the first failure and reports how far it got.
 
 Playbooks live one file per playbook at `~/.supersurf/playbooks/<name>.json`. Everything beyond record/replay is CLI-only — the MCP tool deliberately can't list, edit, or delete:
 
