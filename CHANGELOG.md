@@ -36,6 +36,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- feat: `supersurf playbook edit <name>` no longer requires `--drop` — without it, the playbook opens in `$VISUAL`/`$EDITOR`/`vi` for a free-form edit, validated (version 1, non-empty steps) and saved back on exit; renames are ignored (name stays fixed) and a non-TTY session without `--drop` errors with a clear message.
 - chore(release): `version.bump` now auto-cuts the Unreleased changelog section into the new version's heading (em-dash date), leaving a fresh empty Unreleased
 - feat: major-version upgrade notice — CLIs and the `connect` tool now greet you after a major update with a pointer to the changelog, tracked via `~/.supersurf/version-state.json` (stderr-only in MCP/script modes so the JSON-RPC stream stays clean)
 - feat(extension): changelog page on major updates — `onInstalled` update with a major-version jump opens a bundled changelog view of everything since your previous version; welcome page still greets fresh installs. Content is emitted at build time by the new `npm run changelog -- json` subcommand.
