@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { onPlaybooks } from '../src/tools/playbooks';
+import { onPlaybooks, resolveRunProfile } from '../src/tools/playbooks';
 import { actionTrail } from '../src/playbooks/trail';
 import { setBaseDirForTests, loadPlaybook, savePlaybook } from '../src/playbooks/store';
 import { experimentRegistry } from '../src/experimental/index';
@@ -90,6 +90,22 @@ describe('playbooks — create', () => {
     expect(pb.steps).toHaveLength(2);
     expect(pb.steps[0].params).toEqual({ type: 'click', selector: '#a', name: 'apply_button' });
     expect(pb.steps[0].sourceId).toBe(1);
+  });
+
+  it('stores the session\'s bound profile on the saved playbook', async () => {
+    seedTrail();
+    const ctx = makeCtx();
+    ctx.connectionManager.profile = 'my-profile';
+    const res = await onPlaybooks(ctx, { action: 'create', name: 'profiled', purpose: 'p', steps: [1] }, {});
+    expect(res.isError).toBeFalsy();
+    expect(loadPlaybook('profiled')!.profile).toBe('my-profile');
+  });
+
+  it('omits the profile field when the session is unmanaged', async () => {
+    seedTrail();
+    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'unmanaged', purpose: 'p', steps: [1] }, {});
+    expect(res.isError).toBeFalsy();
+    expect(loadPlaybook('unmanaged')!.profile).toBeUndefined();
   });
 
   it('warns but still saves when a cited action failed at runtime', async () => {
@@ -360,5 +376,26 @@ describe('playbooks — unknown action', () => {
   it('errors on an unrecognized action', async () => {
     const res = await onPlaybooks(makeCtx(), { action: 'frobnicate' }, {});
     expect(res.isError).toBe(true);
+  });
+});
+
+describe('resolveRunProfile', () => {
+  it('prefers the explicit profile arg over the playbook field', () => {
+    savePlaybook({ name: 'p1', purpose: 'p', steps: [], createdAt: 1, version: 1, profile: 'field-profile' });
+    expect(resolveRunProfile({ name: 'p1', profile: 'arg-profile' })).toBe('arg-profile');
+  });
+
+  it('falls back to the playbook\'s own profile field when no explicit profile is given', () => {
+    savePlaybook({ name: 'p2', purpose: 'p', steps: [], createdAt: 1, version: 1, profile: 'field-profile' });
+    expect(resolveRunProfile({ name: 'p2' })).toBe('field-profile');
+  });
+
+  it('resolves to undefined when neither an explicit profile nor a playbook field is set', () => {
+    savePlaybook({ name: 'p3', purpose: 'p', steps: [], createdAt: 1, version: 1 });
+    expect(resolveRunProfile({ name: 'p3' })).toBeUndefined();
+  });
+
+  it('resolves to undefined for an unknown playbook name with no explicit profile', () => {
+    expect(resolveRunProfile({ name: 'ghost' })).toBeUndefined();
   });
 });

@@ -29,7 +29,10 @@ import type { BackendConfig, TabInfo, BackendState, ToolSchema, ConnectionManage
 
 import { buildStatusHeader } from './backend/status';
 import { getConnectionToolSchemas, getDebugToolSchema, getProfileToolSchemas } from './backend/schemas';
-import { onConnect, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete } from './backend/handlers';
+import {
+  onConnect, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete,
+  onPlaybooksRunImplicit, checkPlaybookProfileMismatch,
+} from './backend/handlers';
 
 const log = createLog('[Conn]');
 
@@ -58,6 +61,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
   clientId: string | null = null;
   connectedBrowserName: string | null = null;
   attachedTab: TabInfo | null = null;
+  profile: string | null = null;
   stealthMode: boolean = false;
   metricsLogger: UsageMetricsLogger | null = null;
   /** Reason the last `connect` attempt failed (e.g. wedged-port EADDRINUSE).
@@ -251,6 +255,19 @@ export class ConnectionManager implements ConnectionManagerAPI {
         this.metricsLogger?.write(entry);
         throw err;
       }
+    }
+
+    // `playbooks run` works without an active session: passive state performs
+    // an implicit connect (resolving a target profile from the `profile` arg
+    // or the playbook's own `profile` field) before running. Active/connected
+    // state instead checks the resolved profile against the session's bound
+    // profile and refuses on a mismatch rather than re-binding.
+    if (name === 'playbooks' && rawArguments.action === 'run') {
+      if (this.state === 'passive') {
+        return await onPlaybooksRunImplicit(this, rawArguments, options);
+      }
+      const mismatch = checkPlaybookProfileMismatch(this, rawArguments, options);
+      if (mismatch) return mismatch;
     }
 
     // Forward to active bridge

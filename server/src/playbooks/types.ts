@@ -50,4 +50,8 @@ export interface Playbook {
   createdAt: number;
   /** Schema version, so a later format change can migrate rather than crash. */
   version: 1;
+  /** Managed profile this playbook was created under, when the session was
+   *  profile-bound. Absent for unmanaged sessions. Drives `run`'s implicit
+   *  profile resolution when no explicit `profile` arg is given. */
+  profile?: string;
 }

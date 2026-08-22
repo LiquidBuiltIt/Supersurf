@@ -256,7 +256,16 @@ playbooks action='run' name='login_flow'        → replay a saved playbook
 
 `run` replays every step type, not only `browser_interact` — a frozen `browser_extract_content` or `browser_navigate` step re-issues with its original params, and its output is appended to the run result. Selector healing covers every selector-resolving `browser_interact` verb (`click`, `hover`, `drag`, `type`, `clear`, `select_option`, `select_custom`, `scroll_to`, `scroll_by`, `scroll_into_view`, `file_upload`) plus `browser_fill_form` fields; `force_pseudo_state` and `wait` fail outright if their selector has drifted (`wait` deliberately waits for the original selector, not a look-alike). A run stops at the first failure and reports how far it got.
 
-Playbooks live one file per playbook at `~/.supersurf/playbooks/<name>.json`. File management (list/show/edit/remove/export/import) is CLI-only — the MCP tool deliberately can't do any of that:
+**`run` works without an active session.** With no connection, `playbooks action='run'` connects implicitly, then runs the playbook — the response says so, e.g. `Connected implicitly to run playbook.` The target profile resolves in order: an explicit `profile` param, then the playbook's own bound profile (set by `create` when the recording session was profile-bound), then no profile (plain connect). Add `detach=true` to disconnect again after the run — success or failure — leaving no session behind; default is `false`, so the session stays active for further calls.
+
+```
+playbooks action='run' name='login_flow' profile='my-project'   → implicit connect, pinned profile
+playbooks action='run' name='login_flow' detach=true             → implicit connect, disconnect after
+```
+
+If a session is already active, `run` uses it as-is — unless the resolved profile (from the `profile` param or the playbook's own field) differs from the session's bound profile, in which case `run` refuses with an error rather than silently re-binding. Disconnect and reconnect with the right profile, or drop `profile` to run on the current session.
+
+Playbooks live one file per playbook at `~/.supersurf/playbooks/<name>.json`. Everything beyond record/replay is CLI-only — the MCP tool deliberately can't list, edit, or delete:
 
 ```
 supersurf playbook ls                           → list saved playbooks
