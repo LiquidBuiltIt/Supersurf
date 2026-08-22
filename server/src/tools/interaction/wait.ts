@@ -7,10 +7,9 @@ registerAction({
     const timeout = action.timeout || 30000;
     if (action.selector) {
       const selectorExpr = ctx.getSelectorExpression(action.selector);
-      const meta = { name: action.name, purpose: action.purpose };
       const deadline = Date.now() + timeout;
       while (Date.now() < deadline) {
-        const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
+        const match = await resolveInFrames(ctx, selectorExpr);
         if (match) return `Element appeared: ${action.selector}`;
         await ctx.sleep(100);
       }
