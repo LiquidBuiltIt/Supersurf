@@ -527,10 +527,12 @@ export function getToolSchemas(): ToolSchema[] {
     {
       name: 'playbooks',
       description:
-        'Record and run named interaction sequences. `history` lists this session\'s ' +
-        'numbered actions; `create` freezes a cited sequence of those ids into a saved ' +
-        'playbook; `run` executes a saved playbook in order. Cite ids from `history` — ' +
-        'never invent them. Requires the `fingerprinting` experiment for create/run. ' +
+        'Record and run named action sequences. `history` lists this session\'s ' +
+        'numbered actions across all browser tools; `create` freezes a cited sequence of those ' +
+        'ids into a saved playbook; `run` replays a saved playbook in order — interact steps ' +
+        'heal broken selectors, read steps (extract, snapshot, network…) return their output ' +
+        'in the run result. Cite ids from `history` — never invent them. Requires the ' +
+        '`fingerprinting` experiment for create/run. ' +
         'Listing, editing, removal, export and import live in the CLI: `supersurf playbook`.',
       inputSchema: {
         type: 'object',
@@ -551,7 +553,7 @@ export function getToolSchemas(): ToolSchema[] {
           steps: {
             type: 'array',
             items: { type: 'number' },
-            description: 'Action ids to freeze into the playbook, in execution order, e.g. [5211, 5212, 5214]. Used by create. Drop the ids whose outcome you did not want.',
+            description: 'Action ids to freeze into the playbook, in execution order, e.g. [5211, 5212, 5214]. Any id from `history` is valid — clicks, navigations, extractions alike. Used by create. Drop the ids whose outcome you did not want.',
           },
           limit: {
             type: 'number',
