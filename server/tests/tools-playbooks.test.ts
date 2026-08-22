@@ -122,16 +122,22 @@ describe('playbooks — create', () => {
     expect(loadPlaybook('empty')).toBeNull();
   });
 
-  it('errors atomically when a cited id is a non-interact tool call', async () => {
-    // Per-call trail entries (browser_navigate, browser_fill_form, secure_fill,
-    // browser_snapshot, ...) are valid trail ids but not replayable by run —
-    // create must refuse them up front rather than freeze a step run cannot execute.
-    seedTrail();
-    actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'Navigated', params: { action: 'url', url: 'https://x.com/' }, url: 'https://x.com/' });
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'bad_verb', purpose: 'p', steps: [1, 4] }, {});
+  it('freezes non-interact tool calls into steps', async () => {
+    actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'ok', params: { action: 'url', url: 'https://news.ycombinator.com' }, url: 'https://news.ycombinator.com' });
+    actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'ok', message: 'Clicked', params: { type: 'click', selector: '.subtext a' }, url: 'https://news.ycombinator.com' });
+    actionTrail.record({ tool: 'browser_extract_content', type: 'browser_extract_content', outcome: 'ok', message: 'ok', params: { mode: 'auto' }, url: 'https://news.ycombinator.com/item?id=1' });
+    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'hn_comments', purpose: 'p', steps: [1, 2, 3] }, {});
+    expect(res.isError).toBeFalsy();
+    const pb = loadPlaybook('hn_comments')!;
+    expect(pb.steps.map(s => s.tool)).toEqual(['browser_navigate', 'browser_interact', 'browser_extract_content']);
+    expect(pb.steps[0].params).toEqual({ action: 'url', url: 'https://news.ycombinator.com' });
+  });
+
+  it('still rejects atomically when one id is unknown in a mixed sequence', async () => {
+    actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'ok', params: { action: 'url', url: 'https://x.com' }, url: 'https://x.com' });
+    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'mixed_bad', purpose: 'p', steps: [1, 999] }, {});
     expect(res.isError).toBe(true);
-    expect(res.content[0].text).toContain('browser_navigate');
-    expect(loadPlaybook('bad_verb')).toBeNull();
+    expect(loadPlaybook('mixed_bad')).toBeNull();
   });
 });
 

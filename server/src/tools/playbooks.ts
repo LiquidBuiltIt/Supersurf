@@ -110,14 +110,6 @@ function doCreate(args: any): any {
         true,
       );
     }
-    if (entry.tool !== 'browser_interact') {
-      return text(
-        `Action #${id} is a \`${entry.tool}\` call, not a browser_interact action. Nothing was saved.\n\n` +
-        'Playbooks currently replay `browser_interact` actions only — cite the numbered ' +
-        '`#N ✓ <verb>:`-style interact action ids from `playbooks {action:"history"}`, not per-call tool ids.',
-        true,
-      );
-    }
     if (entry.outcome === 'error') failedIds.push(id);
     steps.push({ tool: entry.tool, type: entry.type, params: entry.params, url: entry.url, sourceId: id });
   }
