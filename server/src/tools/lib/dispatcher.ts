@@ -13,21 +13,9 @@ import { callExperimentalTool, experimentRegistry } from '../../experimental/ind
 import { getTip } from '../../tips';
 import { actionTrail } from '../../playbooks/trail';
 
-import { onInteract } from '../interaction';
-import { onSnapshot, onLookup, onExtractContent } from '../content';
-import { onGetElementStyles } from '../styles';
-import { onScreenshot, onPdfSave } from '../screenshot';
-import { onNetworkRequests, onConsoleMessages } from '../network';
-import { onBrowserTabs, onNavigate } from '../navigation';
-import { onFillForm, onDrag, onSecureFill } from '../forms';
-import { onBrowserDownload } from '../downloads';
+import { onScreenshot } from '../screenshot';
 import { onPlaybooks } from '../playbooks';
-import {
-  onWindow, onDialog,
-  onVerifyTextVisible, onVerifyElementVisible,
-  onListExtensions, onPerformanceMetrics,
-} from '../misc';
-import { onEvaluate } from '../browser_evaluate';
+import { callToolHandler } from './handler-registry';
 
 import { maybeAppendScreenshot, formatError } from './result-formatter';
 
@@ -62,33 +50,11 @@ export async function dispatchTool(
   let result: any;
 
   try {
-    switch (name) {
-      case 'browser_tabs':            result = await onBrowserTabs(ctx, args, options); break;
-      case 'browser_navigate':        result = await onNavigate(ctx, args, options); break;
-      case 'browser_interact':        result = await onInteract(ctx, args, options); break;
-      case 'browser_snapshot':        result = await onSnapshot(ctx, options); break;
-      case 'browser_lookup':          result = await onLookup(ctx, args, options); break;
-      case 'browser_extract_content': result = await onExtractContent(ctx, args, options); break;
-      case 'browser_get_element_styles': result = await onGetElementStyles(ctx, args, options); break;
-      case 'browser_take_screenshot': result = await onScreenshot(ctx, args, options); break;
-      case 'browser_evaluate':        result = await onEvaluate(ctx, args, options); break;
-      case 'browser_console_messages': result = await onConsoleMessages(ctx, args, options); break;
-      case 'browser_fill_form':       result = await onFillForm(ctx, args, options); break;
-      case 'browser_drag':            result = await onDrag(ctx, args, options); break;
-      case 'browser_window':          result = await onWindow(ctx, args, options); break;
-      case 'browser_verify_text_visible':    result = await onVerifyTextVisible(ctx, args, options); break;
-      case 'browser_verify_element_visible': result = await onVerifyElementVisible(ctx, args, options); break;
-      case 'browser_network_requests': result = await onNetworkRequests(ctx, args, options); break;
-      case 'browser_pdf_save':        result = await onPdfSave(ctx, args, options); break;
-      case 'browser_handle_dialog':   result = await onDialog(ctx, args, options); break;
-      case 'browser_list_extensions': result = await onListExtensions(ctx, options); break;
-      case 'browser_performance_metrics': result = await onPerformanceMetrics(ctx, options); break;
-      case 'browser_download':        result = await onBrowserDownload(ctx, args, options); break;
-      case 'secure_fill':             result = await onSecureFill(ctx, args, options); break;
-      case 'playbooks':               result = await onPlaybooks(ctx, args, options); break;
-      default: {
-        const experimentalResult = await callExperimentalTool(name, ctx, args, options);
-        if (experimentalResult !== null) { result = experimentalResult; break; }
+    if (name === 'playbooks') {
+      result = await onPlaybooks(ctx, args, options);
+    } else {
+      result = await callToolHandler(ctx, name, args, options);
+      if (result === null) {
         callResult = 'error';
         callError = `Unknown tool: ${name}`;
         result = formatError(callError, options);
