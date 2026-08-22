@@ -16,14 +16,14 @@ If SuperSurf isn't installed yet, help the user get set up:
 
 ```bash
 # Claude Code
-claude mcp add supersurf -- npx supersurf-mcp@latest
+claude mcp add supersurf -- npx supersurf-mcp@latest mcp
 
 # Claude Desktop / other MCP clients — add to config:
 {
   "mcpServers": {
     "supersurf": {
       "command": "npx",
-      "args": ["supersurf-mcp@latest"]
+      "args": ["supersurf-mcp@latest", "mcp"]
     }
   }
 }
@@ -72,19 +72,30 @@ browser_extract_content mode='selector'       → target specific section
 
 ```
 browser_interact actions=[
-  { "type": "click", "selector": "#email" },
-  { "type": "type", "selector": "#email", "text": "user@example.com" },
-  { "type": "click", "selector": "button[type=submit]" }
+  { "type": "click", "selector": "#email", "name": "email_input", "purpose": "focus email field" },
+  { "type": "type", "selector": "#email", "text": "user@example.com", "name": "email_input", "purpose": "enter email" },
+  { "type": "click", "selector": "button[type=submit]", "name": "submit_button", "purpose": "submit login form" }
 ]
 ```
 
-**Available actions:** `click`, `type`, `clear`, `press_key`, `hover`, `mouse_move`, `mouse_click`, `scroll_to`, `scroll_by`, `scroll_into_view`, `wait`, `select_option`, `file_upload`, `force_pseudo_state`
+**Available actions:** `click`, `type`, `clear`, `press_key`, `hover`, `mouse_move`, `mouse_click`, `scroll_to`, `scroll_by`, `scroll_into_view`, `wait`, `select_option`, `select_custom`, `file_upload`, `force_pseudo_state`
 
 **Key parameters:**
 - `onError`: `'stop'` (default) or `'ignore'` — controls whether the sequence halts on failure
 - `screenshot`: `true` to capture after all actions complete
+- `name` / `purpose`: for element-targeting actions (click/type/clear/hover/select_option/select_custom/file_upload) — a short snake_case name and a one-line reason for the element. Not schema-enforced, but skip it and the element can't later be resolved by name or replayed cleanly — see Playbooks below.
 
 **Keyboard keys for `press_key`:** Enter, Tab, Escape, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Space, Home, End, PageUp, PageDown
+
+### Native Dialogs
+
+`alert`/`confirm`/`prompt`/`beforeunload` are held open, not auto-answered. When one fires, the triggering tool's response carries a `_dialogs` warning, and further page-touching calls are blocked until you resolve it:
+
+```
+browser_handle_dialog action='view'                → read the held dialog
+browser_handle_dialog action='accept'               → click OK (pass text= for a prompt)
+browser_handle_dialog action='dismiss'              → click Cancel
+```
 
 ### Navigating
 
@@ -140,6 +151,8 @@ secure_fill action='fill'                     → type credential into field
   credential_env='MY_PASSWORD'
 ```
 
+**Note:** `secure_fill` carries a soft pre-deprecation notice — a keychain-backed credential store is planned to replace it eventually — but it remains fully functional and is the only working credential path today.
+
 ---
 
 ## Best Practices
@@ -152,6 +165,7 @@ secure_fill action='fill'                     → type credential into field
 4. **Batch interactions.** Send multiple actions in one `browser_interact` call instead of separate calls. Reduces round-trips.
 5. **Use `extract_content` for reading.** When you need page text (articles, search results, tables), use `browser_extract_content` with `mode='auto'`. It returns clean markdown.
 6. **Check the status line.** Every response tells you your current tab, URL, and detected framework. Use this context.
+7. **Record playbooks for repeated flows.** Once a flow works, freeze it into a playbook instead of re-deriving selectors on every run — see Playbooks.
 
 ### Don't Do This
 
@@ -159,26 +173,40 @@ secure_fill action='fill'                     → type credential into field
 2. **Don't hardcode selectors.** Pages change. Use `browser_lookup` to find current selectors dynamically.
 3. **Don't forget to attach.** Every browser tool requires an attached tab. If you get an error about no tab, call `browser_tabs action='attach'`.
 4. **Don't type credentials directly.** Always use `secure_fill`. If the credential isn't available, ask the user to set the environment variable.
-5. **Don't wait with fixed sleeps.** Use `browser_interact` with `{ "type": "wait", "selector": "#element" }` to wait for specific elements. Enable `smart_waiting` for navigation.
+5. **Don't wait with fixed sleeps.** Use `browser_interact` with `{ "type": "wait", "selector": "#element" }` to wait for specific elements. Enable the `smart_waiting` experiment (`~/.supersurf/config.json`) for adaptive waits on navigation.
 6. **Don't fight popup windows.** If a Google OAuth popup appears, it shows in `browser_tabs action='list'`. Attach to it by `tabId`, interact with it, then switch back.
 
 ---
 
 ## Experimental Features
 
-Toggle with `experimental_features`. These enhance your capabilities:
+Experiments are toggled in `~/.supersurf/config.json` under the `experiments` key, then require a daemon restart to take effect — there is no live in-session toggle (the old `experimental_features` MCP tool was retired in v2.0.0):
+
+```json
+{
+  "experiments": {
+    "page_diffing": true,
+    "smart_waiting": true,
+    "mouse_humanization": true,
+    "storage_inspection": true,
+    "fingerprinting": true
+  }
+}
+```
+
+```
+supersurf daemon restart
+```
 
 | Feature | What It Does | When To Use |
 |---------|-------------|-------------|
-| `page_diffing` | Returns what changed in the DOM after an interaction (added/removed text, element counts) | When you need to verify an action had the expected effect without re-reading the full page |
+| `page_diffing` | Returns what changed in the DOM after an interaction (added/removed text, element counts), including inside open shadow roots | When you need to verify an action had the expected effect without re-reading the full page |
 | `smart_waiting` | Replaces fixed delays with adaptive DOM stability + network idle detection | Always — reduces wasted time on fast pages, prevents acting too early on slow ones |
 | `mouse_humanization` | Generates human-like Bezier cursor paths with overshoot and idle drift | When interacting with sites that have bot detection (CAPTCHAs, anti-automation) |
 | `storage_inspection` | Unlocks `browser_storage` tool for localStorage/sessionStorage read/write | When you need to inspect or modify client-side storage |
-| `secure_eval` | 3-layer code analysis that blocks dangerous patterns in `browser_evaluate` | Enabled by default — keeps your JS execution safe |
+| `fingerprinting` | Lets named elements (`name`/`purpose` on `browser_interact`) be resolved by name later, heals selectors when a page changes, and gates `playbooks` `create`/`run` | Before you need a flow to survive selector churn, or before saving a playbook |
 
-```
-experimental_features page_diffing=true smart_waiting=true mouse_humanization=true
-```
+`secure_eval` is separate from the experiments above — it's a security setting (`security.secure_eval`, default `true`), not an opt-in experiment. It AST-analyzes `browser_evaluate` code and blocks dangerous patterns by default. Opt out only via `SUPERSURF_DISABLE_SECURE_EVAL=1` in the server environment — this defeats RCE protection.
 
 ---
 
@@ -195,7 +223,43 @@ profile_delete name='old-profile'             → delete profile and all data
 
 When you connect with a profile, SuperSurf launches a dedicated Chromium instance with its own user data directory. The profile persists between sessions — cookies and logins survive disconnects.
 
-**Profile names:** lowercase alphanumeric and hyphens only, max 32 characters.
+**Profile names:** lowercase alphanumeric and hyphens only, max 32 characters. `profile_create` also accepts an optional `experiments` object to pre-enable experiment defaults for that profile (e.g. `{ "fingerprinting": true }`).
+
+---
+
+## Playbooks
+
+Playbooks turn a browsing run you already did into a replayable artifact. Every tool call in a session gets a numeric id, shown as an `#NNNN` prefix on the result; `playbooks` lets you cite those ids to freeze a flow, then replay it later without re-deriving selectors from scratch.
+
+`create` and `run` require the `fingerprinting` experiment (off by default — see Experimental Features above). Without it a saved playbook's selectors can't heal, so it would break on the first page change. `history` works regardless — it only reports what already happened.
+
+```
+playbooks action='history'                     → list this session's numbered actions
+playbooks action='create' name='login_flow'     → freeze cited ids into a playbook
+  purpose='Log into app.example.com'
+  steps=[5211, 5212, 5214]
+playbooks action='run' name='login_flow'        → replay a saved playbook
+```
+
+**Worked example:**
+1. Do the flow normally — navigate, snapshot, click, type, submit. Each action returns an id, e.g. `#5211 ✓ Clicked #email`.
+2. `playbooks action='history'` to see the numbered list, and pick the ids that make up the flow — drop any that failed or were just exploring.
+3. `playbooks action='create' name='login_flow' purpose='...' steps=[5211, 5212, 5214]`.
+4. Later: `playbooks action='run' name='login_flow'`. Step 1's recorded URL becomes the run's start point — SuperSurf auto-navigates there first, unless step 1 is itself a navigate or a `browser_tabs action='new'` (in which case navigating first would either double-load the page or fail with no tab attached yet).
+
+`run` replays every step type, not only `browser_interact` — a frozen `browser_extract_content` or `browser_navigate` step re-issues with its original params, and its output is appended to the run result. Selector healing only covers `click`, `hover`, and `drag`; a `type` or `select_option` step fails outright if its selector has drifted. A run stops at the first failure and reports how far it got.
+
+Playbooks live one file per playbook at `~/.supersurf/playbooks/<name>.json`. Everything beyond record/replay is CLI-only — the MCP tool deliberately can't list, edit, or delete:
+
+```
+supersurf playbook ls                           → list saved playbooks
+supersurf playbook show login_flow              → print its steps
+supersurf playbook edit login_flow --drop 3      → remove step 3
+supersurf playbook edit login_flow               → open it in $EDITOR for a free-form edit
+supersurf playbook rm login_flow                 → delete it
+supersurf playbook export login_flow out.json   → write it to a file
+supersurf playbook import out.json               → read it from a file
+```
 
 ---
 
@@ -208,6 +272,7 @@ browser_network_requests action='list' urlPattern='api'   → filter by URL
 browser_network_requests action='list' method='POST'      → filter by method
 browser_network_requests action='details' requestId='...' → full request/response
 browser_network_requests action='replay' requestId='...'  → re-send a request
+browser_network_requests action='clear'                   → clear the captured log
 ```
 
 ### Console Messages
@@ -219,9 +284,11 @@ browser_console_messages text='warning'       → filter by text
 
 ### JavaScript Execution
 ```
-browser_evaluate expression='document.title'
-browser_evaluate function='() => { return document.querySelectorAll("a").length }'
+browser_evaluate expression='document.title' purpose='read the page title'
+browser_evaluate function='() => document.querySelectorAll("a").length' purpose='count links'
 ```
+
+`purpose` is required — explain why a dedicated tool (`browser_lookup`, `browser_extract_content`, `browser_interact`, `browser_fill_form`, `browser_navigate`, `browser_get_element_styles`, `browser_storage`) won't do. `browser_evaluate` is for read-only computation only; `secure_eval` blocks writes, storage access, navigation, and other dangerous patterns via AST analysis. If your code is blocked, use the dedicated tool instead of working around it.
 
 ### Performance
 ```
@@ -264,10 +331,23 @@ Screenshots are auto-downscaled to prevent token bloat. Save to file to preserve
 
 ```
 browser_download url='https://example.com/file.zip'
+browser_download url='https://...' filename='report.pdf'
 browser_download url='https://...' destination='/tmp/downloads/'
 ```
 
 Files download through the browser (real cookies/auth apply). Optional `destination` moves the file from Chrome's Downloads folder to your specified path.
+
+---
+
+## Other Browser Tools
+
+```
+browser_drag fromSelector='#item' toSelector='#dropzone'    → drag one element onto another
+browser_window action='resize' width=1280 height=800        → resize/close/minimize/maximize the window
+browser_verify_text_visible text='Welcome back'              → assert text is visible on the page
+browser_verify_element_visible selector='#dashboard'          → assert an element is visible
+browser_list_extensions                                        → list installed Chrome extensions
+```
 
 ---
 
@@ -282,11 +362,11 @@ browser_navigate action='url' url='https://app.example.com/login'
 browser_snapshot
 browser_lookup text='Email'
 browser_interact actions=[
-  { "type": "click", "selector": "#email" },
-  { "type": "type", "selector": "#email", "text": "user@example.com" }
+  { "type": "click", "selector": "#email", "name": "email_input", "purpose": "focus email field" },
+  { "type": "type", "selector": "#email", "text": "user@example.com", "name": "email_input", "purpose": "enter email" }
 ]
 secure_fill action='fill' selector='#password' credential_env='APP_PASSWORD'
-browser_interact actions=[{ "type": "click", "selector": "button[type=submit]" }]
+browser_interact actions=[{ "type": "click", "selector": "button[type=submit]", "name": "submit_button", "purpose": "submit login form" }]
 browser_snapshot
 ```
 
@@ -303,7 +383,7 @@ browser_tabs action='attach' tabId=123        → switch back to main tab
 ```
 browser_extract_content mode='auto'           → get first page content
 browser_lookup text='Next'                    → find next button
-browser_interact actions=[{ "type": "click", "selector": ".next-page" }]
+browser_interact actions=[{ "type": "click", "selector": ".next-page", "name": "next_page_button", "purpose": "go to next results page" }]
 browser_extract_content mode='auto'           → get next page content
 ```
 
@@ -321,7 +401,7 @@ browser_network_requests action='details' requestId='req-42'
 Every tool response starts with a status line:
 
 ```
-✅ v1.4.3 | 🌐 Chrome | 📄 Tab 0: https://example.com | 🔧 React + Tailwind
+✅ v3.3.0 | 🌐 Chrome | 📄 Tab 0: https://example.com | 🔧 React + Tailwind
 ```
 
 | Badge | Meaning |
@@ -329,9 +409,12 @@ Every tool response starts with a status line:
 | ✅ / 🔴 | Connected / Disconnected |
 | 🌐 | Browser name |
 | 📄 | Attached tab index + URL |
-| ⚠️ | No tab attached (attach one first) |
+| ⚠️ No tab attached | No tab attached (attach one first) |
 | 🔧 | Detected tech stack (framework, library, CSS) |
+| ⚠️ Obfuscated CSS | Class names look machine-generated — style selectors may be unstable |
 | 🕵️ | Stealth mode active |
+
+When disconnected, the header reads `🔴 vX.Y.Z | Disabled`, plus a one-line reason if the last `connect` attempt failed (e.g. a port conflict). If `~/.supersurf/config.json` changed since the daemon started, a one-shot warning line precedes the header until you restart the daemon (`supersurf daemon restart`).
 
 ---
 
@@ -340,5 +423,5 @@ Every tool response starts with a status line:
 - You talk to an MCP server over stdio. The server talks to a daemon over a Unix socket. The daemon talks to a Chrome extension over WebSocket. The extension controls Chrome.
 - The extension runs in Chrome's isolated world — page JavaScript cannot detect it.
 - CDP is only used for screenshots, network interception, and PDF generation. All DOM interaction goes through content scripts.
-- The daemon persists across sessions. Managed Chromium quits on disconnect by default; enable extension Settings “Keep browser after session ends” to keep the window open. Profile cookies/logins always persist on disk. Daemon idle timeout or shutdown can still quit daemon-owned browsers.
-- Every tool call is audit-logged to `~/.supersurf/logs/sessions/`.
+- The daemon persists across sessions. Managed Chromium quits on disconnect by default; enable extension Settings "Keep browser after session ends" to keep the window open. Profile cookies/logins always persist on disk. Daemon idle timeout or shutdown can still quit daemon-owned browsers.
+- Every tool call is logged to the usage-metrics trail at `~/.supersurf/logs/sessions/`, gated by `logging.usage_metrics` in config (on by default for new installs).
