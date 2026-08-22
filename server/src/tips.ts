@@ -8,19 +8,32 @@
  * @module tips
  */
 
+import { actionTrail } from './playbooks/trail';
+import type { TrailEntry } from './playbooks/types';
+import { experimentRegistry } from './experimental/index';
+
 interface TipRule {
   id: string;
   priority: number;
+  /** Specific MCP tool name, or `'*'` to match any tool except `playbooks`. */
   tool: string;
   match: (params: Record<string, unknown>, result: string, error?: string) => boolean;
-  message: string;
+  /** Static message, or a function resolved at fire time (e.g. gate-dependent copy). */
+  message: string | (() => string);
 }
 
 /** Max consecutive firings per (session, tool, tip_id) before suppression kicks in. */
 const SUPPRESS_AFTER = 3;
 
-// session_id -> (`${tool}:${tip_id}` -> consecutive firing count)
+/** Tip ids that fire at most once per session, regardless of how often they match. */
+const ONCE_PER_SESSION_IDS = new Set(['playbooks-milestone', 'playbooks-repeat']);
+
+// session_id -> (`${tool}:${tip_id}` -> consecutive firing count). Wildcard-tool
+// rules share a `*` bucket instead of one per matched tool.
 const tipCounters = new Map<string, Map<string, number>>();
+
+// session_id -> set of once-per-session tip ids already fired this session.
+const firedOnce = new Map<string, Set<string>>();
 
 function getSessionCounters(sessionId: string): Map<string, number> {
   let s = tipCounters.get(sessionId);
@@ -33,6 +46,49 @@ function getSessionCounters(sessionId: string): Map<string, number> {
 
 export function clearTipCounters(sessionId: string): void {
   tipCounters.delete(sessionId);
+  firedOnce.delete(sessionId);
+}
+
+/** `${tool}:${type}:${url}` — identifies an entry's "shape" for repeat-sequence detection. */
+function signature(e: TrailEntry): string {
+  const url = e.tool === 'browser_navigate' ? (e.params as any)?.url : e.url;
+  return `${e.tool}:${e.type}:${url ?? ''}`;
+}
+
+/**
+ * True when the trail's last 3 entries repeat an earlier, non-overlapping
+ * 3-entry window, and that window touches at least 2 distinct tools (so a
+ * plain scroll/scroll/scroll streak doesn't count).
+ */
+function hasRepeatedWindow(): boolean {
+  const size = actionTrail.size();
+  if (size < 6) return false;
+  const { entries } = actionTrail.tail(size);
+  const n = entries.length;
+  const last = entries.slice(n - 3, n);
+  if (new Set(last.map((e) => e.tool)).size < 2) return false;
+  const lastSig = last.map(signature);
+  for (let start = 0; start <= n - 6; start++) {
+    const w = entries.slice(start, start + 3).map(signature);
+    if (w[0] === lastSig[0] && w[1] === lastSig[1] && w[2] === lastSig[2]) return true;
+  }
+  return false;
+}
+
+const PLAYBOOKS_MILESTONE_ON =
+  'Tip: 8 actions recorded this session. `playbooks history` lists them with ids; ' +
+  '`playbooks create` freezes a range into a named playbook you can replay later with `playbooks run`.';
+
+const PLAYBOOKS_REPEAT_ON =
+  'Tip: the last few actions repeat an earlier sequence. Save it once with `playbooks create` ' +
+  '(ids from `playbooks history`) and replay it with `playbooks run` next time.';
+
+const PLAYBOOKS_GATE_OFF =
+  "Tip: this session's actions could be saved and replayed as a playbook. Enable the `fingerprinting` " +
+  'experiment in ~/.supersurf/config.json and restart the daemon to unlock the `playbooks` tool.';
+
+function playbooksTipMessage(onMessage: string): string {
+  return experimentRegistry.isEnabled('fingerprinting') ? onMessage : PLAYBOOKS_GATE_OFF;
 }
 
 function getEvalCode(params: Record<string, unknown>): string {
@@ -207,7 +263,30 @@ const TIPS: TipRule[] = [
       'Supports pseudo-state forcing and property filtering.',
   },
 
+  // ── playbooks tips (wildcard — any tool except `playbooks` itself) ──
+
+  {
+    id: 'playbooks-milestone',
+    priority: 1,
+    tool: '*',
+    match: () => actionTrail.size() >= 8,
+    message: () => playbooksTipMessage(PLAYBOOKS_MILESTONE_ON),
+  },
+  {
+    id: 'playbooks-repeat',
+    priority: 2,
+    tool: '*',
+    match: () => hasRepeatedWindow(),
+    message: () => playbooksTipMessage(PLAYBOOKS_REPEAT_ON),
+  },
+
 ];
+
+/** True if `rule` applies to `tool` — wildcard rules match every tool except `playbooks`. */
+function ruleAppliesTo(rule: TipRule, tool: string): boolean {
+  if (rule.tool === '*') return tool !== 'playbooks';
+  return rule.tool === tool;
+}
 
 export function getTip(
   tool: string,
@@ -216,29 +295,35 @@ export function getTip(
   error?: string,
   sessionId?: string
 ): string | null {
+  const fired = sessionId ? firedOnce.get(sessionId) : undefined;
   let best: TipRule | null = null;
   const matched: TipRule[] = [];
 
   for (const rule of TIPS) {
-    if (rule.tool !== tool) continue;
+    if (!ruleAppliesTo(rule, tool)) continue;
     if (rule.match(params, result, error)) {
       matched.push(rule);
+      if (ONCE_PER_SESSION_IDS.has(rule.id) && fired?.has(rule.id)) continue;
       if (!best || rule.priority < best.priority) {
         best = rule;
       }
     }
   }
 
+  const resolve = (rule: TipRule): string => (typeof rule.message === 'function' ? rule.message() : rule.message);
+
   // Without a session context, behave as a pure function (no suppression).
-  if (!sessionId) return best?.message ?? null;
+  if (!sessionId) return best ? resolve(best) : null;
 
   // Update counters for every tip rule bound to this tool: increment on match,
   // reset on miss. Reset is per-tip — so tip A firing doesn't reset tip B.
+  // Wildcard rules share a `*` bucket rather than one per matched tool.
   const counters = getSessionCounters(sessionId);
   const matchedIds = new Set(matched.map((r) => r.id));
   for (const rule of TIPS) {
-    if (rule.tool !== tool) continue;
-    const key = `${tool}:${rule.id}`;
+    if (!ruleAppliesTo(rule, tool)) continue;
+    const counterTool = rule.tool === '*' ? '*' : tool;
+    const key = `${counterTool}:${rule.id}`;
     if (matchedIds.has(rule.id)) {
       counters.set(key, (counters.get(key) ?? 0) + 1);
     } else {
@@ -247,7 +332,18 @@ export function getTip(
   }
 
   if (!best) return null;
-  const count = counters.get(`${tool}:${best.id}`) ?? 0;
+  const counterTool = best.tool === '*' ? '*' : tool;
+  const count = counters.get(`${counterTool}:${best.id}`) ?? 0;
   if (count > SUPPRESS_AFTER) return null;
-  return best.message;
+
+  if (ONCE_PER_SESSION_IDS.has(best.id)) {
+    let s = firedOnce.get(sessionId);
+    if (!s) {
+      s = new Set();
+      firedOnce.set(sessionId, s);
+    }
+    s.add(best.id);
+  }
+
+  return resolve(best);
 }

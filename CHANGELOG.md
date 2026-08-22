@@ -36,6 +36,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- feat: two new contextual tips nudge agents toward `playbooks` — `playbooks-milestone` fires once per session when the action trail reaches 8 entries, and `playbooks-repeat` fires once per session when the last 3 actions repeat an earlier non-overlapping 3-action sequence spanning at least 2 distinct tools. Both fire on any tool call (except `playbooks` itself) and show a different message when the `fingerprinting` experiment is off.
 - feat: `supersurf playbook edit <name>` no longer requires `--drop` — without it, the playbook opens in `$VISUAL`/`$EDITOR`/`vi` for a free-form edit, validated (version 1, non-empty steps) and saved back on exit; renames are ignored (name stays fixed) and a non-TTY session without `--drop` errors with a clear message.
 - chore(release): `version.bump` now auto-cuts the Unreleased changelog section into the new version's heading (em-dash date), leaving a fresh empty Unreleased
 - feat: major-version upgrade notice — CLIs and the `connect` tool now greet you after a major update with a pointer to the changelog, tracked via `~/.supersurf/version-state.json` (stderr-only in MCP/script modes so the JSON-RPC stream stays clean)
