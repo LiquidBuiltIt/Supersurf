@@ -2,10 +2,16 @@
 /**
  * `supersurf playbook` — manage saved playbooks.
  *
- * Daemon-free by design, modelled on `creds.ts` rather than `profiles-cli.ts`:
- * this is pure file management, so it must work with no daemon running and no
- * browser connected. Creation is deliberately absent — playbooks are built from
- * action ids that live in the agent's context, not in the user's terminal.
+ * File management (`ls`/`show`/`edit`/`rm`/`export`/`import`) is daemon-free
+ * by design, modelled on `creds.ts` rather than `profiles-cli.ts`: it must
+ * work with no daemon running and no browser connected. Creation is
+ * deliberately absent — playbooks are built from action ids that live in the
+ * agent's context, not in the user's terminal.
+ *
+ * `run` is the one command that needs a live browser: it drives the same
+ * `ConnectionManager` the MCP server and `--script-mode` use (see
+ * `stdio.ts`), in-process, so there is exactly one playbook runner — the
+ * `playbooks` MCP tool — regardless of caller.
  *
  * @module bin/playbook-cli
  */
@@ -21,6 +27,10 @@ import {
 } from '../playbooks/store';
 import { formatSteps } from '../playbooks/format';
 import type { Playbook } from '../playbooks/types';
+import { ConnectionManager, type BackendConfig } from '../backend';
+import { ConfigService, loadJsonConfig, loadEnvConfig } from 'shared';
+
+const { version: PACKAGE_VERSION } = require('../../package.json');
 
 /** Either a bare exit status (legacy shape), or a status/error pair mirroring `spawnSync`'s result. */
 export type SpawnEditorResult = number | { status: number | null; error?: Error };
@@ -78,6 +88,16 @@ export function buildPlaybookProgram(): Command {
     .description('Read a playbook from a file')
     .argument('<file>', 'source path')
     .action(async (file: string) => { await runImport(file); });
+
+  program
+    .command('run')
+    .description('Run a saved playbook against a connected browser (no MCP client needed)')
+    .argument('<name>', 'playbook name')
+    .option('--profile <profile>', 'managed browser profile to connect to')
+    .option('--json', 'print machine-readable JSON instead of the run trail')
+    .action(async (name: string, opts: { profile?: string; json?: boolean }) => {
+      process.exitCode = await runRun(name, opts);
+    });
 
   return program;
 }
@@ -241,6 +261,127 @@ export async function runImport(file: string, opts: RunOpts = {}): Promise<void>
   }
   savePlaybook({ ...parsed, name: normalizeName(parsed.name), version: 1 });
   log(`Imported '${normalizeName(parsed.name)}' (${parsed.steps.length} steps)`);
+}
+
+/** Minimal surface `run` needs from a live connection — mirrors `ConnectionManager.callTool`. */
+export interface RunBackend {
+  callTool(name: string, args: Record<string, unknown>, options: { rawResult?: boolean }): Promise<any>;
+}
+
+export interface RunRunOpts {
+  log?: (msg: string) => void;
+  errLog?: (msg: string) => void;
+  /** Test seam. Production builds a real `ConnectionManager` off resolved config. */
+  createBackend?: () => RunBackend;
+}
+
+/**
+ * Build a `BackendConfig` from CLI-less config resolution (env + `~/.supersurf/config.json`
+ * + hardcoded defaults) — the same merge `cli.ts`'s `buildConfig`/`backendConfigFrom` do,
+ * duplicated here rather than imported because `cli.ts` runs `program.parse()` as a
+ * top-level side effect and can't be safely imported as a module.
+ */
+function buildBackendConfig(): BackendConfig {
+  const configPath = process.env.SUPERSURF_CONFIG_FILE
+    || path.join(os.homedir(), '.supersurf', 'config.json');
+  const { config: fileCfg } = loadJsonConfig(configPath);
+  const { config: envCfg } = loadEnvConfig(process.env);
+  const configService = new ConfigService({ cli: {}, env: envCfg, file: fileCfg });
+  const c = configService.get();
+  return {
+    debug: !!c.logging.debug,
+    port: c.daemon.port,
+    server: { name: 'SuperSurf', version: PACKAGE_VERSION },
+    enabledExperiments: Object.entries(c.experiments)
+      .filter(([k, v]) => v && k !== 'profiles')
+      .map(([k]) => k),
+    configService,
+  };
+}
+
+function defaultCreateBackend(): RunBackend {
+  return new ConnectionManager(buildBackendConfig());
+}
+
+/**
+ * Run a saved playbook end-to-end: connect, call the `playbooks` MCP tool with
+ * `{action:'run', name}`, print its result, then disconnect. Always disconnects —
+ * on a failed step, a connect failure, an unexpected error, or SIGINT — because a
+ * left-open session pins the daemon (and, for a managed profile, the browser) alive.
+ *
+ * Returns the process exit code rather than throwing, so a reported failed step
+ * (not a bug — a normal "the playbook broke on step 3" outcome) prints its own
+ * trail instead of being flattened into the generic `[playbook] <message>` shape
+ * `runPlaybookProgram`'s catch-all uses for actual exceptions.
+ */
+export async function runRun(
+  name: string,
+  flags: { profile?: string; json?: boolean },
+  opts: RunRunOpts = {},
+): Promise<number> {
+  const log = opts.log ?? console.log;
+  const errLog = opts.errLog ?? console.error;
+
+  const normalized = normalizeName(name);
+  const pb = loadPlaybook(normalized);
+  if (!pb) {
+    errLog(`[playbook] No playbook named '${normalized}'. List them with: supersurf playbook ls`);
+    return 1;
+  }
+
+  // Resolution order: --profile flag, then the playbook's own optional
+  // `profile` field (a parallel branch is adding this to the schema — read
+  // it defensively, don't assume the type declares it yet), then none.
+  const profile = flags.profile ?? (typeof (pb as any).profile === 'string' ? (pb as any).profile : undefined);
+
+  const backend = (opts.createBackend ?? defaultCreateBackend)();
+
+  let disconnectStarted = false;
+  const disconnect = async (): Promise<void> => {
+    if (disconnectStarted) return;
+    disconnectStarted = true;
+    try {
+      await backend.callTool('disconnect', {}, { rawResult: true });
+    } catch {
+      // Best-effort — we're already on our way out.
+    }
+  };
+
+  const onSigint = (): void => {
+    void disconnect().finally(() => process.exit(1));
+  };
+  process.once('SIGINT', onSigint);
+
+  try {
+    const connectArgs: Record<string, unknown> = { client_id: `playbook-run-${process.pid}` };
+    if (profile) connectArgs.profile = profile;
+
+    const connectResult: any = await backend.callTool('connect', connectArgs, { rawResult: true });
+    if (!connectResult?.success) {
+      errLog(`[playbook] Connect failed: ${connectResult?.message ?? 'unknown error'}`);
+      return 1;
+    }
+
+    const runResult: any = await backend.callTool('playbooks', { action: 'run', name: normalized }, { rawResult: true });
+    const body = String(runResult?.content?.find((b: any) => b?.type === 'text')?.text ?? '');
+    const failed = Boolean(runResult?.isError);
+
+    if (flags.json) {
+      log(JSON.stringify({ name: normalized, success: !failed, output: body }));
+    } else if (failed) {
+      errLog(body);
+    } else {
+      log(body);
+    }
+
+    return failed ? 1 : 0;
+  } catch (err: any) {
+    errLog(`[playbook] ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  } finally {
+    await disconnect();
+    process.off('SIGINT', onSigint);
+  }
 }
 
 export async function runPlaybookProgram(argv: string[]): Promise<void> {
