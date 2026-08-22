@@ -1,6 +1,13 @@
+---
+name: supersurf
+description: Drive a real Chrome browser through the SuperSurf MCP server — navigate, read pages, interact, fill forms, and record/replay playbooks. Use when a task needs a live browser session.
+---
+
 # SuperSurf — Agent Skill Guide
 
 > You control a real Chrome browser. Real cookies, real sessions, real history. You are not using a headless browser or a simulator — you are operating a full Chrome instance with a human's profile.
+
+> **Install as a Claude Code skill:** save this file as `~/.claude/skills/supersurf/SKILL.md` (or `.claude/skills/supersurf/SKILL.md` in a project) and it loads as `/supersurf`.
 
 ---
 
