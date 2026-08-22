@@ -1,5 +1,5 @@
 import { registerAction } from './registry';
-import { findElementInFrames } from '../lib/frames';
+import { findElementInFrames, healSelectorAcrossFrames } from '../lib/frames';
 
 registerAction({
   name: 'file_upload',
@@ -31,13 +31,22 @@ registerAction({
     // Step 2: If top frame has no match, walk child frames in DFS order.
     if (!objectId) {
       const match = await findElementInFrames(ctx, selectorExpr);
-      if (!match) {
-        throw new Error(`Element not found in any frame: ${action.selector}`);
+      if (match) {
+        objectId = match.objectId;
+        frameContextId = match.contextId;
+        if (action.selector) {
+          ctx.captureFingerprintInContext?.(match.contextId, action.selector, meta);
+        }
+      } else if (action.selector) {
+        // Step 3: no frame matched the selector at all — try a fingerprint heal.
+        const healed = await healSelectorAcrossFrames(ctx, action.selector);
+        if (healed) {
+          objectId = healed.objectId;
+          frameContextId = healed.contextId;
+        }
       }
-      objectId = match.objectId;
-      frameContextId = match.contextId;
-      if (action.selector) {
-        ctx.captureFingerprintInContext?.(match.contextId, action.selector, meta);
+      if (!objectId) {
+        throw new Error(`Element not found in any frame: ${action.selector}`);
       }
     }
 

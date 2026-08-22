@@ -36,13 +36,14 @@ export async function onFillForm(ctx: ToolContext, args: any, options: any): Pro
   for (const field of fields) {
     const expr = ctx.getSelectorExpression(field.selector);
 
-    // Resolve top frame first, then DFS child frames on miss.
-    const match = await resolveInFrames(ctx, expr);
+    // Resolve top frame first, then DFS child frames on miss, then a
+    // fingerprint heal across every frame.
+    const match = await resolveInFrames(ctx, expr, field.selector);
     if (!match) throw new Error('Element not found: ' + field.selector);
 
     const fillExpr = `
       (async () => {
-        const el = ${expr};
+        const el = ${match.resolvedExpr};
         if (!el) throw new Error('Element not found: ' + ${JSON.stringify(field.selector)});
         const tag = el.tagName;
         const type = el.type;
@@ -103,7 +104,7 @@ export async function onFillForm(ctx: ToolContext, args: any, options: any): Pro
     // for the tracker failure mode and the deferred fiber-walk follow-up.
     const verifExpr = `
       (() => {
-        const el = ${expr};
+        const el = ${match.resolvedExpr};
         if (!el) return { verified: false, actual: null };
         const actual = (el.type === 'checkbox' || el.type === 'radio')
           ? String(el.checked)

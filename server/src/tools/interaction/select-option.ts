@@ -11,7 +11,7 @@ registerAction({
     const target = JSON.stringify(action.value);
     const expr = `
       (() => {
-        const el = ${selectorExpr};
+        const el = ${match.resolvedExpr};
         if (!el || el.tagName !== 'SELECT') return { selected: false, reason: 'not-a-select' };
         const options = Array.from(el.options);
         const target = ${target};

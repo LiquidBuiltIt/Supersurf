@@ -195,6 +195,32 @@ describe('onInteract()', () => {
     expect(charCalls).toHaveLength(2);
   });
 
+  it('heals a stale selector via fingerprint when the top frame and child frames both miss', async () => {
+    // Top-frame Runtime.evaluate reports no match; no child frames exist; the
+    // heal hook resolves a live objectId + re-queryable expression.
+    ctx.cdp = vi.fn().mockImplementation(async (method: string, params: any) => {
+      if (method === 'Runtime.evaluate' && (params == null || params.contextId === undefined)) {
+        return { result: {} };
+      }
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [] } };
+      }
+      return {};
+    });
+    ctx.healFingerprintInContext = vi.fn().mockResolvedValue({
+      cx: 10, cy: 10, score: 0.9, objectId: 'healed-obj', resolvedExpr: 'document.querySelector("#healed-input")',
+    });
+    ctx.eval = vi.fn().mockResolvedValue({ focused: true, value: 'hi' });
+
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'type', text: 'hi', selector: '#stale-input' }],
+    }, {});
+
+    expect(ctx.healFingerprintInContext).toHaveBeenCalledWith(null, '#stale-input');
+    expect(result.content[0].text).toContain('Typed');
+    expect(result.content[0].text).not.toContain('✗');
+  });
+
   // ── Press key ──
 
   it('handles press_key action', async () => {
@@ -271,6 +297,40 @@ describe('onInteract()', () => {
       actions: [{ type: 'scroll_into_view', selector: '#target' }],
     }, {});
     expect(result.content[0].text).toContain('Scrolled');
+  });
+
+  // ── Select option (native <select>) ──
+
+  it('handles select_option action', async () => {
+    (ctx.eval as any).mockResolvedValue({ selected: true, optionText: 'Red' });
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'select_option', selector: '#color', value: 'red' }],
+    }, {});
+    expect(result.content[0].text).toContain('Selected "Red"');
+  });
+
+  it('select_option heals a stale selector via fingerprint when the top frame and child frames both miss', async () => {
+    ctx.cdp = vi.fn().mockImplementation(async (method: string, params: any) => {
+      if (method === 'Runtime.evaluate' && (params == null || params.contextId === undefined)) {
+        return { result: {} };
+      }
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [] } };
+      }
+      return {};
+    });
+    ctx.healFingerprintInContext = vi.fn().mockResolvedValue({
+      cx: 10, cy: 10, score: 0.9, objectId: 'healed-obj', resolvedExpr: 'document.querySelector("#healed-select")',
+    });
+    ctx.eval = vi.fn().mockResolvedValue({ selected: true, optionText: 'Red' });
+
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'select_option', selector: '#stale-select', value: 'red' }],
+    }, {});
+
+    expect(ctx.healFingerprintInContext).toHaveBeenCalledWith(null, '#stale-select');
+    expect(result.content[0].text).toContain('Selected "Red"');
+    expect(result.content[0].text).not.toContain('✗');
   });
 
   // ── Select custom dropdown ──
@@ -712,6 +772,33 @@ describe('onInteract()', () => {
 
       expect(result.content[0].text).toContain('✗ file_upload');
       expect(result.content[0].text).toContain('Element not found in any frame');
+    });
+
+    it('heals a stale selector via fingerprint when no frame matches', async () => {
+      (ctx.cdp as any).mockImplementation((method: string, params?: any) => {
+        if (method === 'Runtime.evaluate' && !params?.contextId) {
+          return Promise.resolve({ result: { type: 'object', subtype: 'null', value: null } });
+        }
+        if (method === 'Page.getFrameTree') {
+          return Promise.resolve({ frameTree: { frame: { id: 'root-frame' }, childFrames: [] } });
+        }
+        if (method === 'DOM.describeNode') return Promise.resolve({ node: { backendNodeId: 55 } });
+        if (method === 'DOM.setFileInputFiles') return Promise.resolve({});
+        return Promise.resolve({});
+      });
+      ctx.healFingerprintInContext = vi.fn().mockResolvedValue({
+        cx: 10, cy: 10, score: 0.9, objectId: 'healed-obj', resolvedExpr: 'document.querySelector("#healed-file")',
+      });
+      (ctx.eval as any).mockResolvedValue({ verified: true, count: 1 });
+
+      const result = await onInteract(ctx, {
+        actions: [{ type: 'file_upload', selector: 'input[type=file]', files: ['/tmp/a.pdf'] }],
+      }, {});
+
+      expect(ctx.healFingerprintInContext).toHaveBeenCalledWith(null, 'input[type=file]');
+      expect(ctx.cdp).toHaveBeenCalledWith('DOM.setFileInputFiles', expect.objectContaining({ backendNodeId: 55 }));
+      expect(result.content[0].text).toContain('✓ file_upload');
+      expect(result.content[0].text).toContain('Uploaded 1 file(s)');
     });
 
     it('post-action read-back queries the correct child frame context', async () => {

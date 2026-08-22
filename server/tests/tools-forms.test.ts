@@ -186,6 +186,48 @@ describe('onFillForm()', () => {
       expect(result.content[0].text).toContain('⚠');
     });
   });
+
+  describe('fingerprint healing', () => {
+    it('heals a stale field selector when the top frame and child frames both miss', async () => {
+      ctx.cdp = vi.fn().mockImplementation((method: string, params?: any) => {
+        if (method === 'Runtime.evaluate' && (params == null || params.contextId === undefined)) {
+          return Promise.resolve({ result: {} });
+        }
+        if (method === 'Page.getFrameTree') {
+          return Promise.resolve({ frameTree: { frame: { id: 'top' }, childFrames: [] } });
+        }
+        return Promise.resolve({});
+      });
+      ctx.healFingerprintInContext = vi.fn().mockResolvedValue({
+        cx: 10, cy: 10, score: 0.9, objectId: 'healed-obj', resolvedExpr: 'document.querySelector("#healed-name")',
+      });
+      (ctx.eval as any).mockResolvedValue({ verified: true, actual: 'John' });
+
+      const result = await onFillForm(ctx, {
+        fields: [{ selector: '#stale-name', value: 'John' }],
+      }, {});
+
+      expect(ctx.healFingerprintInContext).toHaveBeenCalledWith(null, '#stale-name');
+      expect(result.content[0].text).toContain('✓');
+      expect(result.content[0].text).toContain('#stale-name');
+    });
+
+    it('does not heal when ctx.healFingerprintInContext is not wired (experiment disabled)', async () => {
+      ctx.cdp = vi.fn().mockImplementation((method: string, params?: any) => {
+        if (method === 'Runtime.evaluate' && (params == null || params.contextId === undefined)) {
+          return Promise.resolve({ result: {} });
+        }
+        if (method === 'Page.getFrameTree') {
+          return Promise.resolve({ frameTree: { frame: { id: 'top' }, childFrames: [] } });
+        }
+        return Promise.resolve({});
+      });
+      // ctx.healFingerprintInContext left unset.
+      await expect(onFillForm(ctx, {
+        fields: [{ selector: '#stale-name', value: 'John' }],
+      }, {})).rejects.toThrow('Element not found: #stale-name');
+    });
+  });
 });
 
 describe('onDrag()', () => {

@@ -6,11 +6,12 @@ registerAction({
   async run(ctx, action) {
     if (action.selector) {
       const selectorExpr = ctx.getSelectorExpression(action.selector);
-      const match = await resolveInFrames(ctx, selectorExpr);
+      const meta = { name: action.name, purpose: action.purpose };
+      const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
       if (!match) throw new Error(`Element not found: ${action.selector}`);
       const expr = `
         (() => {
-          const el = ${selectorExpr};
+          const el = ${match.resolvedExpr};
           if (!el) return { scrolled: false };
           el.scrollTo(${action.x || 0}, ${action.y || 0});
           return { scrolled: true };
@@ -30,11 +31,12 @@ registerAction({
   async run(ctx, action) {
     if (action.selector) {
       const selectorExpr = ctx.getSelectorExpression(action.selector);
-      const match = await resolveInFrames(ctx, selectorExpr);
+      const meta = { name: action.name, purpose: action.purpose };
+      const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
       if (!match) throw new Error(`Element not found: ${action.selector}`);
       const expr = `
         (() => {
-          const el = ${selectorExpr};
+          const el = ${match.resolvedExpr};
           if (!el) return { scrolled: false };
           el.scrollBy(${action.x || 0}, ${action.y || 0});
           return { scrolled: true };
@@ -53,11 +55,12 @@ registerAction({
   name: 'scroll_into_view',
   async run(ctx, action) {
     const selectorExpr = ctx.getSelectorExpression(action.selector);
-    const match = await resolveInFrames(ctx, selectorExpr);
+    const meta = { name: action.name, purpose: action.purpose };
+    const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
     if (!match) throw new Error(`Element not found: ${action.selector}`);
     const expr = `
       (() => {
-        const el = ${selectorExpr};
+        const el = ${match.resolvedExpr};
         if (!el) return { scrolled: false };
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return { scrolled: true };
