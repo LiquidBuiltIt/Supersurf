@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { runLs, runShow, runRm, runExport, runImport, runEdit } from '../src/bin/playbook-cli';
+import { runLs, runShow, runRm, runExport, runImport, runEdit, runRun, type RunBackend } from '../src/bin/playbook-cli';
 import { savePlaybook, loadPlaybook, setBaseDirForTests } from '../src/playbooks/store';
 import type { Playbook } from '../src/playbooks/types';
 
@@ -284,5 +284,123 @@ describe('playbook edit', () => {
     expect(seenCmd).toBe('code');
     expect(seenArgs[0]).toBe('--wait');
     expect(seenArgs[1]).toMatch(/supersurf-playbook-trim_me-\d+\.json$/);
+  });
+});
+
+function makeMockBackend(overrides: { connectResult?: any; runResult?: any } = {}) {
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const backend: RunBackend = {
+    callTool: async (name: string, args: Record<string, unknown>) => {
+      calls.push({ name, args });
+      if (name === 'connect') {
+        return overrides.connectResult ?? { success: true, state: 'active', browser: 'chrome', client_id: 'x' };
+      }
+      if (name === 'playbooks') {
+        return overrides.runResult ?? { content: [{ type: 'text', text: '✓ done' }], isError: false };
+      }
+      if (name === 'disconnect') {
+        return { success: true, state: 'passive' };
+      }
+      throw new Error(`unexpected tool call: ${name}`);
+    },
+  };
+  return { backend, calls };
+}
+
+describe('playbook run', () => {
+  it('connects, runs, then disconnects in order on success', async () => {
+    savePlaybook(makePlaybook('flow'));
+    const { backend, calls } = makeMockBackend();
+    const errOut: string[] = [];
+    const code = await runRun('flow', {}, { log, errLog: (m) => errOut.push(m), createBackend: () => backend });
+
+    expect(code).toBe(0);
+    expect(calls.map((c) => c.name)).toEqual(['connect', 'playbooks', 'disconnect']);
+    expect(calls[1].args).toMatchObject({ action: 'run', name: 'flow' });
+    expect(out.join('\n')).toContain('✓ done');
+    expect(errOut).toHaveLength(0);
+  });
+
+  it('exits 1 and reports the failure to stderr when a step fails', async () => {
+    savePlaybook(makePlaybook('flow'));
+    const { backend, calls } = makeMockBackend({
+      runResult: { content: [{ type: 'text', text: 'Stopped at step 2 of 3.' }], isError: true },
+    });
+    const errOut: string[] = [];
+    const code = await runRun('flow', {}, { log, errLog: (m) => errOut.push(m), createBackend: () => backend });
+
+    expect(code).toBe(1);
+    expect(errOut.join('\n')).toContain('Stopped at step 2 of 3');
+    expect(out).toHaveLength(0);
+    expect(calls.map((c) => c.name)).toEqual(['connect', 'playbooks', 'disconnect']);
+  });
+
+  it('exits 1 without connecting when the playbook is missing', async () => {
+    const { backend, calls } = makeMockBackend();
+    let created = false;
+    const errOut: string[] = [];
+    const code = await runRun('ghost', {}, {
+      log, errLog: (m) => errOut.push(m),
+      createBackend: () => { created = true; return backend; },
+    });
+
+    expect(code).toBe(1);
+    expect(created).toBe(false);
+    expect(calls).toHaveLength(0);
+    expect(errOut.join('\n')).toContain("No playbook named 'ghost'");
+  });
+
+  it('exits 1 and still disconnects when connect fails', async () => {
+    savePlaybook(makePlaybook('flow'));
+    const { backend, calls } = makeMockBackend({
+      connectResult: { success: false, error: 'connection_failed', message: 'daemon unreachable' },
+    });
+    const errOut: string[] = [];
+    const code = await runRun('flow', {}, { log, errLog: (m) => errOut.push(m), createBackend: () => backend });
+
+    expect(code).toBe(1);
+    expect(errOut.join('\n')).toContain('daemon unreachable');
+    expect(calls.map((c) => c.name)).toEqual(['connect', 'disconnect']);
+  });
+
+  it('forwards --profile to the connect call', async () => {
+    savePlaybook(makePlaybook('flow'));
+    const { backend, calls } = makeMockBackend();
+    await runRun('flow', { profile: 'dev' }, { log, errLog: () => {}, createBackend: () => backend });
+
+    expect(calls[0].args).toMatchObject({ profile: 'dev' });
+  });
+
+  it('falls back to the playbook profile field when no --profile flag is given', async () => {
+    const pb = makePlaybook('flow') as any;
+    pb.profile = 'work';
+    savePlaybook(pb);
+    const { backend, calls } = makeMockBackend();
+    await runRun('flow', {}, { log, errLog: () => {}, createBackend: () => backend });
+
+    expect(calls[0].args).toMatchObject({ profile: 'work' });
+  });
+
+  it('a --profile flag wins over the playbook profile field', async () => {
+    const pb = makePlaybook('flow') as any;
+    pb.profile = 'work';
+    savePlaybook(pb);
+    const { backend, calls } = makeMockBackend();
+    await runRun('flow', { profile: 'dev' }, { log, errLog: () => {}, createBackend: () => backend });
+
+    expect(calls[0].args).toMatchObject({ profile: 'dev' });
+  });
+
+  it('prints JSON instead of the trail when --json is passed', async () => {
+    savePlaybook(makePlaybook('flow'));
+    const { backend } = makeMockBackend({
+      runResult: { content: [{ type: 'text', text: '✓ flow — 2/2 steps.' }], isError: false },
+    });
+    const code = await runRun('flow', { json: true }, { log, errLog: () => {}, createBackend: () => backend });
+
+    expect(code).toBe(0);
+    expect(out).toHaveLength(1);
+    const parsed = JSON.parse(out[0]);
+    expect(parsed).toMatchObject({ name: 'flow', success: true, output: '✓ flow — 2/2 steps.' });
   });
 });

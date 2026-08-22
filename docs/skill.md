@@ -256,7 +256,7 @@ playbooks action='run' name='login_flow'        → replay a saved playbook
 
 `run` replays every step type, not only `browser_interact` — a frozen `browser_extract_content` or `browser_navigate` step re-issues with its original params, and its output is appended to the run result. Selector healing covers every selector-resolving `browser_interact` verb (`click`, `hover`, `drag`, `type`, `clear`, `select_option`, `select_custom`, `scroll_to`, `scroll_by`, `scroll_into_view`, `file_upload`) plus `browser_fill_form` fields; `force_pseudo_state` and `wait` fail outright if their selector has drifted (`wait` deliberately waits for the original selector, not a look-alike). A run stops at the first failure and reports how far it got.
 
-Playbooks live one file per playbook at `~/.supersurf/playbooks/<name>.json`. Everything beyond record/replay is CLI-only — the MCP tool deliberately can't list, edit, or delete:
+Playbooks live one file per playbook at `~/.supersurf/playbooks/<name>.json`. File management (list/show/edit/remove/export/import) is CLI-only — the MCP tool deliberately can't do any of that:
 
 ```
 supersurf playbook ls                           → list saved playbooks
@@ -267,6 +267,8 @@ supersurf playbook rm login_flow                 → delete it
 supersurf playbook export login_flow out.json   → write it to a file
 supersurf playbook import out.json               → read it from a file
 ```
+
+`supersurf playbook run <name> [--profile <p>] [--json]` replays a playbook without an MCP client — it drives the same `connect` → `playbooks run` → `disconnect` sequence in-process, over the daemon, so it's the same runner the MCP tool uses. `--profile` picks a managed profile to connect to (falling back to the playbook's own `profile` field if it has one); `--json` prints `{name, success, output}` instead of the run trail. Exit code is 0 only when every step succeeded; a failed step, a missing playbook, or a failed connect all exit 1, and the browser session is always disconnected on the way out.
 
 ---
 
