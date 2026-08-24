@@ -57,6 +57,10 @@ export interface ConnectionManagerAPI {
     clientId: string | null;
     connectedBrowserName: string | null;
     attachedTab: TabInfo | null;
+    /** Managed profile the current session is bound to, or null for an
+     *  unmanaged/no-profile connect. Set by `onConnect` on a successful
+     *  `profiles.connect`, cleared on disconnect. */
+    profile: string | null;
     metricsLogger: UsageMetricsLogger | null;
     /** Reason the last `connect` attempt failed, surfaced in the passive status
      *  header so `status` reports the real cause (e.g. port held / EADDRINUSE)

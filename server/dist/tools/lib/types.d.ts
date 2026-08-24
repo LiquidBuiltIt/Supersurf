@@ -62,16 +62,24 @@ export interface ToolContext {
      */
     captureFingerprintInContext?(contextId: number | null, selector: string, meta?: HandleMeta): void;
     /**
-     * Heal a selector miss inside a child frame (iframe) by scoring a stored fingerprint
-     * against that frame's DOM, bound to the frame's execution context. Returns the
-     * gate-passing hit's **iframe-local** center + score (the caller translates to top-frame
-     * coords), or null when no record exists / the gate fails. Gated by the fingerprinting
-     * experiment. Optional — wired by BrowserBridge.
+     * Heal a selector miss inside a given frame's execution context — or the top
+     * frame's default context when `contextId` is null — by scoring a stored
+     * fingerprint against that frame's DOM. Returns the gate-passing hit's
+     * **frame-local** center + score (the caller translates to top-frame coords),
+     * or null when no record exists / the gate fails. `objectId`/`resolvedExpr`
+     * are set together, best-effort, when a live element could be re-resolved for
+     * the hit (synthesized selector, falling back to `elementFromPoint`) — callers
+     * that only need coordinates (click/hover) can ignore them; callers that need
+     * to re-query the element by JS (type, select_option, fill_form, …) use
+     * `resolvedExpr`; callers that need a raw CDP node (file_upload) use `objectId`.
+     * Gated by the fingerprinting experiment. Optional — wired by BrowserBridge.
      */
-    healFingerprintInContext?(contextId: number, selector: string): Promise<{
+    healFingerprintInContext?(contextId: number | null, selector: string): Promise<{
         cx: number;
         cy: number;
         score: number;
+        objectId?: string;
+        resolvedExpr?: string;
     } | null>;
     /**
      * Translate a playbook handle name (bare snake_case, e.g. `tweet_button`) into the

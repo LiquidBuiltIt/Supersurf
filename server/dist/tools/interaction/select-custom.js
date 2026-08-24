@@ -14,13 +14,14 @@ const option_matcher_1 = require("./option-matcher");
         if (!targetValue)
             throw new Error('select_custom requires a value');
         const expr = ctx.getSelectorExpression(triggerSelector);
-        const triggerMatch = await (0, frames_1.resolveInFrames)(ctx, expr);
+        const meta = { name: action.name, purpose: action.purpose };
+        const triggerMatch = await (0, frames_1.resolveInFrames)(ctx, expr, triggerSelector, meta);
         if (!triggerMatch)
             throw new Error(`No custom dropdown trigger found at ${triggerSelector}.`);
         const frameContextId = triggerMatch.contextId;
         const detection = await (0, frames_1.evalInFrameOrTop)(ctx, `
       (() => {
-        const el = ${expr};
+        const el = ${triggerMatch.resolvedExpr};
         if (!el) return { found: false };
         const isCustomSelect =
           el.getAttribute('role') === 'combobox' ||
@@ -63,7 +64,6 @@ const option_matcher_1 = require("./option-matcher");
         return [...ids];
       })()
     `, frameContextId) || [];
-        const meta = { name: action.name, purpose: action.purpose };
         const { x, y } = await (0, frames_1.getCenterInFrame)(ctx, triggerSelector, meta);
         await (0, helpers_1.moveCursorTo)(ctx, x, y, '_default');
         await ctx.cdp('Input.dispatchMouseEvent', {
@@ -136,7 +136,7 @@ const option_matcher_1 = require("./option-matcher");
         await ctx.sleep(150);
         const verification = await (0, frames_1.evalInFrameOrTop)(ctx, `
       (() => {
-        const el = ${expr};
+        const el = ${triggerMatch.resolvedExpr};
         if (!el) return { verified: false, currentText: '' };
         const currentText = el.textContent?.trim().substring(0, 100) || '';
         const before = ${JSON.stringify(detection.triggerText)};

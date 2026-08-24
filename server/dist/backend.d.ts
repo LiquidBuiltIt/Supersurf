@@ -35,6 +35,7 @@ export declare class ConnectionManager implements ConnectionManagerAPI {
     clientId: string | null;
     connectedBrowserName: string | null;
     attachedTab: TabInfo | null;
+    profile: string | null;
     stealthMode: boolean;
     metricsLogger: UsageMetricsLogger | null;
     /** Reason the last `connect` attempt failed (e.g. wedged-port EADDRINUSE).

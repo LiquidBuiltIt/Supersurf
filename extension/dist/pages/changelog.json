@@ -26,7 +26,31 @@
         "**fix: `browser_verify_element_visible` and `browser_extract_content` (selector mode) now pierce open shadow roots too.** Both hand-rolled their own `document.querySelector(...)` instead of routing through `getSelectorExpression`, so they were still blind to shadow-nested elements after the shadow-piercing walker landed for `browser_interact`/`browser_fill_form`/`getElementCenter`. Same non-breaking guarantee: an existing selector still resolves to the same light-DOM element.",
         "**Resolve-by-name (playbooks read side, round one)** — any selector field on `browser_interact` (and `browser_get_element_styles`, `browser_fill_form`, `browser_extract_content`, `browser_verify_element_visible`) now accepts a handle you named earlier: pass a bare multi-word `snake_case` name like `tweet_button` and the server resolves it to the element that name was fingerprinted against, healing on a page change. Multiple records can legitimately carry the same canonical name; ties break on hit count then recency. An unrecognized name falls through to the normal CSS path and the not-found error gains a line explaining that no such handle was recorded. Single-word names are always read as CSS tag selectors. Gated by the `fingerprinting` experiment. Emits `handle.resolved` (name, match tier, candidate count) to the usage-metrics trail.",
         "**Fingerprint match scorer now returns the winning element's identity** (`role`, `name`, `tag`, `type`, `htmlId`, `attrs`, `classList`, `ordinal`) alongside its coordinates and score. Previously it computed all of it in-page and serialized only `{cx, cy, score, margin}`, which made a healed match impossible to turn back into a selector."
-      ]
+      ],
+      "itemCount": 22,
+      "typeCounts": [
+        {
+          "type": "fix",
+          "count": 10
+        },
+        {
+          "type": "feat",
+          "count": 5
+        },
+        {
+          "type": "other",
+          "count": 4
+        },
+        {
+          "type": "change",
+          "count": 2
+        },
+        {
+          "type": "perf",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "3.2.0",
@@ -40,7 +64,23 @@
         "fix(fingerprinting): `file://` pages now key to a dedicated `file` bucket with the path as route (was collapsing into `unknown`), and `captureOnResolve` hard-drops any capture that still resolves to `domain: \"unknown\"` — the `unknown.json` bucket is unhealable (heal keys off the live domain) so writing to it is pure noise. Garbage/`about:blank`-style URLs go to the void instead of polluting the dataset.",
         "**Native dialogs are now held, not auto-answered.** `alert`/`confirm`/`prompt`/`beforeunload` are caught via CDP `Page.javascriptDialogOpening` and held open (the renderer stays blocked until resolved); the triggering tool's own result surfaces the dialog in the `_dialogs` envelope (`⚠ A native <type> dialog is OPEN and blocking the page…`), and the agent resolves it with `browser_handle_dialog {action: \"view\" | \"accept\" | \"dismiss\"}` (legacy `accept: boolean` still maps: true→accept, false→dismiss). This **supersedes** the 3.0.1 approach (MAIN-world `alert`/`confirm`/`prompt` stub injection + auto-dismiss-`confirm` default + the `⚠ dialog fired → <response>` notice): there are no MAIN-world stubs and nothing is auto-answered. Fixes the `beforeunload` renderer-freeze — `beforeunload` has no `window.*` method to stub, so under the old model it reached the native CDP path with nothing listening and froze the renderer indefinitely; an in-flight command that triggers a dialog now returns immediately (the CDP event fires on the service-worker thread and resolves a race) instead of hanging to timeout, and subsequent page-touching commands short-circuit with a clear \"resolve the dialog first\" error while one is held. Auto-answering is removed from the transparent core and deferred to a future opt-in **smart mode** (see `smart-mode-roadmap-2026-06`).",
         "fix: **parallel-agent tab collision (Tier 1).** Concurrent subagents share one MCP session, so every tab-scoped tool resolved against the extension's single shared `attachedTabId` global — a sibling agent switching tabs would silently redirect another's in-flight call (a TOCTOU race). Tab-scoped tools now accept an explicit `tabId` param (pin it from `browser_tabs` so a sibling can't steer your call; omit to use the session's attached tab). Threaded end-to-end with **no per-handler duplication**: server side, `tabId` rides `ToolContext` (`args.tabId` → `buildContext(tabId)` → baked into `ctx.cdp`/`ctx.eval`) so the universal `cdp()` chokepoint in `tools/lib/cdp.ts` forwards it for the entire selector/eval/CDP surface; the few direct-`sendCmd` tools (snapshot/screenshot/window/dialog/perf/secure_fill/navigate) forward `ctx.tabId` explicitly. The `tabId` schema property is injected programmatically over a `TAB_SCOPED` set (one definition, not ~16 copies). Extension side, the single `ensureAttachedTab(explicitTabId?)` resolver honors an override **without mutating the shared global** (the correctness crux — a pin must not flip a sibling's view) and throws a clear error if the pinned tab is gone. Tier 2 (per-tab keying for the global console/network/dialog/spawned-tab buffers) is deferred to a separate change."
-      ]
+      ],
+      "itemCount": 8,
+      "typeCounts": [
+        {
+          "type": "fix",
+          "count": 6
+        },
+        {
+          "type": "feat",
+          "count": 1
+        },
+        {
+          "type": "other",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "3.1.0",
@@ -56,7 +96,35 @@
         "**Daemon: idle timeout suppressed while a user-owned browser is running** — prevents the daemon from idling out underneath a human-opened profile browser; timer re-arms when the browser closes.",
         "**Fix: `profiles.connect` is now pool-aware** — an agent attaching to a profile whose browser is already connected (e.g. CLI-launched) no longer double-spawns Chromium onto the same user-data-dir.",
         "**Fix: dispatcher help text no longer suggests `npx supersurf@latest`** (a squatted npm name that isn't us) — corrected to `npx supersurf-mcp@latest`."
-      ]
+      ],
+      "itemCount": 10,
+      "typeCounts": [
+        {
+          "type": "fix",
+          "count": 4
+        },
+        {
+          "type": "other",
+          "count": 2
+        },
+        {
+          "type": "chore",
+          "count": 1
+        },
+        {
+          "type": "cli",
+          "count": 1
+        },
+        {
+          "type": "daemon",
+          "count": 1
+        },
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "3.0.2",
@@ -64,7 +132,19 @@
       "bullets": [
         "chore: delisted the `supersurf creds` subcommand (keychain storage + CLI remain in the tree but unrouted) until the keychain is wired into `secure_fill`; `secure_fill` now carries a soft pre-deprecation notice and stays fully functional",
         "docs: swept stale claims out of `README.md`, `server/README.md`, `daemon/README.md`, and `CLAUDE.md` after a cross-file audit. Removed the retired `experimental_features` tool and the nonexistent `browser_reload_extensions` tool from the tool tables; moved `secure_eval` (graduated v1.11.0) and `profiles` (graduated v2.1.0) out of the \"experimental\" sections and documented `secure_eval` as default-on with the `--disable-secure-eval` opt-out; pointed the npm badge at `supersurf-mcp` instead of the squatted `supersurf`; corrected the daemon README's `session_ack` payload (no `capabilities.profiles` field) and auto-spawn description (bundled local resolution, not `npx @latest`); fixed `tools/frames.ts` → `tools/lib/frames.ts` and the membrane test path in CLAUDE.md, added the `shared/config` + `shared/keychain` submodules and six unlisted server test files, and added a prominent npm-name-squat callout pointing to the `supersurf-npm-namesquat-dispute-2026-06-07` tracker"
-      ]
+      ],
+      "itemCount": 2,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        },
+        {
+          "type": "docs",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "3.0.1",
@@ -84,7 +164,27 @@
         "feat: `profiles.startup_opts.disable_gpu` config knob — when set to `true` in `~/.supersurf/config.json`, the daemon appends `--disable-gpu` to every managed-profile Chromium spawn. Stability/compat lever for systems with flaky GPU drivers (black tabs, renderer crashes); **not** a performance win — disabling hardware compositing usually regresses scrolling and canvas/WebGL perf, so leave it `false` (the default) unless you have a concrete stability reason to flip it. Single global knob, no per-profile override. Requires daemon restart",
         "chore: `scripts/publish.ts` preflight now checks publish auth as a prerequisite before doing any release work — validates CWS client credentials + refresh-token freshness and npm-registry login (`npm whoami`), failing fast with the exact remediation command (`npm run cws.auth` / `npm login`) instead of partway through a release",
         "chore: `npm run smoke.pack` — npm-pack self-containment gate. Packs the `supersurf` tarball, installs it into a throwaway temp dir (no workspace symlinks), and `require()`s the bundled daemon + bin entrypoints under `VITEST=1` (so it never starts a real daemon or touches `~/.supersurf/`). Fails loudly if any bundled module is missing — catches an unshippable bundle that dev-time workspace symlinks would otherwise hide. Run before publishing"
-      ]
+      ],
+      "itemCount": 14,
+      "typeCounts": [
+        {
+          "type": "fix",
+          "count": 6
+        },
+        {
+          "type": "feat",
+          "count": 4
+        },
+        {
+          "type": "breaking",
+          "count": 2
+        },
+        {
+          "type": "chore",
+          "count": 2
+        }
+      ],
+      "summary": null
     },
     {
       "version": "2.1.0",
@@ -94,7 +194,23 @@
         "BREAKING: removed `experiments.profiles` config key. Setting it in `~/.supersurf/config.json` will emit an \"unknown top-level key\" warning and otherwise be ignored. `SUPERSURF_EXPERIMENTS=profiles` likewise warns and is ignored",
         "BREAKING: removed `capabilities.profiles` from the daemon's `session_ack` handshake. MCP servers no longer guard profile tools on this capability — the gate is always open",
         "chore: added regression-lock tests asserting `profiles` is not present in `Config['experiments']`, not in `KNOWN_EXPERIMENTS`, and not in `DaemonExperimentRegistry.AVAILABLE_EXPERIMENTS`"
-      ]
+      ],
+      "itemCount": 4,
+      "typeCounts": [
+        {
+          "type": "breaking",
+          "count": 2
+        },
+        {
+          "type": "chore",
+          "count": 1
+        },
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "2.0.0",
@@ -108,7 +224,23 @@
         "feat: new env vars `SUPERSURF_CONFIG_FILE` (path override) and `SUPERSURF_DEBUG` (alias for `--debug`)",
         "chore: CLAUDE.md updated for v2 architecture",
         "chore: usage-data-audit skill updated to glob both `metrics-*.ndjson` and legacy `audit-*.ndjson`"
-      ]
+      ],
+      "itemCount": 8,
+      "typeCounts": [
+        {
+          "type": "breaking",
+          "count": 4
+        },
+        {
+          "type": "chore",
+          "count": 2
+        },
+        {
+          "type": "feat",
+          "count": 2
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.11.0",
@@ -120,21 +252,53 @@
         "feat: sharpened `browser_evaluate` schema — explicit \"NOT for\" list redirecting agents to `browser_navigate`, `browser_storage`, `browser_fill_form`/`browser_interact`, `browser_network_requests`. `readOnlyHint` flipped to `true` and title now reads \"Evaluate JS (read-only)\"",
         "fix: `browser_fill_form` now walks child frames when a selector misses the top frame — same DFS isolated-world pattern v1.10.0 added to `browser_interact`. Closes the iframe-nested form-field gap (52% of active fill_form errors in the audit logs) on iCIMS, embedded form-builders, and payment widgets",
         "fix: digit-leading element IDs (e.g. Ashby's `#883a762f-8c9b-...` UUIDs) are now transparently rewritten to `[id=\"...\"]` form before reaching `document.querySelector`. CSS forbids ID identifiers that start with a digit — page-internal querySelector throws `SyntaxError: not a valid selector` — but Ashby (and others) emit them anyway. Closes 36% of active fill_form errors"
-      ]
+      ],
+      "itemCount": 6,
+      "typeCounts": [
+        {
+          "type": "fix",
+          "count": 4
+        },
+        {
+          "type": "feat",
+          "count": 1
+        },
+        {
+          "type": "security",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.10.1",
       "date": "2026-05-01",
       "bullets": [
         "chore: internal refactor — split `tools.ts` into `tools/lib/` (shared primitives: cdp, frames, sandbox, element-resolver, result-formatter, dispatcher, types) and split `tools/interaction.ts` into per-action files. No behavior change"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.10.0",
       "date": "2026-04-22",
       "bullets": [
         "feat: `browser_interact` actions with a `selector` now auto-fall-back to child frames on top-frame miss — DFS-walks the frame tree via `Page.createIsolatedWorld` and resolves elements in iframe-local coords back to top-frame viewport coords. Eliminates \"Element not found\" failures on iframe-nested elements (iCIMS, embedded form-builders, payment widgets) without forcing agents to think about frames"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.9.3",
@@ -142,7 +306,15 @@
       "bullets": [
         "feat: `browser_evaluate` requires a `purpose` parameter — a free-text field where the agent explains why evaluate is needed instead of a dedicated tool (`browser_lookup`, `browser_extract_content`, `browser_interact`, `browser_fill_form`, `browser_navigate`, `browser_get_element_styles`). Captured in the audit log for intent analysis. Missing/empty purpose is rejected before dispatch",
         "feat: contextual tip suppression — if a tip fires 3 consecutive times for the same (session, tool, tip_id), it is suppressed on subsequent calls until that tool is called without triggering it (per-tip reset). Stops high-volume repeat coaching (the `browser_lookup` tip fired 261 times in the recent job-search sessions with a 2% follow-through rate) from becoming wallpaper. Counters clear on `disconnect`"
-      ]
+      ],
+      "itemCount": 2,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 2
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.9.2",
@@ -151,14 +323,34 @@
         "feat: profile tools (`profile_list`, `profile_create`, `profile_delete`) work without `connect`/`disconnect` — handlers spin up a temporary daemon connection when no active session exists, so agents can manage profiles from passive state",
         "chore: added `npm run tree` script for listing project source files",
         "chore: CLAUDE.md updated to reflect v1.9.1 state — added daemon experiments layer, tips system, dotenv, sandbox, chrome types, and missing test entries"
-      ]
+      ],
+      "itemCount": 3,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 2
+        },
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.9.1",
       "date": "2026-04-08",
       "bullets": [
         "chore: `scripts/publish.ts` now owns git tagging — `scripts/version.bump.ts` no longer creates tags. Tags only exist for versions actually shipped, so re-bumping or amending after a bump is free (no tag cleanup). Publish is idempotent on retry — existing tag at HEAD is reused, push failure on a freshly-created tag rolls it back for a clean retry"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.9.0",
@@ -167,7 +359,19 @@
         "feat: `file_upload` walks child frames when the selector isn't found in the top frame — uses `Page.getFrameTree` + per-frame isolated worlds. Closes the iCIMS / Stripe / embedded form-builder gap where file inputs live inside iframes. Top-frame happy path is unchanged",
         "feat: tab recovery is now visible to agents — `BrowserBridge.formatResult()` extracts the `_recovery` envelope from extension responses and prefixes the response with `↻ tab recovered: stale tab N → M (url)` so agents know the tab changed mid-call",
         "fix: `fill_form` dispatches `new Event('input', ...)` instead of `new InputEvent('input', ...)` — `InputEvent` was routing some React versions down a composition-event path that bypassed the value tracker, leaving controlled-input state stale (e.g. Lever ATS `Resume_URL` silent failure). Per facebook/react#10135"
-      ]
+      ],
+      "itemCount": 3,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 2
+        },
+        {
+          "type": "fix",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.8.0",
@@ -176,7 +380,15 @@
         "feat: `browser_snapshot` coalesces adjacent `InlineTextBox` siblings into a single text node — cuts AX tree noise on text-heavy pages where Chrome splits long runs into per-line boxes",
         "feat: lightweight tab recovery — `ensureAttachedTab()` auto-recovers when the attached tab is null or stale (crashed/closed) instead of failing the call. Recovery prefers the active visible tab in the focused window. Surfaces `_recovery: { reason, previousTabId, newTabId, url }` on the result so agents know the tab changed",
         "feat: backend tool audit entries (`connect`/`disconnect`/`status`/`experimental_features`/`reload_mcp`/`profile_*`) now populate the `url` field — closes a session-boundary blind spot in audit analysis"
-      ]
+      ],
+      "itemCount": 3,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 3
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.7.0",
@@ -187,7 +399,23 @@
         "feat: `select_custom` fuzzy option matcher — 6-tier scoring (exact → alphanumeric → startsWith → substring) recovers from real-world ATS label mismatches like \"United States\" → \"United States +1\"",
         "feat: post-action validation for `fill_form`, `select_custom`, and `file_upload` — tools now read back DOM state after the mutation and prefix results with `✓` (verified) or `⚠` (mutation ran but read-back didn't confirm)",
         "docs: research note on the React value-tracker silent-failure mode for `fill_form` — DOM-level read-back is necessary but not sufficient to catch React state drift; fiber-walk verification deferred to a follow-up"
-      ]
+      ],
+      "itemCount": 5,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 2
+        },
+        {
+          "type": "fix",
+          "count": 2
+        },
+        {
+          "type": "docs",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.6.5",
@@ -195,14 +423,34 @@
       "bullets": [
         "feat: show tethered profile name in extension popup — makes identity theft between managed profiles immediately visible",
         "fix: version bump rollback now restores version files to previous version instead of leaving them bumped"
-      ]
+      ],
+      "itemCount": 2,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 1
+        },
+        {
+          "type": "fix",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.6.4",
       "date": "2026-03-31",
       "bullets": [
         "chore: remove `browser_reload_extensions` — fatal for managed profiles"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.6.0",
@@ -212,7 +460,19 @@
         "feat: `:has-text()` pseudo-selector documented in `browser_interact` schema description",
         "feat: `version` and `tip` fields in audit log entries for version correlation and tip effectiveness analysis",
         "fix: `select_custom` scopes option search to newly-opened dropdown via before/after diffing — fixes 87.5% error rate on pages with multiple custom dropdowns (e.g. Greenhouse job boards)"
-      ]
+      ],
+      "itemCount": 4,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 3
+        },
+        {
+          "type": "fix",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.5.1",
@@ -220,7 +480,15 @@
       "bullets": [
         "feat: daemon `stop` and `restart` commands",
         "feat: version stamp in audit log entries"
-      ]
+      ],
+      "itemCount": 2,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 2
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.5.0",
@@ -232,7 +500,19 @@
         "fix: auto-reattach to available tab when attached tab closes",
         "fix: evaluate wrapper handles statement code via nested IIFE",
         "fix: remove overly broad `data-state` check from `select_custom` detection"
-      ]
+      ],
+      "itemCount": 6,
+      "typeCounts": [
+        {
+          "type": "fix",
+          "count": 4
+        },
+        {
+          "type": "feat",
+          "count": 2
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.4.4",
@@ -240,14 +520,34 @@
       "bullets": [
         "fix: popup window fix (dock nav homepage)",
         "chore: added publication scripts"
-      ]
+      ],
+      "itemCount": 2,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        },
+        {
+          "type": "fix",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.4.3",
       "date": "2026-03-19",
       "bullets": [
         "feat: auto-update cached extension on daemon start if version is stale"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.4.2",
@@ -255,14 +555,34 @@
       "bullets": [
         "fix: popup windows breaking tab operations — filter to normal windows only",
         "feat: expose `tabId` in `browser_tabs` schema"
-      ]
+      ],
+      "itemCount": 2,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 1
+        },
+        {
+          "type": "fix",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.4.1",
       "date": "2026-03-14",
       "bullets": [
         "fix: shared dependency resolving to unrelated npm package with critical vulnerabilities"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "fix",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.4.0",
@@ -272,49 +592,105 @@
         "feat: multi-session multiplexing via daemon with round-robin scheduling",
         "feat: profile system (`ProfileRegistry`, `Matchmaker`, managed Chromium instances)",
         "feat: audit logging — always-on NDJSON trail for every tool call"
-      ]
+      ],
+      "itemCount": 4,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 4
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.3.1",
       "date": "2026-03-13",
       "bullets": [
         "chore: file cleanup"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.3.0",
       "date": "2026-03-13",
       "bullets": [
         "chore: file cleanup, repo reorganization"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.2.0",
       "date": "2026-03-12",
       "bullets": [
         "chore: cache flush, repo maintenance"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.1.0",
       "date": "2026-03-07",
       "bullets": [
         "security: updated packages with security fixes"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "security",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.0.2",
       "date": "2026-03-07",
       "bullets": [
         "chore: maintenance"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.0.1",
       "date": "2026-03-04",
       "bullets": [
         "chore: file cleanup"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "1.0.0",
@@ -326,7 +702,15 @@
         "feat: `browser_lookup` — find elements by visible text, return selectors + coordinates",
         "feat: page diffing (experimental) — DOM diff with confidence scoring after interactions",
         "feat: smart waiting (experimental) — DOM stability detection"
-      ]
+      ],
+      "itemCount": 6,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 6
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.7.1",
@@ -334,7 +718,15 @@
       "bullets": [
         "fix: README extension install instructions",
         "fix: updated file references"
-      ]
+      ],
+      "itemCount": 2,
+      "typeCounts": [
+        {
+          "type": "fix",
+          "count": 2
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.7.0",
@@ -343,28 +735,60 @@
         "feat: welcome page",
         "feat: port cleanup, idle timeout",
         "feat: mux status reporting"
-      ]
+      ],
+      "itemCount": 3,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 3
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.6.7",
       "date": "2026-02-24",
       "bullets": [
         "chore: maintenance"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.6.6",
       "date": "2026-02-23",
       "bullets": [
         "chore: added GitHub page"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.6.5",
       "date": "2026-02-20",
       "bullets": [
         "chore: updated README"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.6.4",
@@ -372,35 +796,79 @@
       "bullets": [
         "security: harden `secure_eval` against pentest bypasses",
         "feat: add rollback flag to `version.bump`"
-      ]
+      ],
+      "itemCount": 2,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 1
+        },
+        {
+          "type": "security",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.6.3",
       "date": "2026-02-18",
       "bullets": [
         "chore: maintenance"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.6.1",
       "date": "2026-02-17",
       "bullets": [
         "chore: updated logo + UI"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.6.0",
       "date": "2026-02-17",
       "bullets": [
         "feat: domain whitelisting — pulls daily from Tranco top 100K, opt-in via popup"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.5.2",
       "date": "2026-02-16",
       "bullets": [
         "security: fix `secure_eval` checks being bypassed by adversarial JS"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "security",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.5.1",
@@ -412,14 +880,30 @@
         "fix: page diffing accuracy",
         "fix: smart waiting reliability",
         "fix: error messages"
-      ]
+      ],
+      "itemCount": 6,
+      "typeCounts": [
+        {
+          "type": "fix",
+          "count": 6
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.5.0",
       "date": "2026-02-15",
       "bullets": [
         "feat: `secure_eval` experimental feature — AST-based code analysis for `browser_evaluate` using acorn; blocks network calls, storage access, code injection, and obfuscation patterns before execution"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.4.0",
@@ -428,21 +912,49 @@
         "feat: `mouse_humanization` experimental feature — Bezier path generation, randomized personality traits",
         "feat: improved debug logging — per-session log files, parameter visibility on CDP/WS commands, truncation",
         "chore: removed `env-paths` dependency"
-      ]
+      ],
+      "itemCount": 3,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 2
+        },
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.3.0",
       "date": "2026-02-13",
       "bullets": [
         "feat: `storage_inspection` experimental feature — localStorage/sessionStorage inspection"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.2.1",
       "date": "2026-02-12",
       "bullets": [
         "chore: further modularization, improved testing"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.2.0",
@@ -450,14 +962,34 @@
       "bullets": [
         "feat: multiplexing experimental feature",
         "chore: modularized codebase"
-      ]
+      ],
+      "itemCount": 2,
+      "typeCounts": [
+        {
+          "type": "chore",
+          "count": 1
+        },
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     },
     {
       "version": "0.1.0",
       "date": "2026-02-10",
       "bullets": [
         "feat: initial release"
-      ]
+      ],
+      "itemCount": 1,
+      "typeCounts": [
+        {
+          "type": "feat",
+          "count": 1
+        }
+      ],
+      "summary": null
     }
   ]
 }

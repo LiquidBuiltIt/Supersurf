@@ -12,7 +12,7 @@ const frames_1 = require("../lib/frames");
             throw new Error(`Element not found: ${action.selector}`);
         const clearExpr = `
       (() => {
-        const el = ${selectorExpr};
+        const el = ${match.resolvedExpr};
         if (!el) return { cleared: false };
         el.focus();
         el.value = '';

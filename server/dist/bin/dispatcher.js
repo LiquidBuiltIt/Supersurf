@@ -45,20 +45,23 @@ Usage: supersurf <command> [options]
 Commands:
   mcp       Start the MCP server over stdio (the agent entrypoint)
   daemon    Manage the coordinator daemon: start | stop | restart | status | observe
-  profiles  Manage browser profiles: ls | open <name>
+  profiles  Manage browser profiles: ls | open <name> | create <name> | rm <name> | rename <old> <new>
   export    Bundle usage-metrics logs into a .zip in the current directory
+  playbook  Manage saved playbooks: ls | show | edit | rm | export | import
 
 Examples:
   npx supersurf-mcp@latest mcp
   supersurf daemon status
   supersurf profiles open dev
-  supersurf export`;
+  supersurf export
+  supersurf playbook ls`;
 function pickTarget(argv) {
     const subcommand = argv[2];
     if (subcommand === 'mcp' ||
         subcommand === 'daemon' ||
         subcommand === 'profiles' ||
-        subcommand === 'export') {
+        subcommand === 'export' ||
+        subcommand === 'playbook') {
         return {
             target: subcommand,
             remainingArgv: [...argv.slice(0, 2), ...argv.slice(3)],
@@ -118,6 +121,10 @@ async function dispatch(argv) {
         const { runExportProgram } = await Promise.resolve().then(() => __importStar(require('./export')));
         const code = await runExportProgram(remainingArgv);
         process.exit(code);
+    }
+    else if (target === 'playbook') {
+        const { runPlaybookProgram } = await Promise.resolve().then(() => __importStar(require('./playbook-cli')));
+        await runPlaybookProgram(remainingArgv);
     }
     else {
         // Unreachable until `creds` is re-listed in pickTarget — kept intentionally

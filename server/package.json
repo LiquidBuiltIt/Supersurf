@@ -1,7 +1,7 @@
 {
   "name": "supersurf-mcp",
   "mcpName": "io.github.LiquidBuiltIt/supersurf-mcp",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "Open-source MCP server for browser automation — gives AI agents control of a real Chrome browser via extension",
   "main": "dist/bin/supersurf.js",
   "types": "dist/bin/supersurf.d.ts",

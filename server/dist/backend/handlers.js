@@ -51,6 +51,8 @@ exports.onConnect = onConnect;
 exports.applyTabInfoUpdate = applyTabInfoUpdate;
 exports.rehydrateAttachedTab = rehydrateAttachedTab;
 exports.onDisconnect = onDisconnect;
+exports.checkPlaybookProfileMismatch = checkPlaybookProfileMismatch;
+exports.onPlaybooksRunImplicit = onPlaybooksRunImplicit;
 exports.onStatus = onStatus;
 exports.onProfileCreate = onProfileCreate;
 exports.onProfileList = onProfileList;
@@ -63,6 +65,8 @@ const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const tips_1 = require("../tips");
 const shared_1 = require("../shared");
+const usage_metrics_logger_1 = require("../usage-metrics-logger");
+const playbooks_1 = require("../tools/playbooks");
 const log = (0, logger_1.createLog)('[Conn]');
 // Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
 let BrowserBridge = null;
@@ -126,6 +130,7 @@ async function onConnect(mgr, args = {}, options = {}) {
     }
     // Fresh attempt — clear any stale failure reason from a prior connect.
     mgr.lastConnectError = null;
+    mgr.profile = null;
     try {
         const port = mgr.config.port || 5555;
         // Spawn daemon if not running
@@ -179,6 +184,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         if (args.profile && typeof args.profile === 'string') {
             log('Connecting to profile:', args.profile);
             await client.sendCmd('profiles.connect', { profile: args.profile }, 90000);
+            mgr.profile = args.profile;
         }
         // Pre-enable session features from resolved config (fire-and-forget IPC to daemon)
         if (mgr.config.configService) {
@@ -222,6 +228,7 @@ async function onConnect(mgr, args = {}, options = {}) {
             mgr.extensionServer = null;
         }
         mgr.state = 'passive';
+        mgr.profile = null;
         // Remember why, so a follow-up `status` call surfaces the real cause
         // (e.g. wedged-port EADDRINUSE) instead of a bare cached "Disabled".
         mgr.lastConnectError = error.message;
@@ -325,6 +332,7 @@ async function onDisconnect(mgr, options = {}) {
     mgr.state = 'passive';
     mgr.connectedBrowserName = null;
     mgr.attachedTab = null;
+    mgr.profile = null;
     (0, index_2.destroySession)('_default');
     index_1.experimentRegistry.unbind();
     mgr.notifyToolsListChanged().catch((err) => log('Error sending notification:', err));
@@ -340,6 +348,72 @@ async function onDisconnect(mgr, options = {}) {
             },
         ],
     };
+}
+// ─── Playbooks — implicit connect ─────────────────────────────
+/**
+ * Check an active/connected session's bound profile against the profile a
+ * `playbooks run` call resolves to (explicit `profile` arg, else the
+ * playbook's own `profile` field). Returns an error response on mismatch, or
+ * `null` when the call may proceed on the current session unchanged. Never
+ * re-binds — a mismatch is refused, not silently corrected.
+ */
+function checkPlaybookProfileMismatch(mgr, args, options = {}) {
+    const resolved = (0, playbooks_1.resolveRunProfile)(args);
+    if (!resolved || resolved === mgr.profile)
+        return null;
+    const bound = mgr.profile ? `\`${mgr.profile}\`` : 'no profile';
+    const msg = `Playbook targets profile \`${resolved}\`, but the current session is bound to ${bound}. ` +
+        `Call \`disconnect\` then \`connect\` with \`profile: '${resolved}'\`, or omit \`profile\` ` +
+        `to run it on the current session instead.`;
+    if (options.rawResult) {
+        return { success: false, error: 'profile_mismatch', message: msg };
+    }
+    return { content: [{ type: 'text', text: msg }], isError: true };
+}
+/**
+ * Passive-state `playbooks run`: connect implicitly — resolving the target
+ * profile the same way `checkPlaybookProfileMismatch` does — then run the
+ * playbook on the fresh session, then disconnect again if `detach` was
+ * requested. Reuses `onConnect`/`onDisconnect` directly rather than
+ * duplicating daemon spawn/handshake logic.
+ */
+async function onPlaybooksRunImplicit(mgr, args, options = {}) {
+    const resolvedProfile = (0, playbooks_1.resolveRunProfile)(args);
+    const detach = args.detach === true;
+    const clientId = `playbooks-implicit-${Date.now()}`;
+    const connectArgs = { client_id: clientId };
+    if (resolvedProfile)
+        connectArgs.profile = resolvedProfile;
+    // Match the metrics-logger bootstrap `backend.ts` does for an explicit
+    // `connect` call, or an implicitly-connected session silently loses
+    // usage-metrics logging for the rest of its life.
+    const metricsEnabled = mgr.config.configService?.get().logging.usage_metrics ?? false;
+    if (!mgr.metricsLogger && metricsEnabled) {
+        mgr.metricsLogger = new usage_metrics_logger_1.UsageMetricsLogger(clientId);
+    }
+    const connectResult = await onConnect(mgr, connectArgs, options);
+    const connectFailed = options.rawResult ? connectResult?.success === false : connectResult?.isError === true;
+    if (connectFailed)
+        return connectResult;
+    const noteLines = [
+        resolvedProfile
+            ? `Connected implicitly (profile: ${resolvedProfile}) to run playbook.`
+            : 'Connected implicitly to run playbook.',
+    ];
+    let runResult;
+    try {
+        runResult = await mgr.bridge.callTool('playbooks', args, options);
+    }
+    finally {
+        if (detach) {
+            await onDisconnect(mgr, options);
+            noteLines.push('Disconnected after run (detach requested).');
+        }
+    }
+    if (runResult?.content?.[0]?.type === 'text') {
+        runResult.content[0].text = `${noteLines.join('\n')}\n\n${runResult.content[0].text}`;
+    }
+    return runResult;
 }
 // ─── Status ──────────────────────────────────────────────────
 /** Return current connection state, browser info, and attached tab details. */

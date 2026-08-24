@@ -292,8 +292,15 @@ class IPCServer {
             }
             case 'profiles.delete': {
                 const name = params.name;
-                this.profileRegistry.delete(name, this.sessions);
+                const refuseIfRunning = params.refuseIfRunning;
+                this.profileRegistry.delete(name, this.sessions, { refuseIfRunning });
                 return { success: true };
+            }
+            case 'profiles.rename': {
+                const name = params.name;
+                const newName = params.newName;
+                const config = this.profileRegistry.rename(name, newName, this.sessions);
+                return { success: true, profile: config };
             }
             case 'profiles.connect': {
                 const profile = params.profile;

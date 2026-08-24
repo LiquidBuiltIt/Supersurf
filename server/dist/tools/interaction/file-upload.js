@@ -28,13 +28,23 @@ const frames_1 = require("../lib/frames");
         // Step 2: If top frame has no match, walk child frames in DFS order.
         if (!objectId) {
             const match = await (0, frames_1.findElementInFrames)(ctx, selectorExpr);
-            if (!match) {
-                throw new Error(`Element not found in any frame: ${action.selector}`);
+            if (match) {
+                objectId = match.objectId;
+                frameContextId = match.contextId;
+                if (action.selector) {
+                    ctx.captureFingerprintInContext?.(match.contextId, action.selector, meta);
+                }
             }
-            objectId = match.objectId;
-            frameContextId = match.contextId;
-            if (action.selector) {
-                ctx.captureFingerprintInContext?.(match.contextId, action.selector, meta);
+            else if (action.selector) {
+                // Step 3: no frame matched the selector at all — try a fingerprint heal.
+                const healed = await (0, frames_1.healSelectorAcrossFrames)(ctx, action.selector);
+                if (healed) {
+                    objectId = healed.objectId;
+                    frameContextId = healed.contextId;
+                }
+            }
+            if (!objectId) {
+                throw new Error(`Element not found in any frame: ${action.selector}`);
             }
         }
         const nodeResult = await ctx.cdp('DOM.describeNode', { objectId });

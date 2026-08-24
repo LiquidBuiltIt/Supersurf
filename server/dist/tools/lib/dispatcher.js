@@ -12,17 +12,12 @@ exports.dispatchTool = dispatchTool;
 const logger_1 = require("../../logger");
 const index_1 = require("../../experimental/index");
 const tips_1 = require("../../tips");
-const interaction_1 = require("../interaction");
-const content_1 = require("../content");
-const styles_1 = require("../styles");
+const trail_1 = require("../../playbooks/trail");
 const screenshot_1 = require("../screenshot");
-const network_1 = require("../network");
-const navigation_1 = require("../navigation");
-const forms_1 = require("../forms");
-const downloads_1 = require("../downloads");
-const misc_1 = require("../misc");
-const browser_evaluate_1 = require("../browser_evaluate");
+const playbooks_1 = require("../playbooks");
+const handler_registry_1 = require("./handler-registry");
 const result_formatter_1 = require("./result-formatter");
+const dialog_notice_1 = require("./dialog-notice");
 const log = (0, logger_1.createLog)('[Dispatch]');
 /**
  * Dispatch a named tool call to the appropriate handler.
@@ -36,79 +31,12 @@ async function dispatchTool(ctx, name, args, options, env) {
     let callError;
     let result;
     try {
-        switch (name) {
-            case 'browser_tabs':
-                result = await (0, navigation_1.onBrowserTabs)(ctx, args, options);
-                break;
-            case 'browser_navigate':
-                result = await (0, navigation_1.onNavigate)(ctx, args, options);
-                break;
-            case 'browser_interact':
-                result = await (0, interaction_1.onInteract)(ctx, args, options);
-                break;
-            case 'browser_snapshot':
-                result = await (0, content_1.onSnapshot)(ctx, options);
-                break;
-            case 'browser_lookup':
-                result = await (0, content_1.onLookup)(ctx, args, options);
-                break;
-            case 'browser_extract_content':
-                result = await (0, content_1.onExtractContent)(ctx, args, options);
-                break;
-            case 'browser_get_element_styles':
-                result = await (0, styles_1.onGetElementStyles)(ctx, args, options);
-                break;
-            case 'browser_take_screenshot':
-                result = await (0, screenshot_1.onScreenshot)(ctx, args, options);
-                break;
-            case 'browser_evaluate':
-                result = await (0, browser_evaluate_1.onEvaluate)(ctx, args, options);
-                break;
-            case 'browser_console_messages':
-                result = await (0, network_1.onConsoleMessages)(ctx, args, options);
-                break;
-            case 'browser_fill_form':
-                result = await (0, forms_1.onFillForm)(ctx, args, options);
-                break;
-            case 'browser_drag':
-                result = await (0, forms_1.onDrag)(ctx, args, options);
-                break;
-            case 'browser_window':
-                result = await (0, misc_1.onWindow)(ctx, args, options);
-                break;
-            case 'browser_verify_text_visible':
-                result = await (0, misc_1.onVerifyTextVisible)(ctx, args, options);
-                break;
-            case 'browser_verify_element_visible':
-                result = await (0, misc_1.onVerifyElementVisible)(ctx, args, options);
-                break;
-            case 'browser_network_requests':
-                result = await (0, network_1.onNetworkRequests)(ctx, args, options);
-                break;
-            case 'browser_pdf_save':
-                result = await (0, screenshot_1.onPdfSave)(ctx, args, options);
-                break;
-            case 'browser_handle_dialog':
-                result = await (0, misc_1.onDialog)(ctx, args, options);
-                break;
-            case 'browser_list_extensions':
-                result = await (0, misc_1.onListExtensions)(ctx, options);
-                break;
-            case 'browser_performance_metrics':
-                result = await (0, misc_1.onPerformanceMetrics)(ctx, options);
-                break;
-            case 'browser_download':
-                result = await (0, downloads_1.onBrowserDownload)(ctx, args, options);
-                break;
-            case 'secure_fill':
-                result = await (0, forms_1.onSecureFill)(ctx, args, options);
-                break;
-            default: {
-                const experimentalResult = await (0, index_1.callExperimentalTool)(name, ctx, args, options);
-                if (experimentalResult !== null) {
-                    result = experimentalResult;
-                    break;
-                }
+        if (name === 'playbooks') {
+            result = await (0, playbooks_1.onPlaybooks)(ctx, args, options);
+        }
+        else {
+            result = await (0, handler_registry_1.callToolHandler)(ctx, name, args, options);
+            if (result === null) {
                 callResult = 'error';
                 callError = `Unknown tool: ${name}`;
                 result = (0, result_formatter_1.formatError)(callError, options);
@@ -175,6 +103,29 @@ async function dispatchTool(ctx, name, args, options, env) {
             duration_ms: Date.now() - start,
             ...(tip ? { tip } : {}),
         });
+        // Action id. `browser_interact` is excluded because onInteract already
+        // recorded one entry per action in its array — a call-level entry here
+        // would double-count. `playbooks` is excluded because it is the tool that
+        // READS the trail; recording its own calls would let a history read appear
+        // in the next history read.
+        //
+        // Recording itself is unconditional — rawResult (script mode) still needs
+        // trail entries for `playbooks history`/`run` to see. Only the `#<id> `
+        // text-prefix mutation is skipped in rawResult mode, matching the
+        // untouched-result contract script-mode consumers rely on.
+        if (name !== 'browser_interact' && name !== 'playbooks') {
+            const id = trail_1.actionTrail.record({
+                tool: name,
+                type: name,
+                outcome: callResult === 'error' ? 'error' : 'ok',
+                message: callError ?? 'ok',
+                params: args,
+                url,
+            });
+            if (!options.rawResult && result?.content?.[0]?.type === 'text') {
+                result.content[0].text = `#${id} ${result.content[0].text}`;
+            }
+        }
         if (tip && result?.content?.[0]?.type === 'text') {
             result.content[0].text += `\n\n---\n${tip}`;
         }
@@ -197,14 +148,7 @@ function prependDialogNotice(result, ctx, options) {
         return result;
     if (options.rawResult)
         return result;
-    const lines = events.map((d) => {
-        const msg = d.message != null && d.message !== '' ? `: ${JSON.stringify(d.message)}` : '';
-        const prompt = d.type === 'prompt' && d.defaultPrompt
-            ? ` (default: ${JSON.stringify(d.defaultPrompt)})` : '';
-        return `⚠ A native ${d.type} dialog is OPEN and blocking the page${msg}${prompt}. ` +
-            `Resolve it with browser_handle_dialog {action:"view"} then {action:"accept"} or {action:"dismiss"}.`;
-    });
-    const notice = lines.join('\n') + '\n';
+    const notice = (0, dialog_notice_1.dialogNoticeLines)(events).join('\n') + '\n';
     if (result && Array.isArray(result.content)) {
         const firstText = result.content.find((b) => b?.type === 'text');
         if (firstText) {

@@ -16,6 +16,7 @@ const index_1 = require("./experimental/index");
 const index_2 = require("./experimental/fingerprinting/index");
 const handle_resolve_1 = require("./experimental/fingerprinting/handle-resolve");
 const handle_annotate_1 = require("./experimental/fingerprinting/handle-annotate");
+const selector_synthesis_1 = require("./experimental/fingerprinting/selector-synthesis");
 const schemas_1 = require("./tools/schemas");
 const cdp_1 = require("./tools/lib/cdp");
 const element_resolver_1 = require("./tools/lib/element-resolver");
@@ -95,8 +96,12 @@ class BrowserBridge {
                     params.contextId = contextId; // null => top-frame default context
                 return (0, cdp_1.cdp)(ext, 'Runtime.evaluate', params, tabId).then((r) => r.result?.value);
             }, this.connectionManager?.getAttachedTab()?.url, selector, meta, emitHandle),
-            healFingerprintInContext: (contextId, selector) => (0, index_2.healInContext)((expr) => (0, cdp_1.cdp)(ext, 'Runtime.evaluate', { expression: expr, contextId, returnByValue: true }, tabId)
-                .then((r) => r.result?.value), this.connectionManager?.getAttachedTab()?.url, selector).then((hit) => {
+            healFingerprintInContext: (contextId, selector) => (0, index_2.healInContext)((expr) => {
+                const params = { expression: expr, returnByValue: true };
+                if (contextId != null)
+                    params.contextId = contextId; // null => top-frame default context
+                return (0, cdp_1.cdp)(ext, 'Runtime.evaluate', params, tabId).then((r) => r.result?.value);
+            }, this.connectionManager?.getAttachedTab()?.url, selector).then(async (hit) => {
                 if (!hit)
                     return null;
                 const url = this.connectionManager?.getAttachedTab()?.url;
@@ -111,7 +116,27 @@ class BrowserBridge {
                     result: 'ok',
                     duration_ms: 0,
                 });
-                return { cx: hit.cx, cy: hit.cy, score: hit.score };
+                // Best-effort: re-resolve a live element for the winning hit so callers
+                // that need more than coordinates (every selector-resolving verb besides
+                // click/hover/drag) can act on it. Synthesize a selector from the winner's
+                // stable identity first — robust to overlapping/hidden elements (e.g. a
+                // styled label sitting on top of a file input) — falling back to
+                // `elementFromPoint` at the winning coordinates. Failure here only omits
+                // `objectId`/`resolvedExpr`; the coordinate-only heal above is unaffected.
+                const synthesized = (0, selector_synthesis_1.selectorFromHit)(hit);
+                const objectExpr = synthesized ? (0, element_resolver_1.getSelectorExpression)(synthesized) : `document.elementFromPoint(${hit.cx}, ${hit.cy})`;
+                const objParams = { expression: objectExpr, returnByValue: false };
+                if (contextId != null)
+                    objParams.contextId = contextId;
+                let objectId;
+                try {
+                    const r = await (0, cdp_1.cdp)(ext, 'Runtime.evaluate', objParams, tabId);
+                    objectId = r?.result?.objectId;
+                }
+                catch { /* best-effort */ }
+                return objectId
+                    ? { cx: hit.cx, cy: hit.cy, score: hit.score, objectId, resolvedExpr: objectExpr }
+                    : { cx: hit.cx, cy: hit.cy, score: hit.score };
             }),
             resolveSelector: resolveSelectorSync,
             getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.connectionManager?.getAttachedTab()?.url),

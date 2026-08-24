@@ -6,10 +6,15 @@ exports.runProfilesCli = runProfilesCli;
 /**
  * `supersurf profiles <cmd>` — human-facing profile management.
  *
- * ls            List profiles with running/connected state
- * open <name>   Launch a profile's Chromium, user-owned: it survives agent
- *               sessions, daemon idle-timeout/shutdown, and the orphan sweep.
- *               Close the browser window to end it.
+ * ls                  List profiles with running/connected state
+ * open <name>         Launch a profile's Chromium, user-owned: it survives
+ *                     agent sessions, daemon idle-timeout/shutdown, and the
+ *                     orphan sweep. Close the browser window to end it.
+ * create <name>       Create a new managed profile.
+ * rm <name>           Remove a profile. Refuses if it's running or bound to
+ *                     an active session — reuses ProfileRegistry.delete()'s
+ *                     existing failsafe, doesn't reimplement it here.
+ * rename <old> <new>  Rename a profile. Same failsafe as rm.
  *
  * Talks to the daemon over the same Unix-socket IPC as MCP sessions, via a
  * throwaway session (same pattern as backend/handlers.ts profile CRUD).
@@ -21,9 +26,12 @@ exports.PROFILES_USAGE = `supersurf profiles — manage browser profiles
 Usage: supersurf profiles <command>
 
 Commands:
-  ls             List profiles and their state
-  open <name>    Launch a profile's Chromium (user-owned: survives agent
-                 sessions and daemon restarts; close the window to end it)`;
+  ls                   List profiles and their state
+  open <name>          Launch a profile's Chromium (user-owned: survives agent
+                        sessions and daemon restarts; close the window to end it)
+  create <name>        Create a new managed profile
+  rm <name>            Remove a profile (refuses if running or session-bound)
+  rename <old> <new>   Rename a profile (refuses if running or session-bound)`;
 function parseProfilesArgs(argv) {
     const sub = argv[2];
     if (sub === undefined || sub === '--help' || sub === '-h')
@@ -35,6 +43,25 @@ function parseProfilesArgs(argv) {
         if (!profile)
             return { cmd: 'help', error: 'profiles open requires a profile name' };
         return { cmd: 'open', profile };
+    }
+    if (sub === 'create') {
+        const name = argv[3];
+        if (!name)
+            return { cmd: 'help', error: 'profiles create requires a profile name' };
+        return { cmd: 'create', name };
+    }
+    if (sub === 'rm' || sub === 'delete') {
+        const name = argv[3];
+        if (!name)
+            return { cmd: 'help', error: 'profiles rm requires a profile name' };
+        return { cmd: 'rm', name };
+    }
+    if (sub === 'rename') {
+        const oldName = argv[3];
+        const newName = argv[4];
+        if (!oldName || !newName)
+            return { cmd: 'help', error: 'profiles rename requires <old> and <new> names' };
+        return { cmd: 'rename', oldName, newName };
     }
     return { cmd: 'help', error: `unknown profiles command '${sub}'` };
 }
@@ -87,22 +114,45 @@ async function runProfilesCli(argv) {
             }
             return;
         }
-        // open — profiles.launch waits up to 90s for the extension match; give
-        // the RPC 95s so the daemon-side timeout fires first with its own error.
-        const result = await withCliDaemonClient((client) => client.sendCmd('profiles.launch', { profile: parsed.profile }, 95000));
-        const owner = result.owner ?? 'daemon';
-        if (result.alreadyRunning) {
-            console.log(`Profile '${parsed.profile}' is already running (${owner}-owned).`);
+        if (parsed.cmd === 'open') {
+            // profiles.launch waits up to 90s for the extension match; give
+            // the RPC 95s so the daemon-side timeout fires first with its own error.
+            const result = await withCliDaemonClient((client) => client.sendCmd('profiles.launch', { profile: parsed.profile }, 95000));
+            const owner = result.owner ?? 'daemon';
+            if (result.alreadyRunning) {
+                console.log(`Profile '${parsed.profile}' is already running (${owner}-owned).`);
+            }
+            else if (owner === 'user') {
+                console.log(`Profile '${parsed.profile}' opened — browser is yours until you close it.`);
+            }
+            else {
+                console.log(`Profile '${parsed.profile}' opened, but an agent session claimed it first (${owner}-owned).`);
+            }
+            if (owner === 'daemon') {
+                console.log('Note: daemon-owned browsers close when their agent session ends.');
+            }
+            return;
         }
-        else if (owner === 'user') {
-            console.log(`Profile '${parsed.profile}' opened — browser is yours until you close it.`);
+        if (parsed.cmd === 'create') {
+            const result = await withCliDaemonClient((client) => client.sendCmd('profiles.create', { name: parsed.name }, 10000));
+            console.log(`Profile '${result?.profile?.name ?? parsed.name}' created.`);
+            return;
         }
-        else {
-            console.log(`Profile '${parsed.profile}' opened, but an agent session claimed it first (${owner}-owned).`);
+        if (parsed.cmd === 'rm') {
+            // Routes through ProfileRegistry.delete() on the daemon side, which
+            // already refuses while active sessions are connected. `refuseIfRunning`
+            // additionally refuses (rather than killing) a running Chromium — the
+            // CLI's failsafe, enforced server-side so it can't race a spawn. The
+            // MCP profile_delete tool omits this flag and keeps its existing
+            // kill-daemon-owned/refuse-user-owned behavior unchanged.
+            await withCliDaemonClient((client) => client.sendCmd('profiles.delete', { name: parsed.name, refuseIfRunning: true }, 10000));
+            console.log(`Profile '${parsed.name}' removed.`);
+            return;
         }
-        if (owner === 'daemon') {
-            console.log('Note: daemon-owned browsers close when their agent session ends.');
-        }
+        // rename — routes through ProfileRegistry.rename(), which refuses while
+        // active sessions are connected or the profile's Chromium is running.
+        await withCliDaemonClient((client) => client.sendCmd('profiles.rename', { name: parsed.oldName, newName: parsed.newName }, 10000));
+        console.log(`Profile '${parsed.oldName}' renamed to '${parsed.newName}'.`);
     }
     catch (err) {
         console.error(`supersurf: ${err?.message || String(err)}`);

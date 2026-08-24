@@ -82,6 +82,7 @@ class ConnectionManager {
     clientId = null;
     connectedBrowserName = null;
     attachedTab = null;
+    profile = null;
     stealthMode = false;
     metricsLogger = null;
     /** Reason the last `connect` attempt failed (e.g. wedged-port EADDRINUSE).
@@ -255,6 +256,19 @@ class ConnectionManager {
                 this.metricsLogger?.write(entry);
                 throw err;
             }
+        }
+        // `playbooks run` works without an active session: passive state performs
+        // an implicit connect (resolving a target profile from the `profile` arg
+        // or the playbook's own `profile` field) before running. Active/connected
+        // state instead checks the resolved profile against the session's bound
+        // profile and refuses on a mismatch rather than re-binding.
+        if (name === 'playbooks' && rawArguments.action === 'run') {
+            if (this.state === 'passive') {
+                return await (0, handlers_1.onPlaybooksRunImplicit)(this, rawArguments, options);
+            }
+            const mismatch = (0, handlers_1.checkPlaybookProfileMismatch)(this, rawArguments, options);
+            if (mismatch)
+                return mismatch;
         }
         // Forward to active bridge
         if (!this.bridge) {

@@ -29,8 +29,26 @@ export declare class ProfileRegistry {
     }[];
     /** Get a profile's config by name. Returns null if not found. */
     get(name: string): ProfileConfig | null;
-    /** Delete a profile. Throws if active sessions are connected. */
-    delete(name: string, sessions: SessionRegistry): void;
+    /**
+     * Delete a profile. Throws if active sessions are connected.
+     *
+     * Default behavior (MCP `profile_delete` tool — unchanged): if the profile's
+     * Chromium is daemon-owned and running, it's killed and deletion proceeds; a
+     * user-owned running browser blocks deletion. Pass `refuseIfRunning: true`
+     * (the CLI's `profiles rm` does) to refuse outright — regardless of owner —
+     * instead of killing anything, matching `rename`'s failsafe. Enforced here,
+     * server-side, so the check can't race a concurrent spawn/kill.
+     */
+    delete(name: string, sessions: SessionRegistry, opts?: {
+        refuseIfRunning?: boolean;
+    }): void;
+    /**
+     * Rename a profile. Throws if active sessions are connected or the profile's
+     * Chromium is currently running — same failsafe as `delete`, but never kills
+     * the browser itself (unlike delete's daemon-owned auto-kill): a rename must
+     * be refused outright, not raced against a live process.
+     */
+    rename(oldName: string, newName: string, sessions: SessionRegistry): ProfileConfig;
     /** Check if a profile exists (directory + config file). */
     exists(name: string): boolean;
     /** Mark a profile as initialized (registration complete). */

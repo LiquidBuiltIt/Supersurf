@@ -24,14 +24,38 @@ export declare function findElementInFrames(ctx: ToolContext, selectorExpr: stri
     frameId: string;
 } | null>;
 /**
- * Resolve an element: try top frame first, then DFS child frames on miss.
- * `contextId` and `frameId` are both `null` when the element was found in
- * the top frame, otherwise they identify the child frame that owns it.
+ * Heal a resolveInFrames() total miss (selector matched neither the top frame
+ * nor any child frame) by scoring the stored fingerprint against the top
+ * frame first, then every child frame, and returning the highest-scoring
+ * gate-passing hit as a resolved element handle. Unlike click/hover's
+ * coordinate-only heal (`healInFrames` above), selector-resolving verbs
+ * (type, select_option, fill_form fields, file_upload, …) need a live
+ * element to act on, so only hits `ctx.healFingerprintInContext` could
+ * re-resolve (`objectId`/`resolvedExpr` both set) are eligible. Returns
+ * null when the experiment is off, no hook is wired, or no context yields
+ * a resolvable hit.
+ */
+export declare function healSelectorAcrossFrames(ctx: ToolContext, selector: string): Promise<{
+    objectId: string;
+    contextId: number | null;
+    frameId: string | null;
+    resolvedExpr: string;
+} | null>;
+/**
+ * Resolve an element: try top frame first, then DFS child frames on miss,
+ * then (when `selector` is supplied) a fingerprint heal across every frame.
+ * `contextId` and `frameId` are both `null` when the element was found (or
+ * healed) in the top frame, otherwise they identify the frame that owns it.
+ * `resolvedExpr` is the JS expression callers should re-evaluate to reach the
+ * element: `selectorExpr` unchanged on a direct hit, or a heal-synthesized
+ * expression (a re-queryable selector, or `elementFromPoint` as a last
+ * resort) when the original selector had to be healed.
  */
 export declare function resolveInFrames(ctx: ToolContext, selectorExpr: string, selector?: string, meta?: import('../../experimental/fingerprinting/handle-meta').HandleMeta): Promise<{
     objectId: string;
     contextId: number | null;
     frameId: string | null;
+    resolvedExpr: string;
 } | null>;
 /**
  * Evaluate an expression in the given frame context, or top-frame default

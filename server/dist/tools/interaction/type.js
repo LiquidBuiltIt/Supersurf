@@ -7,6 +7,7 @@ const helpers_1 = require("./helpers");
     name: 'type',
     async run(ctx, action) {
         let typeContextId = null;
+        let resolvedExpr = null;
         if (action.selector) {
             const selectorExpr = ctx.getSelectorExpression(action.selector);
             const meta = { name: action.name, purpose: action.purpose };
@@ -14,9 +15,10 @@ const helpers_1 = require("./helpers");
             if (!match)
                 throw new Error(`Element not found: ${action.selector}`);
             typeContextId = match.contextId;
+            resolvedExpr = match.resolvedExpr;
             const focusExpr = `
         (() => {
-          const el = ${selectorExpr};
+          const el = ${resolvedExpr};
           if (!el) return { focused: false };
           el.focus();
           return { focused: document.activeElement === el };
@@ -44,8 +46,7 @@ const helpers_1 = require("./helpers");
             await ctx.cdp('Input.dispatchKeyEvent', { type: 'char', text: char });
         }
         if (action.selector) {
-            const selectorExpr = ctx.getSelectorExpression(action.selector);
-            const readExpr = `(() => { const el = ${selectorExpr}; return el?.value; })()`;
+            const readExpr = `(() => { const el = ${resolvedExpr}; return el?.value; })()`;
             const finalValue = await (0, frames_1.evalInFrameOrTop)(ctx, readExpr, typeContextId);
             return `Typed "${action.text}" into ${action.selector} (value: "${finalValue ?? 'N/A'}")`;
         }

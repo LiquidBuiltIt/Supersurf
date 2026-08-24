@@ -36,6 +36,12 @@ function renderSections(data, from, curr) {
         heading.className = 'version-heading';
         heading.textContent = section.date ? `${section.version} — ${section.date}` : section.version;
         block.appendChild(heading);
+        if (section.summary) {
+            const summary = document.createElement('p');
+            summary.className = 'version-summary';
+            summary.innerHTML = renderBulletHtml(section.summary);
+            block.appendChild(summary);
+        }
         const list = document.createElement('ul');
         list.className = 'bullet-list';
         for (const bullet of section.bullets) {

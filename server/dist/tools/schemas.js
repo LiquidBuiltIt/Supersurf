@@ -485,6 +485,59 @@ function getToolSchemas() {
             },
             annotations: { title: 'Secure credential fill', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         },
+        // ── Playbooks ──
+        {
+            name: 'playbooks',
+            description: 'Record and run named action sequences. `history` lists this session\'s ' +
+                'numbered actions across all browser tools; `create` freezes a cited sequence of those ' +
+                'ids into a saved playbook; `run` replays a saved playbook in order — interact steps ' +
+                'heal broken selectors, read steps (extract, snapshot, network…) return their output ' +
+                'in the run result. Cite ids from `history` — never invent them. Requires the ' +
+                '`fingerprinting` experiment for create/run. `run` works with no active session — ' +
+                'it connects implicitly, using `profile` or the playbook\'s own bound profile. ' +
+                'Listing, editing, removal, export and import live in the CLI: `supersurf playbook`.',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    action: {
+                        type: 'string',
+                        enum: ['history', 'create', 'run'],
+                        description: 'history = list this session\'s numbered actions; create = save a playbook from cited ids; run = execute a saved playbook.',
+                    },
+                    name: {
+                        type: 'string',
+                        description: 'Playbook name, snake_case. Required for create and run. Normalized automatically; an existing name is an error.',
+                    },
+                    purpose: {
+                        type: 'string',
+                        description: 'What this playbook accomplishes, in one line. Used by create.',
+                    },
+                    steps: {
+                        type: 'array',
+                        items: { type: 'number' },
+                        description: 'Action ids to freeze into the playbook, in execution order, e.g. [5211, 5212, 5214]. Any id from `history` is valid — clicks, navigations, extractions alike. Used by create. Drop the ids whose outcome you did not want.',
+                    },
+                    limit: {
+                        type: 'number',
+                        description: 'History window size. Default 50, max 500.',
+                    },
+                    offset: {
+                        type: 'number',
+                        description: 'History paging offset, counted back from the newest action. Default 0.',
+                    },
+                    profile: {
+                        type: 'string',
+                        description: 'run only. Managed profile to run against. If omitted, falls back to the profile the playbook was created under, then a plain (no-profile) connect. With no active session, `run` connects implicitly using this resolved profile. With an active session, a resolved profile that differs from the session\'s bound profile is an error — it never re-binds mid-session.',
+                    },
+                    detach: {
+                        type: 'boolean',
+                        description: 'run only. When `run` triggered an implicit connect, disconnect again once the run finishes (success or failure) instead of leaving the session active. Default false.',
+                    },
+                },
+                required: ['action'],
+            },
+            annotations: { title: 'Playbooks', readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        },
     ];
     // Inject the shared `tabId` param into every tab-scoped tool — concurrency
     // isolation for parallel callers sharing one session. One definition here

@@ -104,8 +104,17 @@ class ProfileRegistry {
             return null;
         }
     }
-    /** Delete a profile. Throws if active sessions are connected. */
-    delete(name, sessions) {
+    /**
+     * Delete a profile. Throws if active sessions are connected.
+     *
+     * Default behavior (MCP `profile_delete` tool — unchanged): if the profile's
+     * Chromium is daemon-owned and running, it's killed and deletion proceeds; a
+     * user-owned running browser blocks deletion. Pass `refuseIfRunning: true`
+     * (the CLI's `profiles rm` does) to refuse outright — regardless of owner —
+     * instead of killing anything, matching `rename`'s failsafe. Enforced here,
+     * server-side, so the check can't race a concurrent spawn/kill.
+     */
+    delete(name, sessions, opts = {}) {
         if (!this.exists(name)) {
             throw new Error(`Profile '${name}' not found`);
         }
@@ -113,6 +122,10 @@ class ProfileRegistry {
         if (activeSessions.length > 0) {
             throw new Error(`Cannot delete profile '${name}' — active sessions are connected. ` +
                 `Ask the user to disconnect those sessions first.`);
+        }
+        if (opts.refuseIfRunning && this.isRunning(name)) {
+            const pid = this.getRunningPid(name);
+            throw new Error(`Profile '${name}' is running (PID ${pid}) — stop it first.`);
         }
         // Kill Chromium if running
         const pid = this.getRunningPid(name);
@@ -131,6 +144,36 @@ class ProfileRegistry {
         const dir = this.profileDir(name);
         fs_1.default.rmSync(dir, { recursive: true, force: true });
         debugLog(`Profile deleted: "${name}"`);
+    }
+    /**
+     * Rename a profile. Throws if active sessions are connected or the profile's
+     * Chromium is currently running — same failsafe as `delete`, but never kills
+     * the browser itself (unlike delete's daemon-owned auto-kill): a rename must
+     * be refused outright, not raced against a live process.
+     */
+    rename(oldName, newName, sessions) {
+        if (!this.exists(oldName)) {
+            throw new Error(`Profile '${oldName}' not found`);
+        }
+        this.validateName(newName);
+        if (this.exists(newName)) {
+            throw new Error(`Profile '${newName}' already exists`);
+        }
+        const activeSessions = sessions.getSessionsForProfile(oldName);
+        if (activeSessions.length > 0) {
+            throw new Error(`Cannot rename profile '${oldName}' — active sessions are connected. ` +
+                `Ask the user to disconnect those sessions first.`);
+        }
+        if (this.isRunning(oldName)) {
+            const pid = this.getRunningPid(oldName);
+            throw new Error(`Profile '${oldName}' is running (PID ${pid}) — stop it first.`);
+        }
+        const config = this.get(oldName);
+        config.name = newName;
+        fs_1.default.renameSync(this.profileDir(oldName), this.profileDir(newName));
+        fs_1.default.writeFileSync(this.configPath(newName), JSON.stringify(config, null, 2), 'utf8');
+        debugLog(`Profile renamed: "${oldName}" -> "${newName}"`);
+        return config;
     }
     /** Check if a profile exists (directory + config file). */
     exists(name) {

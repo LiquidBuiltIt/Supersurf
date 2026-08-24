@@ -11,6 +11,7 @@
  * @module tools/navigation
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getAttachedUrl = getAttachedUrl;
 exports.onBrowserTabs = onBrowserTabs;
 exports.onNavigate = onNavigate;
 const index_1 = require("../experimental/index");
