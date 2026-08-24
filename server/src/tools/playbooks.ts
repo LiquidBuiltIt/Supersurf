@@ -220,6 +220,11 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
   }
 
   const lines: string[] = [];
+  // Inline screenshot blobs from replayed `browser_take_screenshot` steps
+  // (no recorded `path`) — collected in step order, appended to the MCP
+  // result content after the text summary. Path-recorded steps write the
+  // file only, as they already do, and add nothing here.
+  const images: any[] = [];
   const total = pb.steps.length;
 
   // Start point: step 1's recorded URL. Read the live URL rather than the
@@ -312,10 +317,20 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
       lines.push(body);
       lines.push('');
     }
+    // Faithful replay of an inline screenshot: the agent originally got an
+    // image block back, so a replayed run gets one too. Path-recorded steps
+    // wrote a file instead and carry no image block here.
+    if (Array.isArray(res.content)) {
+      for (const block of res.content) {
+        if (block?.type === 'image') images.push(block);
+      }
+    }
     pushDialogNotice(lines, ctx);
   }
 
   lines.push('');
   lines.push(`✓ ${pb.name} — ${total}/${total} steps.`);
-  return text(lines.join('\n'));
+  const result = text(lines.join('\n'));
+  if (images.length > 0) result.content.push(...images);
+  return result;
 }
