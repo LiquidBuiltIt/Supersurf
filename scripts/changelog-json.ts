@@ -73,6 +73,25 @@ export function extractBullets(raw: string): string[] {
   return bullets;
 }
 
+/** The optional release-blurb paragraph a version section may carry (see
+ *  parser contract item 6): a single line directly under the header, before
+ *  any bullet, wrapped in single asterisks (`*like this*` — not `**bold**`).
+ *  Returns null when absent, malformed, or when a bullet appears first. Not
+ *  a bullet — never counted in `extractBullets`/`itemCount`/`typeCounts`. */
+export function extractSummary(raw: string): string | null {
+  const lines = raw.split('\n');
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line === '') continue;
+    if (/^[-*]\s+/.test(line)) return null; // hit a bullet before any summary paragraph
+    if (line.length > 2 && line.startsWith('*') && !line.startsWith('**') && line.endsWith('*') && !line.endsWith('**')) {
+      return line.slice(1, -1).trim();
+    }
+    return null; // some other non-blank, non-bullet line — not a recognized summary
+  }
+  return null;
+}
+
 /** Parse a bullet's leading conventional-commit-style type, tolerating a
  *  scope (`feat(extension):`) and/or a bold wrapper (`**feat: ...**`). Any
  *  leading `word:` or `word(scope):` token buckets under its own lowercased
@@ -108,6 +127,7 @@ export interface ChangelogJsonSection {
   bullets: string[];
   itemCount: number; // bullets.length, added for consumers that don't want to count client-side
   typeCounts: TypeCount[]; // same breakdown `--verbose` prints elsewhere
+  summary: string | null; // release blurb (see extractSummary), null when the section has none
 }
 
 export interface ChangelogJson {
@@ -126,6 +146,7 @@ export function sectionsToJson(sections: Section[]): ChangelogJson {
         bullets,
         itemCount: bullets.length,
         typeCounts: typeBreakdown(bullets),
+        summary: extractSummary(s.raw),
       };
     }),
   };

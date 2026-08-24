@@ -31,8 +31,13 @@ export interface CutWarning {
  *   caller should proceed with the bump untouched — never blocks a release.
  * - A `## <version>` section already exists: throws. The caller should abort
  *   the whole bump before writing or committing anything.
+ *
+ * `blurb`, when non-empty, is inserted as an italic paragraph (`*<blurb>*`)
+ * directly under the new heading, blank-line separated, above the bullets —
+ * a release summary rather than an item, so it never counts toward
+ * `itemCount`/`typeCounts` in `scripts/changelog-json.ts`.
  */
-export function cutUnreleased(content: string, version: string, date: string): CutSuccess | CutWarning {
+export function cutUnreleased(content: string, version: string, date: string, blurb?: string): CutSuccess | CutWarning {
   const lines = content.split('\n');
 
   for (const line of lines) {
@@ -66,12 +71,14 @@ export function cutUnreleased(content: string, version: string, date: string): C
     return { warning: '"## Unreleased" section is empty — nothing to cut, proceeding with bump.' };
   }
 
+  const trimmedBlurb = blurb?.trim();
   const tail = lines.slice(sectionEnd);
   const newLines = [
     ...lines.slice(0, unreleasedIdx + 1),
     '',
     `## ${version} — ${date}`,
     '',
+    ...(trimmedBlurb ? [`*${trimmedBlurb}*`, ''] : []),
     ...bullets,
     ...(tail.length > 0 ? ['', ...tail] : []),
   ];

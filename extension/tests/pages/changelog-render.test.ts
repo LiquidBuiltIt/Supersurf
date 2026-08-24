@@ -57,6 +57,18 @@ describe('sliceSections', () => {
   });
 });
 
+describe('sliceSections summary passthrough', () => {
+  it('carries an optional summary field through unchanged', () => {
+    const sections: ChangelogSection[] = [
+      { version: '3.3.0', date: '2026-08-05', bullets: ['c'], summary: 'A friendly blurb.' },
+      { version: '3.2.0', date: '2026-07-03', bullets: ['b'] }, // no summary — must not error
+    ];
+    const result = sliceSections(sections, null, '3.3.0');
+    expect(result[0].summary).toBe('A friendly blurb.');
+    expect(result[1].summary).toBeUndefined();
+  });
+});
+
 describe('renderBulletHtml', () => {
   it('renders **bold** as <strong>', () => {
     expect(renderBulletHtml('**feat**: something new')).toBe('<strong>feat</strong>: something new');

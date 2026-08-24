@@ -43,6 +43,64 @@ describe('cutUnreleased', () => {
     ]);
   });
 
+  it('inserts the blurb as an italic paragraph under the heading, above the bullets', () => {
+    const content = [
+      '# Changelog',
+      '',
+      '## Unreleased',
+      '',
+      '- feat: something new',
+      '',
+      '## 1.0.0 — 2026-01-01',
+      '',
+      '- initial release',
+      '',
+    ].join('\n');
+
+    const result = cutUnreleased(content, '1.1.0', '2026-08-05', 'Playbooks can now run on their own.');
+
+    expect('warning' in result).toBe(false);
+    if ('warning' in result) return;
+
+    const lines = result.content.split('\n');
+    expect(lines).toEqual([
+      '# Changelog',
+      '',
+      '## Unreleased',
+      '',
+      '## 1.1.0 — 2026-08-05',
+      '',
+      '*Playbooks can now run on their own.*',
+      '',
+      '- feat: something new',
+      '',
+      '## 1.0.0 — 2026-01-01',
+      '',
+      '- initial release',
+      '',
+    ]);
+    // the blurb is a paragraph, not an item — moved counts bullets only
+    expect(result.moved).toBe(1);
+  });
+
+  it('omits the blurb paragraph entirely when blurb is absent, empty, or whitespace-only', () => {
+    const content = [
+      '# Changelog',
+      '',
+      '## Unreleased',
+      '',
+      '- feat: something new',
+      '',
+    ].join('\n');
+
+    for (const blurb of [undefined, '', '   ']) {
+      const result = cutUnreleased(content, '1.1.0', '2026-08-05', blurb);
+      expect('warning' in result).toBe(false);
+      if ('warning' in result) continue;
+      expect(result.content).not.toContain('*');
+    }
+  });
+
   it('warns and leaves content untouched when Unreleased has no bullets', () => {
     const content = [
       '# Changelog',

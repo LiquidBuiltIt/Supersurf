@@ -8,6 +8,15 @@
  *   npm run version.bump major "breaking changes"   # v1.0.0 — breaking changes
  *   npm run version.bump rollback # undo last bump (reset commit, restore version files)
  *
+ * The message after the bump type is a required release blurb — a short,
+ * friendly, plain-English summary written by a human. It becomes (part of)
+ * the release commit message and is inserted into CHANGELOG.md as an italic
+ * paragraph under the new version heading (see `cutUnreleased` in
+ * `changelog-cut.ts`), which then propagates to `npm run changelog`'s
+ * compact view, `changelog -- json`'s `summary` field, and the extension
+ * changelog page. Missing or blank → the bump aborts before touching
+ * anything.
+ *
  * Tagging happens at publish time (`npm run publish`), not here. This means
  * tags only exist for versions that were actually shipped — re-bumping or
  * amending after this script is free, no tag cleanup needed.
@@ -32,16 +41,16 @@ const CHANGELOG_PATH = join(root, 'CHANGELOG.md');
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const bumpType = process.argv[2] as 'patch' | 'minor' | 'major' | 'rollback';
-const commitMsg = process.argv.slice(3).join(' ').trim() || '';
+const blurb = process.argv.slice(3).join(' ').trim() || '';
 
 if (!bumpType || !['patch', 'minor', 'major', 'rollback'].includes(bumpType)) {
-  console.error('Usage: npm run version.bump <patch|minor|major|rollback> <message>');
+  console.error('Usage: npm run version.bump <patch|minor|major|rollback> <blurb>');
   process.exit(1);
 }
 
-if (bumpType !== 'rollback' && !commitMsg) {
-  console.error(`${red}Commit message is required.${reset}`);
-  console.error(`Usage: npm run version.bump ${bumpType} "your message here"`);
+if (bumpType !== 'rollback' && !blurb) {
+  console.error(`${red}A release blurb is required — nothing was modified.${reset}`);
+  console.error(`Usage: npm run version.bump ${bumpType} "short, friendly summary of what changed"`);
   process.exit(1);
 }
 
@@ -114,7 +123,7 @@ let changelogContent: string | null = null;
 
 try {
   const raw = readFileSync(CHANGELOG_PATH, 'utf8');
-  const result = cutUnreleased(raw, next, changelogDate);
+  const result = cutUnreleased(raw, next, changelogDate, blurb);
   if ('warning' in result) {
     console.warn(`${yellow}⚠ ${result.warning}${reset}`);
   } else {
@@ -142,7 +151,7 @@ console.log(`\nBumped ${bumpType}: ${current} -> ${next}\n`);
 
 // Commit (no tag — tagging happens at publish time)
 git(`git add .`);
-const fullMsg = commitMsg ? `v${next} — ${commitMsg}` : `v${next}`;
+const fullMsg = `v${next} — ${blurb}`;
 git(`git commit -m "${fullMsg}"`);
 
 console.log(`\n${green}Committed v${next}${reset}`);

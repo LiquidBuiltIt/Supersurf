@@ -26,6 +26,11 @@ silently mis-rendered or silently dropped with no error.
 5. Lead each bullet with a **bold** summary phrase, or a sentence ending in
    . ! or ? — that's what the default compact view extracts as the one-line
    change statement.
+6. A version section may carry an optional release blurb: a single line
+   directly under the "## " heading, before any bullet, wrapped in single
+   asterisks (`*a short, friendly summary*` — not `**bold**`). It's a
+   paragraph, not an entry — never counted in item counts, and untouched
+   sections without one remain valid.
 -->
 
 # Changelog
@@ -36,6 +41,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- chore(release): `npm run version.bump` now requires a release blurb as a positional arg (`npm run version.bump minor "short, friendly summary"`) — missing or blank aborts before touching anything. The blurb is inserted as an italic paragraph under the new version heading in CHANGELOG.md, becomes (part of) the release commit message, and propagates to `npm run changelog`'s compact view, `changelog -- json`'s new per-section `summary` field, and the extension "What's New" page (rendered above the bullet list). `-- ls` stays one line per version. The blurb paragraph is never counted in `itemCount`/`typeCounts`, and sections without one remain fully valid.
 - chore: `npm run changelog` now shows an item count next to every version heading (`ls` and the compact view, including Unreleased) — `--verbose` swaps the plain count for a type breakdown parsed from each bullet's leading `word:`/`word(scope):` prefix (scoped and bold variants included; each distinct prefix — `feat`, `fix`, `security`, `perf`, `BREAKING`, etc. — buckets under its own lowercased name, `other` only for bullets with no such prefix). `json` output gains matching `itemCount`/`typeCounts` fields per section, purely additive — the extension changelog page build/render path is unaffected.
 - feat: `supersurf profiles create <name>` and `supersurf profiles rm <name>` (alias `delete`) manage managed Chromium profiles from the terminal — both route through the daemon's existing `profiles.create` / `profiles.delete` IPC. `rm` refuses outright — nothing killed, nothing deleted — while active sessions are connected or the profile's Chromium is running at all, daemon- or user-owned (`Profile 'x' is running (PID n) — stop it first.`), via a new opt-in `refuseIfRunning` flag on the `profiles.delete` IPC call that only the CLI sets. The MCP `profile_delete` tool's behavior is unchanged: it still kills a daemon-owned running browser and proceeds, refusing only on a user-owned one.
 - feat: `supersurf profiles rename <old> <new>` renames a managed profile — new daemon IPC method `profiles.rename` + `ProfileRegistry.rename()` move the profile directory, validate the new name, and refuse the rename while the profile is running or bound to an active session. CLI-only; no MCP tool.
