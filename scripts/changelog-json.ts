@@ -73,21 +73,16 @@ export function extractBullets(raw: string): string[] {
   return bullets;
 }
 
-// Recognized `type:` prefixes for the --verbose breakdown. Anything else
-// (a different word, or no prefix at all) is bucketed as `other`.
-const KNOWN_TYPES = ['feat', 'fix', 'chore', 'docs'];
-
 /** Parse a bullet's leading conventional-commit-style type, tolerating a
- *  scope (`feat(extension):`) and/or a bold wrapper (`**feat: ...**`).
- *  Matching is case-insensitive; an unrecognized or missing prefix is `other`. */
+ *  scope (`feat(extension):`) and/or a bold wrapper (`**feat: ...**`). Any
+ *  leading `word:` or `word(scope):` token buckets under its own lowercased
+ *  name (so `security:`, `perf(...)`, `BREAKING:`, and future prefixes each
+ *  get their own bucket) — `other` is reserved for bullets with no such
+ *  leading-token prefix at all. */
 export function bulletType(bullet: string): string {
   const stripped = bullet.trim().replace(/^\*{1,2}/, '');
   const m = stripped.match(/^([A-Za-z]+)(\([^)]*\))?\s*:/);
-  if (m) {
-    const t = m[1].toLowerCase();
-    if (KNOWN_TYPES.includes(t)) return t;
-  }
-  return 'other';
+  return m ? m[1].toLowerCase() : 'other';
 }
 
 export interface TypeCount {

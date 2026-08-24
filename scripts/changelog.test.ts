@@ -137,9 +137,13 @@ describe('bulletType', () => {
     expect(bulletType('CHORE: shouting')).toBe('chore');
   });
 
-  it('buckets unrecognized or missing prefixes as other', () => {
-    expect(bulletType('security: patch a CVE')).toBe('other');
-    expect(bulletType('BREAKING: removed a flag')).toBe('other');
+  it('buckets any leading word: or word(scope): prefix under its own name', () => {
+    expect(bulletType('security: patch a CVE')).toBe('security');
+    expect(bulletType('perf(fingerprinting): tune threshold')).toBe('perf');
+    expect(bulletType('BREAKING: removed a flag')).toBe('breaking');
+  });
+
+  it('buckets a bullet with no leading-token prefix at all as other', () => {
     expect(bulletType('no prefix at all, just prose')).toBe('other');
   });
 });
@@ -168,8 +172,12 @@ describe('typeBreakdown', () => {
     expect(typeBreakdown([])).toEqual([]);
   });
 
-  it('lumps unrecognized prefixes into a single other bucket', () => {
-    const bullets = ['security: a', 'BREAKING: b', 'plain prose'];
-    expect(typeBreakdown(bullets)).toEqual([{ type: 'other', count: 3 }]);
+  it('buckets security and perf(...) under their own names, not other', () => {
+    const bullets = ['security: a', 'security: b', 'perf(fingerprinting): c', 'plain prose'];
+    expect(typeBreakdown(bullets)).toEqual([
+      { type: 'security', count: 2 },
+      { type: 'other', count: 1 },
+      { type: 'perf', count: 1 },
+    ]);
   });
 });
