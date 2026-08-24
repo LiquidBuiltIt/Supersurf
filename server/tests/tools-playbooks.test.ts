@@ -26,6 +26,12 @@ function seedTrail() {
   actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'error', message: 'not found', params: { type: 'click', selector: '#ghost' }, url: 'https://linkedin.com/jobs/1234' });
 }
 
+/** Shared shape for the `playbooks — create` cases: cite trail ids into a named playbook. */
+function create(name: string, steps: number[], opts: { purpose?: string; ctx?: any } = {}) {
+  const ctx = opts.ctx ?? makeCtx();
+  return onPlaybooks(ctx, { action: 'create', name, purpose: opts.purpose ?? 'p', steps }, {});
+}
+
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-tool-'));
   setBaseDirForTests(dir);
@@ -84,7 +90,7 @@ describe('playbooks — history', () => {
 describe('playbooks — create', () => {
   it('freezes the cited steps into a saved playbook', async () => {
     seedTrail();
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'apply_to_job', purpose: 'Apply', steps: [1, 2] }, {});
+    const res = await create('apply_to_job', [1, 2], { purpose: 'Apply' });
     expect(res.isError).toBeFalsy();
     const pb = loadPlaybook('apply_to_job')!;
     expect(pb.steps).toHaveLength(2);
@@ -96,21 +102,21 @@ describe('playbooks — create', () => {
     seedTrail();
     const ctx = makeCtx();
     ctx.connectionManager.profile = 'my-profile';
-    const res = await onPlaybooks(ctx, { action: 'create', name: 'profiled', purpose: 'p', steps: [1] }, {});
+    const res = await create('profiled', [1], { ctx });
     expect(res.isError).toBeFalsy();
     expect(loadPlaybook('profiled')!.profile).toBe('my-profile');
   });
 
   it('omits the profile field when the session is unmanaged', async () => {
     seedTrail();
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'unmanaged', purpose: 'p', steps: [1] }, {});
+    const res = await create('unmanaged', [1]);
     expect(res.isError).toBeFalsy();
     expect(loadPlaybook('unmanaged')!.profile).toBeUndefined();
   });
 
   it('warns but still saves when a cited action failed at runtime', async () => {
     seedTrail();
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'with_fail', purpose: 'p', steps: [1, 3] }, {});
+    const res = await create('with_fail', [1, 3]);
     expect(res.isError).toBeFalsy();
     expect(res.content[0].text.toLowerCase()).toContain('warn');
     expect(loadPlaybook('with_fail')!.steps).toHaveLength(2);
@@ -118,8 +124,8 @@ describe('playbooks — create', () => {
 
   it('errors and refuses to save on a name collision', async () => {
     seedTrail();
-    await onPlaybooks(makeCtx(), { action: 'create', name: 'dupe', purpose: 'first', steps: [1] }, {});
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'dupe', purpose: 'second', steps: [2] }, {});
+    await create('dupe', [1], { purpose: 'first' });
+    const res = await create('dupe', [2], { purpose: 'second' });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('supersurf playbook rm dupe');
     expect(loadPlaybook('dupe')!.purpose).toBe('first');
@@ -127,14 +133,14 @@ describe('playbooks — create', () => {
 
   it('errors on an unknown action id without saving anything', async () => {
     seedTrail();
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'bad', purpose: 'p', steps: [1, 999] }, {});
+    const res = await create('bad', [1, 999]);
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('999');
     expect(loadPlaybook('bad')).toBeNull();
   });
 
   it('errors when steps is empty', async () => {
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'empty', purpose: 'p', steps: [] }, {});
+    const res = await create('empty', []);
     expect(res.isError).toBe(true);
     expect(loadPlaybook('empty')).toBeNull();
   });
@@ -143,7 +149,7 @@ describe('playbooks — create', () => {
     actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'ok', params: { action: 'url', url: 'https://news.ycombinator.com' }, url: 'https://news.ycombinator.com' });
     actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'ok', message: 'Clicked', params: { type: 'click', selector: '.subtext a' }, url: 'https://news.ycombinator.com' });
     actionTrail.record({ tool: 'browser_extract_content', type: 'browser_extract_content', outcome: 'ok', message: 'ok', params: { mode: 'auto' }, url: 'https://news.ycombinator.com/item?id=1' });
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'hn_comments', purpose: 'p', steps: [1, 2, 3] }, {});
+    const res = await create('hn_comments', [1, 2, 3]);
     expect(res.isError).toBeFalsy();
     const pb = loadPlaybook('hn_comments')!;
     expect(pb.steps.map(s => s.tool)).toEqual(['browser_navigate', 'browser_interact', 'browser_extract_content']);
@@ -152,7 +158,7 @@ describe('playbooks — create', () => {
 
   it('still rejects atomically when one id is unknown in a mixed sequence', async () => {
     actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'ok', params: { action: 'url', url: 'https://x.com' }, url: 'https://x.com' });
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'mixed_bad', purpose: 'p', steps: [1, 999] }, {});
+    const res = await create('mixed_bad', [1, 999]);
     expect(res.isError).toBe(true);
     expect(loadPlaybook('mixed_bad')).toBeNull();
   });
