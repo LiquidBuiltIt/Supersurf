@@ -26,6 +26,12 @@ function seedTrail() {
   actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'error', message: 'not found', params: { type: 'click', selector: '#ghost' }, url: 'https://linkedin.com/jobs/1234' });
 }
 
+/** Shared shape for the `playbooks — create` cases: cite trail ids into a named playbook. */
+function create(name: string, steps: number[], opts: { purpose?: string; ctx?: any } = {}) {
+  const ctx = opts.ctx ?? makeCtx();
+  return onPlaybooks(ctx, { action: 'create', name, purpose: opts.purpose ?? 'p', steps }, {});
+}
+
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-tool-'));
   setBaseDirForTests(dir);
@@ -84,7 +90,7 @@ describe('playbooks — history', () => {
 describe('playbooks — create', () => {
   it('freezes the cited steps into a saved playbook', async () => {
     seedTrail();
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'apply_to_job', purpose: 'Apply', steps: [1, 2] }, {});
+    const res = await create('apply_to_job', [1, 2], { purpose: 'Apply' });
     expect(res.isError).toBeFalsy();
     const pb = loadPlaybook('apply_to_job')!;
     expect(pb.steps).toHaveLength(2);
@@ -96,21 +102,21 @@ describe('playbooks — create', () => {
     seedTrail();
     const ctx = makeCtx();
     ctx.connectionManager.profile = 'my-profile';
-    const res = await onPlaybooks(ctx, { action: 'create', name: 'profiled', purpose: 'p', steps: [1] }, {});
+    const res = await create('profiled', [1], { ctx });
     expect(res.isError).toBeFalsy();
     expect(loadPlaybook('profiled')!.profile).toBe('my-profile');
   });
 
   it('omits the profile field when the session is unmanaged', async () => {
     seedTrail();
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'unmanaged', purpose: 'p', steps: [1] }, {});
+    const res = await create('unmanaged', [1]);
     expect(res.isError).toBeFalsy();
     expect(loadPlaybook('unmanaged')!.profile).toBeUndefined();
   });
 
   it('warns but still saves when a cited action failed at runtime', async () => {
     seedTrail();
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'with_fail', purpose: 'p', steps: [1, 3] }, {});
+    const res = await create('with_fail', [1, 3]);
     expect(res.isError).toBeFalsy();
     expect(res.content[0].text.toLowerCase()).toContain('warn');
     expect(loadPlaybook('with_fail')!.steps).toHaveLength(2);
@@ -118,8 +124,8 @@ describe('playbooks — create', () => {
 
   it('errors and refuses to save on a name collision', async () => {
     seedTrail();
-    await onPlaybooks(makeCtx(), { action: 'create', name: 'dupe', purpose: 'first', steps: [1] }, {});
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'dupe', purpose: 'second', steps: [2] }, {});
+    await create('dupe', [1], { purpose: 'first' });
+    const res = await create('dupe', [2], { purpose: 'second' });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('supersurf playbook rm dupe');
     expect(loadPlaybook('dupe')!.purpose).toBe('first');
@@ -127,14 +133,14 @@ describe('playbooks — create', () => {
 
   it('errors on an unknown action id without saving anything', async () => {
     seedTrail();
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'bad', purpose: 'p', steps: [1, 999] }, {});
+    const res = await create('bad', [1, 999]);
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('999');
     expect(loadPlaybook('bad')).toBeNull();
   });
 
   it('errors when steps is empty', async () => {
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'empty', purpose: 'p', steps: [] }, {});
+    const res = await create('empty', []);
     expect(res.isError).toBe(true);
     expect(loadPlaybook('empty')).toBeNull();
   });
@@ -143,7 +149,7 @@ describe('playbooks — create', () => {
     actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'ok', params: { action: 'url', url: 'https://news.ycombinator.com' }, url: 'https://news.ycombinator.com' });
     actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'ok', message: 'Clicked', params: { type: 'click', selector: '.subtext a' }, url: 'https://news.ycombinator.com' });
     actionTrail.record({ tool: 'browser_extract_content', type: 'browser_extract_content', outcome: 'ok', message: 'ok', params: { mode: 'auto' }, url: 'https://news.ycombinator.com/item?id=1' });
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'hn_comments', purpose: 'p', steps: [1, 2, 3] }, {});
+    const res = await create('hn_comments', [1, 2, 3]);
     expect(res.isError).toBeFalsy();
     const pb = loadPlaybook('hn_comments')!;
     expect(pb.steps.map(s => s.tool)).toEqual(['browser_navigate', 'browser_interact', 'browser_extract_content']);
@@ -152,7 +158,7 @@ describe('playbooks — create', () => {
 
   it('still rejects atomically when one id is unknown in a mixed sequence', async () => {
     actionTrail.record({ tool: 'browser_navigate', type: 'browser_navigate', outcome: 'ok', message: 'ok', params: { action: 'url', url: 'https://x.com' }, url: 'https://x.com' });
-    const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'mixed_bad', purpose: 'p', steps: [1, 999] }, {});
+    const res = await create('mixed_bad', [1, 999]);
     expect(res.isError).toBe(true);
     expect(loadPlaybook('mixed_bad')).toBeNull();
   });
@@ -369,6 +375,100 @@ describe('playbooks — run (generic steps)', () => {
     expect(res.content[0].text).toContain('COMMENT BODY TEXT');
     expect(res.content[0].text).not.toContain('\n---\n');
     expect(res.content[0].text).not.toContain('✅');
+  });
+
+  it('strips the status header from an isError step and still surfaces the error', async () => {
+    seedMixedPlaybook();
+    const fakeCm = { statusHeader: () => '✅ v3.4.0 | 🌐 chrome | 📄 Tab 1: https://news.ycombinator.com\n---\n\n' };
+    const callHandler = vi.fn()
+      .mockResolvedValueOnce(formatResult('browser_navigate', { message: 'Navigated to https://news.ycombinator.com' }, { rawResult: false }, fakeCm))
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: fakeCm.statusHeader() + 'Extension not connected' }], isError: true });
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const res = await onPlaybooks(makeCtx('https://news.ycombinator.com'), { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate: vi.fn(), callHandler });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('Extension not connected');
+    expect(res.content[0].text).not.toContain('\n---\n');
+    expect(res.content[0].text).not.toContain('✅');
+    expect(res.content[0].text).toContain('Stopped at step 3 of 3');
+  });
+
+  it('preserves a _recovery note when stripping the status header from a replayed step', async () => {
+    seedMixedPlaybook();
+    const fakeCm = { statusHeader: () => '✅ v3.4.0 | 🌐 chrome | 📄 Tab 1: https://news.ycombinator.com\n---\n\n' };
+    const callHandler = vi.fn()
+      .mockResolvedValueOnce(formatResult('browser_navigate', { message: 'Navigated to https://news.ycombinator.com' }, { rawResult: false }, fakeCm))
+      .mockResolvedValueOnce(formatResult(
+        'browser_extract_content',
+        { _recovery: { previousTabId: 5, newTabId: 7, url: 'https://news.ycombinator.com/item?id=1' }, text: 'COMMENT BODY TEXT' },
+        { rawResult: false },
+        fakeCm,
+      ));
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const res = await onPlaybooks(makeCtx('https://news.ycombinator.com'), { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toContain('tab recovered: stale tab 5 → 7');
+    expect(res.content[0].text).toContain('COMMENT BODY TEXT');
+    expect(res.content[0].text).not.toContain('\n---\n');
+  });
+
+  it('attaches a dialog notice under the step that raised it, not at the end of the run', async () => {
+    seedMixedPlaybook();
+    const consumeDialogEvents = vi.fn()
+      .mockReturnValueOnce([]) // step 1 (navigate)
+      .mockReturnValueOnce([{ type: 'confirm', message: 'Are you sure?', defaultPrompt: '', url: 'https://news.ycombinator.com', hasBrowserHandler: false, timestamp: Date.now() }]) // step 2 (interact)
+      .mockReturnValueOnce([]); // step 3 (extract_content)
+    const ctx = makeCtx('https://news.ycombinator.com');
+    ctx.ext.consumeDialogEvents = consumeDialogEvents;
+    const callHandler = vi.fn()
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }] })
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'COMMENT BODY TEXT' }] });
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const res = await onPlaybooks(ctx, { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(consumeDialogEvents).toHaveBeenCalledTimes(3);
+    const text = res.content[0].text;
+    const noticeIdx = text.indexOf('⚠ A native confirm dialog');
+    expect(noticeIdx).toBeGreaterThan(-1);
+    expect(text.indexOf('2/3')).toBeLessThan(noticeIdx);
+    expect(noticeIdx).toBeLessThan(text.indexOf('3/3'));
+  });
+
+  it('appends the inline screenshot blob when the replayed step had no path', async () => {
+    savePlaybook({
+      name: 'shot_inline',
+      purpose: 'p',
+      steps: [{ tool: 'browser_take_screenshot', type: 'browser_take_screenshot', params: {}, url: 'https://x.com/', sourceId: 1 }],
+      createdAt: 1,
+      version: 1,
+    });
+    const callHandler = vi.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: 'Screenshot captured' },
+        { type: 'image', data: 'BASE64DATA', mimeType: 'image/jpeg' },
+      ],
+    });
+    const res = await onPlaybooks(makeCtx('https://x.com/'), { action: 'run', name: 'shot_inline' }, {}, { executeAction: vi.fn(), navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].type).toBe('text');
+    const imageBlock = res.content.find((b: any) => b.type === 'image');
+    expect(imageBlock).toEqual({ type: 'image', data: 'BASE64DATA', mimeType: 'image/jpeg' });
+  });
+
+  it('does not add an image block for a path-recorded screenshot step', async () => {
+    savePlaybook({
+      name: 'shot_path',
+      purpose: 'p',
+      steps: [{ tool: 'browser_take_screenshot', type: 'browser_take_screenshot', params: { path: '/tmp/x.jpg' }, url: 'https://x.com/', sourceId: 1 }],
+      createdAt: 1,
+      version: 1,
+    });
+    const callHandler = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'Screenshot saved to /tmp/x.jpg (123 bytes)' }],
+    });
+    const res = await onPlaybooks(makeCtx('https://x.com/'), { action: 'run', name: 'shot_path' }, {}, { executeAction: vi.fn(), navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(res.content.some((b: any) => b.type === 'image')).toBe(false);
+    expect(res.content).toHaveLength(1);
   });
 });
 
