@@ -41,6 +41,7 @@ import {
   headerDate,
   sectionsToJson,
   extractBullets,
+  extractSummary,
   typeBreakdown,
   type Section,
   type Parts,
@@ -302,7 +303,9 @@ function compactSection(raw: string): string {
     }
   }
   const body = items.map((s) => `- ${s}`).join('\n');
-  return `## ${title} ${itemCountLabel(rawBullets, false)}\n\n${body}`;
+  const summary = extractSummary(raw);
+  const summaryBlock = summary ? `*${summary}*\n\n` : '';
+  return `## ${title} ${itemCountLabel(rawBullets, false)}\n\n${summaryBlock}${body}`;
 }
 
 function main(): void {

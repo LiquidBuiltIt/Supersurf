@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSections, sectionsToJson, bulletType, typeBreakdown } from './changelog-json';
+import { parseSections, sectionsToJson, bulletType, typeBreakdown, extractSummary, extractBullets } from './changelog-json';
 
 const SAMPLE = [
   '# Changelog',
@@ -62,6 +62,7 @@ describe('sectionsToJson', () => {
             { type: 'feat', count: 1 },
             { type: 'fix', count: 1 },
           ],
+          summary: null,
         },
         {
           version: '1.1.0',
@@ -69,6 +70,7 @@ describe('sectionsToJson', () => {
           bullets: ['feat: bumped to 1.1.0'],
           itemCount: 1,
           typeCounts: [{ type: 'feat', count: 1 }],
+          summary: null,
         },
         {
           version: '1.0.0',
@@ -76,6 +78,7 @@ describe('sectionsToJson', () => {
           bullets: ['initial release with `code span`'],
           itemCount: 1,
           typeCounts: [{ type: 'other', count: 1 }],
+          summary: null,
         },
       ],
     });
@@ -99,6 +102,7 @@ describe('sectionsToJson', () => {
         bullets: ['only release'],
         itemCount: 1,
         typeCounts: [{ type: 'other', count: 1 }],
+        summary: null,
       },
     ]);
   });
@@ -145,6 +149,80 @@ describe('bulletType', () => {
 
   it('buckets a bullet with no leading-token prefix at all as other', () => {
     expect(bulletType('no prefix at all, just prose')).toBe('other');
+  });
+});
+
+describe('extractSummary', () => {
+  const withBlurb = [
+    '## 2.1.0 — 2026-08-10',
+    '',
+    '*Playbooks can now run on their own, and profiles are manageable from the CLI.*',
+    '',
+    '- feat: something',
+    '- fix: another thing',
+    '',
+  ].join('\n');
+
+  it('extracts the italic paragraph directly under the heading', () => {
+    expect(extractSummary(withBlurb)).toBe(
+      'Playbooks can now run on their own, and profiles are manageable from the CLI.',
+    );
+  });
+
+  it('returns null when the section has no summary paragraph', () => {
+    const noBlurb = ['## 2.0.0 — 2026-01-01', '', '- initial release', ''].join('\n');
+    expect(extractSummary(noBlurb)).toBeNull();
+  });
+
+  it('returns null for a bold (**) paragraph, not just italic', () => {
+    const bold = ['## 2.0.0 — 2026-01-01', '', '**not a blurb**', '', '- initial release', ''].join('\n');
+    expect(extractSummary(bold)).toBeNull();
+  });
+
+  it('returns null when a bullet appears before any summary paragraph', () => {
+    const bulletFirst = ['## 2.0.0 — 2026-01-01', '', '- initial release', ''].join('\n');
+    expect(extractSummary(bulletFirst)).toBeNull();
+  });
+
+  it('does not get picked up as a bullet by extractBullets', () => {
+    expect(extractBullets(withBlurb)).toEqual(['feat: something', 'fix: another thing']);
+  });
+});
+
+describe('sectionsToJson summary field', () => {
+  it('includes summary per section, null when absent', () => {
+    const content = [
+      '## 2.1.0 — 2026-08-10',
+      '',
+      '*A friendly summary.*',
+      '',
+      '- feat: something',
+      '',
+      '## 2.0.0 — 2026-01-01',
+      '',
+      '- initial release',
+      '',
+    ].join('\n');
+
+    const json = sectionsToJson(parseSections(content));
+    expect(json.sections[0].summary).toBe('A friendly summary.');
+    expect(json.sections[1].summary).toBeNull();
+  });
+
+  it('excludes the summary paragraph from itemCount and typeCounts', () => {
+    const content = [
+      '## 2.1.0 — 2026-08-10',
+      '',
+      '*A friendly summary.*',
+      '',
+      '- feat: something',
+      '- fix: another',
+      '',
+    ].join('\n');
+
+    const json = sectionsToJson(parseSections(content));
+    expect(json.sections[0].itemCount).toBe(2);
+    expect(json.sections[0].typeCounts).toEqual([{ type: 'feat', count: 1 }, { type: 'fix', count: 1 }]);
   });
 });
 

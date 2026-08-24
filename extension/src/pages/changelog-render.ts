@@ -11,6 +11,7 @@ export interface ChangelogSection {
   version: string; // "X.Y.Z" — Unreleased is filtered out at build time
   date: string | null;
   bullets: string[];
+  summary?: string | null; // optional release blurb — absent on older/unblurbed sections
 }
 
 export interface ChangelogData {

@@ -26,6 +26,11 @@ silently mis-rendered or silently dropped with no error.
 5. Lead each bullet with a **bold** summary phrase, or a sentence ending in
    . ! or ? — that's what the default compact view extracts as the one-line
    change statement.
+6. A version section may carry an optional release blurb: a single line
+   directly under the "## " heading, before any bullet, wrapped in single
+   asterisks (`*a short, friendly summary*` — not `**bold**`). It's a
+   paragraph, not an entry — never counted in item counts, and untouched
+   sections without one remain valid.
 -->
 
 # Changelog
@@ -36,6 +41,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- chore(release): `npm run version.bump` now requires a release blurb as a positional arg (`npm run version.bump minor "short, friendly summary"`) — missing or blank aborts before touching anything. The blurb is inserted as an italic paragraph under the new version heading in CHANGELOG.md, becomes (part of) the release commit message, and propagates to `npm run changelog`'s compact view, `changelog -- json`'s new per-section `summary` field, and the extension "What's New" page (rendered above the bullet list). `-- ls` stays one line per version. The blurb paragraph is never counted in `itemCount`/`typeCounts`, and sections without one remain fully valid.
 - chore: `npm run changelog` now shows an item count next to every version heading (`ls` and the compact view, including Unreleased) — `--verbose` swaps the plain count for a type breakdown parsed from each bullet's leading `word:`/`word(scope):` prefix (scoped and bold variants included; each distinct prefix — `feat`, `fix`, `security`, `perf`, `BREAKING`, etc. — buckets under its own lowercased name, `other` only for bullets with no such prefix). `json` output gains matching `itemCount`/`typeCounts` fields per section, purely additive — the extension changelog page build/render path is unaffected.
 - **feat: `playbooks action='run'` works without an active session** — with no connection it connects implicitly (equivalent to `connect`), runs the playbook, and the response says so (`Connected implicitly to run playbook.`). The target profile resolves in order: an explicit `profile` param, then the playbook's own bound profile (set by `create` when the recording session was profile-bound), then no profile. New optional `detach` param (default `false`) disconnects again after the run, success or failure, leaving no lingering session. Active sessions run as before, except a resolved profile that mismatches the session's already-bound profile is now refused with a clear error instead of silently running against the wrong profile. Other `playbooks` actions are unchanged and still require an active session.
 - feat: `supersurf playbook run <name> [--profile <p>] [--json]` replays a saved playbook without an MCP client — it drives the same `ConnectionManager` (connect → `playbooks` tool `action:'run'` → disconnect) as `--script-mode`, so there is one playbook runner regardless of caller. `--profile` picks a managed profile (falls back to the playbook's own `profile` field, then none); `--json` prints `{name, success, output}`. Exits 0 only when no step failed; a failed step, a missing playbook, or a connect failure all exit 1, with a matching stderr message. Always disconnects, including on SIGINT.
