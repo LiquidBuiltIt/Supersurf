@@ -117,8 +117,17 @@ export class ProfileRegistry {
     }
   }
 
-  /** Delete a profile. Throws if active sessions are connected. */
-  delete(name: string, sessions: SessionRegistry): void {
+  /**
+   * Delete a profile. Throws if active sessions are connected.
+   *
+   * Default behavior (MCP `profile_delete` tool — unchanged): if the profile's
+   * Chromium is daemon-owned and running, it's killed and deletion proceeds; a
+   * user-owned running browser blocks deletion. Pass `refuseIfRunning: true`
+   * (the CLI's `profiles rm` does) to refuse outright — regardless of owner —
+   * instead of killing anything, matching `rename`'s failsafe. Enforced here,
+   * server-side, so the check can't race a concurrent spawn/kill.
+   */
+  delete(name: string, sessions: SessionRegistry, opts: { refuseIfRunning?: boolean } = {}): void {
     if (!this.exists(name)) {
       throw new Error(`Profile '${name}' not found`);
     }
@@ -129,6 +138,11 @@ export class ProfileRegistry {
         `Cannot delete profile '${name}' — active sessions are connected. ` +
         `Ask the user to disconnect those sessions first.`
       );
+    }
+
+    if (opts.refuseIfRunning && this.isRunning(name)) {
+      const pid = this.getRunningPid(name);
+      throw new Error(`Profile '${name}' is running (PID ${pid}) — stop it first.`);
     }
 
     // Kill Chromium if running

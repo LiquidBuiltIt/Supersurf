@@ -357,7 +357,8 @@ export class IPCServer {
       }
       case 'profiles.delete': {
         const name = params.name as string;
-        this.profileRegistry.delete(name, this.sessions);
+        const refuseIfRunning = params.refuseIfRunning as boolean | undefined;
+        this.profileRegistry.delete(name, this.sessions, { refuseIfRunning });
         return { success: true };
       }
       case 'profiles.rename': {

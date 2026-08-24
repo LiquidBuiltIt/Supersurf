@@ -140,6 +140,52 @@ describe('ProfileRegistry', () => {
       registry.delete('daemon-owned', sessions);
       expect(registry.exists('daemon-owned')).toBe(false);
     });
+
+    describe('refuseIfRunning (CLI failsafe — MCP profile_delete never sets this)', () => {
+      it('refuses a daemon-owned running profile instead of killing it', () => {
+        registry.create('daemon-owned');
+        registry.setRunningPid('daemon-owned', process.pid, 'daemon');
+        expect(() => registry.delete('daemon-owned', sessions, { refuseIfRunning: true }))
+          .toThrow(/is running \(PID \d+\) — stop it first\./);
+        expect(registry.exists('daemon-owned')).toBe(true);
+      });
+
+      it('refuses a user-owned running profile with the same message (not the user-opened-browser message)', () => {
+        registry.create('user-owned');
+        registry.setRunningPid('user-owned', process.pid, 'user');
+        expect(() => registry.delete('user-owned', sessions, { refuseIfRunning: true }))
+          .toThrow(/is running \(PID \d+\) — stop it first\./);
+        expect(registry.exists('user-owned')).toBe(true);
+      });
+
+      it('deletes normally when not running', () => {
+        registry.create('stopped');
+        registry.delete('stopped', sessions, { refuseIfRunning: true });
+        expect(registry.exists('stopped')).toBe(false);
+      });
+
+      it('still refuses on active sessions before checking running state', () => {
+        registry.create('active');
+        sessions.add('s1', { writable: true } as net.Socket);
+        sessions.setProfileId('s1', 'active');
+        expect(() => registry.delete('active', sessions, { refuseIfRunning: true }))
+          .toThrow('active sessions are connected');
+      });
+
+      it('regression lock: default (no opts) behavior for MCP profile_delete is unchanged — kills a daemon-owned running browser and deletes', () => {
+        registry.create('daemon-owned-default');
+        registry.setRunningPid('daemon-owned-default', 99999, 'daemon');
+        registry.delete('daemon-owned-default', sessions);
+        expect(registry.exists('daemon-owned-default')).toBe(false);
+      });
+
+      it('regression lock: default (no opts) behavior still refuses a user-owned running browser with the original message', () => {
+        registry.create('user-owned-default');
+        registry.setRunningPid('user-owned-default', process.pid, 'user');
+        expect(() => registry.delete('user-owned-default', sessions)).toThrow('user-opened browser');
+        expect(registry.exists('user-owned-default')).toBe(true);
+      });
+    });
   });
 
   describe('rename', () => {

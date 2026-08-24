@@ -157,10 +157,13 @@ export async function runProfilesCli(argv: string[]): Promise<void> {
 
     if (parsed.cmd === 'rm') {
       // Routes through ProfileRegistry.delete() on the daemon side, which
-      // already refuses while active sessions are connected or a user-owned
-      // browser is running — no client-side reimplementation of that check.
+      // already refuses while active sessions are connected. `refuseIfRunning`
+      // additionally refuses (rather than killing) a running Chromium — the
+      // CLI's failsafe, enforced server-side so it can't race a spawn. The
+      // MCP profile_delete tool omits this flag and keeps its existing
+      // kill-daemon-owned/refuse-user-owned behavior unchanged.
       await withCliDaemonClient((client) =>
-        client.sendCmd('profiles.delete', { name: parsed.name }, 10000),
+        client.sendCmd('profiles.delete', { name: parsed.name, refuseIfRunning: true }, 10000),
       );
       console.log(`Profile '${parsed.name}' removed.`);
       return;

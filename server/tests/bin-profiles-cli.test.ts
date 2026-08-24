@@ -158,24 +158,26 @@ describe('runProfilesCli', () => {
     it('removes a profile and prints confirmation', async () => {
       mockSendCmd(async () => ({ success: true }));
       await runProfilesCli(['node', 'supersurf', 'rm', 'dev']);
-      expect(lastSendCmd).toHaveBeenCalledWith('profiles.delete', { name: 'dev' }, 10000);
+      expect(lastSendCmd).toHaveBeenCalledWith('profiles.delete', { name: 'dev', refuseIfRunning: true }, 10000);
       expect(logSpy.mock.calls.flat().join('\n')).toContain("Profile 'dev' removed.");
       expect(exitSpy).not.toHaveBeenCalled();
     });
 
-    it('exits 1 with the failsafe message when the profile is running', async () => {
+    it('exits 1 with the failsafe message when the profile is running — nothing killed, nothing deleted', async () => {
       mockSendCmd(async () => {
-        throw new Error("Profile 'dev' has a user-opened browser running. Close the browser window first, then delete the profile.");
+        throw new Error("Profile 'dev' is running (PID 1234) — stop it first.");
       });
       await expect(runProfilesCli(['node', 'supersurf', 'rm', 'dev'])).rejects.toThrow('process.exit(1)');
-      expect(errSpy.mock.calls.flat().join('\n')).toContain('user-opened browser running');
+      expect(errSpy.mock.calls.flat().join('\n')).toContain('is running (PID 1234)');
       expect(exitSpy).toHaveBeenCalledWith(1);
+      // The CLI never reports success when the daemon refuses — no "removed" message.
+      expect(logSpy.mock.calls.flat().join('\n')).not.toContain('removed');
     });
 
     it('accepts the "delete" alias', async () => {
       mockSendCmd(async () => ({ success: true }));
       await runProfilesCli(['node', 'supersurf', 'delete', 'dev']);
-      expect(lastSendCmd).toHaveBeenCalledWith('profiles.delete', { name: 'dev' }, 10000);
+      expect(lastSendCmd).toHaveBeenCalledWith('profiles.delete', { name: 'dev', refuseIfRunning: true }, 10000);
     });
   });
 
