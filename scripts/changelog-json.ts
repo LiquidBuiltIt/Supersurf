@@ -64,7 +64,7 @@ export function headerDate(raw: string): string {
 /** Top-level bullet text for a section, raw Markdown intact (per parser
  *  contract item 4: "- " or "* " at column 0 only — nested bullets are
  *  invisible here, same as everywhere else in this file). */
-function extractBullets(raw: string): string[] {
+export function extractBullets(raw: string): string[] {
   const bullets: string[] = [];
   for (const line of raw.split('\n')) {
     const b = line.match(/^[-*]\s+(.*)$/);
@@ -73,10 +73,41 @@ function extractBullets(raw: string): string[] {
   return bullets;
 }
 
+/** Parse a bullet's leading conventional-commit-style type, tolerating a
+ *  scope (`feat(extension):`) and/or a bold wrapper (`**feat: ...**`). Any
+ *  leading `word:` or `word(scope):` token buckets under its own lowercased
+ *  name (so `security:`, `perf(...)`, `BREAKING:`, and future prefixes each
+ *  get their own bucket) — `other` is reserved for bullets with no such
+ *  leading-token prefix at all. */
+export function bulletType(bullet: string): string {
+  const stripped = bullet.trim().replace(/^\*{1,2}/, '');
+  const m = stripped.match(/^([A-Za-z]+)(\([^)]*\))?\s*:/);
+  return m ? m[1].toLowerCase() : 'other';
+}
+
+export interface TypeCount {
+  type: string;
+  count: number;
+}
+
+/** Count bullets by `bulletType`, sorted by count descending, ties alphabetical. */
+export function typeBreakdown(bullets: string[]): TypeCount[] {
+  const counts = new Map<string, number>();
+  for (const b of bullets) {
+    const t = bulletType(b);
+    counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
+}
+
 export interface ChangelogJsonSection {
   version: string; // "X.Y.Z", or "Unreleased" for the in-flight section
   date: string | null; // "YYYY-MM-DD", or null for Unreleased
   bullets: string[];
+  itemCount: number; // bullets.length, added for consumers that don't want to count client-side
+  typeCounts: TypeCount[]; // same breakdown `--verbose` prints elsewhere
 }
 
 export interface ChangelogJson {
@@ -87,10 +118,15 @@ export interface ChangelogJson {
  *  Unreleased — if present — leading). */
 export function sectionsToJson(sections: Section[]): ChangelogJson {
   return {
-    sections: sections.map((s) => ({
-      version: s.kind === 'unreleased' ? 'Unreleased' : s.version!,
-      date: s.kind === 'unreleased' ? null : headerDate(s.raw),
-      bullets: extractBullets(s.raw),
-    })),
+    sections: sections.map((s) => {
+      const bullets = extractBullets(s.raw);
+      return {
+        version: s.kind === 'unreleased' ? 'Unreleased' : s.version!,
+        date: s.kind === 'unreleased' ? null : headerDate(s.raw),
+        bullets,
+        itemCount: bullets.length,
+        typeCounts: typeBreakdown(bullets),
+      };
+    }),
   };
 }

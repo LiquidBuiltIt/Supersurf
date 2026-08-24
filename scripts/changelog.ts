@@ -36,7 +36,15 @@
 
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import { parseSections, headerDate, sectionsToJson, type Section, type Parts } from './changelog-json';
+import {
+  parseSections,
+  headerDate,
+  sectionsToJson,
+  extractBullets,
+  typeBreakdown,
+  type Section,
+  type Parts,
+} from './changelog-json';
 
 // ANSI codes (matches the other scripts/ tooling)
 const yellow = '\x1b[33m';
@@ -227,18 +235,38 @@ function renderMarkdown(raw: string): string {
     .replace(/\n+$/, '');
 }
 
-/** Render the version list for the `ls` subcommand: aligned version + date,
- *  colored on a TTY and plain when piped. */
-function versionList(versions: Section[], unreleased: Section | undefined, tty: boolean): string {
+/** Item-count label for a version/section: plain `(N items)`, or — under
+ *  `--verbose` — the per-type breakdown (`(2 feat, 1 fix, 1 chore)`), sorted
+ *  by `typeBreakdown` (count desc, ties alphabetical). */
+function itemCountLabel(bullets: string[], verbose: boolean): string {
+  if (verbose) {
+    const bd = typeBreakdown(bullets);
+    if (bd.length === 0) return '(0 items)';
+    return `(${bd.map((b) => `${b.count} ${b.type}`).join(', ')})`;
+  }
+  const n = bullets.length;
+  return `(${n} item${n === 1 ? '' : 's'})`;
+}
+
+/** Render the version list for the `ls` subcommand: aligned version + date +
+ *  item count, colored on a TTY and plain when piped. */
+function versionList(versions: Section[], unreleased: Section | undefined, tty: boolean, verbose: boolean): string {
   const c = (s: string, code: string) => (tty ? `${code}${s}${reset}` : s);
-  const rows: [string, string][] = [];
-  if (unreleased) rows.push(['Unreleased', headerDate(unreleased.raw) || 'in flight']);
-  for (const v of versions) rows.push([v.version!, headerDate(v.raw)]);
+  const rows: [string, string, string][] = [];
+  if (unreleased) {
+    rows.push([
+      'Unreleased',
+      headerDate(unreleased.raw) || 'in flight',
+      itemCountLabel(extractBullets(unreleased.raw), verbose),
+    ]);
+  }
+  for (const v of versions) rows.push([v.version!, headerDate(v.raw), itemCountLabel(extractBullets(v.raw), verbose)]);
   if (rows.length === 0) return c('(no versions)', dim);
 
   const w = Math.max(...rows.map(([v]) => v.length));
+  const dw = Math.max(...rows.map(([, d]) => d.length));
   const head = c(`Available versions — ${versions.length} released${unreleased ? ' + Unreleased' : ''}`, bold);
-  const lines = rows.map(([v, d]) => `  ${c(v.padEnd(w), cyan)}  ${c(d, dim)}`);
+  const lines = rows.map(([v, d, cnt]) => `  ${c(v.padEnd(w), cyan)}  ${c(d.padEnd(dw), dim)}  ${c(cnt, dim)}`);
   return `${head}\n${lines.join('\n')}`;
 }
 
@@ -255,11 +283,12 @@ function summarize(content: string): string {
   return (sentence ? sentence[1] : t).trim();
 }
 
-/** Rebuild a section as compact Markdown: the header plus one bullet per
- *  top-level change, each reduced to its change statement. */
+/** Rebuild a section as compact Markdown: the header (with its item count)
+ *  plus one bullet per top-level change, each reduced to its change statement. */
 function compactSection(raw: string): string {
   let title = '';
   const items: string[] = [];
+  const rawBullets: string[] = [];
   for (const line of raw.split('\n')) {
     const h = line.match(/^##\s+(.*)$/);
     if (h) {
@@ -267,10 +296,13 @@ function compactSection(raw: string): string {
       continue;
     }
     const b = line.match(/^[-*]\s+(.*)$/); // top-level bullets only
-    if (b) items.push(summarize(b[1]));
+    if (b) {
+      rawBullets.push(b[1].trim());
+      items.push(summarize(b[1]));
+    }
   }
   const body = items.map((s) => `- ${s}`).join('\n');
-  return `## ${title}\n\n${body}`;
+  return `## ${title} ${itemCountLabel(rawBullets, false)}\n\n${body}`;
 }
 
 function main(): void {
@@ -301,7 +333,7 @@ function main(): void {
   const arg = argRaw.toLowerCase();
 
   if (arg === 'ls' || arg === 'list') {
-    console.log(versionList(versions, unreleased, process.stdout.isTTY));
+    console.log(versionList(versions, unreleased, process.stdout.isTTY, verbose));
     return;
   }
 
