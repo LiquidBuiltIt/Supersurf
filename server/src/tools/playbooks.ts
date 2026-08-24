@@ -20,6 +20,7 @@ import { experimentRegistry } from '../experimental/index';
 import { executeAction as realExecuteAction } from './interaction/registry';
 import { onNavigate as realNavigate, getAttachedUrl } from './navigation';
 import { callToolHandler as realCallHandler } from './lib/handler-registry';
+import { dialogNoticeLines } from './lib/dialog-notice';
 
 /** Default history window. The busiest observed real session logged 5,215 actions. */
 const DEFAULT_LIMIT = 50;
@@ -59,9 +60,31 @@ const STATUS_HEADER_DIVIDER = '\n---\n\n';
  * that's real content (e.g. a markdown rule), not our header.
  */
 function stripStatusHeader(body: string): string {
-  const idx = body.indexOf(STATUS_HEADER_DIVIDER);
+  // A `_recovery` note (tab re-bound mid-call) is real content formatResult
+  // prepends BEFORE the status header — pull it out before stripping so it
+  // is not swallowed along with the header, then reattach it.
+  const recoveryMatch = body.match(/^↻ tab recovered:[^\n]*\n/);
+  const recoveryNote = recoveryMatch ? recoveryMatch[0] : '';
+  const rest = recoveryNote ? body.slice(recoveryNote.length) : body;
+
+  const idx = rest.indexOf(STATUS_HEADER_DIVIDER);
   if (idx === -1 || idx > 400) return body;
-  return body.slice(idx + STATUS_HEADER_DIVIDER.length);
+  return recoveryNote + rest.slice(idx + STATUS_HEADER_DIVIDER.length);
+}
+
+/**
+ * Drain any native-dialog events buffered since the last drain and, when
+ * present, attach a warning beneath the step that raised them. Replayed
+ * steps bypass `dispatchTool` (they call `exec`/`callHandler` directly), so
+ * without this the dialog buffer would either go unreported or leak into
+ * whichever live call drains it next.
+ */
+function pushDialogNotice(lines: string[], ctx: ToolContext): void {
+  const transport: any = ctx.ext;
+  if (typeof transport?.consumeDialogEvents !== 'function') return;
+  const events = transport.consumeDialogEvents();
+  if (!events || events.length === 0) return;
+  lines.push(...dialogNoticeLines(events));
 }
 
 function gate(): string | null {
@@ -228,6 +251,7 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
           message: msg, params: step.params, url: step.url,
         });
         lines.push(`#${id} ✓ ${i + 1}/${total}  ${step.type}`);
+        pushDialogNotice(lines, ctx);
       } catch (err: any) {
         const id = actionTrail.record({
           tool: step.tool, type: step.type, outcome: 'error',
@@ -241,6 +265,7 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
             `(force_pseudo_state resolves raw; wait asks whether the original selector appeared).`,
           );
         }
+        pushDialogNotice(lines, ctx);
         lines.push('');
         lines.push(`Stopped at step ${i + 1} of ${total}. Steps ${i + 2}-${total} not run.`);
         return text(lines.join('\n'), true);
@@ -269,6 +294,7 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
       });
       lines.push(`#${id} ✗ ${i + 1}/${total}  ${step.tool}`);
       lines.push(`        ${failure}`);
+      pushDialogNotice(lines, ctx);
       lines.push('');
       lines.push(`Stopped at step ${i + 1} of ${total}. Steps ${i + 2}-${total} not run.`);
       return text(lines.join('\n'), true);
@@ -286,6 +312,7 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
       lines.push(body);
       lines.push('');
     }
+    pushDialogNotice(lines, ctx);
   }
 
   lines.push('');

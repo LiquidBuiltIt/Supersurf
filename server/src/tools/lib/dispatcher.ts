@@ -18,6 +18,7 @@ import { onPlaybooks } from '../playbooks';
 import { callToolHandler } from './handler-registry';
 
 import { maybeAppendScreenshot, formatError } from './result-formatter';
+import { dialogNoticeLines } from './dialog-notice';
 
 const log = createLog('[Dispatch]');
 
@@ -192,14 +193,7 @@ function prependDialogNotice(
   if (!events || events.length === 0) return result;
   if (options.rawResult) return result;
 
-  const lines = events.map((d: any) => {
-    const msg = d.message != null && d.message !== '' ? `: ${JSON.stringify(d.message)}` : '';
-    const prompt = d.type === 'prompt' && d.defaultPrompt
-      ? ` (default: ${JSON.stringify(d.defaultPrompt)})` : '';
-    return `⚠ A native ${d.type} dialog is OPEN and blocking the page${msg}${prompt}. ` +
-      `Resolve it with browser_handle_dialog {action:"view"} then {action:"accept"} or {action:"dismiss"}.`;
-  });
-  const notice = lines.join('\n') + '\n';
+  const notice = dialogNoticeLines(events).join('\n') + '\n';
 
   if (result && Array.isArray(result.content)) {
     const firstText = result.content.find((b: any) => b?.type === 'text');
