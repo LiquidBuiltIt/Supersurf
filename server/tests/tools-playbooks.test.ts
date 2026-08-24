@@ -376,6 +376,100 @@ describe('playbooks — run (generic steps)', () => {
     expect(res.content[0].text).not.toContain('\n---\n');
     expect(res.content[0].text).not.toContain('✅');
   });
+
+  it('strips the status header from an isError step and still surfaces the error', async () => {
+    seedMixedPlaybook();
+    const fakeCm = { statusHeader: () => '✅ v3.4.0 | 🌐 chrome | 📄 Tab 1: https://news.ycombinator.com\n---\n\n' };
+    const callHandler = vi.fn()
+      .mockResolvedValueOnce(formatResult('browser_navigate', { message: 'Navigated to https://news.ycombinator.com' }, { rawResult: false }, fakeCm))
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: fakeCm.statusHeader() + 'Extension not connected' }], isError: true });
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const res = await onPlaybooks(makeCtx('https://news.ycombinator.com'), { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate: vi.fn(), callHandler });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('Extension not connected');
+    expect(res.content[0].text).not.toContain('\n---\n');
+    expect(res.content[0].text).not.toContain('✅');
+    expect(res.content[0].text).toContain('Stopped at step 3 of 3');
+  });
+
+  it('preserves a _recovery note when stripping the status header from a replayed step', async () => {
+    seedMixedPlaybook();
+    const fakeCm = { statusHeader: () => '✅ v3.4.0 | 🌐 chrome | 📄 Tab 1: https://news.ycombinator.com\n---\n\n' };
+    const callHandler = vi.fn()
+      .mockResolvedValueOnce(formatResult('browser_navigate', { message: 'Navigated to https://news.ycombinator.com' }, { rawResult: false }, fakeCm))
+      .mockResolvedValueOnce(formatResult(
+        'browser_extract_content',
+        { _recovery: { previousTabId: 5, newTabId: 7, url: 'https://news.ycombinator.com/item?id=1' }, text: 'COMMENT BODY TEXT' },
+        { rawResult: false },
+        fakeCm,
+      ));
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const res = await onPlaybooks(makeCtx('https://news.ycombinator.com'), { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toContain('tab recovered: stale tab 5 → 7');
+    expect(res.content[0].text).toContain('COMMENT BODY TEXT');
+    expect(res.content[0].text).not.toContain('\n---\n');
+  });
+
+  it('attaches a dialog notice under the step that raised it, not at the end of the run', async () => {
+    seedMixedPlaybook();
+    const consumeDialogEvents = vi.fn()
+      .mockReturnValueOnce([]) // step 1 (navigate)
+      .mockReturnValueOnce([{ type: 'confirm', message: 'Are you sure?', defaultPrompt: '', url: 'https://news.ycombinator.com', hasBrowserHandler: false, timestamp: Date.now() }]) // step 2 (interact)
+      .mockReturnValueOnce([]); // step 3 (extract_content)
+    const ctx = makeCtx('https://news.ycombinator.com');
+    ctx.ext.consumeDialogEvents = consumeDialogEvents;
+    const callHandler = vi.fn()
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }] })
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'COMMENT BODY TEXT' }] });
+    const executeAction = vi.fn().mockResolvedValue('Clicked');
+    const res = await onPlaybooks(ctx, { action: 'run', name: 'mixed_flow' }, {}, { executeAction, navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(consumeDialogEvents).toHaveBeenCalledTimes(3);
+    const text = res.content[0].text;
+    const noticeIdx = text.indexOf('⚠ A native confirm dialog');
+    expect(noticeIdx).toBeGreaterThan(-1);
+    expect(text.indexOf('2/3')).toBeLessThan(noticeIdx);
+    expect(noticeIdx).toBeLessThan(text.indexOf('3/3'));
+  });
+
+  it('appends the inline screenshot blob when the replayed step had no path', async () => {
+    savePlaybook({
+      name: 'shot_inline',
+      purpose: 'p',
+      steps: [{ tool: 'browser_take_screenshot', type: 'browser_take_screenshot', params: {}, url: 'https://x.com/', sourceId: 1 }],
+      createdAt: 1,
+      version: 1,
+    });
+    const callHandler = vi.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: 'Screenshot captured' },
+        { type: 'image', data: 'BASE64DATA', mimeType: 'image/jpeg' },
+      ],
+    });
+    const res = await onPlaybooks(makeCtx('https://x.com/'), { action: 'run', name: 'shot_inline' }, {}, { executeAction: vi.fn(), navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].type).toBe('text');
+    const imageBlock = res.content.find((b: any) => b.type === 'image');
+    expect(imageBlock).toEqual({ type: 'image', data: 'BASE64DATA', mimeType: 'image/jpeg' });
+  });
+
+  it('does not add an image block for a path-recorded screenshot step', async () => {
+    savePlaybook({
+      name: 'shot_path',
+      purpose: 'p',
+      steps: [{ tool: 'browser_take_screenshot', type: 'browser_take_screenshot', params: { path: '/tmp/x.jpg' }, url: 'https://x.com/', sourceId: 1 }],
+      createdAt: 1,
+      version: 1,
+    });
+    const callHandler = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'Screenshot saved to /tmp/x.jpg (123 bytes)' }],
+    });
+    const res = await onPlaybooks(makeCtx('https://x.com/'), { action: 'run', name: 'shot_path' }, {}, { executeAction: vi.fn(), navigate: vi.fn(), callHandler });
+    expect(res.isError).toBeFalsy();
+    expect(res.content.some((b: any) => b.type === 'image')).toBe(false);
+    expect(res.content).toHaveLength(1);
+  });
 });
 
 describe('playbooks — unknown action', () => {
