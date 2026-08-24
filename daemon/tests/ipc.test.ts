@@ -467,6 +467,69 @@ describe('IPCServer', () => {
     client.end();
   });
 
+  it('handles profiles.rename', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'rename-test' });
+    await readLine(client);
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'r-1',
+      method: 'profiles.create',
+      params: { name: 'before' },
+    });
+    await readLine(client);
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'r-2',
+      method: 'profiles.rename',
+      params: { name: 'before', newName: 'after' },
+    });
+
+    const response = await readLine(client);
+    expect(response.result.success).toBe(true);
+    expect(response.result.profile.name).toBe('after');
+    expect(profileRegistry.exists('before')).toBe(false);
+    expect(profileRegistry.exists('after')).toBe(true);
+
+    client.end();
+  });
+
+  it('refuses profiles.rename while the profile is running', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'rename-refuse-test' });
+    await readLine(client);
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'rr-1',
+      method: 'profiles.create',
+      params: { name: 'live' },
+    });
+    await readLine(client);
+
+    profileRegistry.setRunningPid('live', process.pid, 'daemon');
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'rr-2',
+      method: 'profiles.rename',
+      params: { name: 'live', newName: 'renamed' },
+    });
+
+    const response = await readLine(client);
+    expect(response.error).toBeDefined();
+    expect(response.error.message).toMatch(/is running/);
+    expect(profileRegistry.exists('live')).toBe(true);
+
+    client.end();
+  });
+
   it('isolates experiment state between sessions', async () => {
     await ipc.start();
 

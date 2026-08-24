@@ -150,6 +150,44 @@ export class ProfileRegistry {
     debugLog(`Profile deleted: "${name}"`);
   }
 
+  /**
+   * Rename a profile. Throws if active sessions are connected or the profile's
+   * Chromium is currently running — same failsafe as `delete`, but never kills
+   * the browser itself (unlike delete's daemon-owned auto-kill): a rename must
+   * be refused outright, not raced against a live process.
+   */
+  rename(oldName: string, newName: string, sessions: SessionRegistry): ProfileConfig {
+    if (!this.exists(oldName)) {
+      throw new Error(`Profile '${oldName}' not found`);
+    }
+    this.validateName(newName);
+    if (this.exists(newName)) {
+      throw new Error(`Profile '${newName}' already exists`);
+    }
+
+    const activeSessions = sessions.getSessionsForProfile(oldName);
+    if (activeSessions.length > 0) {
+      throw new Error(
+        `Cannot rename profile '${oldName}' — active sessions are connected. ` +
+        `Ask the user to disconnect those sessions first.`
+      );
+    }
+
+    if (this.isRunning(oldName)) {
+      const pid = this.getRunningPid(oldName);
+      throw new Error(`Profile '${oldName}' is running (PID ${pid}) — stop it first.`);
+    }
+
+    const config = this.get(oldName)!;
+    config.name = newName;
+
+    fs.renameSync(this.profileDir(oldName), this.profileDir(newName));
+    fs.writeFileSync(this.configPath(newName), JSON.stringify(config, null, 2), 'utf8');
+
+    debugLog(`Profile renamed: "${oldName}" -> "${newName}"`);
+    return config;
+  }
+
   /** Check if a profile exists (directory + config file). */
   exists(name: string): boolean {
     return fs.existsSync(this.configPath(name));

@@ -142,6 +142,67 @@ describe('ProfileRegistry', () => {
     });
   });
 
+  describe('rename', () => {
+    it('renames a profile', () => {
+      registry.create('old-name');
+      const config = registry.rename('old-name', 'new-name', sessions);
+      expect(config.name).toBe('new-name');
+      expect(registry.exists('old-name')).toBe(false);
+      expect(registry.exists('new-name')).toBe(true);
+      expect(registry.get('new-name')!.name).toBe('new-name');
+    });
+
+    it('preserves initialized state and experiments across rename', () => {
+      registry.create('src', { mouse_humanization: true });
+      registry.markInitialized('src');
+      const config = registry.rename('src', 'dst', sessions);
+      expect(config.initialized).toBe(true);
+      expect(config.experiments).toEqual({ mouse_humanization: true });
+      expect(registry.isInitialized('dst')).toBe(true);
+    });
+
+    it('throws when the source profile does not exist', () => {
+      expect(() => registry.rename('ghost', 'new-name', sessions)).toThrow('not found');
+    });
+
+    it('throws when the new name is invalid', () => {
+      registry.create('src');
+      expect(() => registry.rename('src', 'Invalid Name', sessions)).toThrow('Invalid profile name');
+      expect(registry.exists('src')).toBe(true);
+    });
+
+    it('throws when the new name is already taken', () => {
+      registry.create('src');
+      registry.create('dst');
+      expect(() => registry.rename('src', 'dst', sessions)).toThrow('already exists');
+      expect(registry.exists('src')).toBe(true);
+    });
+
+    it('throws when active sessions are connected', () => {
+      registry.create('active');
+      sessions.add('s1', { writable: true } as net.Socket);
+      sessions.setProfileId('s1', 'active');
+      expect(() => registry.rename('active', 'renamed', sessions)).toThrow('active sessions are connected');
+      expect(registry.exists('active')).toBe(true);
+    });
+
+    it('refuses while the profile is running', () => {
+      registry.create('running');
+      registry.setRunningPid('running', process.pid, 'daemon');
+      expect(() => registry.rename('running', 'renamed', sessions)).toThrow(/is running \(PID \d+\)/);
+      expect(registry.exists('running')).toBe(true);
+      expect(registry.exists('renamed')).toBe(false);
+    });
+
+    it('succeeds once the running pid is stale (self-heals)', () => {
+      registry.create('stale');
+      registry.setRunningPid('stale', 999999999, 'daemon'); // certainly not alive
+      registry.rename('stale', 'fresh', sessions);
+      expect(registry.exists('stale')).toBe(false);
+      expect(registry.exists('fresh')).toBe(true);
+    });
+  });
+
   describe('initialized', () => {
     it('marks profile as initialized', () => {
       registry.create('init-test');

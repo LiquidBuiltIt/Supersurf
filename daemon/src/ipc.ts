@@ -360,6 +360,12 @@ export class IPCServer {
         this.profileRegistry.delete(name, this.sessions);
         return { success: true };
       }
+      case 'profiles.rename': {
+        const name = params.name as string;
+        const newName = params.newName as string;
+        const config = this.profileRegistry.rename(name, newName, this.sessions);
+        return { success: true, profile: config };
+      }
       case 'profiles.connect': {
         const profile = params.profile as string;
         if (!profile) throw new Error('Profile name is required');
