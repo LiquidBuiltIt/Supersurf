@@ -467,6 +467,132 @@ describe('IPCServer', () => {
     client.end();
   });
 
+  it('handles profiles.rename', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'rename-test' });
+    await readLine(client);
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'r-1',
+      method: 'profiles.create',
+      params: { name: 'before' },
+    });
+    await readLine(client);
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'r-2',
+      method: 'profiles.rename',
+      params: { name: 'before', newName: 'after' },
+    });
+
+    const response = await readLine(client);
+    expect(response.result.success).toBe(true);
+    expect(response.result.profile.name).toBe('after');
+    expect(profileRegistry.exists('before')).toBe(false);
+    expect(profileRegistry.exists('after')).toBe(true);
+
+    client.end();
+  });
+
+  it('refuses profiles.rename while the profile is running', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'rename-refuse-test' });
+    await readLine(client);
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'rr-1',
+      method: 'profiles.create',
+      params: { name: 'live' },
+    });
+    await readLine(client);
+
+    profileRegistry.setRunningPid('live', process.pid, 'daemon');
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'rr-2',
+      method: 'profiles.rename',
+      params: { name: 'live', newName: 'renamed' },
+    });
+
+    const response = await readLine(client);
+    expect(response.error).toBeDefined();
+    expect(response.error.message).toMatch(/is running/);
+    expect(profileRegistry.exists('live')).toBe(true);
+
+    client.end();
+  });
+
+  it('refuses profiles.delete with refuseIfRunning while the profile is running (CLI failsafe)', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'delete-refuse-test' });
+    await readLine(client);
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'dr-1',
+      method: 'profiles.create',
+      params: { name: 'live-delete' },
+    });
+    await readLine(client);
+
+    profileRegistry.setRunningPid('live-delete', process.pid, 'daemon');
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'dr-2',
+      method: 'profiles.delete',
+      params: { name: 'live-delete', refuseIfRunning: true },
+    });
+
+    const response = await readLine(client);
+    expect(response.error).toBeDefined();
+    expect(response.error.message).toMatch(/is running \(PID \d+\) — stop it first\./);
+    expect(profileRegistry.exists('live-delete')).toBe(true);
+
+    client.end();
+  });
+
+  it('regression lock: profiles.delete without refuseIfRunning still kills a daemon-owned running browser (MCP profile_delete unchanged)', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'delete-mcp-test' });
+    await readLine(client);
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'dm-1',
+      method: 'profiles.create',
+      params: { name: 'mcp-owned' },
+    });
+    await readLine(client);
+
+    profileRegistry.setRunningPid('mcp-owned', 999999999, 'daemon'); // certainly not alive, avoids a real kill
+
+    writeLine(client, {
+      jsonrpc: '2.0',
+      id: 'dm-2',
+      method: 'profiles.delete',
+      params: { name: 'mcp-owned' },
+    });
+
+    const response = await readLine(client);
+    expect(response.result.success).toBe(true);
+    expect(profileRegistry.exists('mcp-owned')).toBe(false);
+
+    client.end();
+  });
+
   it('isolates experiment state between sessions', async () => {
     await ipc.start();
 

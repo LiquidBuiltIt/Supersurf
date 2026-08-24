@@ -140,6 +140,113 @@ describe('ProfileRegistry', () => {
       registry.delete('daemon-owned', sessions);
       expect(registry.exists('daemon-owned')).toBe(false);
     });
+
+    describe('refuseIfRunning (CLI failsafe — MCP profile_delete never sets this)', () => {
+      it('refuses a daemon-owned running profile instead of killing it', () => {
+        registry.create('daemon-owned');
+        registry.setRunningPid('daemon-owned', process.pid, 'daemon');
+        expect(() => registry.delete('daemon-owned', sessions, { refuseIfRunning: true }))
+          .toThrow(/is running \(PID \d+\) — stop it first\./);
+        expect(registry.exists('daemon-owned')).toBe(true);
+      });
+
+      it('refuses a user-owned running profile with the same message (not the user-opened-browser message)', () => {
+        registry.create('user-owned');
+        registry.setRunningPid('user-owned', process.pid, 'user');
+        expect(() => registry.delete('user-owned', sessions, { refuseIfRunning: true }))
+          .toThrow(/is running \(PID \d+\) — stop it first\./);
+        expect(registry.exists('user-owned')).toBe(true);
+      });
+
+      it('deletes normally when not running', () => {
+        registry.create('stopped');
+        registry.delete('stopped', sessions, { refuseIfRunning: true });
+        expect(registry.exists('stopped')).toBe(false);
+      });
+
+      it('still refuses on active sessions before checking running state', () => {
+        registry.create('active');
+        sessions.add('s1', { writable: true } as net.Socket);
+        sessions.setProfileId('s1', 'active');
+        expect(() => registry.delete('active', sessions, { refuseIfRunning: true }))
+          .toThrow('active sessions are connected');
+      });
+
+      it('regression lock: default (no opts) behavior for MCP profile_delete is unchanged — kills a daemon-owned running browser and deletes', () => {
+        registry.create('daemon-owned-default');
+        registry.setRunningPid('daemon-owned-default', 99999, 'daemon');
+        registry.delete('daemon-owned-default', sessions);
+        expect(registry.exists('daemon-owned-default')).toBe(false);
+      });
+
+      it('regression lock: default (no opts) behavior still refuses a user-owned running browser with the original message', () => {
+        registry.create('user-owned-default');
+        registry.setRunningPid('user-owned-default', process.pid, 'user');
+        expect(() => registry.delete('user-owned-default', sessions)).toThrow('user-opened browser');
+        expect(registry.exists('user-owned-default')).toBe(true);
+      });
+    });
+  });
+
+  describe('rename', () => {
+    it('renames a profile', () => {
+      registry.create('old-name');
+      const config = registry.rename('old-name', 'new-name', sessions);
+      expect(config.name).toBe('new-name');
+      expect(registry.exists('old-name')).toBe(false);
+      expect(registry.exists('new-name')).toBe(true);
+      expect(registry.get('new-name')!.name).toBe('new-name');
+    });
+
+    it('preserves initialized state and experiments across rename', () => {
+      registry.create('src', { mouse_humanization: true });
+      registry.markInitialized('src');
+      const config = registry.rename('src', 'dst', sessions);
+      expect(config.initialized).toBe(true);
+      expect(config.experiments).toEqual({ mouse_humanization: true });
+      expect(registry.isInitialized('dst')).toBe(true);
+    });
+
+    it('throws when the source profile does not exist', () => {
+      expect(() => registry.rename('ghost', 'new-name', sessions)).toThrow('not found');
+    });
+
+    it('throws when the new name is invalid', () => {
+      registry.create('src');
+      expect(() => registry.rename('src', 'Invalid Name', sessions)).toThrow('Invalid profile name');
+      expect(registry.exists('src')).toBe(true);
+    });
+
+    it('throws when the new name is already taken', () => {
+      registry.create('src');
+      registry.create('dst');
+      expect(() => registry.rename('src', 'dst', sessions)).toThrow('already exists');
+      expect(registry.exists('src')).toBe(true);
+    });
+
+    it('throws when active sessions are connected', () => {
+      registry.create('active');
+      sessions.add('s1', { writable: true } as net.Socket);
+      sessions.setProfileId('s1', 'active');
+      expect(() => registry.rename('active', 'renamed', sessions)).toThrow('active sessions are connected');
+      expect(registry.exists('active')).toBe(true);
+    });
+
+    it('refuses while the profile is running', () => {
+      registry.create('running');
+      registry.setRunningPid('running', process.pid, 'daemon');
+      expect(() => registry.rename('running', 'renamed', sessions)).toThrow(/is running \(PID \d+\)/);
+      expect(registry.exists('running')).toBe(true);
+      expect(registry.exists('renamed')).toBe(false);
+    });
+
+    it('succeeds once the running pid is stale (self-heals)', () => {
+      registry.create('stale');
+      registry.setRunningPid('stale', 999999999, 'daemon'); // certainly not alive
+      registry.rename('stale', 'fresh', sessions);
+      expect(registry.exists('stale')).toBe(false);
+      expect(registry.exists('fresh')).toBe(true);
+    });
   });
 
   describe('initialized', () => {

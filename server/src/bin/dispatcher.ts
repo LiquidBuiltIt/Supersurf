@@ -16,7 +16,7 @@ Usage: supersurf <command> [options]
 Commands:
   mcp       Start the MCP server over stdio (the agent entrypoint)
   daemon    Manage the coordinator daemon: start | stop | restart | status | observe
-  profiles  Manage browser profiles: ls | open <name>
+  profiles  Manage browser profiles: ls | open <name> | create <name> | rm <name> | rename <old> <new>
   export    Bundle usage-metrics logs into a .zip in the current directory
   playbook  Manage saved playbooks: ls | show | edit | rm | export | import
 

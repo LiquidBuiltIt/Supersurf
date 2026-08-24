@@ -6,6 +6,7 @@ describe('isProfileMethod', () => {
     expect(isProfileMethod('profiles.create')).toBe(true);
     expect(isProfileMethod('profiles.list')).toBe(true);
     expect(isProfileMethod('profiles.delete')).toBe(true);
+    expect(isProfileMethod('profiles.rename')).toBe(true);
     expect(isProfileMethod('profiles.connect')).toBe(true);
   });
 
