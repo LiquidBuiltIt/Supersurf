@@ -99,7 +99,7 @@ describe('Matchmaker', () => {
 
     it('times out when no match arrives', async () => {
       await expect(matchmaker.requestMatch('missing', 100))
-        .rejects.toThrow('timeout');
+        .rejects.toThrow("No extension connection for profile 'missing' after");
     });
   });
 

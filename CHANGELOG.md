@@ -45,6 +45,8 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 - feat: the status header now surfaces a one-shot hint (`► N playbooks available: ... | playbooks "list" for more details`, capped at 5 names with a `5+` variant beyond that) when the active tab's domain matches a saved playbook's recorded step domains. Domains are derived at read time from each playbook's `steps[].url` (no stored manifest field), and the hint fires at most once per normalized domain per session.
 - chore: `supersurf playbook show` is renamed to `supersurf playbook inspect` — no alias, the old command name is gone.
 - `connect` and the status header now report slot-scoped extension presence: ⚠️ + hint replaces the false ✅ when no extension is connected for the session's slot (BACKLOG #12).
+- `connect` auto-restarts a stale-version daemon once instead of failing every session with "Daemon Version Mismatch" (BACKLOG #7).
+- `profiles.connect`/`profiles.launch` fail within ~1 s when the spawned Chromium dies, and the match ceiling drops 90 s → 45 s; the matchmaker timeout message no longer claims retries that never happened (BACKLOG #7).
 
 ## 3.4.0 — 2026-08-24
 

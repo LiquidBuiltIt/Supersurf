@@ -185,7 +185,7 @@ export async function onConnect(
     // Connect to a managed profile if requested
     if (args.profile && typeof args.profile === 'string') {
       log('Connecting to profile:', args.profile);
-      await client.sendCmd('profiles.connect', { profile: args.profile }, 90000);
+      await client.sendCmd('profiles.connect', { profile: args.profile }, 50000);
       mgr.profile = args.profile;
       // profiles.connect resolves only when the matchmaker has a live
       // extension connection for this profile slot.

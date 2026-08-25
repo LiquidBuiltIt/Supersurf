@@ -525,7 +525,7 @@ describe('ConnectionManager', () => {
 
       expect(result.content[0].text).toContain('Connected implicitly (profile: proj-a) to run playbook.');
       expect(mockDaemonClientInstance.sendCmd).toHaveBeenCalledWith(
-        'profiles.connect', { profile: 'proj-a' }, 90000
+        'profiles.connect', { profile: 'proj-a' }, 50000
       );
     });
 

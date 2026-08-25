@@ -737,6 +737,29 @@ describe('IPCServer', () => {
       client.end();
     });
 
+    it('profiles.connect rejects fast when the spawned Chromium dies before matching', async () => {
+      await ipc.start();
+      profileRegistry.create('deadprof');
+      // Spawn succeeds (no-op), but nothing ever gets pooled and the process
+      // never registers as running -> death watch should reject quickly.
+      const spawnSpy = vi.spyOn(ipc as any, 'spawnProfile').mockResolvedValue(undefined);
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue(null);
+      (bridge as any).matchmaker.requestMatch.mockReturnValue(new Promise(() => {})); // never matches
+      vi.spyOn(profileRegistry, 'isRunning').mockReturnValue(false);
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'dead-chromium' });
+      await readLine(client);
+
+      writeLine(client, { jsonrpc: '2.0', id: 'c-dead', method: 'profiles.connect', params: { profile: 'deadprof' } });
+      const res = await readLine(client);
+
+      expect(spawnSpy).toHaveBeenCalledOnce();
+      expect(res.error).toBeDefined();
+      expect(res.error.message).toContain('exited before the extension connected');
+      client.end();
+    });
+
     it('does NOT kill a user-owned Chromium when the last session disconnects', async () => {
       await ipc.start();
       profileRegistry.create('dev');
