@@ -13,9 +13,10 @@ import type { ToolContext } from './lib/types';
 import type { Playbook, PlaybookStep } from '../playbooks/types';
 import { actionTrail } from '../playbooks/trail';
 import {
-  savePlaybook, loadPlaybook, playbookExists, normalizeName,
+  savePlaybook, loadPlaybook, playbookExists, normalizeName, listPlaybooks,
 } from '../playbooks/store';
-import { formatHistory } from '../playbooks/format';
+import { formatHistory, formatInspect } from '../playbooks/format';
+import { derivePlaybookDomains, normalizeDomain } from '../playbooks/domains';
 import { experimentRegistry } from '../experimental/index';
 import { executeAction as realExecuteAction } from './interaction/registry';
 import { onNavigate as realNavigate, getAttachedUrl } from './navigation';
@@ -125,13 +126,53 @@ export async function onPlaybooks(
     case 'history': return doHistory(args);
     case 'create':  return doCreate(ctx, args);
     case 'run':     return doRun(ctx, args, deps);
+    case 'list':    return doList(args);
+    case 'inspect': return doInspect(args);
     default:
       return text(
         `Unknown playbooks action: ${JSON.stringify(args.action)}. ` +
-        'Expected one of: history, create, run.',
+        'Expected one of: history, create, run, list, inspect.',
         true,
       );
   }
+}
+
+function doList(args: any): any {
+  const domainFilterRaw = typeof args.domain === 'string' ? args.domain.trim() : '';
+  const domainFilter = domainFilterRaw ? normalizeDomain(domainFilterRaw) : null;
+
+  const rows = listPlaybooks()
+    .map(pb => ({ pb, domains: derivePlaybookDomains(pb.steps) }))
+    .filter(({ domains }) => !domainFilter || domains.includes(domainFilter))
+    .sort((a, b) => a.pb.name.localeCompare(b.pb.name));
+
+  if (rows.length === 0) {
+    return text(
+      domainFilter
+        ? `No playbooks match domain \`${domainFilter}\`.`
+        : '(no playbooks saved)',
+    );
+  }
+
+  const lines = rows.map(({ pb, domains }) => {
+    const parts = [`${pb.name} — ${pb.steps.length} steps — ${pb.purpose}`];
+    parts.push(`domains: ${domains.length > 0 ? domains.join(', ') : '(none)'}`);
+    if (pb.profile) parts.push(`profile: ${pb.profile}`);
+    return parts.join('  |  ');
+  });
+  return text(lines.join('\n'));
+}
+
+function doInspect(args: any): any {
+  const name = normalizeName(String(args.name ?? ''));
+  if (!name) return text('`name` is required.', true);
+
+  const pb = loadPlaybook(name);
+  if (!pb) {
+    return text(`No playbook named \`${name}\`. List them with: playbooks {action:"list"}`, true);
+  }
+
+  return text(formatInspect(pb, derivePlaybookDomains(pb.steps)));
 }
 
 function doHistory(args: any): any {
@@ -191,6 +232,9 @@ function doCreate(ctx: ToolContext, args: any): any {
   const boundProfile = ctx.connectionManager?.profile;
   if (typeof boundProfile === 'string' && boundProfile) pb.profile = boundProfile;
   savePlaybook(pb);
+  // The new playbook may introduce domains the status-header hint's cached
+  // index doesn't know about yet — drop the cache so the next header rebuilds it.
+  ctx.connectionManager?.invalidatePlaybookIndex?.();
 
   let body = `Saved \`${name}\` — ${steps.length} steps.`;
   if (failedIds.length > 0) {
