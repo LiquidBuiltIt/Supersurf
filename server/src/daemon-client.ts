@@ -36,6 +36,7 @@ export class DaemonClient implements IExtensionTransport {
   private _buildTime: string | null = null;
   private _configDrift: boolean = false;
   private _version: string | null = null;
+  private _extensionConnected: boolean = false;
   private dialogEventBuffer: DialogEvent[] = [];
 
   onReconnect: (() => void) | null = null;
@@ -61,6 +62,12 @@ export class DaemonClient implements IExtensionTransport {
   /** The daemon's reported package version, or null for a pre-v3 daemon. */
   get version(): string | null {
     return this._version;
+  }
+
+  /** Unmanaged-slot extension presence reported by the daemon on session_ack.
+   *  False for pre-upgrade daemons that omit the field. */
+  get extensionConnected(): boolean {
+    return this._extensionConnected;
   }
 
   /** True when the daemon has detected a config file change since its startup. */
@@ -121,6 +128,7 @@ export class DaemonClient implements IExtensionTransport {
               this._connected = true;
               if (msg.config_drift === true) this._configDrift = true;
               this._version = msg.version || null;
+              this._extensionConnected = msg.extensionConnected === true;
               log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
               resolve();
               continue;

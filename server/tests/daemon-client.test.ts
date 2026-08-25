@@ -377,4 +377,35 @@ describe('DaemonClient', () => {
       await client.stop();
     });
   });
+
+  describe('extensionConnected', () => {
+    it('parses extensionConnected=true from session_ack', async () => {
+      mockDaemon = createMockDaemon(sockPath, {
+        ackResponse: {
+          type: 'session_ack',
+          browser: 'chrome',
+          buildTimestamp: '2026-01-01T00:00:00Z',
+          extensionConnected: true,
+        },
+      });
+      await new Promise(r => mockDaemon!.on('listening', r));
+
+      const client = new DaemonClient(sockPath, 'test');
+      await client.start();
+      expect(client.extensionConnected).toBe(true);
+
+      await client.stop();
+    });
+
+    it('defaults extensionConnected to false when the field is absent', async () => {
+      mockDaemon = createMockDaemon(sockPath, {});
+      await new Promise(r => mockDaemon!.on('listening', r));
+
+      const client = new DaemonClient(sockPath, 'test');
+      await client.start();
+      expect(client.extensionConnected).toBe(false);
+
+      await client.stop();
+    });
+  });
 });
