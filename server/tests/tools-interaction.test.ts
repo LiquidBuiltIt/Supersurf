@@ -472,7 +472,8 @@ describe('onInteract()', () => {
       .mockResolvedValueOnce({ found: true, triggerSelector: '.my-select', triggerText: 'Choose...' })
       .mockResolvedValueOnce([]) // before-snapshot
       .mockResolvedValueOnce(undefined) // click trigger (DOM click)
-      .mockResolvedValueOnce({ found: false, available: ['Design', 'Marketing'] }); // option not found
+      .mockResolvedValueOnce({ found: false, available: ['Design', 'Marketing'] }) // option not found (poll breaks — options rendered)
+      .mockResolvedValueOnce(false); // type-to-filter fallback: no filter input found on this dropdown
 
     const result = await onInteract(ctx, {
       actions: [{ type: 'select_custom', selector: '.my-select', value: 'Engineering' }],
@@ -998,5 +999,72 @@ describe('onInteract()', () => {
       const res = await onInteract(localCtx, { actions: [{ type: 'click', selector: '#a' }] }, { rawResult: true });
       expect(res.actions[0]).not.toMatch(/^#\d+ /);
     });
+  });
+});
+
+describe('select_custom resilience', () => {
+  function makeSelectCtx(scanResults: any[], opts: { typedResult?: any } = {}) {
+    const ctx = createMockCtx();
+    const evalCalls: string[] = [];
+    (ctx.eval as any) = vi.fn(async (expr: string) => {
+      evalCalls.push(expr);
+      if (expr.includes('isCustomSelect')) return { found: true, triggerText: 'Select…' };
+      if (expr.includes('matchOption')) return scanResults.length > 1 ? scanResults.shift() : scanResults[0];
+      if (expr.includes("dispatchEvent(new Event('input'")) return opts.typedResult ?? true;
+      if (expr.includes('currentText')) return { verified: true, currentText: 'United States' };
+      if (expr.includes('beforeIds') || expr.includes('const sels')) return [];
+      return {};
+    });
+    return { ctx, evalCalls };
+  }
+  const action = { type: 'select_custom', selector: '#country', value: 'United States' };
+
+  it('polls when the first scans render zero options, succeeds on a later scan', async () => {
+    const { ctx } = makeSelectCtx([
+      { found: false, available: [] },
+      { found: false, available: [] },
+      { found: true, optionText: 'United States' },
+    ]);
+    const result = await onInteract(ctx, { actions: [action] }, {});
+    const text = result.content[0].text;
+    expect(text).toContain('Selected "United States"');
+    expect(text).not.toContain('✗');
+  });
+
+  it('reports a distinct error when no options ever render', async () => {
+    const { ctx } = makeSelectCtx([{ found: false, available: [] }]);
+    const result = await onInteract(ctx, { actions: [action] }, {});
+    const text = result.content[0].text;
+    expect(text).toContain('did not render any options');
+    expect(text).not.toContain('Option "United States" not found');
+  });
+
+  it('falls back to typing the filter when options render but none match', async () => {
+    const scans = [
+      { found: false, available: ['Afghanistan', 'Albania'] }, // pre-type scan (same result for every poll)
+    ];
+    const { ctx, evalCalls } = makeSelectCtx(scans);
+    // After the type fallback fires, the rescan must succeed:
+    (ctx.eval as any).mockImplementation(async (expr: string) => {
+      if (expr.includes('isCustomSelect')) return { found: true, triggerText: 'Select…' };
+      if (expr.includes("dispatchEvent(new Event('input'")) { scans[0] = { found: true, optionText: 'United States' }; return true; }
+      if (expr.includes('matchOption')) return scans[0];
+      if (expr.includes('currentText')) return { verified: true, currentText: 'United States' };
+      if (expr.includes('beforeIds') || expr.includes('const sels')) return [];
+      return {};
+    });
+    const result = await onInteract(ctx, { actions: [action] }, {});
+    const text = result.content[0].text;
+    expect(text).toContain('Selected "United States"');
+    expect(text).toContain('after typing filter');
+    void evalCalls;
+  });
+
+  it('keeps the available-options list in the final not-found error', async () => {
+    const { ctx } = makeSelectCtx([{ found: false, available: ['Afghanistan', 'Albania'] }], { typedResult: false });
+    const result = await onInteract(ctx, { actions: [action] }, {});
+    const text = result.content[0].text;
+    expect(text).toContain('Option "United States" not found');
+    expect(text).toContain('Afghanistan');
   });
 });
