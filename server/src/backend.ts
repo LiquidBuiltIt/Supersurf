@@ -66,6 +66,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
   attachedTab: TabInfo | null = null;
   profile: string | null = null;
   stealthMode: boolean = false;
+  extensionConnected: boolean = false;
   metricsLogger: UsageMetricsLogger | null = null;
   /** Reason the last `connect` attempt failed (e.g. wedged-port EADDRINUSE).
    *  Surfaced in the passive status header; cleared on the next connect attempt. */
@@ -148,6 +149,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
       attachedTab: this.attachedTab,
       stealthMode: this.stealthMode,
       extensionServer: this.extensionServer,
+      extensionConnected: this.extensionConnected,
       configDriftWarning: surfaceDrift,
       lastConnectError: this.lastConnectError,
       playbookHint: this.playbookHint(),
@@ -343,7 +345,21 @@ export class ConnectionManager implements ConnectionManagerAPI {
       };
     }
 
-    return await this.bridge.callTool(name, rawArguments, options);
+    try {
+      const result = await this.bridge.callTool(name, rawArguments, options);
+      const errText = result?.isError === true ? String(result?.content?.[0]?.text ?? '') : '';
+      if (errText.includes('Extension not connected')) {
+        this.extensionConnected = false;
+      } else if (result?.isError !== true) {
+        this.extensionConnected = true;
+      }
+      return result;
+    } catch (err: any) {
+      if (String(err?.message ?? '').includes('Extension not connected')) {
+        this.extensionConnected = false;
+      }
+      throw err;
+    }
   }
 
   // ─── Notify tools changed ──────────────────────────────────
@@ -424,5 +440,6 @@ export class ConnectionManager implements ConnectionManagerAPI {
     }
 
     this.state = 'passive';
+    this.extensionConnected = false;
   }
 }
