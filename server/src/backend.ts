@@ -28,6 +28,9 @@ export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend
 import type { BackendConfig, TabInfo, BackendState, ToolSchema, ConnectionManagerAPI } from './backend/types';
 
 import { buildStatusHeader } from './backend/status';
+import { buildPlaybookDomainIndex, matchPlaybookNamesForUrl, formatPlaybookHintLine, type PlaybookDomainIndex } from './playbooks/hint';
+import { normalizeHost } from './playbooks/domains';
+import { doList as doPlaybooksList, doInspect as doPlaybooksInspect } from './tools/playbooks';
 import { getConnectionToolSchemas, getDebugToolSchema, getProfileToolSchemas } from './backend/schemas';
 import {
   onConnect, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete,
@@ -72,6 +75,13 @@ export class ConnectionManager implements ConnectionManagerAPI {
   /** Tracks whether the config-drift warning has already been surfaced this session
    *  (one-shot per session — sticky until daemon restart). */
   private _warnedConfigDrift: boolean = false;
+  /** Lazily built domain -> playbook-names map, cached across status headers so
+   *  every response doesn't re-scan `~/.supersurf/playbooks/`. Invalidated by
+   *  `invalidatePlaybookIndex()` when this session's `playbooks create` succeeds. */
+  private _playbookDomainIndex: PlaybookDomainIndex | null = null;
+  /** Normalized domains whose discovery hint has already been shown this session
+   *  (one-shot per domain — same pattern as `_warnedConfigDrift`). */
+  private _warnedPlaybookDomains: Set<string> = new Set();
 
   constructor(config: BackendConfig) {
     log('Constructor — starting in PASSIVE mode');
@@ -87,6 +97,40 @@ export class ConnectionManager implements ConnectionManagerAPI {
   }
 
   // ─── Status header ─────────────────────────────────────────
+
+  /** Drop the domain -> playbook-names index, so the next header rebuilds it
+   *  from disk. Call after this session's `playbooks create` succeeds. */
+  invalidatePlaybookIndex(): void {
+    this._playbookDomainIndex = null;
+  }
+
+  /**
+   * Domain-matched playbook discovery hint for the current tab, or null when
+   * there's nothing to show. Harness principle: this only reports — it never
+   * runs anything. Wrapped so a lookup/derivation failure degrades to "no
+   * hint" instead of breaking the status header (and every tool response
+   * with it).
+   */
+  private playbookHint(): string | null {
+    try {
+      const url = this.attachedTab?.url;
+      if (!url) return null;
+
+      // Skip the store scan entirely for a domain already shown this session —
+      // covers the common case even before the index is (lazily) built.
+      const host = normalizeHost(url);
+      if (!host || this._warnedPlaybookDomains.has(host)) return null;
+
+      if (!this._playbookDomainIndex) this._playbookDomainIndex = buildPlaybookDomainIndex();
+      const names = matchPlaybookNamesForUrl(this._playbookDomainIndex, url);
+      if (!names) return null;
+
+      this._warnedPlaybookDomains.add(host);
+      return formatPlaybookHintLine(names);
+    } catch {
+      return null;
+    }
+  }
 
   /** Build a one-line status string prepended to every tool response. */
   statusHeader(): string {
@@ -106,6 +150,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
       extensionServer: this.extensionServer,
       configDriftWarning: surfaceDrift,
       lastConnectError: this.lastConnectError,
+      playbookHint: this.playbookHint(),
     });
   }
 
@@ -268,6 +313,14 @@ export class ConnectionManager implements ConnectionManagerAPI {
       }
       const mismatch = checkPlaybookProfileMismatch(this, rawArguments, options);
       if (mismatch) return mismatch;
+    }
+
+    // `playbooks list`/`inspect` are store-only reads — no browser/extension
+    // needed — so passive state answers them directly rather than requiring
+    // `connect` first. Active/connected state still routes through the
+    // bridge below, unchanged.
+    if (name === 'playbooks' && (rawArguments.action === 'list' || rawArguments.action === 'inspect') && this.state === 'passive') {
+      return rawArguments.action === 'list' ? doPlaybooksList(rawArguments) : doPlaybooksInspect(rawArguments);
     }
 
     // Forward to active bridge

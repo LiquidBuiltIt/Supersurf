@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { onPlaybooks, resolveRunProfile } from '../src/tools/playbooks';
+import { getToolSchemas } from '../src/tools/schemas';
 import { actionTrail } from '../src/playbooks/trail';
 import { setBaseDirForTests, loadPlaybook, savePlaybook } from '../src/playbooks/store';
 import { experimentRegistry } from '../src/experimental/index';
@@ -476,6 +477,152 @@ describe('playbooks — unknown action', () => {
   it('errors on an unrecognized action', async () => {
     const res = await onPlaybooks(makeCtx(), { action: 'frobnicate' }, {});
     expect(res.isError).toBe(true);
+  });
+});
+
+describe('playbooks — list', () => {
+  it('says so plainly when the store is empty', async () => {
+    const res = await onPlaybooks(makeCtx(), { action: 'list' }, {});
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text.toLowerCase()).toContain('no playbooks');
+  });
+
+  it('lists every playbook with name, purpose, step count and domains', async () => {
+    seedTrail();
+    await create('flow_a', [1, 2], { purpose: 'Does A' });
+    savePlaybook({
+      name: 'flow_b', purpose: 'Does B', version: 1, createdAt: 1,
+      steps: [{ tool: 'browser_navigate', type: 'browser_navigate', params: {}, url: 'https://github.com/', sourceId: 1 }],
+    });
+
+    const res = await onPlaybooks(makeCtx(), { action: 'list' }, {});
+    expect(res.isError).toBeFalsy();
+    const text = res.content[0].text;
+    expect(text).toContain('flow_a');
+    expect(text).toContain('Does A');
+    expect(text).toContain('2 steps');
+    expect(text).toContain('flow_b');
+    expect(text).toContain('github.com');
+  });
+
+  it('includes the bound profile when set', async () => {
+    seedTrail();
+    const ctx = makeCtx();
+    ctx.connectionManager.profile = 'my-profile';
+    await create('profiled', [1], { ctx });
+
+    const res = await onPlaybooks(makeCtx(), { action: 'list' }, {});
+    expect(res.content[0].text).toContain('profile: my-profile');
+  });
+
+  it('filters by domain, normalized the same way as the derivation', async () => {
+    savePlaybook({
+      name: 'gh_flow', purpose: 'p', version: 1, createdAt: 1,
+      steps: [{ tool: 'browser_navigate', type: 'browser_navigate', params: {}, url: 'https://www.github.com/', sourceId: 1 }],
+    });
+    savePlaybook({
+      name: 'other_flow', purpose: 'p', version: 1, createdAt: 1,
+      steps: [{ tool: 'browser_navigate', type: 'browser_navigate', params: {}, url: 'https://example.com/', sourceId: 1 }],
+    });
+
+    const res = await onPlaybooks(makeCtx(), { action: 'list', domain: 'github.com' }, {});
+    expect(res.content[0].text).toContain('gh_flow');
+    expect(res.content[0].text).not.toContain('other_flow');
+  });
+
+  it('says so plainly when the domain filter matches nothing', async () => {
+    savePlaybook({ name: 'gh_flow', purpose: 'p', version: 1, createdAt: 1, steps: [] });
+    const res = await onPlaybooks(makeCtx(), { action: 'list', domain: 'nowhere.com' }, {});
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toContain('nowhere.com');
+  });
+
+  it('does not require the fingerprinting experiment', async () => {
+    experimentRegistry.disable('fingerprinting');
+    savePlaybook({ name: 'x', purpose: 'p', version: 1, createdAt: 1, steps: [] });
+    const res = await onPlaybooks(makeCtx(), { action: 'list' }, {});
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toContain('x');
+  });
+});
+
+describe('playbooks — inspect', () => {
+  it('errors clearly on an unknown playbook name', async () => {
+    const res = await onPlaybooks(makeCtx(), { action: 'inspect', name: 'ghost' }, {});
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('ghost');
+  });
+
+  it('errors when name is missing', async () => {
+    const res = await onPlaybooks(makeCtx(), { action: 'inspect' }, {});
+    expect(res.isError).toBe(true);
+  });
+
+  it('renders full detail: purpose, domains, createdAt, and the numbered step list', async () => {
+    savePlaybook({
+      name: 'gh_login', purpose: 'Log into GitHub', version: 1, createdAt: 1_700_000_000_000,
+      profile: 'work',
+      steps: [
+        { tool: 'browser_navigate', type: 'browser_navigate', params: { action: 'url', url: 'https://github.com/login' }, url: 'https://github.com/login', sourceId: 1 },
+        { tool: 'browser_interact', type: 'click', params: { type: 'click', selector: '#submit' }, url: 'https://github.com/login', sourceId: 2 },
+      ],
+    });
+
+    const res = await onPlaybooks(makeCtx(), { action: 'inspect', name: 'gh_login' }, {});
+    expect(res.isError).toBeFalsy();
+    const text = res.content[0].text;
+    expect(text).toContain('gh_login');
+    expect(text).toContain('Log into GitHub');
+    expect(text).toContain('profile: work');
+    expect(text).toContain('github.com');
+    expect(text).toContain('browser_navigate');
+    expect(text).toContain('browser_interact');
+    expect(text).toContain('click');
+    expect(text).toContain('https://github.com/login');
+    expect(text).toMatch(/1\.\s+browser_navigate/);
+    expect(text).toMatch(/2\.\s+browser_interact/);
+  });
+
+  it('omits the profile line when unset', async () => {
+    savePlaybook({ name: 'unmanaged_pb', purpose: 'p', version: 1, createdAt: 1, steps: [] });
+    const res = await onPlaybooks(makeCtx(), { action: 'inspect', name: 'unmanaged_pb' }, {});
+    expect(res.content[0].text).not.toContain('profile:');
+  });
+
+  it('does not require the fingerprinting experiment', async () => {
+    experimentRegistry.disable('fingerprinting');
+    savePlaybook({ name: 'x', purpose: 'p', version: 1, createdAt: 1, steps: [] });
+    const res = await onPlaybooks(makeCtx(), { action: 'inspect', name: 'x' }, {});
+    expect(res.isError).toBeFalsy();
+  });
+});
+
+describe('playbooks — create invalidates the connection manager\'s playbook index', () => {
+  it('calls ctx.connectionManager.invalidatePlaybookIndex() after a successful save', async () => {
+    seedTrail();
+    const ctx = makeCtx();
+    ctx.connectionManager.invalidatePlaybookIndex = vi.fn();
+    await create('flow', [1], { ctx });
+    expect(ctx.connectionManager.invalidatePlaybookIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not throw when the hook is absent (e.g. a CLI-driven create)', async () => {
+    seedTrail();
+    const res = await create('flow_no_hook', [1]);
+    expect(res.isError).toBeFalsy();
+  });
+});
+
+describe('playbooks — schema', () => {
+  it('includes list and inspect in the action enum, alongside the existing actions', () => {
+    const schema = getToolSchemas().find(s => s.name === 'playbooks')!;
+    const actionEnum = (schema.inputSchema as any).properties.action.enum;
+    expect(actionEnum).toEqual(expect.arrayContaining(['history', 'create', 'run', 'list', 'inspect']));
+  });
+
+  it('has a domain property for the list filter', () => {
+    const schema = getToolSchemas().find(s => s.name === 'playbooks')!;
+    expect((schema.inputSchema as any).properties.domain).toBeDefined();
   });
 });
 

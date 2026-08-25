@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { runLs, runShow, runRm, runExport, runImport, runEdit, runRun, type RunBackend } from '../src/bin/playbook-cli';
+import { runLs, runInspect, runRm, runExport, runImport, runEdit, runRun, buildPlaybookProgram, type RunBackend } from '../src/bin/playbook-cli';
 import { savePlaybook, loadPlaybook, setBaseDirForTests } from '../src/playbooks/store';
 import type { Playbook } from '../src/playbooks/types';
 
@@ -45,17 +45,32 @@ describe('playbook ls', () => {
   });
 });
 
-describe('playbook show', () => {
+describe('playbook inspect', () => {
   it('prints the steps of a playbook', async () => {
     savePlaybook(makePlaybook('apply_to_job'));
-    await runShow('apply_to_job', { log });
+    await runInspect('apply_to_job', { log });
     const joined = out.join('\n');
     expect(joined).toContain('apply_to_job');
     expect(joined).toContain('handle_0');
   });
 
   it('throws on an unknown playbook', async () => {
-    await expect(runShow('ghost', { log })).rejects.toThrow(/ghost/);
+    await expect(runInspect('ghost', { log })).rejects.toThrow(/ghost/);
+  });
+
+  it('is registered as `inspect`, not `show`, in the CLI program', () => {
+    const program = buildPlaybookProgram();
+    const names = program.commands.map(c => c.name());
+    expect(names).toContain('inspect');
+    expect(names).not.toContain('show');
+  });
+
+  it('mentions `inspect`, not `show`, in the --drop help text', () => {
+    const program = buildPlaybookProgram();
+    const edit = program.commands.find(c => c.name() === 'edit')!;
+    const dropOption = edit.options.find(o => o.long === '--drop')!;
+    expect(dropOption.description).toContain('`inspect`');
+    expect(dropOption.description).not.toContain('`show`');
   });
 });
 

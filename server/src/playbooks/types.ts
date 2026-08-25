@@ -38,7 +38,7 @@ export interface PlaybookStep {
   params: Record<string, unknown>;
   /** URL this step was recorded on. Step 1's value is the run's start point. */
   url?: string;
-  /** The trail id this step was frozen from, for provenance in `show`. */
+  /** The trail id this step was frozen from, for provenance in `inspect`. */
   sourceId: number;
 }
 

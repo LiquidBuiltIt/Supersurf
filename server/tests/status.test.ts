@@ -31,3 +31,27 @@ describe('buildStatusHeader — passive state surfaces last connect failure', ()
     expect(header).toContain('🔴 v9.9.9 | Disabled');
   });
 });
+
+describe('buildStatusHeader — playbook discovery hint', () => {
+  const activeBase = {
+    ...base,
+    state: 'connected' as const,
+    attachedTab: { id: 1, index: 0, url: 'https://github.com/' },
+  };
+
+  it('places the pre-rendered hint line on its own line before the divider', () => {
+    const hint = '► 3 playbooks available: gh-create-repo, gh-login, gh-star | playbooks "list" for more details';
+    const header = buildStatusHeader({ ...activeBase, playbookHint: hint });
+    expect(header).toContain(`\n${hint}\n---\n\n`);
+  });
+
+  it('omits the hint line when playbookHint is null', () => {
+    const header = buildStatusHeader({ ...activeBase, playbookHint: null });
+    expect(header).not.toContain('playbooks available');
+  });
+
+  it('omits the hint line when playbookHint is not provided', () => {
+    const header = buildStatusHeader({ ...activeBase });
+    expect(header).not.toContain('playbooks available');
+  });
+});

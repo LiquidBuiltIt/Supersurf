@@ -531,21 +531,24 @@ export function getToolSchemas(): ToolSchema[] {
         'numbered actions across all browser tools; `create` freezes a cited sequence of those ' +
         'ids into a saved playbook; `run` replays a saved playbook in order — interact steps ' +
         'heal broken selectors, read steps (extract, snapshot, network…) return their output ' +
-        'in the run result. Cite ids from `history` — never invent them. Requires the ' +
+        'in the run result. `list` shows every saved playbook (name, purpose, step count, ' +
+        'the domains it was recorded on, and its bound profile when set), optionally filtered ' +
+        'to one domain. `inspect` shows one playbook\'s full detail, including its numbered ' +
+        'step list. Cite ids from `history` — never invent them. Requires the ' +
         '`fingerprinting` experiment for create/run. `run` works with no active session — ' +
         'it connects implicitly, using `profile` or the playbook\'s own bound profile. ' +
-        'Listing, editing, removal, export and import live in the CLI: `supersurf playbook`.',
+        'Editing, removal, export and import live in the CLI: `supersurf playbook`.',
       inputSchema: {
         type: 'object',
         properties: {
           action: {
             type: 'string',
-            enum: ['history', 'create', 'run'],
-            description: 'history = list this session\'s numbered actions; create = save a playbook from cited ids; run = execute a saved playbook.',
+            enum: ['history', 'create', 'run', 'list', 'inspect'],
+            description: 'history = list this session\'s numbered actions; create = save a playbook from cited ids; run = execute a saved playbook; list = show every saved playbook (optionally filtered by domain); inspect = show one playbook\'s full detail.',
           },
           name: {
             type: 'string',
-            description: 'Playbook name, snake_case. Required for create and run. Normalized automatically; an existing name is an error.',
+            description: 'Playbook name, snake_case. Required for create, run and inspect. Normalized automatically; an existing name is an error for create.',
           },
           purpose: {
             type: 'string',
@@ -563,6 +566,10 @@ export function getToolSchemas(): ToolSchema[] {
           offset: {
             type: 'number',
             description: 'History paging offset, counted back from the newest action. Default 0.',
+          },
+          domain: {
+            type: 'string',
+            description: 'list only. Restrict results to playbooks whose recorded step URLs include this domain (e.g. "github.com"). Normalized the same way as the status-header hint (lowercase, leading "www." stripped). Omit to list every playbook.',
           },
           profile: {
             type: 'string',

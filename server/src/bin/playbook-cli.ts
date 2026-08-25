@@ -2,7 +2,7 @@
 /**
  * `supersurf playbook` — manage saved playbooks.
  *
- * File management (`ls`/`show`/`edit`/`rm`/`export`/`import`) is daemon-free
+ * File management (`ls`/`inspect`/`edit`/`rm`/`export`/`import`) is daemon-free
  * by design, modelled on `creds.ts` rather than `profiles-cli.ts`: it must
  * work with no daemon running and no browser connected. Creation is
  * deliberately absent — playbooks are built from action ids that live in the
@@ -58,16 +58,16 @@ export function buildPlaybookProgram(): Command {
     .action(async () => { await runLs(); });
 
   program
-    .command('show')
+    .command('inspect')
     .description('Print a playbook\'s steps')
     .argument('<name>', 'playbook name')
-    .action(async (name: string) => { await runShow(name); });
+    .action(async (name: string) => { await runInspect(name); });
 
   program
     .command('edit')
     .description('Open a playbook in $EDITOR, or drop a step with --drop')
     .argument('<name>', 'playbook name')
-    .option('--drop <step>', 'step number to remove (1-based, as shown by `show`)')
+    .option('--drop <step>', 'step number to remove (1-based, as shown by `inspect`)')
     .action(async (name: string, opts: { drop?: string }) => { await runEdit(name, opts); });
 
   program
@@ -118,7 +118,7 @@ export async function runLs(opts: RunOpts = {}): Promise<void> {
   }
 }
 
-export async function runShow(name: string, opts: RunOpts = {}): Promise<void> {
+export async function runInspect(name: string, opts: RunOpts = {}): Promise<void> {
   const log = opts.log ?? console.log;
   const pb = loadPlaybook(name);
   if (!pb) throw new Error(`No playbook named '${name}'`);
