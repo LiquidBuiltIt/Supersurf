@@ -158,6 +158,10 @@ export class IPCServer {
                 browser: this.bridge.browser,
                 buildTimestamp: this.bridge.buildTime,
                 version: this.meta.version,
+                // Unmanaged-slot extension presence. The session is not yet
+                // profile-bound at ack time; a later profiles.connect success
+                // is itself proof of a live extension for that slot.
+                extensionConnected: this.bridge.matchmaker.getConnectionForProfile(null) !== null,
               });
 
               handshakeComplete = true;
