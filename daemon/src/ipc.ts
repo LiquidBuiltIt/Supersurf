@@ -468,6 +468,9 @@ export class IPCServer {
    * user-launched browser is not registry-tracked, so watchPid=false skips
    * the watch entirely. The registry self-heals (spawnProfile's exit handler
    * clears the PID), so isRunning() flipping false means the process died.
+   * Accepted scope gap: the watch only arms for Chromium this request spawned
+   * (watchPid/didSpawn) — an already-running profile that dies mid-match
+   * falls back to the full 45s timeout by design.
    */
   private awaitMatchWithDeathWatch(
     profile: string,
