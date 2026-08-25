@@ -15,7 +15,7 @@
 
 import type { ConnectionManagerAPI } from './types';
 import { DaemonClient } from '../daemon-client';
-import { ensureDaemon, getSockPath } from '../daemon-spawn';
+import { ensureDaemon, stopDaemon, getSockPath } from '../daemon-spawn';
 import { createLog, getRegistry } from '../logger';
 import { experimentRegistry, applyInitialState } from '../experimental/index';
 import { destroySession as destroyHumanization } from '../experimental/mouse-humanization/index';
@@ -113,23 +113,33 @@ export async function onConnect(
 
     // Connect to daemon via Unix socket
     const sockPath = getSockPath();
-    const client = new DaemonClient(sockPath, mgr.clientId!);
+    let client = new DaemonClient(sockPath, mgr.clientId!);
     await client.start();
 
-    // Refuse to attach to a daemon of a different generation. A freshly
-    // spawned bundled daemon always matches this server's version; a
-    // mismatch means ensureDaemon attached to a pre-existing daemon (e.g.
-    // a stale v2 process still running). A null version is a pre-v3 daemon
-    // that predates the handshake version field — also a mismatch.
-    const daemonVersion = client.version;
+    // Refuse to attach to a daemon of a different generation. ensureDaemon
+    // only checks PID liveness, so a stale daemon from a previous package
+    // version survives upgrades — restart it once with the bundled daemon
+    // (owner decision 2026-08-25: daemon lifecycle is server-owned infra,
+    // so the restart lives in core, not smart mode).
+    let daemonVersion = client.version;
     const serverVersion = mgr.config.server.version;
+    if (daemonVersion !== serverVersion) {
+      log(`Daemon version mismatch (daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}) — restarting daemon`);
+      await client.stop().catch(() => {});
+      await stopDaemon();
+      await ensureDaemon(port, mgr.debugMode, mgr.config.enabledExperiments || []);
+      client = new DaemonClient(sockPath, mgr.clientId!);
+      await client.start();
+      daemonVersion = client.version;
+    }
     if (daemonVersion !== serverVersion) {
       await client.stop().catch(() => {});
       mgr.state = 'passive';
       const hint =
-        `A different daemon version is already running ` +
+        `A different daemon version is still running after an automatic restart ` +
         `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ` +
-        'Restart it to continue: `npx supersurf-daemon@latest restart`';
+        'Something outside this server keeps respawning it. Restart it manually: ' +
+        '`npx supersurf-daemon@latest restart`';
       if (options.rawResult) {
         return { success: false, error: 'version_mismatch', message: hint };
       }

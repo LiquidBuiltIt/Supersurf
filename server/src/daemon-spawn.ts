@@ -4,6 +4,7 @@
  * @module daemon-spawn
  * @exports isDaemonRunning - Check if daemon process is alive
  * @exports ensureDaemon - Spawn daemon if not running, wait for socket
+ * @exports stopDaemon - Stop the daemon and remove stale socket/PID files
  * @exports getSockPath - Return the daemon socket path
  * @exports getPidPath - Return the daemon PID file path
  */
@@ -76,6 +77,36 @@ export function isDaemonRunning(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Stop the daemon: SIGTERM the PID-file process, wait up to 5s for exit,
+ * SIGKILL as a last resort, then remove stale socket/PID files.
+ * Safe no-op when nothing is running.
+ */
+export async function stopDaemon(): Promise<void> {
+  let pid: number | null = null;
+  try {
+    pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
+  } catch {
+    pid = null;
+  }
+
+  if (pid !== null && !isNaN(pid) && isProcessAlive(pid)) {
+    log(`Stopping daemon (pid=${pid})`);
+    try { process.kill(pid, 'SIGTERM'); } catch {}
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && isProcessAlive(pid)) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (isProcessAlive(pid)) {
+      log(`Daemon did not exit on SIGTERM, sending SIGKILL (pid=${pid})`);
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
+  }
+
+  try { if (fs.existsSync(SOCK_FILE)) fs.unlinkSync(SOCK_FILE); } catch {}
+  try { if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE); } catch {}
 }
 
 /**
