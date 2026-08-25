@@ -70,6 +70,9 @@ export interface ConnectionManagerAPI {
    *  instead of a bare cached "Disabled". Cleared on the next connect attempt. */
   lastConnectError: string | null;
   statusHeader(): string;
+  /** Drop the cached playbook domain index so the next status header rebuilds it
+   *  from disk. Called by `playbooks create` on a successful save. */
+  invalidatePlaybookIndex?(): void;
   notifyToolsListChanged(): Promise<void>;
   sendLogNotification(level: string, message: string, logger?: string): Promise<void>;
 }

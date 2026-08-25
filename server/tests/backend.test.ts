@@ -809,6 +809,89 @@ describe('ConnectionManager', () => {
 
   });
 
+  // ---- statusHeader() — playbook discovery hint ----
+
+  describe('statusHeader() — playbook discovery hint', () => {
+    let pbDir: string;
+
+    beforeEach(async () => {
+      pbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-hint-backend-'));
+      setBaseDirForTests(pbDir);
+      await backend.initialize(makeMockServer(), {});
+      await backend.callTool('connect', { client_id: 'test' });
+    });
+
+    afterEach(() => {
+      fs.rmSync(pbDir, { recursive: true, force: true });
+    });
+
+    function seed(name: string, url: string) {
+      savePlaybook({
+        name, purpose: 'p',
+        steps: [{ tool: 'browser_navigate', type: 'browser_navigate', params: {}, url, sourceId: 1 }],
+        createdAt: 1, version: 1,
+      });
+    }
+
+    it('renders the hint when the attached tab domain matches a saved playbook', () => {
+      seed('gh_login', 'https://github.com/login');
+      backend.setAttachedTab({ id: 1, index: 0, url: 'https://github.com/settings' });
+
+      const header = backend.statusHeader();
+      expect(header).toContain('► 1 playbooks available: gh_login | playbooks "list" for more details');
+    });
+
+    it('omits the hint when there is no tab attached', () => {
+      seed('gh_login', 'https://github.com/login');
+      const header = backend.statusHeader();
+      expect(header).not.toContain('playbooks available');
+    });
+
+    it('omits the hint when no playbook matches the tab domain', () => {
+      seed('gh_login', 'https://github.com/login');
+      backend.setAttachedTab({ id: 1, index: 0, url: 'https://example.com/' });
+      const header = backend.statusHeader();
+      expect(header).not.toContain('playbooks available');
+    });
+
+    it('shows the hint once per domain, then suppresses it for the rest of the session', () => {
+      seed('gh_login', 'https://github.com/login');
+      backend.setAttachedTab({ id: 1, index: 0, url: 'https://github.com/settings' });
+
+      const first = backend.statusHeader();
+      const second = backend.statusHeader();
+      const third = backend.statusHeader();
+
+      expect(first).toContain('playbooks available');
+      expect(second).not.toContain('playbooks available');
+      expect(third).not.toContain('playbooks available');
+    });
+
+    it('still hints for a second, different domain after the first was suppressed', () => {
+      seed('gh_login', 'https://github.com/login');
+      seed('example_flow', 'https://example.com/start');
+
+      backend.setAttachedTab({ id: 1, index: 0, url: 'https://github.com/settings' });
+      const first = backend.statusHeader();
+      expect(first).toContain('gh_login');
+
+      backend.setAttachedTab({ id: 1, index: 0, url: 'https://example.com/other' });
+      const second = backend.statusHeader();
+      expect(second).toContain('example_flow');
+    });
+
+    it('invalidatePlaybookIndex() forces a rebuild that picks up a newly saved playbook', () => {
+      backend.setAttachedTab({ id: 1, index: 0, url: 'https://github.com/settings' });
+      expect(backend.statusHeader()).not.toContain('playbooks available');
+
+      seed('gh_login', 'https://github.com/login');
+      // Without invalidation the cached (empty) index would still miss this domain.
+      backend.invalidatePlaybookIndex();
+
+      expect(backend.statusHeader()).toContain('gh_login');
+    });
+  });
+
   // ---- setAttachedTab / getAttachedTab ----
 
   describe('setAttachedTab / getAttachedTab', () => {

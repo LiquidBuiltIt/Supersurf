@@ -26,6 +26,10 @@ interface StatusInput {
   /** Reason the last connect attempt failed; shown in the passive header so a wedged
    *  daemon / port conflict is reported instead of a bare "Disabled". */
   lastConnectError?: string | null;
+  /** Pre-rendered `playbooks/hint.ts:formatPlaybookHintLine` output, or null/undefined
+   *  when there is nothing to show. Domain matching and once-per-session suppression
+   *  happen in `ConnectionManager` — this function only places the line. */
+  playbookHint?: string | null;
 }
 
 /**
@@ -33,7 +37,7 @@ interface StatusInput {
  * Returns a string ending with `\n---\n\n` for markdown separation.
  */
 export function buildStatusHeader(input: StatusInput): string {
-  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, configDriftWarning, lastConnectError } = input;
+  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, configDriftWarning, lastConnectError, playbookHint } = input;
   const version = config.server.version;
   const driftLine = configDriftWarning
     ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf-daemon@latest restart`\n\n'
@@ -91,5 +95,6 @@ export function buildStatusHeader(input: StatusInput): string {
     parts.push(`🕵️ Stealth`);
   }
 
-  return driftLine + parts.join(' | ') + '\n---\n\n';
+  const hintLine = playbookHint ? `\n${playbookHint}` : '';
+  return driftLine + parts.join(' | ') + hintLine + '\n---\n\n';
 }
