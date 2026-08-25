@@ -75,3 +75,23 @@ export function formatSteps(pb: Playbook): string {
   });
   return lines.join('\n');
 }
+
+/**
+ * Full-detail render for `playbooks {action:"inspect"}` — name, purpose,
+ * profile (when set), derived domains, createdAt, and the numbered step
+ * list with tool, action type, and URL per step. Deliberately distinct from
+ * `formatSteps`: that one shows a single best-guess "target" per step for a
+ * terse CLI listing, this one shows the three raw fields inspect promises.
+ */
+export function formatInspect(pb: Playbook, domains: string[]): string {
+  const lines: string[] = [`${pb.name} — ${pb.purpose}`];
+  if (pb.profile) lines.push(`profile: ${pb.profile}`);
+  lines.push(`domains: ${domains.length > 0 ? domains.join(', ') : '(none)'}`);
+  lines.push(`created: ${new Date(pb.createdAt).toISOString()}`);
+  lines.push(`${pb.steps.length} steps`, '');
+  pb.steps.forEach((s, i) => {
+    const url = s.url ?? '';
+    lines.push(`${String(i + 1).padStart(2)}. ${s.tool.padEnd(24)} ${s.type.padEnd(14)} ${url}`.trimEnd());
+  });
+  return lines.join('\n');
+}
