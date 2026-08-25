@@ -30,6 +30,7 @@ import type { BackendConfig, TabInfo, BackendState, ToolSchema, ConnectionManage
 import { buildStatusHeader } from './backend/status';
 import { buildPlaybookDomainIndex, matchPlaybookNamesForUrl, formatPlaybookHintLine, type PlaybookDomainIndex } from './playbooks/hint';
 import { normalizeHost } from './playbooks/domains';
+import { doList as doPlaybooksList, doInspect as doPlaybooksInspect } from './tools/playbooks';
 import { getConnectionToolSchemas, getDebugToolSchema, getProfileToolSchemas } from './backend/schemas';
 import {
   onConnect, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete,
@@ -312,6 +313,14 @@ export class ConnectionManager implements ConnectionManagerAPI {
       }
       const mismatch = checkPlaybookProfileMismatch(this, rawArguments, options);
       if (mismatch) return mismatch;
+    }
+
+    // `playbooks list`/`inspect` are store-only reads — no browser/extension
+    // needed — so passive state answers them directly rather than requiring
+    // `connect` first. Active/connected state still routes through the
+    // bridge below, unchanged.
+    if (name === 'playbooks' && (rawArguments.action === 'list' || rawArguments.action === 'inspect') && this.state === 'passive') {
+      return rawArguments.action === 'list' ? doPlaybooksList(rawArguments) : doPlaybooksInspect(rawArguments);
     }
 
     // Forward to active bridge

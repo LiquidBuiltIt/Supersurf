@@ -531,6 +531,50 @@ describe('ConnectionManager', () => {
       expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
     });
 
+    it('passive state: `list` answers directly from the store, without a bridge', async () => {
+      savePlaybook({ name: 'flow', purpose: 'p', steps: [], createdAt: 1, version: 1 });
+
+      const result = await backend.callTool('playbooks', { action: 'list' });
+
+      expect(result.content[0].text).toContain('flow');
+      expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
+      const status = await backend.callTool('status', {}, { rawResult: true });
+      expect(status.state).toBe('passive'); // no implicit connect happened
+    });
+
+    it('passive state: `inspect` answers directly from the store, without a bridge', async () => {
+      savePlaybook({
+        name: 'flow', purpose: 'p', createdAt: 1, version: 1,
+        steps: [{ tool: 'browser_navigate', type: 'browser_navigate', params: {}, url: 'https://example.com', sourceId: 1 }],
+      });
+
+      const result = await backend.callTool('playbooks', { action: 'inspect', name: 'flow' });
+
+      expect(result.content[0].text).toContain('flow');
+      expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
+      const status = await backend.callTool('status', {}, { rawResult: true });
+      expect(status.state).toBe('passive');
+    });
+
+    it('passive state: `inspect` on an unknown playbook errors without a bridge', async () => {
+      const result = await backend.callTool('playbooks', { action: 'inspect', name: 'ghost' }, { rawResult: false });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('ghost');
+      expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
+    });
+
+    it('active state: `list`/`inspect` still route through the bridge as before', async () => {
+      await backend.callTool('connect', { client_id: 'test' });
+      mockBridgeInstance.callTool.mockClear();
+      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'listed' }] });
+
+      const result = await backend.callTool('playbooks', { action: 'list' });
+
+      expect(mockBridgeInstance.callTool).toHaveBeenCalledWith('playbooks', { action: 'list' }, {});
+      expect(result.content[0].text).toBe('listed');
+    });
+
     it('active state: a resolved profile that mismatches the bound profile is refused without running', async () => {
       await backend.callTool('connect', { client_id: 'test', profile: 'proj-a' });
       mockBridgeInstance.callTool.mockClear();

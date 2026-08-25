@@ -137,7 +137,11 @@ export async function onPlaybooks(
   }
 }
 
-function doList(args: any): any {
+/**
+ * `list` and `inspect` are store-only reads — no browser/extension needed —
+ * so `backend.ts` calls these directly to bypass the passive-state gate.
+ */
+export function doList(args: any): any {
   const domainFilterRaw = typeof args.domain === 'string' ? args.domain.trim() : '';
   const domainFilter = domainFilterRaw ? normalizeDomain(domainFilterRaw) : null;
 
@@ -163,7 +167,7 @@ function doList(args: any): any {
   return text(lines.join('\n'));
 }
 
-function doInspect(args: any): any {
+export function doInspect(args: any): any {
   const name = normalizeName(String(args.name ?? ''));
   if (!name) return text('`name` is required.', true);
 
