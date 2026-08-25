@@ -246,7 +246,12 @@ playbooks action='create' name='login_flow'     → freeze cited ids into a play
   purpose='Log into app.example.com'
   steps=[5211, 5212, 5214]
 playbooks action='run' name='login_flow'        → replay a saved playbook
+playbooks action='list'                         → every saved playbook, with domains + step counts
+playbooks action='list' domain='example.com'    → only playbooks recorded on that domain
+playbooks action='inspect' name='login_flow'    → one playbook's full detail + numbered steps
 ```
+
+A domain-matched discovery hint also shows up unprompted: when the attached tab's domain matches a saved playbook, the status header adds a line like `► 2 playbooks available: login_flow, signup_flow | playbooks "list" for more details` — once per domain per session.
 
 **Worked example:**
 1. Do the flow normally — navigate, snapshot, click, type, submit. Each action returns an id, e.g. `#5211 ✓ Clicked #email`.
@@ -265,11 +270,11 @@ playbooks action='run' name='login_flow' detach=true             → implicit co
 
 If a session is already active, `run` uses it as-is — unless the resolved profile (from the `profile` param or the playbook's own field) differs from the session's bound profile, in which case `run` refuses with an error rather than silently re-binding. Disconnect and reconnect with the right profile, or drop `profile` to run on the current session.
 
-Playbooks live one file per playbook at `~/.supersurf/playbooks/<name>.json`. Everything beyond record/replay is CLI-only — the MCP tool deliberately can't list, edit, or delete:
+Playbooks live one file per playbook at `~/.supersurf/playbooks/<name>.json`. The MCP tool covers record/replay/discovery (`history`, `create`, `run`, `list`, `inspect`); editing and deletion stay CLI-only:
 
 ```
 supersurf playbook ls                           → list saved playbooks
-supersurf playbook show login_flow              → print its steps
+supersurf playbook inspect login_flow           → print its steps
 supersurf playbook edit login_flow --drop 3      → remove step 3
 supersurf playbook edit login_flow               → open it in $EDITOR for a free-form edit
 supersurf playbook rm login_flow                 → delete it
