@@ -116,6 +116,33 @@ describe('IPCServer', () => {
     client.end();
   });
 
+  it('reports extensionConnected=false on session_ack when no unmanaged extension is pooled', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'ext-false-session' });
+    const response = await readLine(client);
+
+    expect(response.type).toBe('session_ack');
+    expect(response.extensionConnected).toBe(false);
+
+    client.end();
+  });
+
+  it('reports extensionConnected=true on session_ack when an unmanaged extension is pooled', async () => {
+    (bridge.matchmaker.getConnectionForProfile as any).mockReturnValue({ profile: null, browser: 'chrome' });
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'ext-true-session' });
+    const response = await readLine(client);
+
+    expect(response.type).toBe('session_ack');
+    expect(response.extensionConnected).toBe(true);
+
+    client.end();
+  });
+
   it('rejects duplicate session IDs', async () => {
     await ipc.start();
 

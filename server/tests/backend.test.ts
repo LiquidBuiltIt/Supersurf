@@ -50,6 +50,7 @@ const mockDaemonClientInstance = {
   buildTime: null as string | null,
   browser: 'chrome',
   version: '0.1.0' as string | null,
+  extensionConnected: false,
   onReconnect: null as (() => void) | null,
   onTabInfoUpdate: null as ((tabInfo: any) => void) | null,
   isConfigDrifted: vi.fn(() => false),
@@ -132,6 +133,7 @@ describe('ConnectionManager', () => {
     mockDaemonClientInstance.buildTime = null;
     mockDaemonClientInstance.browser = 'chrome';
     mockDaemonClientInstance.version = '0.1.0';
+    mockDaemonClientInstance.extensionConnected = false;
     mockDaemonClientInstance.onReconnect = null;
     mockDaemonClientInstance.onTabInfoUpdate = null;
     mockMetricsWrite.mockClear();
@@ -808,6 +810,66 @@ describe('ConnectionManager', () => {
       const header = debugBackend.statusHeader();
       expect(header).toContain('[');
       expect(header).toContain(']');
+    });
+
+    it('shows a warning header, not a green check, when connected with no extension', async () => {
+      mockDaemonClientInstance.extensionConnected = false;
+      await backend.initialize(makeMockServer(), {});
+      const result = await backend.callTool('connect', { client_id: 'test' });
+
+      const text = result.content[0].text;
+      expect(text).not.toContain('✅');
+      expect(text).toContain('⚠️');
+      expect(text).toContain('No extension connected');
+
+      const header = backend.statusHeader();
+      expect(header).not.toContain('✅');
+      expect(header).toContain('No extension connected');
+    });
+
+    it('shows the green check when the daemon reports an extension', async () => {
+      mockDaemonClientInstance.extensionConnected = true;
+      await backend.initialize(makeMockServer(), {});
+      await backend.callTool('connect', { client_id: 'test' });
+
+      const header = backend.statusHeader();
+      expect(header).toContain('✅');
+      expect(header).not.toContain('No extension connected');
+    });
+
+    it('flips extensionConnected false when a tool fails with Extension not connected', async () => {
+      mockDaemonClientInstance.extensionConnected = true;
+      await backend.initialize(makeMockServer(), {});
+      await backend.callTool('connect', { client_id: 'test' });
+
+      mockBridgeInstance.callTool.mockRejectedValueOnce(new Error('Extension not connected'));
+      await expect(backend.callTool('browser_tabs', { action: 'list' })).rejects.toThrow('Extension not connected');
+
+      const header = backend.statusHeader();
+      expect(header).toContain('No extension connected');
+    });
+
+    it('flips extensionConnected true after a successful bridge tool call', async () => {
+      mockDaemonClientInstance.extensionConnected = false;
+      await backend.initialize(makeMockServer(), {});
+      await backend.callTool('connect', { client_id: 'test' });
+
+      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'tabs' }] });
+      await backend.callTool('browser_tabs', { action: 'list' });
+
+      const header = backend.statusHeader();
+      expect(header).toContain('✅');
+    });
+
+    it('does not flip extensionConnected true on a successful playbooks call (local read, no extension involved)', async () => {
+      mockDaemonClientInstance.extensionConnected = false;
+      await backend.initialize(makeMockServer(), {});
+      await backend.callTool('connect', { client_id: 'test' });
+
+      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'listed' }] });
+      await backend.callTool('playbooks', { action: 'list' });
+
+      expect(backend.extensionConnected).toBe(false);
     });
   });
 

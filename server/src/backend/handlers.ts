@@ -143,6 +143,13 @@ export async function onConnect(
 
     // Handle extension reconnections — re-query the attached tab so its URL is
     // restored immediately, rather than waiting for the next navigation event.
+    // Note: `client` here is always a DaemonClient, and DaemonClient never
+    // invokes `onReconnect` (only the legacy bridge.ts ExtensionServer does,
+    // on a raw WS reconnect) — so this hook does not currently fire in the
+    // live daemon transport. `extensionConnected` intentionally stays
+    // whatever it was last set to (seeded false/true at connect, then
+    // event-driven by bridge call outcomes) until wired to a real daemon
+    // reconnect signal.
     mgr.extensionServer.onReconnect = () => {
       log('Extension reconnected, rehydrating tab state...');
       void rehydrateAttachedTab(mgr, mgr.extensionServer!);
@@ -163,12 +170,16 @@ export async function onConnect(
 
     mgr.state = 'active';
     mgr.connectedBrowserName = client.browser;
+    mgr.extensionConnected = client.extensionConnected;
 
     // Connect to a managed profile if requested
     if (args.profile && typeof args.profile === 'string') {
       log('Connecting to profile:', args.profile);
       await client.sendCmd('profiles.connect', { profile: args.profile }, 90000);
       mgr.profile = args.profile;
+      // profiles.connect resolves only when the matchmaker has a live
+      // extension connection for this profile slot.
+      mgr.extensionConnected = true;
     }
 
     // Pre-enable session features from resolved config (fire-and-forget IPC to daemon)
@@ -206,8 +217,11 @@ export async function onConnect(
             mgr.statusHeader() +
             (mgr.config.showUpgradeNotice ? `${UPGRADE_NOTICE_MESSAGE}\n\n` : '') +
             `### Connected to Service\n\n` +
-            `**State:** Active\n` +
+            `**State:** ${mgr.extensionConnected ? 'Active' : 'Active — no extension connected'}\n` +
             `**Browser:** ${mgr.connectedBrowserName}\n\n` +
+            (mgr.extensionConnected
+              ? ''
+              : `⚠️ **No extension connected** — browser tools will fail. Open the SuperSurf popup and click "Enable", or reconnect with \`profile:'<name>'\` to spawn a managed browser.\n\n`) +
             `**Next Steps:**\n` +
             `1. Call \`browser_tabs action='list'\` to see tabs\n` +
             `2. Call \`browser_tabs action='attach' index=N\` to attach\n\n` +
@@ -224,6 +238,7 @@ export async function onConnect(
     }
     mgr.state = 'passive';
     mgr.profile = null;
+    mgr.extensionConnected = false;
     // Remember why, so a follow-up `status` call surfaces the real cause
     // (e.g. wedged-port EADDRINUSE) instead of a bare cached "Disabled".
     mgr.lastConnectError = error.message;
@@ -348,6 +363,7 @@ export async function onDisconnect(
   mgr.connectedBrowserName = null;
   mgr.attachedTab = null;
   mgr.profile = null;
+  mgr.extensionConnected = false;
   destroyHumanization('_default');
   experimentRegistry.unbind();
 

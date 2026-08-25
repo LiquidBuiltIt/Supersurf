@@ -21,6 +21,9 @@ interface StatusInput {
   attachedTab: TabInfo | null;
   stealthMode: boolean;
   extensionServer: IExtensionTransport | null;
+  /** Slot-scoped extension presence; when false in a non-passive state the
+   *  header renders ⚠️ + a hint instead of ✅. Undefined = legacy caller, treat as connected. */
+  extensionConnected?: boolean;
   /** When true, prepends a one-time warning that `~/.supersurf/config.json` changed since daemon start. */
   configDriftWarning?: boolean;
   /** Reason the last connect attempt failed; shown in the passive header so a wedged
@@ -37,7 +40,7 @@ interface StatusInput {
  * Returns a string ending with `\n---\n\n` for markdown separation.
  */
 export function buildStatusHeader(input: StatusInput): string {
-  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, configDriftWarning, lastConnectError, playbookHint } = input;
+  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, extensionConnected, configDriftWarning, lastConnectError, playbookHint } = input;
   const version = config.server.version;
   const driftLine = configDriftWarning
     ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf-daemon@latest restart`\n\n'
@@ -67,7 +70,11 @@ export function buildStatusHeader(input: StatusInput): string {
 
   const versionStr =
     buildTime && debugMode ? `v${version} [${buildTime}]` : `v${version}`;
-  parts.push(`✅ ${versionStr}`);
+  const noExtension = extensionConnected === false;
+  parts.push(`${noExtension ? '⚠️' : '✅'} ${versionStr}`);
+  if (noExtension) {
+    parts.push(`No extension connected — open the SuperSurf popup, or connect with profile:'<name>' to spawn a managed browser`);
+  }
 
   if (connectedBrowserName) {
     parts.push(`🌐 ${connectedBrowserName}`);

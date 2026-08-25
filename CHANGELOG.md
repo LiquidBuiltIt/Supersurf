@@ -44,6 +44,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 - feat: `playbooks action='list'` and `action='inspect'` expose read-only playbook browsing from the MCP tool itself — `list` (optionally filtered by `domain`) summarizes every saved playbook with its derived domains and step count, `inspect <name>` prints its full step trail. Neither requires the `fingerprinting` experiment or an active session.
 - feat: the status header now surfaces a one-shot hint (`► N playbooks available: ... | playbooks "list" for more details`, capped at 5 names with a `5+` variant beyond that) when the active tab's domain matches a saved playbook's recorded step domains. Domains are derived at read time from each playbook's `steps[].url` (no stored manifest field), and the hint fires at most once per normalized domain per session.
 - chore: `supersurf playbook show` is renamed to `supersurf playbook inspect` — no alias, the old command name is gone.
+- `connect` and the status header now report slot-scoped extension presence: ⚠️ + hint replaces the false ✅ when no extension is connected for the session's slot (BACKLOG #12).
 
 ## 3.4.0 — 2026-08-24
 
