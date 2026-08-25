@@ -17,13 +17,22 @@ function pb(name: string, url: string) {
 }
 
 describe('formatPlaybookHintLine', () => {
-  it('renders the exact 1-5 format, sorted alphabetically', () => {
-    const line = formatPlaybookHintLine(['gh-star', 'gh-login', 'gh-create-repo']);
+  // formatPlaybookHintLine expects pre-sorted input (see doc comment) — every
+  // case below passes names already in the order a real caller would provide
+  // them (buildPlaybookDomainIndex sorts once at build time).
+
+  it('renders the exact 1-5 format', () => {
+    const line = formatPlaybookHintLine(['gh-create-repo', 'gh-login', 'gh-star']);
     expect(line).toBe('► 3 playbooks available: gh-create-repo, gh-login, gh-star | playbooks "list" for more details');
   });
 
+  it('renders the exact 5-name boundary: all 5 shown, plain count, no "+ more"', () => {
+    const line = formatPlaybookHintLine(['a', 'b', 'c', 'd', 'e']);
+    expect(line).toBe('► 5 playbooks available: a, b, c, d, e | playbooks "list" for more details');
+  });
+
   it('renders the exact 5+ format when more than 5 match', () => {
-    const line = formatPlaybookHintLine(['f', 'e', 'd', 'c', 'b', 'a']);
+    const line = formatPlaybookHintLine(['a', 'b', 'c', 'd', 'e', 'f']);
     expect(line).toBe('► 5+ playbooks available: a, b, c, d, e + more | playbooks "list" for more details');
   });
 
@@ -62,5 +71,14 @@ describe('buildPlaybookDomainIndex / matchPlaybookNamesForUrl', () => {
     pb('gh_login', 'https://github.com/login');
     const index = buildPlaybookDomainIndex();
     expect(matchPlaybookNamesForUrl(index, 'https://example.com/')).toBeNull();
+  });
+
+  it('sorts multiple matching names alphabetically, once, at build time', () => {
+    pb('gh_star', 'https://github.com/star');
+    pb('gh_login', 'https://github.com/login');
+    pb('gh_create_repo', 'https://github.com/new');
+    const index = buildPlaybookDomainIndex();
+    expect(matchPlaybookNamesForUrl(index, 'https://github.com/settings'))
+      .toEqual(['gh_create_repo', 'gh_login', 'gh_star']);
   });
 });

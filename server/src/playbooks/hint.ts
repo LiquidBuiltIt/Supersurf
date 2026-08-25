@@ -36,20 +36,25 @@ export function buildPlaybookDomainIndex(): PlaybookDomainIndex {
 export function matchPlaybookNamesForUrl(index: PlaybookDomainIndex, url: string | undefined | null): string[] | null {
   const host = normalizeHost(url);
   if (!host) return null;
-  const names = index.get(host);
-  return names && names.length > 0 ? names : null;
+  // A map entry is only ever created together with its first name — never
+  // empty — so no `names.length > 0` guard is needed here.
+  return index.get(host) ?? null;
 }
 
 /**
  * Render the exact status-header hint line for a set of matched playbook
  * names. Caps the visible list at 5 names; beyond that, the count becomes
  * the literal string `5+` and the line ends with `+ more`.
+ *
+ * Expects `names` already sorted — `buildPlaybookDomainIndex` sorts once at
+ * build time, and every production caller reads through
+ * `matchPlaybookNamesForUrl`, which returns that same sorted list. Re-sorting
+ * here would be dead work on every status-header render.
  */
 export function formatPlaybookHintLine(names: string[]): string {
-  const sorted = [...names].sort((a, b) => a.localeCompare(b));
-  if (sorted.length <= MAX_NAMES) {
-    return `► ${sorted.length} playbooks available: ${sorted.join(', ')} | playbooks "list" for more details`;
+  if (names.length <= MAX_NAMES) {
+    return `► ${names.length} playbooks available: ${names.join(', ')} | playbooks "list" for more details`;
   }
-  const shown = sorted.slice(0, MAX_NAMES);
+  const shown = names.slice(0, MAX_NAMES);
   return `► 5+ playbooks available: ${shown.join(', ')} + more | playbooks "list" for more details`;
 }
