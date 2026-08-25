@@ -350,7 +350,11 @@ export class ConnectionManager implements ConnectionManagerAPI {
       const errText = result?.isError === true ? String(result?.content?.[0]?.text ?? '') : '';
       if (errText.includes('Extension not connected')) {
         this.extensionConnected = false;
-      } else if (result?.isError !== true) {
+      } else if (result?.isError !== true && name !== 'playbooks') {
+        // `playbooks` (list/inspect/history) can succeed as a pure local
+        // disk/log read with no extension involved — success there proves
+        // nothing about extension liveness. Any future local-only tool
+        // (no extension round-trip) must be excluded here too.
         this.extensionConnected = true;
       }
       return result;

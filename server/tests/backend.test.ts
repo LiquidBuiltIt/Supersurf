@@ -860,6 +860,17 @@ describe('ConnectionManager', () => {
       const header = backend.statusHeader();
       expect(header).toContain('✅');
     });
+
+    it('does not flip extensionConnected true on a successful playbooks call (local read, no extension involved)', async () => {
+      mockDaemonClientInstance.extensionConnected = false;
+      await backend.initialize(makeMockServer(), {});
+      await backend.callTool('connect', { client_id: 'test' });
+
+      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'listed' }] });
+      await backend.callTool('playbooks', { action: 'list' });
+
+      expect(backend.extensionConnected).toBe(false);
+    });
   });
 
   // ---- config drift warning (one-shot per session) ----

@@ -143,6 +143,13 @@ export async function onConnect(
 
     // Handle extension reconnections — re-query the attached tab so its URL is
     // restored immediately, rather than waiting for the next navigation event.
+    // Note: `client` here is always a DaemonClient, and DaemonClient never
+    // invokes `onReconnect` (only the legacy bridge.ts ExtensionServer does,
+    // on a raw WS reconnect) — so this hook does not currently fire in the
+    // live daemon transport. `extensionConnected` intentionally stays
+    // whatever it was last set to (seeded false/true at connect, then
+    // event-driven by bridge call outcomes) until wired to a real daemon
+    // reconnect signal.
     mgr.extensionServer.onReconnect = () => {
       log('Extension reconnected, rehydrating tab state...');
       void rehydrateAttachedTab(mgr, mgr.extensionServer!);
