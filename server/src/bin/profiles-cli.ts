@@ -128,10 +128,10 @@ export async function runProfilesCli(argv: string[]): Promise<void> {
     }
 
     if (parsed.cmd === 'open') {
-      // profiles.launch waits up to 90s for the extension match; give
-      // the RPC 95s so the daemon-side timeout fires first with its own error.
+      // profiles.launch waits up to 45s for the extension match; give
+      // the RPC 50s so the daemon-side timeout fires first with its own error.
       const result = await withCliDaemonClient((client) =>
-        client.sendCmd('profiles.launch', { profile: parsed.profile }, 95000),
+        client.sendCmd('profiles.launch', { profile: parsed.profile }, 50000),
       );
       const owner = result.owner ?? 'daemon';
       if (result.alreadyRunning) {

@@ -19,8 +19,6 @@ const debugLog = (...args: unknown[]) => {
   else if ((global as any).DAEMON_DEBUG) console.error('[Match]', ...args);
 };
 
-const MATCH_RETRY_INTERVAL = 15000; // 15s between retries
-const MAX_RETRIES = 4;
 const DEFAULT_TIMEOUT = 60000; // 60s total
 
 export class Matchmaker {
@@ -101,7 +99,7 @@ export class Matchmaker {
         this.pendingMatches = this.pendingMatches.filter(p => p.resolve !== resolve);
         reject(new Error(
           profile
-            ? `Connection timeout after ${MAX_RETRIES} retries — Chromium may not have started.`
+            ? `No extension connection for profile '${profile}' after ${Math.round(timeoutMs / 1000)}s — Chromium may not have started, or its extension never announced.`
             : 'No unmanaged browser connection available.'
         ));
       }, timeoutMs);

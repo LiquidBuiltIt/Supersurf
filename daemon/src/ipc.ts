@@ -22,6 +22,7 @@ import { isExperimentMethod } from './experiments/types';
 import { isProfileMethod } from './profiles/types';
 import type { ProfileRegistry } from './profiles/registry';
 import type { Matchmaker } from './profiles/matchmaker';
+import type { PooledConnection } from './profiles/types';
 import { spawnChromium, appendPidLog } from './profiles/chrome';
 import { getExtensionDir } from './profiles/extension-source';
 import { shouldKeepBrowserOnSessionEnd } from './profiles/keep-browser';
@@ -389,13 +390,16 @@ export class IPCServer {
         // whereas registry.isRunning() self-heals (clears the pid) on a dead
         // process, which would erase ownership tracking for a still-pooled
         // (but registry-untracked) user-launched browser.
-        if (!matchmaker.getConnectionForProfile(profile) && !registry.isRunning(profile)) {
+        const didSpawn = !matchmaker.getConnectionForProfile(profile) && !registry.isRunning(profile);
+        if (didSpawn) {
           await this.spawnProfile(profile, 'daemon');
         }
 
-        // Wait for matching extension connection
+        // Wait for matching extension connection. When this request performed
+        // the spawn, watch the Chromium PID and fail within ~1s of its death
+        // instead of burning the full match window.
         debugLog(`Waiting for extension match for profile "${profile}"...`);
-        const conn = await matchmaker.requestMatch(profile, 90000);
+        const conn = await this.awaitMatchWithDeathWatch(profile, didSpawn, 45000);
 
         // Mark initialized if first launch succeeded
         if (!registry.isInitialized(profile)) {
@@ -446,7 +450,7 @@ export class IPCServer {
 
         // Wait for the extension in the fresh Chromium to announce itself.
         debugLog(`Waiting for extension match for profile "${profile}" (user launch)...`);
-        await matchmaker.requestMatch(profile, 90000);
+        await this.awaitMatchWithDeathWatch(profile, true, 45000);
 
         if (!registry.isInitialized(profile)) {
           registry.markInitialized(profile);
@@ -456,6 +460,42 @@ export class IPCServer {
       default:
         throw new Error(`Unknown profile method: ${method}`);
     }
+  }
+
+  /**
+   * Race the matchmaker wait against a liveness watch on the just-spawned
+   * Chromium. Only watches when this request performed the spawn — a
+   * user-launched browser is not registry-tracked, so watchPid=false skips
+   * the watch entirely. The registry self-heals (spawnProfile's exit handler
+   * clears the PID), so isRunning() flipping false means the process died.
+   * Accepted scope gap: the watch only arms for Chromium this request spawned
+   * (watchPid/didSpawn) — an already-running profile that dies mid-match
+   * falls back to the full 45s timeout by design.
+   */
+  private awaitMatchWithDeathWatch(
+    profile: string,
+    watchPid: boolean,
+    timeoutMs: number,
+  ): Promise<PooledConnection> {
+    const match = this.bridge.matchmaker.requestMatch(profile, timeoutMs);
+    if (!watchPid) return match;
+
+    let watcher: NodeJS.Timeout | undefined;
+    const death = new Promise<never>((_, reject) => {
+      watcher = setInterval(() => {
+        if (!this.profileRegistry.isRunning(profile)) {
+          reject(new Error(
+            `Chromium for profile '${profile}' exited before the extension connected. ` +
+            `Check ~/.supersurf/logs/daemon.log; if the GPU driver is the cause, set ` +
+            '`profiles.startup_opts.disable_gpu: true` in ~/.supersurf/config.json.',
+          ));
+        }
+      }, 1000);
+    });
+    return Promise.race([match, death]).finally(() => {
+      if (watcher) clearInterval(watcher);
+      // A lost race leaves the pending match queued; its own timeout clears it.
+    }) as Promise<PooledConnection>;
   }
 
   /**

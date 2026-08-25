@@ -24,6 +24,14 @@ vi.mock('../src/daemon-spawn', async () => {
   };
 });
 
+// The stopDaemon tests below need a genuinely fresh, unmocked module per test
+// (re-imported after mocking os.homedir()) so its internal PID_FILE/SOCK_FILE
+// constants resolve under a temp dir — never the real ~/.supersurf. Unmocking
+// here, at top level, makes that explicit instead of relying on a nested
+// vi.unmock() being hoisted (which triggers a deprecation warning). None of
+// the assertions above this point depend on the mocked path values.
+vi.unmock('../src/daemon-spawn');
+
 import { isDaemonRunning, getSockPath, getPidPath, resolveDaemonEntry, explainStartupFailure } from '../src/daemon-spawn';
 
 describe('daemon-spawn', () => {
@@ -97,5 +105,54 @@ describe('explainStartupFailure', () => {
   it('returns null when there is no captured output', () => {
     expect(explainStartupFailure('', 5555)).toBeNull();
     expect(explainStartupFailure('   \n  \n', 5555)).toBeNull();
+  });
+});
+
+describe('stopDaemon', () => {
+  let tmpHome: string;
+
+  beforeEach(() => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'stopd-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(tmpHome);
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  it('is a no-op when no PID file exists', async () => {
+    const { stopDaemon } = await import('../src/daemon-spawn');
+    await expect(stopDaemon()).resolves.toBeUndefined();
+  });
+
+  it('removes stale pid and sock files when the PID is dead', async () => {
+    const dir = path.join(tmpHome, '.supersurf');
+    fs.mkdirSync(dir, { recursive: true });
+    // PID 99999999 exceeds kernel.pid_max defaults — reliably dead.
+    fs.writeFileSync(path.join(dir, 'daemon.pid'), '99999999');
+    fs.writeFileSync(path.join(dir, 'daemon.sock'), '');
+
+    const { stopDaemon } = await import('../src/daemon-spawn');
+    await stopDaemon();
+
+    expect(fs.existsSync(path.join(dir, 'daemon.pid'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'daemon.sock'))).toBe(false);
+  });
+
+  it('terminates a live process named in the PID file', async () => {
+    const { spawn } = await import('node:child_process');
+    const child = spawn('sleep', ['30']);
+    const dir = path.join(tmpHome, '.supersurf');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'daemon.pid'), String(child.pid));
+
+    const { stopDaemon } = await import('../src/daemon-spawn');
+    await stopDaemon();
+
+    // Signal 0 probe: throws once the process is fully reaped.
+    await new Promise(r => setTimeout(r, 200));
+    expect(() => process.kill(child.pid!, 0)).toThrow();
   });
 });

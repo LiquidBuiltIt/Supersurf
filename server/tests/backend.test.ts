@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { ConnectionManager, BackendConfig } from '../src/backend';
 import { ConfigService } from 'shared';
 import { setBaseDirForTests, savePlaybook } from '../src/playbooks/store';
+import { ensureDaemon, stopDaemon } from '../src/daemon-spawn';
 
 // ---- Mocks ----
 
@@ -65,6 +66,7 @@ vi.mock('../src/daemon-client', () => ({
 // Mock daemon-spawn
 vi.mock('../src/daemon-spawn', () => ({
   ensureDaemon: vi.fn().mockResolvedValue(undefined),
+  stopDaemon: vi.fn().mockResolvedValue(undefined),
   getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
 }));
 
@@ -292,6 +294,37 @@ describe('ConnectionManager', () => {
     });
   });
 
+  describe('daemon version mismatch auto-restart', () => {
+    it('restarts a stale daemon once and connects on version match', async () => {
+      mockDaemonClientInstance.version = '0.0.1-stale';
+      // The restart respawns the bundled daemon — model that by having
+      // stopDaemon flip the mock daemon to the matching version.
+      (stopDaemon as any).mockImplementationOnce(async () => {
+        mockDaemonClientInstance.version = '0.1.0';
+      });
+
+      await backend.initialize(makeMockServer(), {});
+      const result = await backend.callTool('connect', { client_id: 'test' });
+
+      expect(stopDaemon).toHaveBeenCalledTimes(1);
+      expect(ensureDaemon).toHaveBeenCalledTimes(2);
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Connected to Service');
+    });
+
+    it('errors with the exact restart command when the mismatch survives the restart', async () => {
+      mockDaemonClientInstance.version = '0.0.1-stale';
+
+      await backend.initialize(makeMockServer(), {});
+      const result = await backend.callTool('connect', { client_id: 'test' });
+
+      expect(stopDaemon).toHaveBeenCalledTimes(1);
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Daemon Version Mismatch');
+      expect(result.content[0].text).toContain('npx supersurf-daemon@latest restart');
+    });
+  });
+
   // ---- callTool('disconnect') ----
 
   describe('callTool("disconnect")', () => {
@@ -492,7 +525,7 @@ describe('ConnectionManager', () => {
 
       expect(result.content[0].text).toContain('Connected implicitly (profile: proj-a) to run playbook.');
       expect(mockDaemonClientInstance.sendCmd).toHaveBeenCalledWith(
-        'profiles.connect', { profile: 'proj-a' }, 90000
+        'profiles.connect', { profile: 'proj-a' }, 50000
       );
     });
 
