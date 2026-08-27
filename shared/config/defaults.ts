@@ -4,7 +4,6 @@ export const HARDCODED_DEFAULTS: Config = {
   experiments: {
     page_diffing: false,
     smart_waiting: false,
-    storage_inspection: false,
     mouse_humanization: false,
     fingerprinting: false,
   },

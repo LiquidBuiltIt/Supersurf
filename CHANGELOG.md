@@ -47,6 +47,10 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 - `connect` and the status header now report slot-scoped extension presence: ⚠️ + hint replaces the false ✅ when no extension is connected for the session's slot (BACKLOG #12).
 - `connect` auto-restarts a stale-version daemon once instead of failing every session with "Daemon Version Mismatch" (BACKLOG #7).
 - `profiles.connect`/`profiles.launch` fail within ~1 s when the spawned Chromium dies, and the match ceiling drops 90 s → 45 s; the matchmaker timeout message no longer claims retries that never happened (BACKLOG #7).
+- fix: `browser_interact` `select_custom` polls for rendered options instead of one fixed 300ms sleep, and falls back to typing a filter string into a combobox input when no option matches on the first scan — fixes virtualized ATS dropdowns (Workday, ADP, react-select) that only render matching options after the query narrows (BACKLOG #9).
+- fix: `browser_interact` `file_upload` descends into a wrapper element to find the real `<input type=file>`, retries once on a stale CDP `objectId`, and lists nearby file inputs in the error when none is found (BACKLOG #9).
+- fix: `browser_handle_dialog` no longer blocks waiting for a tab to attach before it can view a pending dialog, and the dialog IPC round-trip is capped at a 10 s ceiling instead of hanging indefinitely (BACKLOG #9).
+- feat: `browser_storage` graduated from the `storage_inspection` experiment — always available, no config needed. Now lives at `server/src/tools/browser_storage.ts` (pre-graduation copy kept one version at `experimental/storage-inspection.old.ts`). No opt-out: the tool is plain wiring over page storage APIs. `SUPERSURF_EXPERIMENTS=storage_inspection` and the config leaf now warn and are ignored (BACKLOG #9).
 
 ## 3.4.0 — 2026-08-24
 

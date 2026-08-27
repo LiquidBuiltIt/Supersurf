@@ -79,9 +79,7 @@ registerAction({
       if (el) el.click();
     })()`, frameContextId).catch(() => {});
 
-    await ctx.sleep(300);
-
-    const optionResult = await evalInFrameOrTop(ctx, `
+    const scanExpr = `
       (() => {
         ${OPTION_MATCHER_JS}
         const target = ${JSON.stringify(targetValue)};
@@ -129,13 +127,66 @@ registerAction({
         }
         return { found: false, available: available.slice(0, 20) };
       })()
-    `, frameContextId);
+    `;
+
+    // Poll for options instead of one fixed sleep — dropdowns animate, fetch
+    // async, or virtualize. Stop early once any candidates render.
+    let optionResult: any = null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await ctx.sleep(250);
+      optionResult = await evalInFrameOrTop(ctx, scanExpr, frameContextId);
+      if (optionResult?.found) break;
+      if (optionResult?.available?.length) break; // options rendered — no point polling further
+    }
+
+    if (!optionResult?.found && !optionResult?.available?.length) {
+      throw new Error(
+        `Dropdown at ${triggerSelector} did not render any options within 1.5s — ` +
+        `it may not have opened, or it renders options only after typing. ` +
+        `If it is a native <select>, use select_option instead.`,
+      );
+    }
+
+    // Type-to-filter fallback: ATS combos (Workday, ADP, react-select) often
+    // virtualize the list — the target option enters the DOM only after the
+    // filter input narrows it. Set the value the React-safe way (native
+    // setter + input event) and rescan once.
+    let usedFilter = false;
+    if (!optionResult?.found) {
+      const typed = await evalInFrameOrTop(ctx, `
+        (() => {
+          const el = ${triggerMatch.resolvedExpr};
+          if (!el) return false;
+          let input = el.matches('input:not([type=hidden]), textarea')
+            ? el
+            : el.querySelector('input:not([type=hidden]), textarea');
+          if (!input && document.activeElement &&
+              document.activeElement.matches('input:not([type=hidden]), textarea')) {
+            input = document.activeElement;
+          }
+          if (!input) return false;
+          const proto = input.tagName === 'TEXTAREA'
+            ? window.HTMLTextAreaElement.prototype
+            : window.HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+          setter.call(input, ${JSON.stringify(targetValue)});
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        })()
+      `, frameContextId).catch(() => false);
+      if (typed) {
+        usedFilter = true;
+        await ctx.sleep(500);
+        optionResult = await evalInFrameOrTop(ctx, scanExpr, frameContextId);
+      }
+    }
 
     if (!optionResult?.found) {
       const availableMsg = optionResult?.available?.length
         ? ` Available: ${optionResult.available.join(', ')}`
         : '';
-      throw new Error(`Option "${targetValue}" not found in dropdown.${availableMsg}`);
+      const filterNote = usedFilter ? ' (also tried typing the value into the combobox filter)' : '';
+      throw new Error(`Option "${targetValue}" not found in dropdown.${filterNote}${availableMsg}`);
     }
 
     await ctx.sleep(150);
@@ -150,9 +201,10 @@ registerAction({
       })()
     `, frameContextId);
 
+    const via = usedFilter ? ' (after typing filter)' : '';
     if (verification?.verified) {
-      return `Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector}`;
+      return `Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector}${via}`;
     }
-    return `⚠ Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector} (unverified — trigger text unchanged after option click; the dropdown may not have committed selection state)`;
+    return `⚠ Selected "${optionResult.optionText}" in custom dropdown ${triggerSelector}${via} (unverified — trigger text unchanged after option click; the dropdown may not have committed selection state)`;
   },
 });

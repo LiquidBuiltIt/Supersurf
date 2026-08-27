@@ -255,7 +255,7 @@ SuperSurf ships as **two** npm packages:
 | Tool | Description |
 |------|-------------|
 | `browser_list_extensions` | List installed Chrome extensions |
-| `browser_storage` | Inspect/modify localStorage & sessionStorage *(requires `storage_inspection` experiment)* |
+| `browser_storage` | Inspect/modify localStorage & sessionStorage |
 | `reload_mcp` | Hot-reload the MCP server *(debug mode only)* |
 
 </details>
@@ -274,7 +274,6 @@ SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization
 |------------|-------------|
 | **page_diffing** | After interactions, returns only DOM changes instead of a full re-read. Includes a confidence score. |
 | **smart_waiting** | Replaces fixed delays with adaptive DOM stability + network idle detection. |
-| **storage_inspection** | Inspect and modify browser storage (localStorage, sessionStorage). |
 | **mouse_humanization** | Human-like Bezier trajectories, overshoot correction, and idle micro-movements. Hand-tuned from the Balabit Mouse Dynamics dataset. |
 
 ---

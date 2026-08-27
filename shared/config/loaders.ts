@@ -35,7 +35,7 @@ export function loadJsonConfig(filePath: string): LoadResult {
 }
 
 const KNOWN_EXPERIMENTS = [
-  'page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization', 'fingerprinting',
+  'page_diffing', 'smart_waiting', 'mouse_humanization', 'fingerprinting',
 ] as const;
 
 type ExperimentName = (typeof KNOWN_EXPERIMENTS)[number];
@@ -43,6 +43,11 @@ type ExperimentName = (typeof KNOWN_EXPERIMENTS)[number];
 function isKnownExperiment(s: string): s is ExperimentName {
   return (KNOWN_EXPERIMENTS as readonly string[]).includes(s);
 }
+
+/** Experiments that graduated to always-on tools. Recognized but rejected — warn and drop. */
+const GRADUATED_EXPERIMENTS: Record<string, string> = {
+  storage_inspection: 'graduated in v3.5.0 — browser_storage is always available',
+};
 
 function isTruthy(v: string | undefined): boolean {
   if (!v) return false;
@@ -80,7 +85,9 @@ export function loadEnvConfig(env: Record<string, string | undefined>): LoadResu
     const names = env.SUPERSURF_EXPERIMENTS.split(',').map((s) => s.trim()).filter(Boolean);
     const expOut: Partial<Config['experiments']> = {};
     for (const name of names) {
-      if (isKnownExperiment(name)) {
+      if (GRADUATED_EXPERIMENTS[name]) {
+        warnings.push(`config: SUPERSURF_EXPERIMENTS contains "${name}" (${GRADUATED_EXPERIMENTS[name]}) — ignored`);
+      } else if (isKnownExperiment(name)) {
         expOut[name] = true;
       } else {
         warnings.push(`config: SUPERSURF_EXPERIMENTS contains unknown name "${name}" — ignored`);

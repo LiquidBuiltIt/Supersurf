@@ -55,11 +55,11 @@ describe('ExperimentRegistry', () => {
       const available = experimentRegistry.listAvailable();
       expect(available).toContain('page_diffing');
       expect(available).toContain('smart_waiting');
-      expect(available).toContain('storage_inspection');
       expect(available).toContain('mouse_humanization');
       expect(available).toContain('fingerprinting');
       expect(available).not.toContain('secure_eval'); // graduated in v1.11.0
-      expect(available.length).toBe(5);
+      expect(available).not.toContain('storage_inspection'); // graduated in v3.5.0
+      expect(available.length).toBe(4);
     });
   });
 
@@ -67,7 +67,7 @@ describe('ExperimentRegistry', () => {
     it('returns state map for all experiments', () => {
       experimentRegistry.enable('smart_waiting');
       const states = experimentRegistry.getStates();
-      expect(states).toEqual({ page_diffing: false, smart_waiting: true, storage_inspection: false, mouse_humanization: false, fingerprinting: false });
+      expect(states).toEqual({ page_diffing: false, smart_waiting: true, mouse_humanization: false, fingerprinting: false });
     });
   });
 
@@ -78,6 +78,11 @@ describe('ExperimentRegistry', () => {
 
     it('returns false for unknown experiments', () => {
       expect(experimentRegistry.isAvailable('warp_drive')).toBe(false);
+    });
+
+    it('regression lock: storage_inspection graduated in v3.5.0', () => {
+      expect(experimentRegistry.isAvailable('storage_inspection')).toBe(false);
+      expect(experimentRegistry.listAvailable()).not.toContain('storage_inspection');
     });
   });
 });
@@ -93,7 +98,6 @@ describe('applyInitialState()', () => {
     applyInitialState({
       page_diffing: true,
       smart_waiting: true,
-      storage_inspection: false,
       mouse_humanization: false,
       fingerprinting: false,
     });
@@ -105,7 +109,6 @@ describe('applyInitialState()', () => {
     applyInitialState({
       page_diffing: true,
       smart_waiting: false,
-      storage_inspection: false,
       mouse_humanization: false,
       fingerprinting: false,
       profiles: true,
@@ -118,7 +121,6 @@ describe('applyInitialState()', () => {
     applyInitialState({
       page_diffing: false,
       smart_waiting: false,
-      storage_inspection: false,
       mouse_humanization: false,
       fingerprinting: false,
     });

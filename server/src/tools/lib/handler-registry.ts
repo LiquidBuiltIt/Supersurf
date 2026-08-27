@@ -23,6 +23,7 @@ import {
   onListExtensions, onPerformanceMetrics,
 } from '../misc';
 import { onEvaluate } from '../browser_evaluate';
+import { onBrowserStorage } from '../browser_storage';
 
 /**
  * Invoke the handler for `name`. Returns the handler's MCP result, or
@@ -57,6 +58,7 @@ export async function callToolHandler(
     case 'browser_performance_metrics': return onPerformanceMetrics(ctx, options);
     case 'browser_download':        return onBrowserDownload(ctx, args, options);
     case 'secure_fill':             return onSecureFill(ctx, args, options);
+    case 'browser_storage':         return onBrowserStorage(ctx, args, options);
     default:                        return callExperimentalTool(name, ctx, args, options);
   }
 }

@@ -21,10 +21,9 @@ export type { PageState, DiffResult } from './page-diffing';
 import type { ToolSchema, ToolContext } from '../tools/lib/types';
 import type { IExtensionTransport } from '../bridge';
 import type { Config } from 'shared';
-import { storageInspectionSchema, onBrowserStorage } from './storage-inspection';
 
 /** All recognized session-toggleable experiment names. */
-const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization', 'fingerprinting'] as const;
+const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'mouse_humanization', 'fingerprinting'] as const;
 type ExperimentName = typeof AVAILABLE_EXPERIMENTS[number];
 
 /**
@@ -143,7 +142,7 @@ export function applyInitialState(experiments: Config['experiments']): void {
 
 /** Collect schemas from all experimental tool modules */
 export function getExperimentalToolSchemas(): ToolSchema[] {
-  return [storageInspectionSchema];
+  return [];
 }
 
 /**
@@ -157,8 +156,6 @@ export async function callExperimentalTool(
   options: { rawResult?: boolean }
 ): Promise<any | null> {
   switch (name) {
-    case 'browser_storage':
-      return await onBrowserStorage(ctx, args, options);
     default:
       return null;
   }

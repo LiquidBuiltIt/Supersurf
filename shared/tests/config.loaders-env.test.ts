@@ -65,6 +65,12 @@ describe('loadEnvConfig', () => {
     expect(warnings.some((w) => w.includes('profiles'))).toBe(true);
   });
 
+  it('warns and drops graduated experiment names', () => {
+    const { config, warnings } = loadEnvConfig({ SUPERSURF_EXPERIMENTS: 'storage_inspection' });
+    expect(config.experiments?.storage_inspection).toBeUndefined();
+    expect(warnings.some(w => /storage_inspection.*graduated/.test(w))).toBe(true);
+  });
+
   it('maps SUPERSURF_SCREENSHOT_OMIT_PATH to screenshot.omit_path', () => {
     const { config } = loadEnvConfig({ SUPERSURF_SCREENSHOT_OMIT_PATH: 'path' });
     expect(config.screenshot?.omit_path).toBe('path');

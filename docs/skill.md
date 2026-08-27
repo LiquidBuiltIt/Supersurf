@@ -195,7 +195,6 @@ Experiments are toggled in `~/.supersurf/config.json` under the `experiments` ke
     "page_diffing": true,
     "smart_waiting": true,
     "mouse_humanization": true,
-    "storage_inspection": true,
     "fingerprinting": true
   }
 }
@@ -210,7 +209,6 @@ supersurf daemon restart
 | `page_diffing` | Returns what changed in the DOM after an interaction (added/removed text, element counts), including inside open shadow roots | When you need to verify an action had the expected effect without re-reading the full page |
 | `smart_waiting` | Replaces fixed delays with adaptive DOM stability + network idle detection | Always — reduces wasted time on fast pages, prevents acting too early on slow ones |
 | `mouse_humanization` | Generates human-like Bezier cursor paths with overshoot and idle drift | When interacting with sites that have bot detection (CAPTCHAs, anti-automation) |
-| `storage_inspection` | Unlocks `browser_storage` tool for localStorage/sessionStorage read/write | When you need to inspect or modify client-side storage |
 | `fingerprinting` | Lets named elements (`name`/`purpose` on `browser_interact`) be resolved by name later, heals selectors when a page changes, and gates `playbooks` `create`/`run` | Before you need a flow to survive selector churn, or before saving a playbook |
 
 `secure_eval` is separate from the experiments above — it's a security setting (`security.secure_eval`, default `true`), not an opt-in experiment. It AST-analyzes `browser_evaluate` code and blocks dangerous patterns by default. Opt out only via `SUPERSURF_DISABLE_SECURE_EVAL=1` in the server environment — this defeats RCE protection.
