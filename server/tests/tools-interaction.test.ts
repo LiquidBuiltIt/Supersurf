@@ -1068,3 +1068,55 @@ describe('select_custom resilience', () => {
     expect(text).toContain('Afghanistan');
   });
 });
+
+describe('file_upload resilience', () => {
+  const action = { type: 'file_upload', selector: '#dropzone', files: ['/tmp/a.pdf'] };
+
+  it('resolution expression descends to input[type=file] inside the matched element', async () => {
+    const ctx = createMockCtx();
+    const cdpCalls: Array<{ method: string; params: any }> = [];
+    (ctx.cdp as any) = vi.fn(async (method: string, params: any) => {
+      cdpCalls.push({ method, params });
+      if (method === 'Runtime.evaluate') return { result: { objectId: 'obj-1' } };
+      if (method === 'DOM.describeNode') return { node: { backendNodeId: 42 } };
+      return {};
+    });
+    (ctx.eval as any) = vi.fn().mockResolvedValue({ verified: true, count: 1 });
+    await onInteract(ctx, { actions: [action] }, {});
+    const resolveCall = cdpCalls.find(c => c.method === 'Runtime.evaluate');
+    expect(resolveCall!.params.expression).toContain('input[type="file"]');
+  });
+
+  it('re-resolves once when DOM.describeNode reports a stale objectId', async () => {
+    const ctx = createMockCtx();
+    let describeCalls = 0;
+    (ctx.cdp as any) = vi.fn(async (method: string) => {
+      if (method === 'Runtime.evaluate') return { result: { objectId: `obj-${describeCalls}` } };
+      if (method === 'DOM.describeNode') {
+        describeCalls++;
+        if (describeCalls === 1) throw new Error('Object id doesn\'t reference a Node');
+        return { node: { backendNodeId: 42 } };
+      }
+      return {};
+    });
+    (ctx.eval as any) = vi.fn().mockResolvedValue({ verified: true, count: 1 });
+    const result = await onInteract(ctx, { actions: [action] }, {});
+    expect(describeCalls).toBe(2);
+    expect(result.content[0].text).toContain('Uploaded 1 file(s)');
+  });
+
+  it('not-found error lists the file inputs present on the page', async () => {
+    const ctx = createMockCtx();
+    (ctx.cdp as any) = vi.fn(async (method: string) => {
+      if (method === 'Runtime.evaluate') return { result: {} }; // no objectId anywhere
+      return {};
+    });
+    // findElementInFrames / heal will also come back empty via the {} cdp results.
+    (ctx.eval as any) = vi.fn(async (expr: string) =>
+      expr.includes("querySelectorAll('input[type=") ? ['#resume-upload'] : {});
+    const result = await onInteract(ctx, { actions: [action] }, {});
+    const text = result.content[0].text;
+    expect(text).toContain('Element not found in any frame');
+    expect(text).toContain('#resume-upload');
+  });
+});
