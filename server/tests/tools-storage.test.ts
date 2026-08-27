@@ -2,6 +2,44 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onBrowserStorage, browserStorageSchema } from '../src/tools/browser_storage';
 import { getToolSchemas } from '../src/tools/schemas';
 import type { ToolContext } from '../src/tools/lib/types';
+import { BrowserBridge } from '../src/tools';
+
+// Mock the logger
+vi.mock('../src/logger', () => ({
+  getLogger: () => ({
+    log: vi.fn(),
+    enable: vi.fn(),
+    disable: vi.fn(),
+  }),
+  createLog: () => (..._args: unknown[]) => {},
+}));
+
+// Mock usage-metrics logger to avoid filesystem writes during tests
+vi.mock('../src/usage-metrics-logger', () => ({
+  UsageMetricsLogger: class {
+    filePath = '/tmp/metrics-test.ndjson';
+    write = vi.fn();
+    getPath = vi.fn().mockReturnValue('/tmp/metrics-test.ndjson');
+  },
+}));
+
+// Mock experimental registry (used by interaction/navigation handlers)
+vi.mock('../src/experimental/index', () => ({
+  experimentRegistry: {
+    isEnabled: vi.fn().mockReturnValue(false),
+    enable: vi.fn(),
+    disable: vi.fn(),
+    reset: vi.fn(),
+    listAvailable: vi.fn().mockReturnValue(['page_diffing', 'smart_waiting']),
+    getStates: vi.fn().mockReturnValue({ page_diffing: false, smart_waiting: false }),
+    isAvailable: vi.fn().mockReturnValue(true),
+  },
+  diffSnapshots: vi.fn().mockReturnValue({ added: [], removed: [], countDelta: 0 }),
+  calculateConfidence: vi.fn().mockReturnValue(1.0),
+  formatDiffSection: vi.fn().mockReturnValue(''),
+  getExperimentalToolSchemas: vi.fn().mockReturnValue([]),
+  callExperimentalTool: vi.fn().mockReturnValue(null),
+}));
 
 function createMockCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -128,5 +166,70 @@ describe('browser_storage (graduated from storage_inspection experiment)', () =>
     it('schema description no longer mentions the experiment', () => {
       expect(browserStorageSchema.description).not.toContain('experiment');
     });
+  });
+});
+
+// ── End-to-end dispatch via BrowserBridge ──
+//
+// The tests above call onBrowserStorage() directly with a hand-built
+// ToolContext. This block exercises the real chain instead:
+// BrowserBridge.callTool() → tools/lib/dispatcher.ts → handler-registry.ts
+// case 'browser_storage' → onBrowserStorage(). Regression guard for the
+// handler-registry wiring itself, not just the handler's own logic.
+
+function createMockExt() {
+  return {
+    sendCmd: vi.fn().mockResolvedValue({ success: true }),
+    connected: true,
+    browser: 'chrome',
+    buildTime: null,
+    onReconnect: null,
+    onTabInfoUpdate: null,
+    start: vi.fn(),
+    stop: vi.fn(),
+    notifyClientId: vi.fn(),
+    consumeDialogEvents: vi.fn().mockReturnValue([]),
+  } as any;
+}
+
+function createMockConnectionManager() {
+  return {
+    setAttachedTab: vi.fn(),
+    getAttachedTab: vi.fn().mockReturnValue(null),
+    setConnectedBrowserName: vi.fn(),
+    setStealthMode: vi.fn(),
+    clearAttachedTab: vi.fn(),
+    statusHeader: vi.fn().mockReturnValue(''),
+    attachedTab: null,
+  } as any;
+}
+
+describe('browser_storage — BrowserBridge dispatch (end-to-end)', () => {
+  let bridge: BrowserBridge;
+  let mockExt: ReturnType<typeof createMockExt>;
+  let mockCM: ReturnType<typeof createMockConnectionManager>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExt = createMockExt();
+    mockCM = createMockConnectionManager();
+    bridge = new BrowserBridge({}, mockExt);
+    bridge.initialize({}, {}, mockCM);
+  });
+
+  it('dispatches browser_storage through callTool() to the extension', async () => {
+    // onBrowserStorage's "list" action resolves via ctx.eval() → forwardCDPCommand.
+    mockExt.sendCmd.mockResolvedValue({
+      result: { value: JSON.stringify({ length: 1, entries: { foo: 'bar' } }) },
+    });
+    const result = await bridge.callTool('browser_storage', { type: 'localStorage', action: 'list' });
+    expect(mockExt.sendCmd).toHaveBeenCalledWith('forwardCDPCommand', expect.anything());
+    expect(result.isError).toBeUndefined();
+  });
+
+  it('appears exactly once in listTools() output', async () => {
+    const tools = await bridge.listTools();
+    const matches = tools.filter((t) => t.name === 'browser_storage');
+    expect(matches).toHaveLength(1);
   });
 });
