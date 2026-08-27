@@ -99,7 +99,6 @@ Configure via `~/.supersurf/config.json` (requires a daemon restart) or the `SUP
 |------------|-------------|
 | `page_diffing` | Returns only DOM changes after interactions |
 | `smart_waiting` | Adaptive DOM stability + network idle detection |
-| `storage_inspection` | Inspect/modify localStorage and sessionStorage |
 | `mouse_humanization` | Human-like Bezier mouse trajectories |
 
 ## Requirements
