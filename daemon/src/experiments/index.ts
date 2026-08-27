@@ -14,7 +14,6 @@ import type { FileLogger, Config } from 'shared';
 const AVAILABLE_EXPERIMENTS = [
   'page_diffing',
   'smart_waiting',
-  'storage_inspection',
   'mouse_humanization',
   'fingerprinting',
 ] as const;

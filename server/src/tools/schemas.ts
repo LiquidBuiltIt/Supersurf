@@ -14,6 +14,7 @@
  */
 
 import type { ToolSchema } from './lib/types';
+import { browserStorageSchema } from './browser_storage';
 
 /** Returns all core (non-experimental) tool schemas. */
 export function getToolSchemas(): ToolSchema[] {
@@ -478,6 +479,9 @@ export function getToolSchemas(): ToolSchema[] {
       inputSchema: { type: 'object', properties: {} },
       annotations: { title: 'Performance metrics', readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
+
+    // ── Storage ──
+    browserStorageSchema,
 
     // ── Download ──
     {

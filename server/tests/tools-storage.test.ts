@@ -1,183 +1,90 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { BrowserBridge } from '../src/tools';
-import { experimentRegistry } from '../src/experimental/index';
+import { onBrowserStorage, browserStorageSchema } from '../src/tools/browser_storage';
+import { getToolSchemas } from '../src/tools/schemas';
+import type { ToolContext } from '../src/tools/lib/types';
 
-// Mock the logger
-vi.mock('../src/logger', () => ({
-  getLogger: () => ({
-    log: vi.fn(),
-    enable: vi.fn(),
-    disable: vi.fn(),
-  }),
-  createLog: () => (..._args: unknown[]) => {},
-}));
-
-// Mock usage-metrics logger to avoid filesystem writes during tests
-vi.mock('../src/usage-metrics-logger', () => ({
-  UsageMetricsLogger: class {
-    filePath = '/tmp/metrics-test.ndjson';
-    write = vi.fn();
-    getPath = vi.fn().mockReturnValue('/tmp/metrics-test.ndjson');
-  },
-}));
-
-// ── Mock extension transport ──
-
-function createMockExt() {
+function createMockCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
-    sendCmd: vi.fn().mockResolvedValue({ success: true }),
-    connected: true,
-    browser: 'chrome',
-    buildTime: null,
-    onReconnect: null,
-    onTabInfoUpdate: null,
-    start: vi.fn(),
-    stop: vi.fn(),
-    notifyClientId: vi.fn(),
-  } as any;
+    ext: { sendCmd: vi.fn().mockResolvedValue({ success: true }) } as any,
+    connectionManager: {
+      setAttachedTab: vi.fn(),
+      setStealthMode: vi.fn(),
+      clearAttachedTab: vi.fn(),
+      attachedTab: null,
+    },
+    cdp: vi.fn().mockResolvedValue({}),
+    eval: vi.fn().mockResolvedValue(undefined),
+    sleep: vi.fn().mockResolvedValue(undefined),
+    getElementCenter: vi.fn().mockResolvedValue({ x: 100, y: 100 }),
+    getSelectorExpression: vi.fn((s: string) => `document.querySelector("${s}")`),
+    findAlternativeSelectors: vi.fn().mockResolvedValue([]),
+    formatResult: vi.fn((_name, result, _opts) => ({ content: [{ type: 'text', text: JSON.stringify(result) }] })),
+    error: vi.fn((msg, _opts) => ({ content: [{ type: 'text', text: msg }], isError: true })),
+    ...overrides,
+  };
 }
 
-function createMockConnectionManager() {
-  return {
-    setAttachedTab: vi.fn(),
-    getAttachedTab: vi.fn().mockReturnValue(null),
-    setConnectedBrowserName: vi.fn(),
-    setStealthMode: vi.fn(),
-    clearAttachedTab: vi.fn(),
-    statusHeader: vi.fn().mockReturnValue(''),
-    attachedTab: null,
-  } as any;
-}
-
-describe('browser_storage (storage_inspection experiment)', () => {
-  let bridge: BrowserBridge;
-  let mockExt: ReturnType<typeof createMockExt>;
-  let mockCM: ReturnType<typeof createMockConnectionManager>;
+describe('browser_storage (graduated from storage_inspection experiment)', () => {
+  let ctx: ToolContext;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    experimentRegistry.reset();
-    mockExt = createMockExt();
-    mockCM = createMockConnectionManager();
-    bridge = new BrowserBridge({}, mockExt);
-    bridge.initialize({}, {}, mockCM);
+    ctx = createMockCtx();
   });
 
-  // ── Experiment gate ──
+  // ── Always-on (no experiment gate) ──
 
-  describe('experiment gate', () => {
-    it('returns error when storage_inspection is disabled', async () => {
-      const result = await bridge.callTool('browser_storage', {
-        type: 'localStorage',
-        action: 'list',
-      });
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('storage_inspection');
-      expect(result.content[0].text).toContain('not enabled');
-    });
-
-    it('returns rawResult error when disabled', async () => {
-      const result = await bridge.callTool(
-        'browser_storage',
-        { type: 'localStorage', action: 'list' },
-        { rawResult: true }
-      );
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('storage_inspection');
+  describe('no experiment gate', () => {
+    it('executes without any experiment enabled (graduated v3.5.0)', async () => {
+      // No experimentRegistry setup at all — the gate is gone.
+      const result = await onBrowserStorage(ctx, { type: 'localStorage', action: 'list' }, {});
+      expect(JSON.stringify(result)).not.toContain('experiment');
     });
   });
 
-  // ── Actions (with experiment enabled) ──
+  // ── Actions ──
 
   describe('actions', () => {
-    beforeEach(() => {
-      experimentRegistry.enable('storage_inspection');
-    });
-
     it('list — returns all entries', async () => {
-      mockExt.sendCmd.mockResolvedValue({
-        result: {
-          value: { length: 2, entries: { foo: 'bar', baz: 'qux' } },
-        },
-      });
-      const result = await bridge.callTool('browser_storage', {
-        type: 'localStorage',
-        action: 'list',
-      });
-      expect(mockExt.sendCmd).toHaveBeenCalledWith(
-        'forwardCDPCommand',
-        expect.objectContaining({
-          method: 'Runtime.evaluate',
-          params: expect.objectContaining({
-            expression: expect.stringContaining('localStorage'),
-          }),
-        })
+      (ctx.eval as any).mockResolvedValue({ length: 2, entries: { foo: 'bar', baz: 'qux' } });
+      const result = await onBrowserStorage(ctx, { type: 'localStorage', action: 'list' }, {});
+      expect(ctx.eval).toHaveBeenCalledWith(expect.stringContaining('localStorage'));
+      expect(ctx.formatResult).toHaveBeenCalledWith(
+        'browser_storage',
+        expect.objectContaining({ length: 2, entries: { foo: 'bar', baz: 'qux' } }),
+        {},
       );
       expect(result.isError).toBeUndefined();
     });
 
     it('get — retrieves a key', async () => {
-      mockExt.sendCmd.mockResolvedValue({
-        result: { value: 'hello' },
-      });
-      const result = await bridge.callTool('browser_storage', {
-        type: 'sessionStorage',
-        action: 'get',
-        key: 'myKey',
-      });
-      expect(mockExt.sendCmd).toHaveBeenCalledWith(
-        'forwardCDPCommand',
-        expect.objectContaining({
-          params: expect.objectContaining({
-            expression: expect.stringContaining('sessionStorage.getItem'),
-          }),
-        })
+      (ctx.eval as any).mockResolvedValue('hello');
+      const result = await onBrowserStorage(ctx, { type: 'sessionStorage', action: 'get', key: 'myKey' }, {});
+      expect(ctx.eval).toHaveBeenCalledWith(expect.stringContaining('sessionStorage.getItem'));
+      expect(ctx.formatResult).toHaveBeenCalledWith(
+        'browser_storage',
+        { key: 'myKey', value: 'hello', exists: true },
+        {},
       );
       expect(result.isError).toBeUndefined();
     });
 
     it('set — stores a value', async () => {
-      mockExt.sendCmd.mockResolvedValue({ result: { value: undefined } });
-      const result = await bridge.callTool('browser_storage', {
-        type: 'localStorage',
-        action: 'set',
-        key: 'testKey',
-        value: 'testVal',
-      });
-      expect(mockExt.sendCmd).toHaveBeenCalledWith(
-        'forwardCDPCommand',
-        expect.objectContaining({
-          params: expect.objectContaining({
-            expression: expect.stringContaining('localStorage.setItem'),
-          }),
-        })
-      );
+      const result = await onBrowserStorage(ctx, { type: 'localStorage', action: 'set', key: 'testKey', value: 'testVal' }, {});
+      expect(ctx.eval).toHaveBeenCalledWith(expect.stringContaining('localStorage.setItem'));
       expect(result.isError).toBeUndefined();
     });
 
     it('delete — removes a key', async () => {
-      // First call checks existence, second removes
-      mockExt.sendCmd
-        .mockResolvedValueOnce({ result: { value: true } })
-        .mockResolvedValueOnce({ result: { value: undefined } });
-      const result = await bridge.callTool('browser_storage', {
-        type: 'localStorage',
-        action: 'delete',
-        key: 'removeMe',
-      });
-      expect(mockExt.sendCmd).toHaveBeenCalledTimes(2);
+      (ctx.eval as any).mockResolvedValueOnce(true).mockResolvedValueOnce(undefined);
+      const result = await onBrowserStorage(ctx, { type: 'localStorage', action: 'delete', key: 'removeMe' }, {});
+      expect(ctx.eval).toHaveBeenCalledTimes(2);
       expect(result.isError).toBeUndefined();
     });
 
     it('clear — clears all storage', async () => {
-      mockExt.sendCmd
-        .mockResolvedValueOnce({ result: { value: 5 } })   // length
-        .mockResolvedValueOnce({ result: { value: undefined } }); // clear
-      const result = await bridge.callTool('browser_storage', {
-        type: 'sessionStorage',
-        action: 'clear',
-      });
-      expect(mockExt.sendCmd).toHaveBeenCalledTimes(2);
+      (ctx.eval as any).mockResolvedValueOnce(5).mockResolvedValueOnce(undefined);
+      const result = await onBrowserStorage(ctx, { type: 'sessionStorage', action: 'clear' }, {});
+      expect(ctx.eval).toHaveBeenCalledTimes(2);
       expect(result.isError).toBeUndefined();
     });
   });
@@ -185,55 +92,41 @@ describe('browser_storage (storage_inspection experiment)', () => {
   // ── Validation ──
 
   describe('validation', () => {
-    beforeEach(() => {
-      experimentRegistry.enable('storage_inspection');
-    });
-
     it('rejects invalid storage type', async () => {
-      const result = await bridge.callTool('browser_storage', {
-        type: 'indexedDB',
-        action: 'list',
-      });
+      const result = await onBrowserStorage(ctx, { type: 'indexedDB', action: 'list' }, {});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Invalid storage type');
+      expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('Invalid storage type'), {});
     });
 
     it('rejects missing key for get', async () => {
-      const result = await bridge.callTool('browser_storage', {
-        type: 'localStorage',
-        action: 'get',
-      });
+      const result = await onBrowserStorage(ctx, { type: 'localStorage', action: 'get' }, {});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('requires a "key"');
+      expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('requires a "key"'), {});
     });
 
     it('rejects missing key for delete', async () => {
-      const result = await bridge.callTool('browser_storage', {
-        type: 'localStorage',
-        action: 'delete',
-      });
+      const result = await onBrowserStorage(ctx, { type: 'localStorage', action: 'delete' }, {});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('requires a "key"');
+      expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('requires a "key"'), {});
     });
 
     it('rejects missing value for set', async () => {
-      const result = await bridge.callTool('browser_storage', {
-        type: 'localStorage',
-        action: 'set',
-        key: 'test',
-      });
+      const result = await onBrowserStorage(ctx, { type: 'localStorage', action: 'set', key: 'test' }, {});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('requires a "value"');
+      expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('requires a "value"'), {});
     });
   });
 
   // ── Schema presence ──
 
   describe('schema', () => {
-    it('browser_storage appears in listTools', async () => {
-      const tools = await bridge.listTools();
-      const names = tools.map(t => t.name);
+    it('browser_storage appears in the core (non-experimental) tool schemas', () => {
+      const names = getToolSchemas().map((t) => t.name);
       expect(names).toContain('browser_storage');
+    });
+
+    it('schema description no longer mentions the experiment', () => {
+      expect(browserStorageSchema.description).not.toContain('experiment');
     });
   });
 });

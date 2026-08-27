@@ -73,7 +73,6 @@ describe('DaemonExperimentRegistry', () => {
       expect(states).toEqual({
         page_diffing: true,
         smart_waiting: false,
-        storage_inspection: false,
         mouse_humanization: true,
         fingerprinting: false,
       });
@@ -183,18 +182,23 @@ describe('DaemonExperimentRegistry', () => {
     it('returns false for graduated experiments', () => {
       expect(registry.isAvailable('secure_eval')).toBe(false); // graduated in v1.11.0
     });
+
+    it('regression lock: storage_inspection graduated in v3.5.0', () => {
+      expect(registry.isAvailable('storage_inspection')).toBe(false);
+      expect(registry.listAvailable()).not.toContain('storage_inspection');
+    });
   });
 
   describe('listAvailable()', () => {
-    it('returns all 5 experiment names', () => {
+    it('returns all 4 experiment names', () => {
       const available = registry.listAvailable();
-      expect(available).toHaveLength(5);
+      expect(available).toHaveLength(4);
       expect(available).toContain('page_diffing');
       expect(available).toContain('smart_waiting');
-      expect(available).toContain('storage_inspection');
       expect(available).toContain('mouse_humanization');
       expect(available).toContain('fingerprinting');
       expect(available).not.toContain('secure_eval');
+      expect(available).not.toContain('storage_inspection');
     });
   });
 
@@ -206,14 +210,12 @@ describe('DaemonExperimentRegistry', () => {
         defaults: {
           page_diffing: true,
           smart_waiting: false,
-          storage_inspection: true,
           mouse_humanization: false,
           fingerprinting: false,
         },
       });
 
       expect(injected.isEnabled('fresh', 'page_diffing')).toBe(true);
-      expect(injected.isEnabled('fresh', 'storage_inspection')).toBe(true);
       expect(injected.isEnabled('fresh', 'smart_waiting')).toBe(false);
       expect(injected.isEnabled('fresh', 'mouse_humanization')).toBe(false);
     });
@@ -225,7 +227,7 @@ describe('DaemonExperimentRegistry', () => {
       // Injecting `profiles: true` via the snapshot is silently dropped — the
       // type definition no longer carries the key, so the cast is necessary.
       const injected = new DaemonExperimentRegistry({
-        defaults: { page_diffing: false, smart_waiting: false, storage_inspection: false, mouse_humanization: false, fingerprinting: false, profiles: true } as any,
+        defaults: { page_diffing: false, smart_waiting: false, mouse_humanization: false, fingerprinting: false, profiles: true } as any,
       });
       const states = injected.getAll('any-session');
       expect((states as any).profiles).toBeUndefined();

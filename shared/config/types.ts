@@ -7,7 +7,6 @@ export interface Config {
   experiments: {
     page_diffing: boolean;
     smart_waiting: boolean;
-    storage_inspection: boolean;
     mouse_humanization: boolean;
     fingerprinting: boolean;
   };
