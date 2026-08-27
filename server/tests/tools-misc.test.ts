@@ -144,25 +144,43 @@ describe('onDialog()', () => {
   it('accepts a dialog', async () => {
     const ctx = createMockCtx();
     await onDialog(ctx, { accept: true }, {});
-    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('dialog', { accept: true, text: undefined });
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('dialog', { accept: true, text: undefined }, 10000);
   });
 
   it('dismisses a dialog', async () => {
     const ctx = createMockCtx();
     await onDialog(ctx, { accept: false }, {});
-    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('dialog', { accept: false, text: undefined });
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('dialog', { accept: false, text: undefined }, 10000);
   });
 
   it('passes prompt text', async () => {
     const ctx = createMockCtx();
     await onDialog(ctx, { accept: true, text: 'answer' }, {});
-    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('dialog', { accept: true, text: 'answer' });
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('dialog', { accept: true, text: 'answer' }, 10000);
   });
 
   it('gets dialog state when no accept param', async () => {
     const ctx = createMockCtx();
     await onDialog(ctx, {}, {});
-    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('dialog', {});
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('dialog', {}, 10000);
+  });
+
+  it('passes a 10s timeout to every dialog sendCmd', async () => {
+    const ctx = createMockCtx();
+    await onDialog(ctx, { accept: true }, {});
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('dialog', expect.anything(), 10000);
+    await onDialog(ctx, { action: 'view' }, {});
+    expect(ctx.ext.sendCmd).toHaveBeenLastCalledWith('dialog', expect.anything(), 10000);
+    await onDialog(ctx, {}, {});
+    expect(ctx.ext.sendCmd).toHaveBeenLastCalledWith('dialog', expect.anything(), 10000);
+  });
+
+  it('translates a dialog IPC timeout into an actionable error', async () => {
+    const ctx = createMockCtx();
+    (ctx.ext.sendCmd as any).mockRejectedValueOnce(new Error('Request timeout: dialog'));
+    await expect(onDialog(ctx, { accept: true }, {})).rejects.toThrow(
+      /extension did not answer the dialog command within 10s/i,
+    );
   });
 });
 
@@ -319,38 +337,38 @@ describe('onDialog action routing', () => {
   it('passes action:view through to the dialog command', async () => {
     const { ctx, sendCmd } = makeCtx();
     await onDialog(ctx, { action: 'view' }, {});
-    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'view', text: undefined });
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'view', text: undefined }, 10000);
   });
 
   it('passes action:accept with text', async () => {
     const { ctx, sendCmd } = makeCtx();
     await onDialog(ctx, { action: 'accept', text: 'Alice' }, {});
-    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'accept', text: 'Alice' });
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'accept', text: 'Alice' }, 10000);
   });
 
   it('passes action:dismiss through', async () => {
     const { ctx, sendCmd } = makeCtx();
     await onDialog(ctx, { action: 'dismiss' }, {});
-    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'dismiss', text: undefined });
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'dismiss', text: undefined }, 10000);
   });
 
   it('legacy accept:true still works (no action)', async () => {
     const { ctx, sendCmd } = makeCtx();
     await onDialog(ctx, { accept: true, text: 'x' }, {});
-    expect(sendCmd).toHaveBeenCalledWith('dialog', { accept: true, text: 'x' });
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { accept: true, text: 'x' }, 10000);
   });
 
   it('no args sends an empty dialog command (view)', async () => {
     const { ctx, sendCmd } = makeCtx();
     await onDialog(ctx, {}, {});
-    expect(sendCmd).toHaveBeenCalledWith('dialog', {});
+    expect(sendCmd).toHaveBeenCalledWith('dialog', {}, 10000);
   });
 
   it('action wins over accept when both present', async () => {
     const { ctx, sendCmd } = makeCtx();
     await onDialog(ctx, { action: 'dismiss', accept: true }, {});
     // action branch fires first; legacy accept is never consulted
-    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'dismiss', text: undefined });
+    expect(sendCmd).toHaveBeenCalledWith('dialog', { action: 'dismiss', text: undefined }, 10000);
   });
 });
 

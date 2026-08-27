@@ -540,7 +540,6 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
   // dialog
   wsConnection.registerCommandHandler('dialog', async (params) => {
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
     // action defaults: explicit `action` wins; else legacy `accept` maps
     // (true→accept, false→dismiss); else `view`.
     const action: 'view' | 'accept' | 'dismiss' =
@@ -548,12 +547,16 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
       (params.accept === undefined ? 'view' : params.accept ? 'accept' : 'dismiss');
 
     const pending = dialogHandler.getPending();
+    // `view` is a pure state read — answer before any tab work. A held dialog
+    // freezes the renderer, so ensureAttachedTab can hang exactly when the
+    // agent most needs to see what dialog is blocking.
     if (action === 'view') {
       return { dialog: pending };
     }
     if (!pending) {
       return { dialog: null, note: 'No native dialog is currently open.' };
     }
+    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
     await dialogHandler.handle(tabId, action === 'accept', params.text ?? '');
     sessionContext.dialogPending = false;
     return { dialog: { ...pending, resolved: action } };
