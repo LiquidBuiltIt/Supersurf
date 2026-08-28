@@ -90,6 +90,20 @@ describe('resolveChildEntry', () => {
     expect(entry.endsWith('child.js') || entry.endsWith('child.ts')).toBe(true);
     expect(fs.existsSync(entry)).toBe(true);
   });
+
+  it('prefers the compiled child.js when the build output exists', () => {
+    const compiled = path.resolve(__dirname, '..', 'dist', 'security', 'sandbox', 'child.js');
+    if (!fs.existsSync(compiled)) return; // unbuilt checkout: the tsx fallback is the only option
+    expect(resolveChildEntry().entry).toBe(compiled);
+  });
+
+  it('runs the compiled child under plain node, with no tsx loader in argv', () => {
+    const { command, argv, entry } = resolveChildEntry();
+    if (!entry.endsWith('child.js')) return; // unbuilt checkout
+    expect(command).toBe(process.execPath);
+    expect(argv).toEqual([entry]);
+    expect(argv.some(a => a.includes('tsx'))).toBe(false);
+  });
 });
 
 describe('runPlaybookScript', () => {

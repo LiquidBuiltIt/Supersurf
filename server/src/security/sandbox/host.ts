@@ -91,52 +91,120 @@ function packageRootOf(entry: string): string {
 /**
  * Node permission-model flags for the child.
  *
- * Read access is scoped to the package that owns the child entry (it needs its
- * own code and node_modules). **Write is never granted at all.** There is no
- * network flag in Node's permission model — do not pretend otherwise.
+ * Read access is scoped to the code the child must load: the package that owns
+ * the entry plus the hoisted `node_modules` above it (see `readRootsFor`).
+ * **Write is never granted at all.** There is no network flag in Node's
+ * permission model — do not pretend otherwise.
  *
- * The dev/test path runs the TypeScript entry through tsx, which needs loader
- * and filesystem access the permission model denies, so it gets no flags. That
- * is a dev-only relaxation: a published install always has `child.js`.
+ * The unbuilt-checkout fallback runs the TypeScript entry through tsx, which
+ * needs loader and filesystem access the permission model denies, so it gets no
+ * flags. That relaxation never reaches users: a published install, and any
+ * built checkout, runs the compiled `child.js` with the flags on.
  */
 export function permissionFlagsFor(nodeVersion: string, entry: string): string[] {
   if (entry.endsWith('.ts')) return [];
   const major = parseInt(nodeVersion.replace(/^v/, '').split('.')[0], 10);
   if (isNaN(major) || major < 20) return [];
   const flag = major >= 23 ? '--permission' : '--experimental-permission';
-  return [flag, `--allow-fs-read=${packageRootOf(entry)}`];
-}
-
-/** Find `tsx`'s CLI for the dev/test path where only `child.ts` exists. */
-function resolveTsxCli(from: string): string {
-  try {
-    return require.resolve('tsx/cli');
-  } catch {
-    let dir = path.dirname(from);
-    for (let i = 0; i < 10; i++) {
-      const candidate = path.join(dir, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-      if (fsSync.existsSync(candidate)) return candidate;
-      const parent = path.dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-    throw new Error('tsx not found — cannot run the TypeScript sandbox child in dev mode');
-  }
+  return [flag, ...readRootsFor(entry).map((root) => `--allow-fs-read=${root}`)];
 }
 
 /**
- * Locate the child entry. A published install has `child.js` next to this
- * module; a dev checkout or a vitest run only has `child.ts`, which is spawned
- * through tsx.
+ * Every directory the child must READ to load its own code.
+ *
+ * The package that owns the entry, plus each `node_modules` above it. Both npm
+ * and pnpm HOIST dependencies out of the package directory — the child
+ * imports `acorn`, which lands in the installer's top-level `node_modules`, not
+ * in `supersurf-mcp/node_modules` — so a read scope of the package root
+ * alone starves the child of its own imports and it dies before the first
+ * frame. Read only, and only over code directories; write is still never
+ * granted anywhere.
+ */
+function readRootsFor(entry: string): string[] {
+  const root = packageRootOf(entry);
+  const roots = [root];
+  let dir = path.dirname(root);
+  for (let i = 0; i < 10; i++) {
+    const modules = path.join(dir, 'node_modules');
+    if (fsSync.existsSync(modules) && !roots.includes(modules)) roots.push(modules);
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return roots;
+}
+
+/**
+ * Every place a compiled `child.js` may sit, most-preferred first.
+ *
+ * First: next to this module — a published install, where this file is
+ * `dist/security/sandbox/host.js`. Second: the mirrored path under `dist/` for
+ * a source checkout that runs the TypeScript out of `src/` (vitest, `npm run
+ * dev.server`). The second candidate is what lets a built checkout skip tsx.
+ */
+function compiledChildCandidates(): string[] {
+  const here = path.join(__dirname, 'child.js');
+  const candidates = [here];
+  const root = packageRootOf(here);
+  const fromSrc = path.relative(path.join(root, 'src'), __dirname);
+  if (!fromSrc.startsWith('..') && !path.isAbsolute(fromSrc)) {
+    candidates.push(path.join(root, 'dist', fromSrc, 'child.js'));
+  }
+  return candidates;
+}
+
+/**
+ * Find `tsx`'s CLI for the source-checkout fallback where only `child.ts` exists.
+ *
+ * `tsx` is a devDependency of this package: it resolves from a checkout and is
+ * deliberately absent from a published install, which runs the compiled child.
+ */
+function resolveTsxCli(from: string): string {
+  const looked: string[] = [];
+  try {
+    return require.resolve('tsx/cli');
+  } catch {
+    looked.push("require.resolve('tsx/cli')");
+  }
+  let dir = path.dirname(from);
+  for (let i = 0; i < 10; i++) {
+    const candidate = path.join(dir, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+    looked.push(candidate);
+    if (fsSync.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(
+    `tsx not found — cannot run the TypeScript sandbox child ${from}. Build the package `
+    + '(`npm run build.server`) so the compiled child.js is used instead, or run `npm install` '
+    + `to restore the tsx devDependency. Looked at: ${looked.join(', ')}`,
+  );
+}
+
+/**
+ * Locate the child entry.
+ *
+ * The COMPILED child wins wherever it exists — published install or built
+ * source checkout — and runs under plain `node`. That keeps a TypeScript loader
+ * out of the process that executes untrusted playbook code, and it keeps a
+ * clean install working, because tsx never ships to users.
+ *
+ * tsx + `child.ts` is the fallback for an UNBUILT source checkout only.
  */
 export function resolveChildEntry(): { command: string; argv: string[]; entry: string } {
-  const js = path.join(__dirname, 'child.js');
-  if (fsSync.existsSync(js)) return { command: process.execPath, argv: [js], entry: js };
+  const looked: string[] = [];
+
+  for (const js of compiledChildCandidates()) {
+    looked.push(js);
+    if (fsSync.existsSync(js)) return { command: process.execPath, argv: [js], entry: js };
+  }
 
   const ts = path.join(__dirname, 'child.ts');
+  looked.push(ts);
   if (fsSync.existsSync(ts)) return { command: process.execPath, argv: [resolveTsxCli(ts), ts], entry: ts };
 
-  throw new Error(`playbook sandbox child entry not found in ${__dirname} (looked for child.js and child.ts)`);
+  throw new Error(`playbook sandbox child entry not found — looked for: ${looked.join(', ')}`);
 }
 
 /** Run one playbook file to completion. Never throws — every outcome is a result. */
