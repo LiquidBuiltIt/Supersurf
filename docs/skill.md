@@ -1,6 +1,6 @@
 ---
 name: supersurf
-description: Drive a real Chrome browser through the SuperSurf MCP server — navigate, read pages, interact, fill forms, and record/replay playbooks. Use when a task needs a live browser session.
+description: Drive a real Chrome browser through the SuperSurf MCP server — navigate, read pages, interact, fill forms, and run playbook scripts. Use when a task needs a live browser session.
 ---
 
 # SuperSurf — Agent Skill Guide
@@ -90,7 +90,7 @@ browser_interact actions=[
 **Key parameters:**
 - `onError`: `'stop'` (default) or `'ignore'` — controls whether the sequence halts on failure
 - `screenshot`: `true` to capture after all actions complete
-- `name` / `purpose`: for element-targeting actions (click/type/clear/hover/select_option/select_custom/file_upload) — a short snake_case name and a one-line reason for the element. Not schema-enforced, but skip it and the element can't later be resolved by name or replayed cleanly — see Playbooks below.
+- `name` / `purpose`: for element-targeting actions (click/type/clear/hover/select_option/select_custom/file_upload) — a short snake_case name and a one-line reason for the element. Not schema-enforced, but skip it and the element can't later be resolved by name — see Playbooks below.
 
 **Keyboard keys for `press_key`:** Enter, Tab, Escape, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Space, Home, End, PageUp, PageDown
 
@@ -172,7 +172,7 @@ secure_fill action='fill'                     → type credential into field
 4. **Batch interactions.** Send multiple actions in one `browser_interact` call instead of separate calls. Reduces round-trips.
 5. **Use `extract_content` for reading.** When you need page text (articles, search results, tables), use `browser_extract_content` with `mode='auto'`. It returns clean markdown.
 6. **Check the status line.** Every response tells you your current tab, URL, and detected framework. Use this context.
-7. **Record playbooks for repeated flows.** Once a flow works, freeze it into a playbook instead of re-deriving selectors on every run — see Playbooks.
+7. **Write a playbook script for repeated flows.** Once a flow works, `playbooks action='history'` gives you the selectors that worked — write them into a `~/.supersurf/playbooks/<name>.playbook.js` script instead of re-deriving them on every run. See Playbooks.
 
 ### Don't Do This
 
@@ -209,7 +209,7 @@ supersurf daemon restart
 | `page_diffing` | Returns what changed in the DOM after an interaction (added/removed text, element counts), including inside open shadow roots | When you need to verify an action had the expected effect without re-reading the full page |
 | `smart_waiting` | Replaces fixed delays with adaptive DOM stability + network idle detection | Always — reduces wasted time on fast pages, prevents acting too early on slow ones |
 | `mouse_humanization` | Generates human-like Bezier cursor paths with overshoot and idle drift | When interacting with sites that have bot detection (CAPTCHAs, anti-automation) |
-| `fingerprinting` | Lets named elements (`name`/`purpose` on `browser_interact`) be resolved by name later, heals selectors when a page changes, and gates `playbooks` `create`/`run` | Before you need a flow to survive selector churn, or before saving a playbook |
+| `fingerprinting` | Lets named elements (`name`/`purpose` on `browser_interact`) be resolved by name later, heals selectors when a page changes, and gates `playbooks action='run'` | Before you need a flow to survive selector churn, or before running a playbook script |
 
 `secure_eval` is separate from the experiments above — it's a security setting (`security.secure_eval`, default `true`), not an opt-in experiment. It AST-analyzes `browser_evaluate` code and blocks dangerous patterns by default. Opt out only via `SUPERSURF_DISABLE_SECURE_EVAL=1` in the server environment — this defeats RCE protection.
 
@@ -234,53 +234,100 @@ When you connect with a profile, SuperSurf launches a dedicated Chromium instanc
 
 ## Playbooks
 
-Playbooks turn a browsing run you already did into a replayable artifact. Every tool call in a session gets a numeric id, shown as an `#NNNN` prefix on the result; `playbooks` lets you cite those ids to freeze a flow, then replay it later without re-deriving selectors from scratch.
+A playbook is a JavaScript file at `~/.supersurf/playbooks/<name>.playbook.js`. It exports a `meta`
+object and a default async function that takes `{ supersurf, params }`. The filename is the address:
+`post_tweet.playbook.js` is the playbook `post_tweet`.
 
-`create` and `run` require the `fingerprinting` experiment (off by default — see Experimental Features above). Without it a saved playbook's selectors can't heal, so it would break on the first page change. `history` works regardless — it only reports what already happened.
+**SuperSurf never writes a playbook file.** There is no `create` and no write action — you author the
+script with your own file tools. `playbooks action='history'` is what makes that practical: it lists
+this session's numbered browser actions with the selectors that actually worked, so you can copy them
+straight into a script instead of re-deriving them.
 
-```
-playbooks action='history'                     → list this session's numbered actions
-playbooks action='create' name='login_flow'     → freeze cited ids into a playbook
-  purpose='Log into app.example.com'
-  steps=[5211, 5212, 5214]
-playbooks action='run' name='login_flow'        → replay a saved playbook
-playbooks action='list'                         → every saved playbook, with domains + step counts
-playbooks action='list' domain='example.com'    → only playbooks recorded on that domain
-playbooks action='inspect' name='login_flow'    → one playbook's full detail + numbered steps
-```
-
-A domain-matched discovery hint also shows up unprompted: when the attached tab's domain matches a saved playbook, the status header adds a line like `► 2 playbooks available: login_flow, signup_flow | playbooks "list" for more details` — once per domain per session.
-
-**Worked example:**
-1. Do the flow normally — navigate, snapshot, click, type, submit. Each action returns an id, e.g. `#5211 ✓ Clicked #email`.
-2. `playbooks action='history'` to see the numbered list, and pick the ids that make up the flow — drop any that failed or were just exploring.
-3. `playbooks action='create' name='login_flow' purpose='...' steps=[5211, 5212, 5214]`.
-4. Later: `playbooks action='run' name='login_flow'`. Step 1's recorded URL becomes the run's start point — SuperSurf auto-navigates there first, unless step 1 is itself a navigate or a `browser_tabs action='new'` (in which case navigating first would either double-load the page or fail with no tab attached yet).
-
-`run` replays every step type, not only `browser_interact` — a frozen `browser_extract_content` or `browser_navigate` step re-issues with its original params, and its output is appended to the run result. Selector healing covers every selector-resolving `browser_interact` verb (`click`, `hover`, `drag`, `type`, `clear`, `select_option`, `select_custom`, `scroll_to`, `scroll_by`, `scroll_into_view`, `file_upload`) plus `browser_fill_form` fields; `force_pseudo_state` and `wait` fail outright if their selector has drifted (`wait` deliberately waits for the original selector, not a look-alike). A run stops at the first failure and reports how far it got.
-
-**`run` works without an active session.** With no connection, `playbooks action='run'` connects implicitly, then runs the playbook — the response says so, e.g. `Connected implicitly to run playbook.` The target profile resolves in order: an explicit `profile` param, then the playbook's own bound profile (set by `create` when the recording session was profile-bound), then no profile (plain connect). Add `detach=true` to disconnect again after the run — success or failure — leaving no session behind; default is `false`, so the session stays active for further calls.
+`run` requires the `fingerprinting` experiment (off by default — see Experimental Features above).
+`history`, `list`, `inspect` and `validate` are pure reports and are never gated.
 
 ```
-playbooks action='run' name='login_flow' profile='my-project'   → implicit connect, pinned profile
-playbooks action='run' name='login_flow' detach=true             → implicit connect, disconnect after
+playbooks action='history'                        → this session's numbered actions + working selectors
+playbooks action='list'                           → every script: signature, description, starting point
+playbooks action='list' domain='example.com'      → only scripts whose meta.startingPoint matches
+playbooks action='inspect' name='post_tweet'      → params, permissions, run history
+playbooks action='validate'                       → re-check every script (omit name for all)
+playbooks action='run' name='post_tweet'          → execute it
+  params={text: 'hello'}
 ```
 
-If a session is already active, `run` uses it as-is — unless the resolved profile (from the `profile` param or the playbook's own field) differs from the session's bound profile, in which case `run` refuses with an error rather than silently re-binding. Disconnect and reconnect with the right profile, or drop `profile` to run on the current session.
+**Anatomy of a script:**
 
-Playbooks live one file per playbook at `~/.supersurf/playbooks/<name>.json`. The MCP tool covers record/replay/discovery (`history`, `create`, `run`, `list`, `inspect`); editing and deletion stay CLI-only:
+```javascript
+export const meta = {
+  description: 'Posts a tweet and returns its permalink',   // required
+  params: { text: { type: 'string', required: true } },     // 'string' | 'number' | 'boolean'
+  startingPoint: 'x.com',      // bare domain — powers the discovery hint, not auto-navigation
+  profile: 'social',           // a DEFAULT; the caller's `profile` arg overrides it
+  permissions: ['eval'],       // only 'eval' is recognised today
+  experiments: false,          // true = enable every experiment for this run's session only
+};
+
+export default async function ({ supersurf, params }) {
+  await supersurf.goto('https://x.com/compose/post');
+  await supersurf.type({ selector: '[data-testid="tweetTextarea_0"]', text: params.text });
+  await supersurf.click({ selector: '[data-testid="tweetButton"]' });
+  await supersurf.wait('[data-testid="toast"]');
+  return await supersurf.extract({ selector: 'a[href*="/status/"]' });
+}
+```
+
+`meta` must be a plain object literal — it is read statically, before the file ever runs, so a
+computed value fails validation. Every field is validated: an unknown key or a wrong type is an
+error, not a silent drop.
+
+**The `supersurf` client.** Navigation `goto` / `back` / `forward` / `reload`. Interaction `click`,
+`type`, `clear`, `pressKey`, `hover`, `wait`, `mouseMove`, `mouseClick`, `scrollTo`, `scrollBy`,
+`scrollIntoView`, `selectOption`, `selectCustom`, `upload`, `forcePseudoState`. Content `snapshot`,
+`lookup`, `extract`, `styles`, `screenshot`. Verification `seeText` / `seeElement` (these return
+booleans). Forms `fill`, `drag`, `secureFill`. Namespaced passthroughs `tabs.*`, `net.*`,
+`storage.*`, `window.*`, `dialog.*`, plus `pdf`, `download`, `perf` and `extensions`. `evaluate`
+requires the `eval` permission in `meta`. `connect`, `disconnect`, the `profile_*` tools and
+`playbooks` itself are deliberately withheld — a script does not manage its own session.
+
+`wait` takes one argument: a number waits that many milliseconds, a string waits for that selector.
+
+**Validation is continuous.** Every tool call re-stats the playbooks directory; a file whose content
+hash changed is re-parsed, and a script that fails validation is named in the very next tool result's
+status header. You do not have to ask.
+
+**A run is isolated.** It gets its own daemon session, its own browser tab, and closes the tab when
+it finishes — it never borrows the tab you are attached to. Anything you need from the run has to
+come back through its return value. When a run fails, SuperSurf captures a page snapshot *before*
+tearing the tab down and reports it as the failure evidence, plus appends a record to
+`~/.supersurf/playbooks/<name>.runs.jsonl` (outcome, duration, params, evidence).
+
+`meta.startingPoint` is a discovery hint, not an auto-navigation: when the attached tab's domain
+matches it, the status header adds `► 2 playbooks available: … | playbooks "list" for more details`.
+Your script's own first `goto` decides where the run actually lands.
+
+**`security.playbook_eval`** (default `true` = allowed) refuses agent-invoked runs of a script that
+declares the `eval` permission when set to `false`. It is caller-based: `supersurf playbook run` at a
+terminal ignores it, because the human can read the file first.
+
+**CLI.** A `.playbook.js` file is edited with an editor, deleted with `rm` and copied with `cp`, so
+the CLI only covers what needs SuperSurf:
 
 ```
-supersurf playbook ls                           → list saved playbooks
-supersurf playbook inspect login_flow           → print its steps
-supersurf playbook edit login_flow --drop 3      → remove step 3
-supersurf playbook edit login_flow               → open it in $EDITOR for a free-form edit
-supersurf playbook rm login_flow                 → delete it
-supersurf playbook export login_flow out.json   → write it to a file
-supersurf playbook import out.json               → read it from a file
+supersurf playbook ls                                    → list scripts with their signatures
+supersurf playbook inspect post_tweet                    → params, permissions, run history
+supersurf playbook validate [name]                       → re-check one script, or all of them
+supersurf playbook run post_tweet --param text=hello     → run it (repeat --param per argument)
+  [--profile <p>] [--json]
+supersurf playbook migrate [--dry-run]                   → convert legacy JSON playbooks, one-shot
 ```
 
-`supersurf playbook run <name> [--profile <p>] [--json]` replays a playbook without an MCP client — it drives the same `connect` → `playbooks run` → `disconnect` sequence in-process, over the daemon, so it's the same runner the MCP tool uses. `--profile` picks a managed profile to connect to (falling back to the playbook's own `profile` field if it has one); `--json` prints `{name, success, output}` instead of the run trail. Exit code is 0 only when every step succeeded; a failed step, a missing playbook, or a failed connect all exit 1, and the browser session is always disconnected on the way out.
+`migrate` is a one-shot upgrade path: it converts every legacy `<name>.json` playbook to
+`<name>.playbook.js`, mapping `purpose` → `meta.description`, `profile` → `meta.profile` and the
+first navigate step's host → `meta.startingPoint`. A migrated script has **no params** — a recording
+never had any — and any step with no client equivalent becomes a `// TODO` line carrying the
+original rather than a guess. The JSON reader is deleted in the same release, so run it before
+upgrading past this version. It leaves the `.json` files in place.
 
 ---
 
