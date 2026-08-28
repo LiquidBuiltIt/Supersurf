@@ -24,8 +24,6 @@ import {
 } from '../experimental/mouse-humanization/index';
 import { clearTipCounters } from '../tips';
 import { UPGRADE_NOTICE_MESSAGE } from 'shared';
-import { UsageMetricsLogger } from '../usage-metrics-logger';
-import { resolveRunProfile } from '../tools/playbooks';
 
 const log = createLog('[Conn]');
 
@@ -407,89 +405,6 @@ export async function onDisconnect(
       },
     ],
   };
-}
-
-// ─── Playbooks — implicit connect ─────────────────────────────
-
-/**
- * Check an active/connected session's bound profile against the profile a
- * `playbooks run` call resolves to (explicit `profile` arg, else the
- * playbook's own `profile` field). Returns an error response on mismatch, or
- * `null` when the call may proceed on the current session unchanged. Never
- * re-binds — a mismatch is refused, not silently corrected.
- */
-export function checkPlaybookProfileMismatch(
-  mgr: ConnectionManagerAPI,
-  args: Record<string, unknown>,
-  options: { rawResult?: boolean } = {},
-): any | null {
-  const resolved = resolveRunProfile(args);
-  if (!resolved || resolved === mgr.profile) return null;
-
-  const bound = mgr.profile ? `\`${mgr.profile}\`` : 'no profile';
-  const msg =
-    `Playbook targets profile \`${resolved}\`, but the current session is bound to ${bound}. ` +
-    `Call \`disconnect\` then \`connect\` with \`profile: '${resolved}'\`, or omit \`profile\` ` +
-    `to run it on the current session instead.`;
-
-  if (options.rawResult) {
-    return { success: false, error: 'profile_mismatch', message: msg };
-  }
-  return { content: [{ type: 'text', text: msg }], isError: true };
-}
-
-/**
- * Passive-state `playbooks run`: connect implicitly — resolving the target
- * profile the same way `checkPlaybookProfileMismatch` does — then run the
- * playbook on the fresh session, then disconnect again if `detach` was
- * requested. Reuses `onConnect`/`onDisconnect` directly rather than
- * duplicating daemon spawn/handshake logic.
- */
-export async function onPlaybooksRunImplicit(
-  mgr: ConnectionManagerAPI,
-  args: Record<string, unknown>,
-  options: { rawResult?: boolean } = {},
-): Promise<any> {
-  const resolvedProfile = resolveRunProfile(args);
-  const detach = args.detach === true;
-
-  const clientId = `playbooks-implicit-${Date.now()}`;
-  const connectArgs: Record<string, unknown> = { client_id: clientId };
-  if (resolvedProfile) connectArgs.profile = resolvedProfile;
-
-  // Match the metrics-logger bootstrap `backend.ts` does for an explicit
-  // `connect` call, or an implicitly-connected session silently loses
-  // usage-metrics logging for the rest of its life.
-  const metricsEnabled = mgr.config.configService?.get().logging.usage_metrics ?? false;
-  if (!mgr.metricsLogger && metricsEnabled) {
-    mgr.metricsLogger = new UsageMetricsLogger(clientId);
-  }
-
-  const connectResult: any = await onConnect(mgr, connectArgs, options);
-  const connectFailed = options.rawResult ? connectResult?.success === false : connectResult?.isError === true;
-  if (connectFailed) return connectResult;
-
-  const noteLines = [
-    resolvedProfile
-      ? `Connected implicitly (profile: ${resolvedProfile}) to run playbook.`
-      : 'Connected implicitly to run playbook.',
-  ];
-
-  let runResult: any;
-  try {
-    runResult = await mgr.bridge.callTool('playbooks', args, options);
-  } finally {
-    if (detach) {
-      await onDisconnect(mgr, options);
-      noteLines.push('Disconnected after run (detach requested).');
-    }
-  }
-
-  if (runResult?.content?.[0]?.type === 'text') {
-    runResult.content[0].text = `${noteLines.join('\n')}\n\n${runResult.content[0].text}`;
-  }
-
-  return runResult;
 }
 
 // ─── Status ──────────────────────────────────────────────────

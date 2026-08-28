@@ -34,7 +34,6 @@ import { doList as doPlaybooksList, doInspect as doPlaybooksInspect } from './to
 import { getConnectionToolSchemas, getDebugToolSchema, getProfileToolSchemas } from './backend/schemas';
 import {
   onConnect, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete,
-  onPlaybooksRunImplicit, checkPlaybookProfileMismatch,
 } from './backend/handlers';
 
 const log = createLog('[Conn]');
@@ -302,19 +301,6 @@ export class ConnectionManager implements ConnectionManagerAPI {
         this.metricsLogger?.write(entry);
         throw err;
       }
-    }
-
-    // `playbooks run` works without an active session: passive state performs
-    // an implicit connect (resolving a target profile from the `profile` arg
-    // or the playbook's own `profile` field) before running. Active/connected
-    // state instead checks the resolved profile against the session's bound
-    // profile and refuses on a mismatch rather than re-binding.
-    if (name === 'playbooks' && rawArguments.action === 'run') {
-      if (this.state === 'passive') {
-        return await onPlaybooksRunImplicit(this, rawArguments, options);
-      }
-      const mismatch = checkPlaybookProfileMismatch(this, rawArguments, options);
-      if (mismatch) return mismatch;
     }
 
     // `playbooks list`/`inspect` are store-only reads — no browser/extension

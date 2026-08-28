@@ -5,6 +5,8 @@ import * as path from 'node:path';
 import { ConnectionManager, BackendConfig } from '../src/backend';
 import { ConfigService } from 'shared';
 import { setBaseDirForTests, savePlaybook } from '../src/playbooks/store';
+import { setPlaybooksDirForTests, playbookFile } from '../src/playbooks/paths';
+import { refreshRegistry, resetRegistryForTests, setValidatorForTests } from '../src/playbooks/registry';
 import { ensureDaemon, stopDaemon } from '../src/daemon-spawn';
 
 // ---- Mocks ----
@@ -481,83 +483,32 @@ describe('ConnectionManager', () => {
     });
   });
 
-  // ---- callTool('playbooks', action: 'run') — implicit connect ----
+  // ---- callTool('playbooks') — passive-state routing ----
 
-  describe('callTool("playbooks", action: "run") — implicit connect', () => {
+  describe('callTool("playbooks") — passive-state routing', () => {
     let pbDir: string;
+
+    function rec(name: string): any {
+      return {
+        file: playbookFile(name), name, hash: name, valid: true,
+        meta: { description: `does ${name}` }, signature: `${name}()`, validatedAt: 1,
+      };
+    }
 
     beforeEach(async () => {
       pbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-backend-'));
-      setBaseDirForTests(pbDir);
+      setPlaybooksDirForTests(pbDir);
+      resetRegistryForTests();
+      fs.writeFileSync(playbookFile('flow'), '// ok');
+      setValidatorForTests(async () => rec('flow'));
+      await refreshRegistry();
       await backend.initialize(makeMockServer(), {});
     });
 
     afterEach(() => {
+      setValidatorForTests(null);
+      resetRegistryForTests();
       fs.rmSync(pbDir, { recursive: true, force: true });
-    });
-
-    it('passive state: connects implicitly, then routes the call to the bridge', async () => {
-      const { ensureDaemon } = await import('../src/daemon-spawn');
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      await backend.callTool('playbooks', { action: 'run', name: 'ghost' });
-
-      expect(ensureDaemon).toHaveBeenCalled();
-      expect(mockBridgeInstance.callTool).toHaveBeenCalledWith(
-        'playbooks', { action: 'run', name: 'ghost' }, {}
-      );
-      const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('active');
-    });
-
-    it('passive state: prepends the implicit-connect note to the run result', async () => {
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'ghost' });
-
-      expect(result.content[0].text).toContain('Connected implicitly to run playbook.');
-      expect(result.content[0].text).toContain('ran ok');
-    });
-
-    it('passive state with an explicit profile: names the profile in the note and passes it to profiles.connect', async () => {
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'ghost', profile: 'proj-a' });
-
-      expect(result.content[0].text).toContain('Connected implicitly (profile: proj-a) to run playbook.');
-      expect(mockDaemonClientInstance.sendCmd).toHaveBeenCalledWith(
-        'profiles.connect', { profile: 'proj-a' }, 50000
-      );
-    });
-
-    it('passive state falls back to the playbook\'s own profile field when no explicit profile is given', async () => {
-      savePlaybook({ name: 'field_bound', purpose: 'p', steps: [], createdAt: 1, version: 1, profile: 'field-profile' });
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'field_bound' });
-
-      expect(result.content[0].text).toContain('Connected implicitly (profile: field-profile) to run playbook.');
-    });
-
-    it('detach: true disconnects after the run and says so', async () => {
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'ghost', detach: true });
-
-      expect(result.content[0].text).toContain('Disconnected after run (detach requested).');
-      expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
-      const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('passive');
-    });
-
-    it('detach: false (default) leaves the session active after the run', async () => {
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      await backend.callTool('playbooks', { action: 'run', name: 'ghost' });
-
-      expect(mockDaemonClientInstance.stop).not.toHaveBeenCalled();
-      const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('active');
     });
 
     it('non-run playbook actions still error as not-active in passive state', async () => {
@@ -567,23 +518,16 @@ describe('ConnectionManager', () => {
       expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
     });
 
-    it('passive state: `list` answers directly from the store, without a bridge', async () => {
-      savePlaybook({ name: 'flow', purpose: 'p', steps: [], createdAt: 1, version: 1 });
-
+    it('passive state: `list` answers from the registry, without a bridge', async () => {
       const result = await backend.callTool('playbooks', { action: 'list' });
 
       expect(result.content[0].text).toContain('flow');
       expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
       const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('passive'); // no implicit connect happened
+      expect(status.state).toBe('passive');
     });
 
-    it('passive state: `inspect` answers directly from the store, without a bridge', async () => {
-      savePlaybook({
-        name: 'flow', purpose: 'p', createdAt: 1, version: 1,
-        steps: [{ tool: 'browser_navigate', type: 'browser_navigate', params: {}, url: 'https://example.com', sourceId: 1 }],
-      });
-
+    it('passive state: `inspect` answers from the registry, without a bridge', async () => {
       const result = await backend.callTool('playbooks', { action: 'inspect', name: 'flow' });
 
       expect(result.content[0].text).toContain('flow');
@@ -600,6 +544,14 @@ describe('ConnectionManager', () => {
       expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
     });
 
+    it('passive state: `run` is NOT implicitly connected — a run owns its own session', async () => {
+      const result = await backend.callTool('playbooks', { action: 'run', name: 'flow' }, { rawResult: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('not_enabled');
+      expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
+    });
+
     it('active state: `list`/`inspect` still route through the bridge as before', async () => {
       await backend.callTool('connect', { client_id: 'test' });
       mockBridgeInstance.callTool.mockClear();
@@ -611,48 +563,19 @@ describe('ConnectionManager', () => {
       expect(result.content[0].text).toBe('listed');
     });
 
-    it('active state: a resolved profile that mismatches the bound profile is refused without running', async () => {
-      await backend.callTool('connect', { client_id: 'test', profile: 'proj-a' });
-      mockBridgeInstance.callTool.mockClear();
-
-      const result = await backend.callTool(
-        'playbooks', { action: 'run', name: 'ghost', profile: 'proj-b' }, { rawResult: true }
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('profile_mismatch');
-      expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
-      const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('active'); // unchanged — no re-bind was attempted
-    });
-
-    it('active state: a matching resolved profile runs on the current session as usual', async () => {
+    it('active state: `run` routes through the bridge without a profile-mismatch check', async () => {
       await backend.callTool('connect', { client_id: 'test', profile: 'proj-a' });
       mockBridgeInstance.callTool.mockClear();
       mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
 
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'ghost', profile: 'proj-a' });
+      const result = await backend.callTool('playbooks', { action: 'run', name: 'flow', profile: 'proj-b' });
 
       expect(mockBridgeInstance.callTool).toHaveBeenCalledWith(
-        'playbooks', { action: 'run', name: 'ghost', profile: 'proj-a' }, {}
+        'playbooks', { action: 'run', name: 'flow', profile: 'proj-b' }, {}
       );
-      // No implicit-connect note — the session was already active.
-      expect(result.content[0].text).not.toContain('Connected implicitly');
-    });
-
-    it('active state: no resolved profile runs on the current session as usual', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
-      mockBridgeInstance.callTool.mockClear();
-
-      await backend.callTool('playbooks', { action: 'run', name: 'ghost' });
-
-      expect(mockBridgeInstance.callTool).toHaveBeenCalledWith(
-        'playbooks', { action: 'run', name: 'ghost' }, {}
-      );
+      expect(result.content[0].text).toBe('ran ok');
     });
   });
-
-  // ---- callTool('profile_*') ----
 
   describe('callTool profile tools', () => {
     beforeEach(async () => {
