@@ -81,7 +81,14 @@ async function start(init: any): Promise<void> {
       throw new Error('playbook has no default export function — expected `export default async function ({ supersurf, params }) { … }`');
     }
 
-    const result = await entry({ supersurf, params, log });
+    // Read the RE-REALMED values back off the context (`vm.createContext`
+    // keeps the sandbox object in sync with the vm global). Passing the host
+    // locals here would hand the playbook `supersurf.click.constructor` — a
+    // HOST `Function` that compiles in the host realm — and re-realming the
+    // globals would be cosmetic, because the canonical playbook destructures
+    // exactly this argument rather than reading the globals.
+    const ctx = context as any;
+    const result = await entry({ supersurf: ctx.supersurf, params: ctx.params, log: ctx.log });
     emitAndExit({ t: 'done', result: result === undefined ? null : result });
   } catch (e: any) {
     emitAndExit({ t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? '') });

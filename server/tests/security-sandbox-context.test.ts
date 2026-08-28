@@ -120,19 +120,17 @@ describe('createPlaybookContext — code generation is disabled', () => {
       .toThrow(/[Cc]ode generation/);
   });
 
-  it('CHARACTERIZATION: codeGeneration does NOT contain a HOST function reached via .constructor', () => {
-    // Verified against Node v22.22.3. `codeGeneration.strings: false` is scoped
-    // to this context. A function injected from the host keeps its host-realm
-    // `.constructor`, and that constructor compiles in the HOST realm, where
-    // codegen is allowed — so this does not throw and hands back the host
-    // global. Layer 2 is a filter, not a boundary; the containment for this is
-    // Layer 3, the child process spawned with `env: {}` under Node's
-    // permission model. Locked here so any change to that story is visible.
+  it('THE LOCK: a HOST function reached via .constructor no longer compiles', () => {
+    // This USED to be a characterization test recording an escape: a function
+    // injected from the host kept its host-realm `.constructor`, that
+    // constructor compiled in the HOST realm where codegen is allowed, and
+    // `supersurf.click.constructor('return this')()` handed back the host
+    // global in one line. `createPlaybookContext` now re-realms every injected
+    // value, so `.constructor` is the VM realm's AsyncFunction and the flag
+    // bites. Inverted deliberately — do not restore the old assertion.
     const ctx = createPlaybookContext({ supersurf: { click: async () => {} } });
-    const escaped = new vm.Script('supersurf.click.constructor("return this")()').runInContext(ctx);
-    const vmGlobal = new vm.Script('globalThis').runInContext(ctx);
-    expect(escaped).toBeTruthy();
-    expect(escaped).not.toBe(vmGlobal);
+    expect(() => new vm.Script('supersurf.click.constructor("return this")()').runInContext(ctx))
+      .toThrow(/[Cc]ode generation/);
   });
 
   it('dynamic import throws rather than reaching the host loader', () => {
@@ -140,5 +138,105 @@ describe('createPlaybookContext — code generation is disabled', () => {
     const script = compilePlaybook('export default () => import("fs");\n', 'test.playbook.js');
     script.runInContext(ctx);
     return expect(ctx[DEFAULT_EXPORT_KEY]()).rejects.toThrow();
+  });
+});
+
+describe('createPlaybookContext — injected host values are re-realmed', () => {
+  /** Run a host-compiled expression inside a fresh context. */
+  function evalIn(ctx: any, expression: string): any {
+    return new vm.Script(expression).runInContext(ctx);
+  }
+
+  it('drops the temporary handoff key — only the intended globals remain', () => {
+    const ctx = createPlaybookContext({ supersurf: { click: async () => {} }, params: { a: 1 }, log: () => {} });
+    expect(Object.keys(ctx).sort()).toEqual([DEFAULT_EXPORT_KEY, 'console', 'log', 'params', 'supersurf'].sort());
+  });
+
+  it('wraps functions nested at any depth in the client', () => {
+    const ctx = createPlaybookContext({ supersurf: { tabs: { new: async () => {} } } });
+    expect(evalIn(ctx, 'typeof supersurf.tabs.new')).toBe('function');
+    expect(() => evalIn(ctx, 'supersurf.tabs.new.constructor("return this")()'))
+      .toThrow(/[Cc]ode generation/);
+    expect(() => evalIn(ctx, 'supersurf.tabs.constructor.constructor("return this")()'))
+      .toThrow(/[Cc]ode generation/);
+  });
+
+  it('does not resurrect a method buildClient declined to create', () => {
+    const ctx = createPlaybookContext({ supersurf: { click: async () => {} } });
+    expect(evalIn(ctx, 'typeof supersurf.evaluate')).toBe('undefined');
+    expect(evalIn(ctx, 'Object.keys(supersurf).join(",")')).toBe('click');
+  });
+
+  it('THE RETURNED PROMISE is vm-realm — .constructor.constructor does not compile', async () => {
+    const ctx = createPlaybookContext({ supersurf: { click: async () => ({ success: true }) } });
+    expect(evalIn(ctx, 'supersurf.click() instanceof Promise')).toBe(true);
+    const verdict = await evalIn(ctx, `(() => {
+      try { supersurf.click().constructor.constructor("return this")(); return "ESCAPED"; }
+      catch (e) { return "blocked"; }
+    })()`);
+    expect(verdict).toBe('blocked');
+  });
+
+  it('THE RESOLVED VALUE is vm-realm — .constructor.constructor does not compile', async () => {
+    const ctx = createPlaybookContext({ supersurf: { click: async () => ({ nested: { deep: 1 } }) } });
+    const out = await evalIn(ctx, `(async () => {
+      const r = await supersurf.click();
+      const probe = (v) => { try { v.constructor.constructor("return this")(); return "ESCAPED"; } catch (e) { return "blocked"; } };
+      return { deep: r.nested.deep, top: probe(r), inner: probe(r.nested) };
+    })()`);
+    expect(out.deep).toBe(1);
+    expect(out.top).toBe('blocked');
+    expect(out.inner).toBe('blocked');
+  });
+
+  it('passes primitives, null and undefined results through without a round trip', async () => {
+    const ctx = createPlaybookContext({
+      supersurf: {
+        seeText: async () => true,
+        nul: async () => null,
+        und: async () => undefined,
+        num: async () => 42,
+      },
+    });
+    const out = await evalIn(ctx, `(async () => [
+      await supersurf.seeText(), await supersurf.nul(),
+      typeof (await supersurf.und()), await supersurf.num(),
+    ])()`);
+    expect(Array.from(out)).toEqual([true, null, 'undefined', 42]);
+  });
+
+  it('THE THROWN ERROR is vm-realm and keeps its message', async () => {
+    const ctx = createPlaybookContext({ supersurf: { click: async () => { throw new Error('click failed: no such element'); } } });
+    const out = await evalIn(ctx, `(async () => {
+      try { await supersurf.click(); return { caught: false }; }
+      catch (e) {
+        let escape = 'blocked';
+        try { e.constructor.constructor("return this")(); escape = 'ESCAPED'; } catch (x) {}
+        return { caught: true, message: e.message, isVmError: e instanceof Error, escape };
+      }
+    })()`);
+    expect(out.caught).toBe(true);
+    expect(out.message).toBe('click failed: no such element');
+    expect(out.isVmError).toBe(true);
+    expect(out.escape).toBe('blocked');
+  });
+
+  it('PARAMS is a vm-realm object at every depth, values intact', () => {
+    const ctx = createPlaybookContext({ params: { text: 'hi', nested: { pin: true }, list: [{ a: 1 }] } });
+    expect(evalIn(ctx, 'params.text')).toBe('hi');
+    expect(evalIn(ctx, 'params.nested.pin')).toBe(true);
+    expect(evalIn(ctx, 'Array.isArray(params.list) && params.list[0].a')).toBe(1);
+    for (const path of ['params', 'params.nested', 'params.list', 'params.list[0]']) {
+      expect(() => evalIn(ctx, `${path}.constructor.constructor("return this")()`))
+        .toThrow(/[Cc]ode generation/);
+    }
+  });
+
+  it('LOG is wrapped, still fires synchronously, and does not compile', () => {
+    const seen: string[] = [];
+    const ctx = createPlaybookContext({ log: (m: unknown) => { seen.push(String(m)); } });
+    evalIn(ctx, 'log("opening composer")');
+    expect(seen).toEqual(['opening composer']); // synchronous — playbooks do not await log()
+    expect(() => evalIn(ctx, 'log.constructor("return this")()')).toThrow(/[Cc]ode generation/);
   });
 });

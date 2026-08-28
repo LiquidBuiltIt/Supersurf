@@ -130,6 +130,25 @@ export default async function ({ supersurf }) { return typeof supersurf.evaluate
     expect(res.result).toBe('function');
   });
 
+  it('the DESTRUCTURED ARGUMENT is re-realmed too — no host Function via .constructor', async () => {
+    // The child calls the default export with { supersurf, params, log }. If it
+    // passed its own host-realm locals, re-realming the globals would be
+    // cosmetic: the canonical playbook destructures exactly this argument.
+    const file = write('argescape', `export const meta = { description: 'x' };
+export default async function ({ supersurf, params, log }) {
+  const probe = (v) => { try { v.constructor("return this")(); return 'ESCAPED'; } catch (e) { return 'blocked'; } };
+  const probe2 = (v) => { try { v.constructor.constructor("return this")(); return 'ESCAPED'; } catch (e) { return 'blocked'; } };
+  return { fn: probe(supersurf.click), log: probe(log), params: probe2(params), same: supersurf === globalThis.supersurf };
+}
+`);
+    const res = await runPlaybookScript({
+      file, params: { a: 1 }, meta: { description: 'x', params: { a: { type: 'number' } } },
+      onCommand: async () => ({ success: true }), onLog: () => {},
+    });
+    expect({ ok: res.ok, err: res.error }).toEqual({ ok: true, err: undefined });
+    expect(res.result).toEqual({ fn: 'blocked', log: 'blocked', params: 'blocked', same: true });
+  });
+
   it('keeps stack-trace line numbers honest after ESM stripping', async () => {
     const file = write('lines', `export const meta = { description: 'x' };
 
