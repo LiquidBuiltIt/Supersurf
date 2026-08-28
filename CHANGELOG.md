@@ -51,6 +51,8 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 - fix: `browser_interact` `file_upload` descends into a wrapper element to find the real `<input type=file>`, retries once on a stale CDP `objectId`, and lists nearby file inputs in the error when none is found (BACKLOG #9).
 - fix: `browser_handle_dialog` no longer blocks waiting for a tab to attach before it can view a pending dialog, and the dialog IPC round-trip is capped at a 10 s ceiling instead of hanging indefinitely (BACKLOG #9).
 - feat: `browser_storage` graduated from the `storage_inspection` experiment — always available, no config needed. Now lives at `server/src/tools/browser_storage.ts` (pre-graduation copy kept one version at `experimental/storage-inspection.old.ts`). No opt-out: the tool is plain wiring over page storage APIs. `SUPERSURF_EXPERIMENTS=storage_inspection` and the config leaf now warn and are ignored (BACKLOG #9).
+- fix: **session-scoped server state.** Two `ConnectionManager` instances in one process no longer clobber each other: the experiment registry keys its daemon transport and cached flags by `client_id` instead of holding one global slot, and mouse-humanization cursor state is keyed by `client_id` instead of the literal `'_default'`. Previously a second `connect` stole the first session's transport, and either `disconnect` wiped both sessions' experiment flags and cursor state.
+- fix: **`mouse_humanization` actually runs now.** `initSession` had no production call site, so `generateMovement` always threw and every humanized move silently degraded to a direct CDP teleport. `connect` now creates the humanization session when the experiment is enabled.
 
 ## 3.4.0 — 2026-08-24
 
