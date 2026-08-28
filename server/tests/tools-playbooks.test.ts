@@ -37,16 +37,16 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-tool-'));
   setBaseDirForTests(dir);
   actionTrail._resetForTest();
-  experimentRegistry.enable('fingerprinting');
+  experimentRegistry.enable('test', 'fingerprinting');
 });
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
-  experimentRegistry.disable('fingerprinting');
+  experimentRegistry.disable('test', 'fingerprinting');
 });
 
 describe('playbooks — gating', () => {
   it('refuses create when fingerprinting is disabled', async () => {
-    experimentRegistry.disable('fingerprinting');
+    experimentRegistry.disable('test', 'fingerprinting');
     seedTrail();
     const res = await onPlaybooks(makeCtx(), { action: 'create', name: 'x', purpose: 'p', steps: [1] }, {});
     expect(res.isError).toBe(true);
@@ -54,14 +54,14 @@ describe('playbooks — gating', () => {
   });
 
   it('refuses run when fingerprinting is disabled', async () => {
-    experimentRegistry.disable('fingerprinting');
+    experimentRegistry.disable('test', 'fingerprinting');
     const res = await onPlaybooks(makeCtx(), { action: 'run', name: 'x' }, {});
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('fingerprinting');
   });
 
   it('allows history when fingerprinting is disabled', async () => {
-    experimentRegistry.disable('fingerprinting');
+    experimentRegistry.disable('test', 'fingerprinting');
     seedTrail();
     const res = await onPlaybooks(makeCtx(), { action: 'history' }, {});
     expect(res.isError).toBeFalsy();
@@ -538,7 +538,7 @@ describe('playbooks — list', () => {
   });
 
   it('does not require the fingerprinting experiment', async () => {
-    experimentRegistry.disable('fingerprinting');
+    experimentRegistry.disable('test', 'fingerprinting');
     savePlaybook({ name: 'x', purpose: 'p', version: 1, createdAt: 1, steps: [] });
     const res = await onPlaybooks(makeCtx(), { action: 'list' }, {});
     expect(res.isError).toBeFalsy();
@@ -590,7 +590,7 @@ describe('playbooks — inspect', () => {
   });
 
   it('does not require the fingerprinting experiment', async () => {
-    experimentRegistry.disable('fingerprinting');
+    experimentRegistry.disable('test', 'fingerprinting');
     savePlaybook({ name: 'x', purpose: 'p', version: 1, createdAt: 1, steps: [] });
     const res = await onPlaybooks(makeCtx(), { action: 'inspect', name: 'x' }, {});
     expect(res.isError).toBeFalsy();

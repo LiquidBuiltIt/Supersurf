@@ -18,7 +18,7 @@ let tmp: string;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-fp-'));
   setBaseDirForTests(tmp);
-  experimentRegistry.enable('fingerprinting');
+  experimentRegistry.enable('test-session', 'fingerprinting');
 });
 afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });

@@ -171,8 +171,8 @@ export async function onConnect(
       applyTabInfoUpdate(mgr, tabInfo);
     };
 
-    // Bind experiment registry to daemon transport
-    experimentRegistry.bind(client);
+    // Bind experiment registry to daemon transport, keyed by this session's id
+    experimentRegistry.bind(mgr.clientId!, client);
 
     const BB = await getBrowserBridge();
     mgr.bridge = new BB(mgr.config, mgr.extensionServer);
@@ -194,7 +194,7 @@ export async function onConnect(
 
     // Pre-enable session features from resolved config (fire-and-forget IPC to daemon)
     if (mgr.config.configService) {
-      applyInitialState(mgr.config.configService.get().experiments);
+      applyInitialState(mgr.clientId!, mgr.config.configService.get().experiments);
     }
 
     // Notify MCP client that tool list changed
@@ -363,10 +363,13 @@ export async function onDisconnect(
     mgr.extensionServer = null;
   }
 
-  // Close session log + clear tip suppression counters
+  // Close session log, clear tip suppression counters, drop session-scoped
+  // experiment state. All keyed by client_id so a second ConnectionManager in
+  // this process keeps its own.
   if (mgr.clientId) {
     getRegistry().clearSessionLog(mgr.clientId);
     clearTipCounters(mgr.clientId);
+    experimentRegistry.unbind(mgr.clientId);
   }
 
   mgr.state = 'passive';
@@ -375,7 +378,6 @@ export async function onDisconnect(
   mgr.profile = null;
   mgr.extensionConnected = false;
   destroyHumanization('_default');
-  experimentRegistry.unbind();
 
   mgr.notifyToolsListChanged().catch((err: any) =>
     log('Error sending notification:', err)
