@@ -100,6 +100,9 @@ export class ConfigService {
         secure_eval: pick('security.secure_eval',
           inp.cli.security?.secure_eval, inp.env.security?.secure_eval,
           inp.file.security?.secure_eval, D.security.secure_eval, isBool, warn),
+        playbook_eval: pick('security.playbook_eval',
+          inp.cli.security?.playbook_eval, inp.env.security?.playbook_eval,
+          inp.file.security?.playbook_eval, D.security.playbook_eval, isBool, warn),
         domain_whitelist: {
           enabled: pick('security.domain_whitelist.enabled',
             inp.cli.security?.domain_whitelist?.enabled,

@@ -9,6 +9,7 @@ export const HARDCODED_DEFAULTS: Config = {
   },
   security: {
     secure_eval: true,
+    playbook_eval: true,
     domain_whitelist: {
       enabled: false,
       mode: 'tranco',

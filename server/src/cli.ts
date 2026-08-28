@@ -236,6 +236,7 @@ program
   .option('--child', 'Internal: child process spawned by wrapper')
   .option('--script-mode', 'JSON-RPC over stdio for automation scripts')
   .option('--disable-secure-eval', 'Disable secure_eval RCE protection on browser_evaluate (not recommended — equivalent to SUPERSURF_DISABLE_SECURE_EVAL=1)')
+  .option('--disable-playbook-eval', 'Refuse agent-invoked playbook scripts that declare the `eval` permission (equivalent to SUPERSURF_DISABLE_PLAYBOOK_EVAL=1). Terminal `supersurf playbook run` is unaffected.')
   .action(async (options) => {
     if (options.scriptMode) {
       loadDotenv(process.cwd());

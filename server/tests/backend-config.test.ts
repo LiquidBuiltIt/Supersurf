@@ -33,6 +33,15 @@ describe('cliToPartial', () => {
   it('maps --disable-secure-eval to security.secure_eval false', () => {
     expect(cliToPartial({ disableSecureEval: true })).toEqual({ security: { secure_eval: false } });
   });
+
+  it('maps --disable-playbook-eval to security.playbook_eval false', () => {
+    expect(cliToPartial({ disablePlaybookEval: true })).toEqual({ security: { playbook_eval: false } });
+  });
+
+  it('keeps both eval flags when both are passed', () => {
+    expect(cliToPartial({ disableSecureEval: true, disablePlaybookEval: true }))
+      .toEqual({ security: { secure_eval: false, playbook_eval: false } });
+  });
 });
 
 describe('buildConfigService', () => {

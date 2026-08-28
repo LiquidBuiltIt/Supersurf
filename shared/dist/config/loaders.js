@@ -66,11 +66,15 @@ function loadJsonConfig(filePath) {
     return { config: parsed, warnings: [] };
 }
 const KNOWN_EXPERIMENTS = [
-    'page_diffing', 'smart_waiting', 'storage_inspection', 'mouse_humanization', 'fingerprinting',
+    'page_diffing', 'smart_waiting', 'mouse_humanization', 'fingerprinting',
 ];
 function isKnownExperiment(s) {
     return KNOWN_EXPERIMENTS.includes(s);
 }
+/** Experiments that graduated to always-on tools. Recognized but rejected — warn and drop. */
+const GRADUATED_EXPERIMENTS = {
+    storage_inspection: 'graduated in v3.5.0 — browser_storage is always available',
+};
 function isTruthy(v) {
     if (!v)
         return false;
@@ -92,6 +96,9 @@ function loadEnvConfig(env) {
     if (isTruthy(env.SUPERSURF_DISABLE_SECURE_EVAL)) {
         out.security = { ...(out.security || {}), secure_eval: false };
     }
+    if (isTruthy(env.SUPERSURF_DISABLE_PLAYBOOK_EVAL)) {
+        out.security = { ...(out.security || {}), playbook_eval: false };
+    }
     if (env.SUPERSURF_DEBUG !== undefined) {
         if (env.SUPERSURF_DEBUG === 'no_truncate') {
             out.logging = { ...(out.logging || {}), debug: 'no_truncate' };
@@ -105,7 +112,10 @@ function loadEnvConfig(env) {
         const names = env.SUPERSURF_EXPERIMENTS.split(',').map((s) => s.trim()).filter(Boolean);
         const expOut = {};
         for (const name of names) {
-            if (isKnownExperiment(name)) {
+            if (GRADUATED_EXPERIMENTS[name]) {
+                warnings.push(`config: SUPERSURF_EXPERIMENTS contains "${name}" (${GRADUATED_EXPERIMENTS[name]}) — ignored`);
+            }
+            else if (isKnownExperiment(name)) {
                 expOut[name] = true;
             }
             else {

@@ -32,6 +32,7 @@ export function cliToPartial(options: any): PartialConfig {
     out.logging = { debug: options.debug === 'no_truncate' ? 'no_truncate' : 'truncate' };
   }
   if (options.disableSecureEval) out.security = { ...(out.security || {}), secure_eval: false };
+  if (options.disablePlaybookEval) out.security = { ...(out.security || {}), playbook_eval: false };
   return out;
 }
 
