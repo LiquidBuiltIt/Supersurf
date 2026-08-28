@@ -75,17 +75,21 @@ function hasRepeatedWindow(): boolean {
   return false;
 }
 
+// SuperSurf never writes a playbook file, so none of these can point at a save
+// command — there deliberately is no write action. They point at `history`
+// instead, which is where the selectors that actually worked live.
 const PLAYBOOKS_MILESTONE_ON =
-  'Tip: 8 actions recorded this session. `playbooks history` lists them with ids; ' +
-  '`playbooks create` freezes a range into a named playbook you can replay later with `playbooks run`.';
+  'Tip: 8 actions recorded this session. `playbooks history` lists them with ids and the ' +
+  'selectors that actually worked — write them into a `~/.supersurf/playbooks/<name>.playbook.js` ' +
+  'script with your own file tools, then replay it with `playbooks run`.';
 
 const PLAYBOOKS_REPEAT_ON =
-  'Tip: the last few actions repeat an earlier sequence. Save it once with `playbooks create` ' +
-  '(ids from `playbooks history`) and replay it with `playbooks run` next time.';
+  'Tip: the last few actions repeat an earlier sequence. `playbooks history` has the selectors ' +
+  'that worked — save them once as a `<name>.playbook.js` script and replay with `playbooks run`.';
 
 const PLAYBOOKS_GATE_OFF =
-  "Tip: this session's actions could be saved and replayed as a playbook. Enable the `fingerprinting` " +
-  'experiment in ~/.supersurf/config.json and restart the daemon to unlock the `playbooks` tool.';
+  "Tip: this session's actions could be replayed as a playbook script. Enable the `fingerprinting` " +
+  'experiment in ~/.supersurf/config.json and restart the daemon to unlock `playbooks run`.';
 
 function playbooksTipMessage(onMessage: string): string {
   return experimentRegistry.isEnabled('fingerprinting') ? onMessage : PLAYBOOKS_GATE_OFF;

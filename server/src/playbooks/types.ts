@@ -1,5 +1,9 @@
 /**
- * Types for the playbooks feature — the action trail and saved playbooks.
+ * Types for the in-memory action trail behind the `playbooks history` action.
+ *
+ * The `Playbook`/`PlaybookStep` shapes that used to live here described the
+ * JSON on-disk format. A playbook is a JavaScript file now — its shape is the
+ * file — so nothing here describes disk any more.
  *
  * @module playbooks/types
  */
@@ -26,32 +30,4 @@ export interface TrailInput {
 export interface TrailEntry extends TrailInput {
   id: number;
   at: number;
-}
-
-/** One frozen step of a saved playbook. */
-export interface PlaybookStep {
-  /** MCP tool to invoke, e.g. `browser_interact`, `browser_navigate`. */
-  tool: string;
-  /** Action verb for interact steps; equals `tool` otherwise. */
-  type: string;
-  /** Params to re-issue verbatim. */
-  params: Record<string, unknown>;
-  /** URL this step was recorded on. Step 1's value is the run's start point. */
-  url?: string;
-  /** The trail id this step was frozen from, for provenance in `inspect`. */
-  sourceId: number;
-}
-
-/** A saved playbook, one per file on disk. */
-export interface Playbook {
-  name: string;
-  purpose: string;
-  steps: PlaybookStep[];
-  createdAt: number;
-  /** Schema version, so a later format change can migrate rather than crash. */
-  version: 1;
-  /** Managed profile this playbook was created under, when the session was
-   *  profile-bound. Absent for unmanaged sessions. Drives `run`'s implicit
-   *  profile resolution when no explicit `profile` arg is given. */
-  profile?: string;
 }
