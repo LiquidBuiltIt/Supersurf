@@ -10,11 +10,24 @@ export async function getViewportSize(ctx: ToolContext): Promise<{ width: number
   return await ctx.ext.sendCmd('getViewportDimensions', { tabId: ctx.tabId });
 }
 
-export async function moveCursorTo(ctx: ToolContext, x: number, y: number, sessionId: string): Promise<void> {
+/**
+ * Resolve the mouse-humanization session key for a tool call.
+ *
+ * Keyed by the owning ConnectionManager's `client_id` so two managers in one
+ * Node process keep separate cursor state. Falls back to '_default' only for
+ * contexts built without a connection manager (unit tests) — BrowserBridge
+ * always wires one in production.
+ */
+export function humanizationSessionId(ctx: ToolContext): string {
+  const id = ctx.connectionManager?.clientId;
+  return typeof id === 'string' && id.length > 0 ? id : '_default';
+}
+
+export async function moveCursorTo(ctx: ToolContext, x: number, y: number): Promise<void> {
   if (experimentRegistry.isEnabled('mouse_humanization')) {
     try {
       const viewport = await getViewportSize(ctx);
-      const waypoints = generateMovement(sessionId, x, y, viewport);
+      const waypoints = generateMovement(humanizationSessionId(ctx), x, y, viewport);
       log(`Humanized move → (${x},${y}) via ${waypoints.length} waypoints`);
       await ctx.ext.sendCmd('humanizedMouseMove', { waypoints, tabId: ctx.tabId });
       return;

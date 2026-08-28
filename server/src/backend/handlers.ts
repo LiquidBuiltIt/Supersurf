@@ -18,7 +18,10 @@ import { DaemonClient } from '../daemon-client';
 import { ensureDaemon, stopDaemon, getSockPath } from '../daemon-spawn';
 import { createLog, getRegistry } from '../logger';
 import { experimentRegistry, applyInitialState } from '../experimental/index';
-import { destroySession as destroyHumanization } from '../experimental/mouse-humanization/index';
+import {
+  initSession as initHumanization,
+  destroySession as destroyHumanization,
+} from '../experimental/mouse-humanization/index';
 import { clearTipCounters } from '../tips';
 import { UPGRADE_NOTICE_MESSAGE } from 'shared';
 import { UsageMetricsLogger } from '../usage-metrics-logger';
@@ -197,6 +200,13 @@ export async function onConnect(
       applyInitialState(mgr.clientId!, mgr.config.configService.get().experiments);
     }
 
+    // Mouse humanization keeps per-session cursor + personality state. Create
+    // the session here or generateMovement() has nothing to look up and every
+    // humanized move silently degrades to a teleport.
+    if (experimentRegistry.isEnabled('mouse_humanization', mgr.clientId!)) {
+      initHumanization(mgr.clientId!);
+    }
+
     // Notify MCP client that tool list changed
     mgr.notifyToolsListChanged().catch((err: any) =>
       log('Error sending notification:', err)
@@ -364,12 +374,13 @@ export async function onDisconnect(
   }
 
   // Close session log, clear tip suppression counters, drop session-scoped
-  // experiment state. All keyed by client_id so a second ConnectionManager in
-  // this process keeps its own.
+  // experiment + cursor state. All keyed by client_id so a second
+  // ConnectionManager in this process keeps its own.
   if (mgr.clientId) {
     getRegistry().clearSessionLog(mgr.clientId);
     clearTipCounters(mgr.clientId);
     experimentRegistry.unbind(mgr.clientId);
+    destroyHumanization(mgr.clientId);
   }
 
   mgr.state = 'passive';
@@ -377,7 +388,6 @@ export async function onDisconnect(
   mgr.attachedTab = null;
   mgr.profile = null;
   mgr.extensionConnected = false;
-  destroyHumanization('_default');
 
   mgr.notifyToolsListChanged().catch((err: any) =>
     log('Error sending notification:', err)
