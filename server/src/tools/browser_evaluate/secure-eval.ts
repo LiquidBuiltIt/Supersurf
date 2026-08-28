@@ -27,24 +27,11 @@
  */
 
 import * as acorn from 'acorn';
-import * as walk from 'acorn-walk';
+import { analyzeWithRules, type AnalysisResult, type BlockedPattern } from '../../security/analyzer';
 
-/** Result of static code analysis — safe to execute or blocked with a reason. */
-export interface AnalysisResult {
-  safe: boolean;
-  reason?: string;
-}
-
-/**
- * A single blocked pattern definition.
- * Each pattern targets a specific AST node type and uses a matcher function
- * to inspect the node (and its ancestor chain) for dangerous constructs.
- */
-interface BlockedPattern {
-  nodeType: string;
-  matcher: (node: any, ancestors: any[]) => boolean;
-  reason: string;
-}
+/** Result of static code analysis — safe to execute or blocked with a reason.
+ *  Re-exported from `security/analyzer` so this module's public API is unchanged. */
+export type { AnalysisResult };
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -354,83 +341,7 @@ const BLOCKED_PATTERNS: BlockedPattern[] = [
  * @returns Analysis result: safe=true or safe=false with a reason string
  */
 export function analyzeCode(code: string): AnalysisResult {
-  if (!code || !code.trim()) {
-    return { safe: true };
-  }
-
-  let ast: acorn.Node;
-  try {
-    ast = acorn.parse(code, {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
-      allowReturnOutsideFunction: true,
-      allowAwaitOutsideFunction: true,
-    });
-  } catch {
-    // Syntax errors → let Runtime.evaluate return its own error
-    return { safe: true };
-  }
-
-  let violation: AnalysisResult | null = null;
-
-  walk.ancestor(ast, {
-    CallExpression(node: any, _state: any, ancestors: any[]) {
-      if (violation) return;
-      for (const pattern of BLOCKED_PATTERNS) {
-        if (pattern.nodeType === 'CallExpression' && pattern.matcher(node, ancestors)) {
-          violation = { safe: false, reason: pattern.reason };
-          return;
-        }
-      }
-    },
-    MemberExpression(node: any, _state: any, ancestors: any[]) {
-      if (violation) return;
-      for (const pattern of BLOCKED_PATTERNS) {
-        if (pattern.nodeType === 'MemberExpression' && pattern.matcher(node, ancestors)) {
-          violation = { safe: false, reason: pattern.reason };
-          return;
-        }
-      }
-    },
-    NewExpression(node: any, _state: any, ancestors: any[]) {
-      if (violation) return;
-      for (const pattern of BLOCKED_PATTERNS) {
-        if (pattern.nodeType === 'NewExpression' && pattern.matcher(node, ancestors)) {
-          violation = { safe: false, reason: pattern.reason };
-          return;
-        }
-      }
-    },
-    ImportExpression(node: any, _state: any, ancestors: any[]) {
-      if (violation) return;
-      for (const pattern of BLOCKED_PATTERNS) {
-        if (pattern.nodeType === 'ImportExpression' && pattern.matcher(node, ancestors)) {
-          violation = { safe: false, reason: pattern.reason };
-          return;
-        }
-      }
-    },
-    TaggedTemplateExpression(node: any, _state: any, ancestors: any[]) {
-      if (violation) return;
-      for (const pattern of BLOCKED_PATTERNS) {
-        if (pattern.nodeType === 'TaggedTemplateExpression' && pattern.matcher(node, ancestors)) {
-          violation = { safe: false, reason: pattern.reason };
-          return;
-        }
-      }
-    },
-    Literal(node: any, _state: any, ancestors: any[]) {
-      if (violation) return;
-      for (const pattern of BLOCKED_PATTERNS) {
-        if (pattern.nodeType === 'Literal' && pattern.matcher(node, ancestors)) {
-          violation = { safe: false, reason: pattern.reason };
-          return;
-        }
-      }
-    },
-  });
-
-  return violation ?? { safe: true };
+  return analyzeWithRules(code, { patterns: BLOCKED_PATTERNS });
 }
 
 // ── Page-context Proxy wrapper (Layer 3) ────────────────────
