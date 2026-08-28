@@ -161,10 +161,25 @@ export function validateParams(meta: PlaybookMeta, params: Record<string, unknow
   return problems.length === 0 ? null : problems.join('; ');
 }
 
+/**
+ * `browser_interact` is the batch tool `mapCommand` targets for all 15
+ * interaction verbs, and its failure envelope is
+ * `{ success: false, actions: ['✗ click: Element not found: `#foo`'] }` —
+ * there is NO `error` and NO `message` key. Reading only those two keys
+ * collapsed every failed click/type/hover in a playbook to the useless string
+ * "command failed" and discarded the one line that says what actually broke.
+ */
+function actionFailures(res: any): string | null {
+  if (!Array.isArray(res?.actions)) return null;
+  const lines = res.actions.map(String).filter((l: string) => l.startsWith('✗'));
+  const picked = lines.length > 0 ? lines : res.actions.map(String);
+  return picked.length > 0 ? picked.join('; ') : null;
+}
+
 /** `rawResult` failures come back as data; the child expects a throw. */
 function unwrap(res: any): unknown {
   if (res && res.success === false) {
-    throw new Error(String(res.error ?? res.message ?? 'command failed'));
+    throw new Error(String(res.error ?? res.message ?? actionFailures(res) ?? 'command failed'));
   }
   return res;
 }
@@ -173,7 +188,13 @@ function unwrap(res: any): unknown {
 async function captureEvidence(backend: RunnerBackend): Promise<{ snapshot?: string } | undefined> {
   try {
     const res: any = await backend.callTool('browser_snapshot', {}, { rawResult: true });
-    const snap = res?.snapshot ?? res?.result ?? null;
+    if (!res || res.success === false) return undefined;
+    // `browser_snapshot` with `rawResult` spreads the extension payload at the
+    // TOP LEVEL — the real keys are `nodes` and `formFields`. There is no
+    // `snapshot` and no `result` wrapper, so reading those first (and stopping
+    // at `null`) meant evidence was NEVER captured against the live tool.
+    // The wrapper keys stay as a fallback for a transport that adds one.
+    const snap = res.snapshot ?? res.result ?? res;
     if (!snap) return undefined;
     return { snapshot: typeof snap === 'string' ? snap : JSON.stringify(snap) };
   } catch {

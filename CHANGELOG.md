@@ -65,6 +65,9 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 - fix: **session-scoped server state.** Two `ConnectionManager` instances in one process no longer clobber each other: the experiment registry keys its daemon transport and cached flags by `client_id` instead of holding one global slot, and mouse-humanization cursor state is keyed by `client_id` instead of the literal `'_default'`. Previously a second `connect` stole the first session's transport, and either `disconnect` wiped both sessions' experiment flags and cursor state.
 - fix: **`mouse_humanization` actually runs now.** `initSession` had no production call site, so `generateMovement` always threw and every humanized move silently degraded to a direct CDP teleport. `connect` now creates the humanization session when the experiment is enabled.
 
+- fix: a failed playbook run now actually carries its page snapshot in `evidence`. `captureEvidence` read `res.snapshot ?? res.result`, but `browser_snapshot` under `rawResult` spreads the extension payload at the top level (`nodes`, `formFields`) with no wrapper key — both reads were always `undefined`, so every failure record shipped with no evidence at all, which is the entire point of the record.
+- fix: a failed playbook interaction reports the real reason instead of `command failed`. `unwrap` read only `error`/`message`, but `browser_interact` — the tool every one of the 15 interaction verbs maps to — fails with ``{ success: false, actions: ['✗ click: Element not found: `#foo`'] }`` and carries no `error` and no `message`, so the one line saying what broke was discarded on every failed click, type and hover.
+
 ## 3.4.0 — 2026-08-24
 
 *A big update, headlined by playbooks: record your browser actions once and replay them any time — from your agent or straight from the terminal. Also new: manage profiles from the CLI, and friendlier release notes like this one.*

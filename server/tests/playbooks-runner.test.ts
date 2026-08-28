@@ -120,6 +120,27 @@ describe('runPlaybook', () => {
     expect(thrown).toBe('Element not found');
   });
 
+  // Regression lock. The REAL `browser_interact` failure envelope carries its
+  // diagnostic in `actions`, not `error`/`message`. Verified live against
+  // Chromium: `{ success: false, actions: ['✗ click: Element not found: `#x`'] }`.
+  // Reading only `error`/`message` reported "command failed" and lost the reason.
+  it('surfaces the REAL browser_interact failure envelope, not "command failed"', async () => {
+    const { backend } = fakeBackend({
+      browser_interact: { success: false, actions: ['✗ click: Element not found: `#go`'] },
+    });
+    let thrown: string | null = null;
+    await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'agent',
+      createBackend: () => backend,
+      runScript: async (opts) => {
+        try { await opts.onCommand('click', { selector: '#go' }); } catch (e: any) { thrown = e.message; }
+        return { ok: true, durationMs: 1 };
+      },
+    });
+    expect(thrown).toBe('✗ click: Element not found: `#go`');
+    expect(thrown).not.toBe('command failed');
+  });
+
   it('captures a snapshot as evidence when the script fails, before closing the tab', async () => {
     const { backend, calls } = fakeBackend();
     const out = await runPlaybook({
@@ -133,6 +154,31 @@ describe('runPlaybook', () => {
     expect(names.indexOf('browser_snapshot')).toBeLessThan(
       names.lastIndexOf('browser_tabs'),
     );
+  });
+
+  // Regression lock. `browser_snapshot` with `rawResult` spreads the extension
+  // payload at the top level (`nodes`, `formFields`) — it never returns a
+  // `snapshot` or `result` wrapper. The original `res?.snapshot ?? res?.result`
+  // read therefore captured NOTHING against the live tool, and the failure
+  // record shipped with no evidence at all. Verified live against Chromium.
+  it('captures evidence from the REAL browser_snapshot rawResult shape', async () => {
+    const realShape = { nodes: [{ role: 'heading', name: 'Example Domain' }], formFields: [] };
+    const { backend } = fakeBackend({ browser_snapshot: realShape });
+    // `fakeBackend` special-cases browser_snapshot, so override it outright.
+    const raw: RunnerBackend = {
+      async callTool(name: string, a: any) {
+        if (name === 'browser_snapshot') return realShape;
+        return backend.callTool(name, a);
+      },
+    };
+    const out = await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'agent',
+      createBackend: () => raw,
+      runScript: async () => ({ ok: false, error: 'click failed', durationMs: 9 }),
+    });
+    expect(out.ok).toBe(false);
+    expect(out.evidence?.snapshot).toBeTruthy();
+    expect(out.evidence!.snapshot).toContain('Example Domain');
   });
 
   it('does not capture evidence on success', async () => {
