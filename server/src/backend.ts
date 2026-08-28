@@ -28,9 +28,9 @@ export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend
 import type { BackendConfig, TabInfo, BackendState, ToolSchema, ConnectionManagerAPI } from './backend/types';
 
 import { buildStatusHeader } from './backend/status';
-import { buildPlaybookDomainIndex, matchPlaybookNamesForUrl, formatPlaybookHintLine, type PlaybookDomainIndex } from './playbooks/hint';
-import { normalizeHost } from './playbooks/domains';
-import { doList as doPlaybooksList, doInspect as doPlaybooksInspect } from './tools/playbooks';
+import { buildPlaybookDomainIndex, matchPlaybookNamesForUrl, formatPlaybookHintLine, formatInvalidPlaybookWarning, normalizeHost, type PlaybookDomainIndex } from './playbooks/hint';
+import { refreshRegistry, getInvalidRecords } from './playbooks/registry';
+import { doList as doPlaybooksList, doInspect as doPlaybooksInspect, doValidate as doPlaybooksValidate } from './tools/playbooks';
 import { getConnectionToolSchemas, getDebugToolSchema, getProfileToolSchemas } from './backend/schemas';
 import {
   onConnect, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete,
@@ -75,13 +75,16 @@ export class ConnectionManager implements ConnectionManagerAPI {
   /** Tracks whether the config-drift warning has already been surfaced this session
    *  (one-shot per session — sticky until daemon restart). */
   private _warnedConfigDrift: boolean = false;
-  /** Lazily built domain -> playbook-names map, cached across status headers so
-   *  every response doesn't re-scan `~/.supersurf/playbooks/`. Invalidated by
-   *  `invalidatePlaybookIndex()` when this session's `playbooks create` succeeds. */
+  /** Domain -> playbook-names map, rebuilt whenever `refreshRegistry()` reports
+   *  a change. Not a lazy disk cache any more: the registry is the cache, and
+   *  this is a cheap projection of it. */
   private _playbookDomainIndex: PlaybookDomainIndex | null = null;
   /** Normalized domains whose discovery hint has already been shown this session
    *  (one-shot per domain — same pattern as `_warnedConfigDrift`). */
   private _warnedPlaybookDomains: Set<string> = new Set();
+  /** Validation errors already reported this session, keyed `name:error`, so a
+   *  broken file is named once rather than on every tool result. */
+  private _warnedInvalidPlaybooks: Set<string> = new Set();
 
   constructor(config: BackendConfig) {
     log('Constructor — starting in PASSIVE mode');
@@ -98,26 +101,20 @@ export class ConnectionManager implements ConnectionManagerAPI {
 
   // ─── Status header ─────────────────────────────────────────
 
-  /** Drop the domain -> playbook-names index, so the next header rebuilds it
-   *  from disk. Call after this session's `playbooks create` succeeds. */
-  invalidatePlaybookIndex(): void {
-    this._playbookDomainIndex = null;
-  }
-
   /**
    * Domain-matched playbook discovery hint for the current tab, or null when
    * there's nothing to show. Harness principle: this only reports — it never
-   * runs anything. Wrapped so a lookup/derivation failure degrades to "no
-   * hint" instead of breaking the status header (and every tool response
-   * with it).
+   * runs anything. Synchronous by contract: `statusHeader()` cannot await, so
+   * this reads the registry cache that `callTool()` already refreshed. Wrapped
+   * so a lookup failure degrades to "no hint" instead of breaking the status
+   * header (and every tool response with it).
    */
   private playbookHint(): string | null {
     try {
       const url = this.attachedTab?.url;
       if (!url) return null;
 
-      // Skip the store scan entirely for a domain already shown this session —
-      // covers the common case even before the index is (lazily) built.
+      // Skip the projection entirely for a domain already shown this session.
       const host = normalizeHost(url);
       if (!host || this._warnedPlaybookDomains.has(host)) return null;
 
@@ -127,6 +124,23 @@ export class ConnectionManager implements ConnectionManagerAPI {
 
       this._warnedPlaybookDomains.add(host);
       return formatPlaybookHintLine(names);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * One-shot-per-file warning naming playbook scripts that failed validation.
+   * The verdict rides the next tool result — that is the whole point of
+   * stat-on-tool-call validation. Keyed by `name:error` so a re-broken file
+   * with a NEW error is reported again, while the same error stays quiet.
+   */
+  private playbookWarning(): string | null {
+    try {
+      const fresh = getInvalidRecords().filter(r => !this._warnedInvalidPlaybooks.has(`${r.name}:${r.error}`));
+      if (fresh.length === 0) return null;
+      for (const r of fresh) this._warnedInvalidPlaybooks.add(`${r.name}:${r.error}`);
+      return formatInvalidPlaybookWarning(fresh);
     } catch {
       return null;
     }
@@ -152,6 +166,7 @@ export class ConnectionManager implements ConnectionManagerAPI {
       configDriftWarning: surfaceDrift,
       lastConnectError: this.lastConnectError,
       playbookHint: this.playbookHint(),
+      playbookWarning: this.playbookWarning(),
     });
   }
 
@@ -191,6 +206,12 @@ export class ConnectionManager implements ConnectionManagerAPI {
     options: { rawResult?: boolean } = {}
   ): Promise<any> {
     log(`callTool(${name}) — state: ${this.state}`);
+
+    // Stat-on-tool-call validation (spec §4). Cheap: a stat per file, a read
+    // only on a stat change, a parse only on a content change. The verdict
+    // rides THIS tool's status header. Never throws — see `refreshRegistry`.
+    await refreshRegistry();
+    this._playbookDomainIndex = null;
 
     // Deprecation stub for experimental_features (removed in v2.0.0).
     // Returns a clear error pointing the agent at the new config file.
@@ -303,12 +324,14 @@ export class ConnectionManager implements ConnectionManagerAPI {
       }
     }
 
-    // `playbooks list`/`inspect` are store-only reads — no browser/extension
-    // needed — so passive state answers them directly rather than requiring
-    // `connect` first. Active/connected state still routes through the
-    // bridge below, unchanged.
-    if (name === 'playbooks' && (rawArguments.action === 'list' || rawArguments.action === 'inspect') && this.state === 'passive') {
-      return rawArguments.action === 'list' ? doPlaybooksList(rawArguments) : doPlaybooksInspect(rawArguments);
+    // `playbooks list`/`inspect`/`validate` are local reads — no browser, no
+    // extension — so the passive state answers them directly rather than
+    // demanding `connect` first. `run` still needs the bridge. Active/connected
+    // state still routes through the bridge below, unchanged.
+    if (name === 'playbooks' && this.state === 'passive') {
+      if (rawArguments.action === 'list') return doPlaybooksList(rawArguments);
+      if (rawArguments.action === 'inspect') return doPlaybooksInspect(rawArguments);
+      if (rawArguments.action === 'validate') return doPlaybooksValidate(rawArguments);
     }
 
     // Forward to active bridge

@@ -33,6 +33,10 @@ interface StatusInput {
    *  when there is nothing to show. Domain matching and once-per-session suppression
    *  happen in `ConnectionManager` — this function only places the line. */
   playbookHint?: string | null;
+  /** Pre-rendered `playbooks/hint.ts:formatInvalidPlaybookWarning` output, or
+   *  null when every script validates. Placed ABOVE the hint so a broken file
+   *  is never hidden behind a suggestion. */
+  playbookWarning?: string | null;
 }
 
 /**
@@ -40,7 +44,7 @@ interface StatusInput {
  * Returns a string ending with `\n---\n\n` for markdown separation.
  */
 export function buildStatusHeader(input: StatusInput): string {
-  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, extensionConnected, configDriftWarning, lastConnectError, playbookHint } = input;
+  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, extensionConnected, configDriftWarning, lastConnectError, playbookHint, playbookWarning } = input;
   const version = config.server.version;
   const driftLine = configDriftWarning
     ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf-daemon@latest restart`\n\n'
@@ -50,7 +54,11 @@ export function buildStatusHeader(input: StatusInput): string {
     const failLine = lastConnectError
       ? `⚠️ Last connect failed: ${lastConnectError}\n\n`
       : '';
-    return `${driftLine}${failLine}🔴 v${version} | Disabled\n---\n\n`;
+    // Warning before hint here too: `playbooks validate` answers in the passive
+    // state, so a broken script must be reportable before `connect`.
+    const passiveWarn = playbookWarning ? `\n${playbookWarning}` : '';
+    const passiveHint = playbookHint ? `\n${playbookHint}` : '';
+    return `${driftLine}${failLine}🔴 v${version} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
   }
 
   const parts: string[] = [];
@@ -102,6 +110,7 @@ export function buildStatusHeader(input: StatusInput): string {
     parts.push(`🕵️ Stealth`);
   }
 
+  const warnLine = playbookWarning ? `\n${playbookWarning}` : '';
   const hintLine = playbookHint ? `\n${playbookHint}` : '';
-  return driftLine + parts.join(' | ') + hintLine + '\n---\n\n';
+  return driftLine + parts.join(' | ') + warnLine + hintLine + '\n---\n\n';
 }
