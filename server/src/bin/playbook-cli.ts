@@ -27,8 +27,8 @@ import {
 } from '../playbooks/store';
 import { formatSteps } from '../playbooks/format';
 import type { Playbook } from '../playbooks/types';
-import { ConnectionManager, type BackendConfig } from '../backend';
-import { ConfigService, loadJsonConfig, loadEnvConfig } from 'shared';
+import { ConnectionManager } from '../backend';
+import { buildConfigService, backendConfigFrom } from '../backend-config';
 
 const { version: PACKAGE_VERSION } = require('../../package.json');
 
@@ -275,32 +275,8 @@ export interface RunRunOpts {
   createBackend?: () => RunBackend;
 }
 
-/**
- * Build a `BackendConfig` from CLI-less config resolution (env + `~/.supersurf/config.json`
- * + hardcoded defaults) — the same merge `cli.ts`'s `buildConfig`/`backendConfigFrom` do,
- * duplicated here rather than imported because `cli.ts` runs `program.parse()` as a
- * top-level side effect and can't be safely imported as a module.
- */
-function buildBackendConfig(): BackendConfig {
-  const configPath = process.env.SUPERSURF_CONFIG_FILE
-    || path.join(os.homedir(), '.supersurf', 'config.json');
-  const { config: fileCfg } = loadJsonConfig(configPath);
-  const { config: envCfg } = loadEnvConfig(process.env);
-  const configService = new ConfigService({ cli: {}, env: envCfg, file: fileCfg });
-  const c = configService.get();
-  return {
-    debug: !!c.logging.debug,
-    port: c.daemon.port,
-    server: { name: 'SuperSurf', version: PACKAGE_VERSION },
-    enabledExperiments: Object.entries(c.experiments)
-      .filter(([k, v]) => v && k !== 'profiles')
-      .map(([k]) => k),
-    configService,
-  };
-}
-
 function defaultCreateBackend(): RunBackend {
-  return new ConnectionManager(buildBackendConfig());
+  return new ConnectionManager(backendConfigFrom(buildConfigService({}), PACKAGE_VERSION));
 }
 
 /**
