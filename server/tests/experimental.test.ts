@@ -24,26 +24,26 @@ describe('ExperimentRegistry', () => {
     });
 
     it('enables an experiment', () => {
-      experimentRegistry.enable('page_diffing');
+      experimentRegistry.enable('s1', 'page_diffing');
       expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
     });
 
     it('disables an experiment', () => {
-      experimentRegistry.enable('page_diffing');
-      experimentRegistry.disable('page_diffing');
+      experimentRegistry.enable('s1', 'page_diffing');
+      experimentRegistry.disable('s1', 'page_diffing');
       expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
     });
 
     it('throws on unknown experiment name', () => {
-      expect(() => experimentRegistry.enable('bogus')).toThrow('Unknown experiment');
-      expect(() => experimentRegistry.disable('bogus')).toThrow('Unknown experiment');
+      expect(() => experimentRegistry.enable('s1', 'bogus')).toThrow('Unknown experiment');
+      expect(() => experimentRegistry.disable('s1', 'bogus')).toThrow('Unknown experiment');
     });
   });
 
   describe('reset()', () => {
     it('clears all enabled experiments', () => {
-      experimentRegistry.enable('page_diffing');
-      experimentRegistry.enable('smart_waiting');
+      experimentRegistry.enable('s1', 'page_diffing');
+      experimentRegistry.enable('s2', 'smart_waiting');
       experimentRegistry.reset();
       expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
       expect(experimentRegistry.isEnabled('smart_waiting')).toBe(false);
@@ -65,9 +65,16 @@ describe('ExperimentRegistry', () => {
 
   describe('getStates()', () => {
     it('returns state map for all experiments', () => {
-      experimentRegistry.enable('smart_waiting');
+      experimentRegistry.enable('s1', 'smart_waiting');
       const states = experimentRegistry.getStates();
       expect(states).toEqual({ page_diffing: false, smart_waiting: true, mouse_humanization: false, fingerprinting: false });
+    });
+
+    it('scopes to one session when given a session id', () => {
+      experimentRegistry.enable('s1', 'smart_waiting');
+      expect(experimentRegistry.getStates('s2')).toEqual({
+        page_diffing: false, smart_waiting: false, mouse_humanization: false, fingerprinting: false,
+      });
     });
   });
 
@@ -95,36 +102,36 @@ describe('applyInitialState()', () => {
   });
 
   it('pre-enables session experiments from config', () => {
-    applyInitialState({
+    applyInitialState('s1', {
       page_diffing: true,
       smart_waiting: true,
       mouse_humanization: false,
       fingerprinting: false,
     });
-    expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
-    expect(experimentRegistry.isEnabled('smart_waiting')).toBe(true);
+    expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(true);
+    expect(experimentRegistry.isEnabled('smart_waiting', 's1')).toBe(true);
   });
 
   it('regression lock: profiles flag in snapshot is ignored (graduated)', () => {
-    applyInitialState({
+    applyInitialState('s1', {
       page_diffing: true,
       smart_waiting: false,
       mouse_humanization: false,
       fingerprinting: false,
       profiles: true,
     } as any);
-    expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
-    expect(experimentRegistry.isEnabled('profiles')).toBe(false);
+    expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(true);
+    expect(experimentRegistry.isEnabled('profiles', 's1')).toBe(false);
   });
 
   it('does nothing when all experiments disabled', () => {
-    applyInitialState({
+    applyInitialState('s1', {
       page_diffing: false,
       smart_waiting: false,
       mouse_humanization: false,
       fingerprinting: false,
     });
-    expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
+    expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(false);
   });
 });
 
@@ -146,25 +153,53 @@ function mockTransport() {
 
 describe('ExperimentRegistry (IPC proxy)', () => {
   beforeEach(() => {
-    experimentRegistry.unbind();
+    experimentRegistry.reset();
   });
 
   describe('bind / unbind', () => {
-    it('unbind clears the cache', () => {
-      experimentRegistry.enable('page_diffing');
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
+    it('unbind clears only the named session', () => {
+      experimentRegistry.bind('session-a', mockTransport());
+      experimentRegistry.bind('session-b', mockTransport());
+      experimentRegistry.enable('session-a', 'page_diffing');
+      experimentRegistry.enable('session-b', 'smart_waiting');
 
-      experimentRegistry.unbind();
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
+      experimentRegistry.unbind('session-b');
+
+      expect(experimentRegistry.isEnabled('page_diffing', 'session-a')).toBe(true);
+      expect(experimentRegistry.isEnabled('smart_waiting', 'session-b')).toBe(false);
+    });
+
+    it('bind does not steal an earlier session transport', async () => {
+      const a = mockTransport();
+      const b = mockTransport();
+      experimentRegistry.bind('session-a', a);
+      experimentRegistry.bind('session-b', b);
+
+      await experimentRegistry.toggle('session-a', 'page_diffing', true);
+
+      expect(a.sendCmd).toHaveBeenCalledWith(
+        'experiments.toggle',
+        { experiment: 'page_diffing', enabled: true },
+        5000,
+      );
+      expect(b.sendCmd).not.toHaveBeenCalled();
+    });
+
+    it('isEnabled without a session id reports true when any session has it on', () => {
+      experimentRegistry.bind('session-a', mockTransport());
+      experimentRegistry.enable('session-a', 'fingerprinting');
+
+      expect(experimentRegistry.isEnabled('fingerprinting')).toBe(true);
+      expect(experimentRegistry.isEnabled('fingerprinting', 'session-b')).toBe(false);
     });
   });
 
   describe('toggle()', () => {
     it('sends experiments.toggle IPC to daemon', async () => {
       const transport = mockTransport();
-      experimentRegistry.bind(transport);
+      experimentRegistry.bind('s1', transport);
 
-      await experimentRegistry.toggle('page_diffing', true);
+      await experimentRegistry.toggle('s1', 'page_diffing', true);
 
       expect(transport.sendCmd).toHaveBeenCalledWith(
         'experiments.toggle',
@@ -175,62 +210,62 @@ describe('ExperimentRegistry (IPC proxy)', () => {
 
     it('updates local cache after IPC', async () => {
       const transport = mockTransport();
-      experimentRegistry.bind(transport);
+      experimentRegistry.bind('s1', transport);
 
-      await experimentRegistry.toggle('smart_waiting', true);
-      expect(experimentRegistry.isEnabled('smart_waiting')).toBe(true);
+      await experimentRegistry.toggle('s1', 'smart_waiting', true);
+      expect(experimentRegistry.isEnabled('smart_waiting', 's1')).toBe(true);
 
-      await experimentRegistry.toggle('smart_waiting', false);
-      expect(experimentRegistry.isEnabled('smart_waiting')).toBe(false);
+      await experimentRegistry.toggle('s1', 'smart_waiting', false);
+      expect(experimentRegistry.isEnabled('smart_waiting', 's1')).toBe(false);
     });
 
     it('throws on unknown experiment', async () => {
-      experimentRegistry.bind(mockTransport());
-      await expect(experimentRegistry.toggle('warp_drive', true)).rejects.toThrow('Unknown experiment');
+      experimentRegistry.bind('s1', mockTransport());
+      await expect(experimentRegistry.toggle('s1', 'warp_drive', true)).rejects.toThrow('Unknown experiment');
     });
   });
 
   describe('enable() with transport', () => {
     it('fire-and-forget IPCs to daemon', () => {
       const transport = mockTransport();
-      experimentRegistry.bind(transport);
+      experimentRegistry.bind('s1', transport);
 
-      experimentRegistry.enable('page_diffing');
+      experimentRegistry.enable('s1', 'page_diffing');
 
       expect(transport.sendCmd).toHaveBeenCalledWith(
         'experiments.toggle',
         { experiment: 'page_diffing', enabled: true },
         5000,
       );
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
+      expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(true);
     });
   });
 
   describe('disable() with transport', () => {
     it('fire-and-forget IPCs to daemon', () => {
       const transport = mockTransport();
-      experimentRegistry.bind(transport);
+      experimentRegistry.bind('s1', transport);
 
-      experimentRegistry.enable('page_diffing');
-      experimentRegistry.disable('page_diffing');
+      experimentRegistry.enable('s1', 'page_diffing');
+      experimentRegistry.disable('s1', 'page_diffing');
 
       expect(transport.sendCmd).toHaveBeenCalledWith(
         'experiments.toggle',
         { experiment: 'page_diffing', enabled: false },
         5000,
       );
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
+      expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(false);
     });
   });
 
   describe('isEnabled() reads from cache, not IPC', () => {
     it('does not call sendCmd', () => {
       const transport = mockTransport();
-      experimentRegistry.bind(transport);
-      experimentRegistry.enable('page_diffing');
+      experimentRegistry.bind('s1', transport);
+      experimentRegistry.enable('s1', 'page_diffing');
 
       transport.sendCmd.mockClear();
-      experimentRegistry.isEnabled('page_diffing');
+      experimentRegistry.isEnabled('page_diffing', 's1');
 
       expect(transport.sendCmd).not.toHaveBeenCalled();
     });
@@ -238,16 +273,16 @@ describe('ExperimentRegistry (IPC proxy)', () => {
 
   describe('works without transport bound', () => {
     it('enable/disable work as local-only cache', () => {
-      experimentRegistry.enable('page_diffing');
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
+      experimentRegistry.enable('s1', 'page_diffing');
+      expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(true);
 
-      experimentRegistry.disable('page_diffing');
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
+      experimentRegistry.disable('s1', 'page_diffing');
+      expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(false);
     });
 
     it('toggle works without transport', async () => {
-      await experimentRegistry.toggle('page_diffing', true);
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
+      await experimentRegistry.toggle('s1', 'page_diffing', true);
+      expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(true);
     });
   });
 });

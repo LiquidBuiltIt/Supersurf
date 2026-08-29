@@ -37,6 +37,7 @@ vi.mock('../src/experimental/index', () => ({
     unbind: vi.fn(),
     getStates: vi.fn().mockReturnValue({ page_diffing: false, smart_waiting: false }),
     isAvailable: vi.fn().mockImplementation((f: string) => ['page_diffing', 'smart_waiting'].includes(f)),
+    isEnabled: vi.fn().mockReturnValue(false),
   },
   applyInitialState: vi.fn(),
 }));

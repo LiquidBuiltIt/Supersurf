@@ -279,14 +279,14 @@ describe('getTip — playbooks-milestone tip', () => {
   }
 
   it('does not fire before the trail reaches 8 entries', () => {
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     recordCalls(7);
     expect(getTip('browser_tabs', { action: 'list' }, 'ok', undefined, 'sess-milestone-early')).toBeNull();
   });
 
   it('fires once when the trail reaches 8 entries, then stays silent', () => {
     const sid = 'sess-milestone-once';
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     recordCalls(8);
     const tip = getTip('browser_tabs', { action: 'list' }, 'ok', undefined, sid);
     expect(tip).toContain('8 actions recorded this session');
@@ -304,14 +304,14 @@ describe('getTip — playbooks-milestone tip', () => {
   });
 
   it('never fires for the playbooks tool itself', () => {
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     recordCalls(8);
     expect(getTip('playbooks', { action: 'history' }, 'ok', undefined, 'sess-milestone-pb')).toBeNull();
   });
 
   it('clearTipCounters resets the once-per-session flag', () => {
     const sid = 'sess-clear-milestone';
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     recordCalls(8);
     expect(getTip('browser_tabs', { action: 'list' }, 'ok', undefined, sid)).toContain('8 actions recorded');
     expect(getTip('browser_tabs', { action: 'list' }, 'ok', undefined, sid)).toBeNull();
@@ -337,7 +337,7 @@ describe('getTip — playbooks-repeat tip', () => {
   }
 
   it('fires on a repeated 3-entry window spanning >= 2 distinct tools', () => {
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     recordWindow('https://ex.com/a');
     recordWindow('https://ex.com/a');
     const tip = getTip('browser_tabs', { action: 'list' }, 'ok', undefined, 'sess-repeat-basic');
@@ -346,7 +346,7 @@ describe('getTip — playbooks-repeat tip', () => {
   });
 
   it('does not fire when the repeated window is a single tool (e.g. scroll x3)', () => {
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     for (let i = 0; i < 6; i++) {
       actionTrail.record({
         tool: 'browser_interact', type: 'scroll_by', outcome: 'ok', message: 'ok',
@@ -357,7 +357,7 @@ describe('getTip — playbooks-repeat tip', () => {
   });
 
   it('does not fire when the only matching window overlaps the last window', () => {
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     const rec = (tool: string, url: string) =>
       actionTrail.record({ tool, type: tool, outcome: 'ok', message: 'ok', params: {}, url });
     // Sequence [C, D, A, B, A, B, A]: the A,B,A pattern at indices [4,5,6] also
@@ -375,7 +375,7 @@ describe('getTip — playbooks-repeat tip', () => {
 
   it('fires once per session, not again on the next matching call', () => {
     const sid = 'sess-repeat-once';
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     recordWindow('https://ex.com/a');
     recordWindow('https://ex.com/a');
     expect(getTip('browser_tabs', { action: 'list' }, 'ok', undefined, sid)).toContain('repeat an earlier sequence');
@@ -390,7 +390,7 @@ describe('getTip — playbooks-repeat tip', () => {
   });
 
   it('never fires for the playbooks tool itself', () => {
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     recordWindow('https://ex.com/a');
     recordWindow('https://ex.com/a');
     expect(getTip('playbooks', { action: 'history' }, 'ok', undefined, 'sess-repeat-pb')).toBeNull();
@@ -398,7 +398,7 @@ describe('getTip — playbooks-repeat tip', () => {
 
   it('clearTipCounters resets the once-per-session flag', () => {
     const sid = 'sess-clear-repeat';
-    experimentRegistry.enable('fingerprinting');
+    experimentRegistry.enable('test-session', 'fingerprinting');
     recordWindow('https://ex.com/a');
     recordWindow('https://ex.com/a');
     expect(getTip('browser_tabs', { action: 'list' }, 'ok', undefined, sid)).toContain('repeat an earlier sequence');

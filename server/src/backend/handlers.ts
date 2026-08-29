@@ -18,7 +18,10 @@ import { DaemonClient } from '../daemon-client';
 import { ensureDaemon, stopDaemon, getSockPath } from '../daemon-spawn';
 import { createLog, getRegistry } from '../logger';
 import { experimentRegistry, applyInitialState } from '../experimental/index';
-import { destroySession as destroyHumanization } from '../experimental/mouse-humanization/index';
+import {
+  initSession as initHumanization,
+  destroySession as destroyHumanization,
+} from '../experimental/mouse-humanization/index';
 import { clearTipCounters } from '../tips';
 import { UPGRADE_NOTICE_MESSAGE } from 'shared';
 import { UsageMetricsLogger } from '../usage-metrics-logger';
@@ -171,8 +174,8 @@ export async function onConnect(
       applyTabInfoUpdate(mgr, tabInfo);
     };
 
-    // Bind experiment registry to daemon transport
-    experimentRegistry.bind(client);
+    // Bind experiment registry to daemon transport, keyed by this session's id
+    experimentRegistry.bind(mgr.clientId!, client);
 
     const BB = await getBrowserBridge();
     mgr.bridge = new BB(mgr.config, mgr.extensionServer);
@@ -194,7 +197,14 @@ export async function onConnect(
 
     // Pre-enable session features from resolved config (fire-and-forget IPC to daemon)
     if (mgr.config.configService) {
-      applyInitialState(mgr.config.configService.get().experiments);
+      applyInitialState(mgr.clientId!, mgr.config.configService.get().experiments);
+    }
+
+    // Mouse humanization keeps per-session cursor + personality state. Create
+    // the session here or generateMovement() has nothing to look up and every
+    // humanized move silently degrades to a teleport.
+    if (experimentRegistry.isEnabled('mouse_humanization', mgr.clientId!)) {
+      initHumanization(mgr.clientId!);
     }
 
     // Notify MCP client that tool list changed
@@ -363,10 +373,14 @@ export async function onDisconnect(
     mgr.extensionServer = null;
   }
 
-  // Close session log + clear tip suppression counters
+  // Close session log, clear tip suppression counters, drop session-scoped
+  // experiment + cursor state. All keyed by client_id so a second
+  // ConnectionManager in this process keeps its own.
   if (mgr.clientId) {
     getRegistry().clearSessionLog(mgr.clientId);
     clearTipCounters(mgr.clientId);
+    experimentRegistry.unbind(mgr.clientId);
+    destroyHumanization(mgr.clientId);
   }
 
   mgr.state = 'passive';
@@ -374,8 +388,6 @@ export async function onDisconnect(
   mgr.attachedTab = null;
   mgr.profile = null;
   mgr.extensionConnected = false;
-  destroyHumanization('_default');
-  experimentRegistry.unbind();
 
   mgr.notifyToolsListChanged().catch((err: any) =>
     log('Error sending notification:', err)

@@ -17,11 +17,11 @@ let tmp: string;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-fp-'));
   setBaseDirForTests(tmp);
-  experimentRegistry.enable('fingerprinting');
+  experimentRegistry.enable('test', 'fingerprinting');
 });
 afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
-  experimentRegistry.disable('fingerprinting');
+  experimentRegistry.disable('test', 'fingerprinting');
 });
 
 describe('BrowserBridge — handle event emission', () => {

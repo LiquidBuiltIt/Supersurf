@@ -7,7 +7,7 @@ registerAction({
   async run(ctx, action) {
     const meta = { name: action.name, purpose: action.purpose };
     const { x, y } = await getCenterInFrame(ctx, action.selector, meta);
-    await moveCursorTo(ctx, x, y, '_default');
+    await moveCursorTo(ctx, x, y);
     return `Hovered ${action.selector} at (${x}, ${y})`;
   },
 });

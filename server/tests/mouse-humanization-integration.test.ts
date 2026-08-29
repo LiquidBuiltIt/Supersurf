@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { onInteract } from '../src/tools/interaction';
 import type { ToolContext } from '../src/tools/lib/types';
 import { experimentRegistry } from '../src/experimental/index';
-import { initSession, destroySession } from '../src/experimental/mouse-humanization/index';
+import { initSession, destroySession, getSession } from '../src/experimental/mouse-humanization/index';
 
 // Mock experimental registry to control test behavior
 vi.mock('../src/experimental/index', async () => {
@@ -196,5 +196,42 @@ describe('interaction with mouse_humanization', () => {
   });
 });
 
-// Import afterEach from vitest
-import { afterEach } from 'vitest';
+describe('humanization session keying', () => {
+  const mockIsEnabled = experimentRegistry.isEnabled as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsEnabled.mockReturnValue(true);
+    initSession('session-a');
+    initSession('session-b');
+  });
+
+  afterEach(() => {
+    destroySession('session-a');
+    destroySession('session-b');
+    mockIsEnabled.mockReturnValue(false);
+  });
+
+  it('moves the cursor of the manager that owns the context', async () => {
+    const ctx = createMockCtx();
+    ctx.connectionManager = { clientId: 'session-a', getAttachedTab: () => null };
+
+    await onInteract(ctx, { actions: [{ type: 'mouse_move', x: 400, y: 300 }] }, { rawResult: true });
+
+    expect(getSession('session-a')).toMatchObject({ cursorX: 400, cursorY: 300 });
+    expect(getSession('session-b')).toMatchObject({ cursorX: 0, cursorY: 0 });
+  });
+
+  it('keeps two managers cursor state independent', async () => {
+    const a = createMockCtx();
+    a.connectionManager = { clientId: 'session-a', getAttachedTab: () => null };
+    const b = createMockCtx();
+    b.connectionManager = { clientId: 'session-b', getAttachedTab: () => null };
+
+    await onInteract(a, { actions: [{ type: 'mouse_move', x: 100, y: 100 }] }, { rawResult: true });
+    await onInteract(b, { actions: [{ type: 'mouse_move', x: 700, y: 500 }] }, { rawResult: true });
+
+    expect(getSession('session-a')).toMatchObject({ cursorX: 100, cursorY: 100 });
+    expect(getSession('session-b')).toMatchObject({ cursorX: 700, cursorY: 500 });
+  });
+});

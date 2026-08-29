@@ -127,7 +127,7 @@ registerAction({
     // are live for the click itself.
     await evalInFrameOrTop(ctx, armProbeExpr(targetExpr), clickContextId).catch(() => {});
 
-    await moveCursorTo(ctx, x, y, '_default');
+    await moveCursorTo(ctx, x, y);
     await ctx.cdp('Input.dispatchMouseEvent', {
       type: 'mousePressed', x, y, button, clickCount, buttons: 1,
     });
