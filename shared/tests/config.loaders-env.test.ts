@@ -81,4 +81,23 @@ describe('loadEnvConfig', () => {
     expect(config.screenshot?.omit_path).toBeUndefined();
     expect(warnings[0]).toMatch(/SUPERSURF_SCREENSHOT_OMIT_PATH/);
   });
+
+  it('SUPERSURF_DISABLE_PLAYBOOK_EVAL=1 turns playbook_eval off', () => {
+    const { config } = loadEnvConfig({ SUPERSURF_DISABLE_PLAYBOOK_EVAL: '1' });
+    expect(config.security?.playbook_eval).toBe(false);
+  });
+
+  it('leaves playbook_eval untouched when the env var is absent or falsy', () => {
+    expect(loadEnvConfig({}).config.security?.playbook_eval).toBeUndefined();
+    expect(loadEnvConfig({ SUPERSURF_DISABLE_PLAYBOOK_EVAL: '0' }).config.security?.playbook_eval).toBeUndefined();
+  });
+
+  it('can disable both eval gates at once without clobbering either', () => {
+    const { config } = loadEnvConfig({
+      SUPERSURF_DISABLE_SECURE_EVAL: '1',
+      SUPERSURF_DISABLE_PLAYBOOK_EVAL: '1',
+    });
+    expect(config.security?.secure_eval).toBe(false);
+    expect(config.security?.playbook_eval).toBe(false);
+  });
 });

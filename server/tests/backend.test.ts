@@ -4,7 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { ConnectionManager, BackendConfig } from '../src/backend';
 import { ConfigService } from 'shared';
-import { setBaseDirForTests, savePlaybook } from '../src/playbooks/store';
+import { setPlaybooksDirForTests, playbookFile } from '../src/playbooks/paths';
+import { refreshRegistry, resetRegistryForTests, setValidatorForTests } from '../src/playbooks/registry';
 import { ensureDaemon, stopDaemon } from '../src/daemon-spawn';
 
 // ---- Mocks ----
@@ -481,83 +482,32 @@ describe('ConnectionManager', () => {
     });
   });
 
-  // ---- callTool('playbooks', action: 'run') — implicit connect ----
+  // ---- callTool('playbooks') — passive-state routing ----
 
-  describe('callTool("playbooks", action: "run") — implicit connect', () => {
+  describe('callTool("playbooks") — passive-state routing', () => {
     let pbDir: string;
+
+    function rec(name: string): any {
+      return {
+        file: playbookFile(name), name, hash: name, valid: true,
+        meta: { description: `does ${name}` }, signature: `${name}()`, validatedAt: 1,
+      };
+    }
 
     beforeEach(async () => {
       pbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-backend-'));
-      setBaseDirForTests(pbDir);
+      setPlaybooksDirForTests(pbDir);
+      resetRegistryForTests();
+      fs.writeFileSync(playbookFile('flow'), '// ok');
+      setValidatorForTests(async () => rec('flow'));
+      await refreshRegistry();
       await backend.initialize(makeMockServer(), {});
     });
 
     afterEach(() => {
+      setValidatorForTests(null);
+      resetRegistryForTests();
       fs.rmSync(pbDir, { recursive: true, force: true });
-    });
-
-    it('passive state: connects implicitly, then routes the call to the bridge', async () => {
-      const { ensureDaemon } = await import('../src/daemon-spawn');
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      await backend.callTool('playbooks', { action: 'run', name: 'ghost' });
-
-      expect(ensureDaemon).toHaveBeenCalled();
-      expect(mockBridgeInstance.callTool).toHaveBeenCalledWith(
-        'playbooks', { action: 'run', name: 'ghost' }, {}
-      );
-      const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('active');
-    });
-
-    it('passive state: prepends the implicit-connect note to the run result', async () => {
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'ghost' });
-
-      expect(result.content[0].text).toContain('Connected implicitly to run playbook.');
-      expect(result.content[0].text).toContain('ran ok');
-    });
-
-    it('passive state with an explicit profile: names the profile in the note and passes it to profiles.connect', async () => {
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'ghost', profile: 'proj-a' });
-
-      expect(result.content[0].text).toContain('Connected implicitly (profile: proj-a) to run playbook.');
-      expect(mockDaemonClientInstance.sendCmd).toHaveBeenCalledWith(
-        'profiles.connect', { profile: 'proj-a' }, 50000
-      );
-    });
-
-    it('passive state falls back to the playbook\'s own profile field when no explicit profile is given', async () => {
-      savePlaybook({ name: 'field_bound', purpose: 'p', steps: [], createdAt: 1, version: 1, profile: 'field-profile' });
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'field_bound' });
-
-      expect(result.content[0].text).toContain('Connected implicitly (profile: field-profile) to run playbook.');
-    });
-
-    it('detach: true disconnects after the run and says so', async () => {
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'ghost', detach: true });
-
-      expect(result.content[0].text).toContain('Disconnected after run (detach requested).');
-      expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
-      const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('passive');
-    });
-
-    it('detach: false (default) leaves the session active after the run', async () => {
-      mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
-
-      await backend.callTool('playbooks', { action: 'run', name: 'ghost' });
-
-      expect(mockDaemonClientInstance.stop).not.toHaveBeenCalled();
-      const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('active');
     });
 
     it('non-run playbook actions still error as not-active in passive state', async () => {
@@ -567,26 +517,28 @@ describe('ConnectionManager', () => {
       expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
     });
 
-    it('passive state: `list` answers directly from the store, without a bridge', async () => {
-      savePlaybook({ name: 'flow', purpose: 'p', steps: [], createdAt: 1, version: 1 });
-
+    it('passive state: `list` answers from the registry, without a bridge', async () => {
       const result = await backend.callTool('playbooks', { action: 'list' });
 
       expect(result.content[0].text).toContain('flow');
       expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
       const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('passive'); // no implicit connect happened
+      expect(status.state).toBe('passive');
     });
 
-    it('passive state: `inspect` answers directly from the store, without a bridge', async () => {
-      savePlaybook({
-        name: 'flow', purpose: 'p', createdAt: 1, version: 1,
-        steps: [{ tool: 'browser_navigate', type: 'browser_navigate', params: {}, url: 'https://example.com', sourceId: 1 }],
-      });
-
+    it('passive state: `inspect` answers from the registry, without a bridge', async () => {
       const result = await backend.callTool('playbooks', { action: 'inspect', name: 'flow' });
 
       expect(result.content[0].text).toContain('flow');
+      expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
+      const status = await backend.callTool('status', {}, { rawResult: true });
+      expect(status.state).toBe('passive');
+    });
+
+    it('passive state: `validate` answers from the registry, without a bridge', async () => {
+      const result = await backend.callTool('playbooks', { action: 'validate' });
+
+      expect(result.content[0].text).toContain('✓ flow');
       expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
       const status = await backend.callTool('status', {}, { rawResult: true });
       expect(status.state).toBe('passive');
@@ -597,6 +549,14 @@ describe('ConnectionManager', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('ghost');
+      expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
+    });
+
+    it('passive state: `run` is NOT implicitly connected — a run owns its own session', async () => {
+      const result = await backend.callTool('playbooks', { action: 'run', name: 'flow' }, { rawResult: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('not_enabled');
       expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
     });
 
@@ -611,48 +571,19 @@ describe('ConnectionManager', () => {
       expect(result.content[0].text).toBe('listed');
     });
 
-    it('active state: a resolved profile that mismatches the bound profile is refused without running', async () => {
-      await backend.callTool('connect', { client_id: 'test', profile: 'proj-a' });
-      mockBridgeInstance.callTool.mockClear();
-
-      const result = await backend.callTool(
-        'playbooks', { action: 'run', name: 'ghost', profile: 'proj-b' }, { rawResult: true }
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('profile_mismatch');
-      expect(mockBridgeInstance.callTool).not.toHaveBeenCalled();
-      const status = await backend.callTool('status', {}, { rawResult: true });
-      expect(status.state).toBe('active'); // unchanged — no re-bind was attempted
-    });
-
-    it('active state: a matching resolved profile runs on the current session as usual', async () => {
+    it('active state: `run` routes through the bridge without a profile-mismatch check', async () => {
       await backend.callTool('connect', { client_id: 'test', profile: 'proj-a' });
       mockBridgeInstance.callTool.mockClear();
       mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
 
-      const result = await backend.callTool('playbooks', { action: 'run', name: 'ghost', profile: 'proj-a' });
+      const result = await backend.callTool('playbooks', { action: 'run', name: 'flow', profile: 'proj-b' });
 
       expect(mockBridgeInstance.callTool).toHaveBeenCalledWith(
-        'playbooks', { action: 'run', name: 'ghost', profile: 'proj-a' }, {}
+        'playbooks', { action: 'run', name: 'flow', profile: 'proj-b' }, {}
       );
-      // No implicit-connect note — the session was already active.
-      expect(result.content[0].text).not.toContain('Connected implicitly');
-    });
-
-    it('active state: no resolved profile runs on the current session as usual', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
-      mockBridgeInstance.callTool.mockClear();
-
-      await backend.callTool('playbooks', { action: 'run', name: 'ghost' });
-
-      expect(mockBridgeInstance.callTool).toHaveBeenCalledWith(
-        'playbooks', { action: 'run', name: 'ghost' }, {}
-      );
+      expect(result.content[0].text).toBe('ran ok');
     });
   });
-
-  // ---- callTool('profile_*') ----
 
   describe('callTool profile tools', () => {
     beforeEach(async () => {
@@ -953,82 +884,140 @@ describe('ConnectionManager', () => {
 
   describe('statusHeader() — playbook discovery hint', () => {
     let pbDir: string;
+    const metas: Record<string, any> = {};
 
     beforeEach(async () => {
       pbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-hint-backend-'));
-      setBaseDirForTests(pbDir);
+      setPlaybooksDirForTests(pbDir);
+      resetRegistryForTests();
+      for (const k of Object.keys(metas)) delete metas[k];
+      setValidatorForTests(async (f: string) => {
+        const name = path.basename(f).replace('.playbook.js', '');
+        return {
+          file: f, name, hash: `${name}:${JSON.stringify(metas[name])}`, valid: true,
+          signature: `${name}()`, validatedAt: 1, meta: metas[name],
+        } as any;
+      });
       await backend.initialize(makeMockServer(), {});
       await backend.callTool('connect', { client_id: 'test' });
     });
 
     afterEach(() => {
+      setValidatorForTests(null);
+      resetRegistryForTests();
       fs.rmSync(pbDir, { recursive: true, force: true });
     });
 
-    function seed(name: string, url: string) {
-      savePlaybook({
-        name, purpose: 'p',
-        steps: [{ tool: 'browser_navigate', type: 'browser_navigate', params: {}, url, sourceId: 1 }],
-        createdAt: 1, version: 1,
-      });
+    /** Write a script and refresh, the way a real tool call would. */
+    async function seed(name: string, startingPoint: string) {
+      metas[name] = { description: 'p', startingPoint };
+      fs.writeFileSync(playbookFile(name), `// ${name}`);
+      await refreshRegistry();
     }
 
-    it('renders the hint when the attached tab domain matches a saved playbook', () => {
-      seed('gh_login', 'https://github.com/login');
+    it('renders the hint when the attached tab domain matches a script startingPoint', async () => {
+      await seed('gh_login', 'github.com');
       backend.setAttachedTab({ id: 1, index: 0, url: 'https://github.com/settings' });
 
       const header = backend.statusHeader();
       expect(header).toContain('► 1 playbooks available: gh_login | playbooks "list" for more details');
     });
 
-    it('omits the hint when there is no tab attached', () => {
-      seed('gh_login', 'https://github.com/login');
-      const header = backend.statusHeader();
-      expect(header).not.toContain('playbooks available');
+    it('omits the hint when there is no tab attached', async () => {
+      await seed('gh_login', 'github.com');
+      expect(backend.statusHeader()).not.toContain('playbooks available');
     });
 
-    it('omits the hint when no playbook matches the tab domain', () => {
-      seed('gh_login', 'https://github.com/login');
+    it('omits the hint when no script matches the tab domain', async () => {
+      await seed('gh_login', 'github.com');
       backend.setAttachedTab({ id: 1, index: 0, url: 'https://example.com/' });
-      const header = backend.statusHeader();
-      expect(header).not.toContain('playbooks available');
+      expect(backend.statusHeader()).not.toContain('playbooks available');
     });
 
-    it('shows the hint once per domain, then suppresses it for the rest of the session', () => {
-      seed('gh_login', 'https://github.com/login');
+    it('shows the hint once per domain, then suppresses it for the rest of the session', async () => {
+      await seed('gh_login', 'github.com');
       backend.setAttachedTab({ id: 1, index: 0, url: 'https://github.com/settings' });
 
-      const first = backend.statusHeader();
-      const second = backend.statusHeader();
-      const third = backend.statusHeader();
-
-      expect(first).toContain('playbooks available');
-      expect(second).not.toContain('playbooks available');
-      expect(third).not.toContain('playbooks available');
+      expect(backend.statusHeader()).toContain('playbooks available');
+      expect(backend.statusHeader()).not.toContain('playbooks available');
+      expect(backend.statusHeader()).not.toContain('playbooks available');
     });
 
-    it('still hints for a second, different domain after the first was suppressed', () => {
-      seed('gh_login', 'https://github.com/login');
-      seed('example_flow', 'https://example.com/start');
+    it('still hints for a second, different domain after the first was suppressed', async () => {
+      await seed('gh_login', 'github.com');
+      await seed('example_flow', 'https://example.com/start');
 
       backend.setAttachedTab({ id: 1, index: 0, url: 'https://github.com/settings' });
-      const first = backend.statusHeader();
-      expect(first).toContain('gh_login');
+      expect(backend.statusHeader()).toContain('gh_login');
 
       backend.setAttachedTab({ id: 1, index: 0, url: 'https://example.com/other' });
-      const second = backend.statusHeader();
-      expect(second).toContain('example_flow');
+      expect(backend.statusHeader()).toContain('example_flow');
     });
 
-    it('invalidatePlaybookIndex() forces a rebuild that picks up a newly saved playbook', () => {
+    it('a tool call picks up a script added after the last one — no manual invalidation', async () => {
       backend.setAttachedTab({ id: 1, index: 0, url: 'https://github.com/settings' });
       expect(backend.statusHeader()).not.toContain('playbooks available');
 
-      seed('gh_login', 'https://github.com/login');
-      // Without invalidation the cached (empty) index would still miss this domain.
-      backend.invalidatePlaybookIndex();
+      await seed('gh_login', 'github.com');
+      // The old code needed `invalidatePlaybookIndex()` here. `callTool` now
+      // refreshes the registry and drops the projection on every call.
+      await backend.callTool('status', {}, { rawResult: true });
 
       expect(backend.statusHeader()).toContain('gh_login');
+    });
+  });
+
+  describe('statusHeader() — invalid playbook warning', () => {
+    let pbDir: string;
+    let broken = true;
+
+    beforeEach(async () => {
+      pbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-warn-backend-'));
+      setPlaybooksDirForTests(pbDir);
+      resetRegistryForTests();
+      broken = true;
+      fs.writeFileSync(playbookFile('bad'), '// bad');
+      setValidatorForTests(async (f: string) => ({
+        file: f, name: 'bad', hash: broken ? 'h1' : 'h2', valid: !broken,
+        error: broken ? 'blocked API: require' : undefined,
+        meta: broken ? undefined : { description: 'ok' },
+        signature: 'bad()', validatedAt: 1,
+      } as any));
+      await refreshRegistry();
+      await backend.initialize(makeMockServer(), {});
+    });
+
+    afterEach(() => {
+      setValidatorForTests(null);
+      resetRegistryForTests();
+      fs.rmSync(pbDir, { recursive: true, force: true });
+    });
+
+    it('names the broken script in the passive header, before connect', () => {
+      const header = backend.statusHeader();
+      expect(header).toContain('bad: blocked API: require');
+    });
+
+    it('warns once per name+error, not on every response', () => {
+      expect(backend.statusHeader()).toContain('bad: blocked API: require');
+      expect(backend.statusHeader()).not.toContain('blocked API: require');
+    });
+
+    it('places the warning above the discovery hint', async () => {
+      await backend.callTool('connect', { client_id: 'test' });
+      fs.writeFileSync(playbookFile('gh_login'), '// gh');
+      setValidatorForTests(async (f: string) => {
+        const name = path.basename(f).replace('.playbook.js', '');
+        return name === 'bad'
+          ? { file: f, name, hash: 'h1', valid: false, error: 'blocked API: require', signature: 'bad()', validatedAt: 1 } as any
+          : { file: f, name, hash: 'g1', valid: true, signature: 'gh_login()', validatedAt: 1, meta: { description: 'g', startingPoint: 'github.com' } } as any;
+      });
+      resetRegistryForTests();
+      await refreshRegistry();
+      backend.setAttachedTab({ id: 1, index: 0, url: 'https://github.com/settings' });
+
+      const header = backend.statusHeader();
+      expect(header.indexOf('blocked API: require')).toBeLessThan(header.indexOf('playbooks available'));
     });
   });
 

@@ -72,6 +72,10 @@ export function loadEnvConfig(env: Record<string, string | undefined>): LoadResu
     out.security = { ...(out.security || {}), secure_eval: false };
   }
 
+  if (isTruthy(env.SUPERSURF_DISABLE_PLAYBOOK_EVAL)) {
+    out.security = { ...(out.security || {}), playbook_eval: false };
+  }
+
   if (env.SUPERSURF_DEBUG !== undefined) {
     if (env.SUPERSURF_DEBUG === 'no_truncate') {
       out.logging = { ...(out.logging || {}), debug: 'no_truncate' };

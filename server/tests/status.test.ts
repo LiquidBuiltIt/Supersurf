@@ -55,3 +55,34 @@ describe('buildStatusHeader — playbook discovery hint', () => {
     expect(header).not.toContain('playbooks available');
   });
 });
+
+describe('buildStatusHeader — invalid playbook warning', () => {
+  const activeBase = {
+    ...base,
+    state: 'connected' as const,
+    attachedTab: { id: 1, index: 0, url: 'https://github.com/' },
+  };
+  const warn = '⚠️ 1 playbook failed validation — bad: blocked API: require';
+  const hint = '► 1 playbooks available: gh_login | playbooks "list" for more details';
+
+  it('renders the warning ABOVE the hint — a broken file is never hidden behind a suggestion', () => {
+    const header = buildStatusHeader({ ...activeBase, playbookHint: hint, playbookWarning: warn });
+    expect(header).toContain(`\n${warn}\n${hint}\n---\n\n`);
+  });
+
+  it('renders the warning on its own line when there is no hint', () => {
+    const header = buildStatusHeader({ ...activeBase, playbookWarning: warn });
+    expect(header).toContain(`\n${warn}\n---\n\n`);
+  });
+
+  it('omits the warning line when playbookWarning is null or absent', () => {
+    expect(buildStatusHeader({ ...activeBase, playbookWarning: null })).not.toContain('failed validation');
+    expect(buildStatusHeader({ ...activeBase })).not.toContain('failed validation');
+  });
+
+  it('renders the warning in the passive header too — validate answers before connect', () => {
+    const header = buildStatusHeader({ ...base, state: 'passive' as const, playbookWarning: warn });
+    expect(header).toContain('🔴 v9.9.9 | Disabled');
+    expect(header).toContain(warn);
+  });
+});

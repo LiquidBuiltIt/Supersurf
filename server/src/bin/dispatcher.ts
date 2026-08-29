@@ -18,7 +18,7 @@ Commands:
   daemon    Manage the coordinator daemon: start | stop | restart | status | observe
   profiles  Manage browser profiles: ls | open <name> | create <name> | rm <name> | rename <old> <new>
   export    Bundle usage-metrics logs into a .zip in the current directory
-  playbook  Manage saved playbooks: ls | inspect | edit | rm | export | import
+  playbook  Playbook scripts: ls | inspect <name> | validate [name] | run <name> [--param k=v] | migrate
 
 Examples:
   npx supersurf-mcp@latest mcp

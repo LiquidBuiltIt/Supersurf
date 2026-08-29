@@ -39,4 +39,8 @@ describe('config defaults', () => {
     cloneNoMetrics.logging.usage_metrics = false;
     expect(cloneNoMetrics).toEqual(HARDCODED_DEFAULTS);
   });
+
+  it('HARDCODED_DEFAULTS has playbook_eval on', () => {
+    expect(HARDCODED_DEFAULTS.security.playbook_eval).toBe(true);
+  });
 });

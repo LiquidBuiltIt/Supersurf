@@ -290,7 +290,10 @@ describe('getTip — playbooks-milestone tip', () => {
     recordCalls(8);
     const tip = getTip('browser_tabs', { action: 'list' }, 'ok', undefined, sid);
     expect(tip).toContain('8 actions recorded this session');
-    expect(tip).toContain('playbooks create');
+    // Points at `history`, not a save command — SuperSurf never writes a playbook.
+    expect(tip).toContain('playbooks history');
+    expect(tip).toContain('.playbook.js');
+    expect(tip).not.toContain('playbooks create');
 
     // Trail state still qualifies, but the tip already fired this session.
     expect(getTip('browser_tabs', { action: 'list' }, 'ok', undefined, sid)).toBeNull();
@@ -342,7 +345,8 @@ describe('getTip — playbooks-repeat tip', () => {
     recordWindow('https://ex.com/a');
     const tip = getTip('browser_tabs', { action: 'list' }, 'ok', undefined, 'sess-repeat-basic');
     expect(tip).toContain('repeat an earlier sequence');
-    expect(tip).toContain('playbooks create');
+    expect(tip).toContain('playbooks history');
+    expect(tip).not.toContain('playbooks create');
   });
 
   it('does not fire when the repeated window is a single tool (e.g. scroll x3)', () => {
