@@ -25,11 +25,10 @@
  * - {@link wrapWithPageProxy} — runtime Proxy wrapper for page-context execution
  * - {@link AnalysisResult} — analysis outcome type
  */
-/** Result of static code analysis — safe to execute or blocked with a reason. */
-export interface AnalysisResult {
-    safe: boolean;
-    reason?: string;
-}
+import { type AnalysisResult } from '../../security/analyzer';
+/** Result of static code analysis — safe to execute or blocked with a reason.
+ *  Re-exported from `security/analyzer` so this module's public API is unchanged. */
+export type { AnalysisResult };
 /**
  * Statically analyze JavaScript code for dangerous patterns.
  *

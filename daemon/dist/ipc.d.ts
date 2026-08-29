@@ -58,6 +58,17 @@ export declare class IPCServer {
     /** Handle a profile IPC request directly (no scheduler round-trip). */
     private handleProfileRequest;
     /**
+     * Race the matchmaker wait against a liveness watch on the just-spawned
+     * Chromium. Only watches when this request performed the spawn — a
+     * user-launched browser is not registry-tracked, so watchPid=false skips
+     * the watch entirely. The registry self-heals (spawnProfile's exit handler
+     * clears the PID), so isRunning() flipping false means the process died.
+     * Accepted scope gap: the watch only arms for Chromium this request spawned
+     * (watchPid/didSpawn) — an already-running profile that dies mid-match
+     * falls back to the full 45s timeout by design.
+     */
+    private awaitMatchWithDeathWatch;
+    /**
      * Spawn Chromium for a profile through the bootstrap queue.
      * owner='daemon': killed when the last session for the profile disconnects.
      * owner='user': survives sessions, daemon shutdown, and the orphan sweep.

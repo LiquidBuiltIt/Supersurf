@@ -19,6 +19,7 @@ const forms_1 = require("../forms");
 const downloads_1 = require("../downloads");
 const misc_1 = require("../misc");
 const browser_evaluate_1 = require("../browser_evaluate");
+const browser_storage_1 = require("../browser_storage");
 /**
  * Invoke the handler for `name`. Returns the handler's MCP result, or
  * `null` when no built-in or experimental tool matches the name.
@@ -47,6 +48,7 @@ async function callToolHandler(ctx, name, args, options) {
         case 'browser_performance_metrics': return (0, misc_1.onPerformanceMetrics)(ctx, options);
         case 'browser_download': return (0, downloads_1.onBrowserDownload)(ctx, args, options);
         case 'secure_fill': return (0, forms_1.onSecureFill)(ctx, args, options);
+        case 'browser_storage': return (0, browser_storage_1.onBrowserStorage)(ctx, args, options);
         default: return (0, index_1.callExperimentalTool)(name, ctx, args, options);
     }
 }

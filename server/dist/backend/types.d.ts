@@ -61,6 +61,11 @@ export interface ConnectionManagerAPI {
      *  unmanaged/no-profile connect. Set by `onConnect` on a successful
      *  `profiles.connect`, cleared on disconnect. */
     profile: string | null;
+    /** Slot-scoped extension presence: the session's bound profile slot, or the
+     *  unmanaged slot when no profile. Seeded at connect (session_ack /
+     *  profiles.connect), then event-driven: "Extension not connected" errors
+     *  flip it false, successful bridge calls flip it true. */
+    extensionConnected: boolean;
     metricsLogger: UsageMetricsLogger | null;
     /** Reason the last `connect` attempt failed, surfaced in the passive status
      *  header so `status` reports the real cause (e.g. port held / EADDRINUSE)

@@ -51,8 +51,6 @@ exports.onConnect = onConnect;
 exports.applyTabInfoUpdate = applyTabInfoUpdate;
 exports.rehydrateAttachedTab = rehydrateAttachedTab;
 exports.onDisconnect = onDisconnect;
-exports.checkPlaybookProfileMismatch = checkPlaybookProfileMismatch;
-exports.onPlaybooksRunImplicit = onPlaybooksRunImplicit;
 exports.onStatus = onStatus;
 exports.onProfileCreate = onProfileCreate;
 exports.onProfileList = onProfileList;
@@ -65,8 +63,6 @@ const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const tips_1 = require("../tips");
 const shared_1 = require("../shared");
-const usage_metrics_logger_1 = require("../usage-metrics-logger");
-const playbooks_1 = require("../tools/playbooks");
 const log = (0, logger_1.createLog)('[Conn]');
 // Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
 let BrowserBridge = null;
@@ -138,21 +134,31 @@ async function onConnect(mgr, args = {}, options = {}) {
         await (0, daemon_spawn_1.ensureDaemon)(port, mgr.debugMode, mgr.config.enabledExperiments || []);
         // Connect to daemon via Unix socket
         const sockPath = (0, daemon_spawn_1.getSockPath)();
-        const client = new daemon_client_1.DaemonClient(sockPath, mgr.clientId);
+        let client = new daemon_client_1.DaemonClient(sockPath, mgr.clientId);
         await client.start();
-        // Refuse to attach to a daemon of a different generation. A freshly
-        // spawned bundled daemon always matches this server's version; a
-        // mismatch means ensureDaemon attached to a pre-existing daemon (e.g.
-        // a stale v2 process still running). A null version is a pre-v3 daemon
-        // that predates the handshake version field — also a mismatch.
-        const daemonVersion = client.version;
+        // Refuse to attach to a daemon of a different generation. ensureDaemon
+        // only checks PID liveness, so a stale daemon from a previous package
+        // version survives upgrades — restart it once with the bundled daemon
+        // (owner decision 2026-08-25: daemon lifecycle is server-owned infra,
+        // so the restart lives in core, not smart mode).
+        let daemonVersion = client.version;
         const serverVersion = mgr.config.server.version;
+        if (daemonVersion !== serverVersion) {
+            log(`Daemon version mismatch (daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}) — restarting daemon`);
+            await client.stop().catch(() => { });
+            await (0, daemon_spawn_1.stopDaemon)();
+            await (0, daemon_spawn_1.ensureDaemon)(port, mgr.debugMode, mgr.config.enabledExperiments || []);
+            client = new daemon_client_1.DaemonClient(sockPath, mgr.clientId);
+            await client.start();
+            daemonVersion = client.version;
+        }
         if (daemonVersion !== serverVersion) {
             await client.stop().catch(() => { });
             mgr.state = 'passive';
-            const hint = `A different daemon version is already running ` +
+            const hint = `A different daemon version is still running after an automatic restart ` +
                 `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ` +
-                'Restart it to continue: `npx supersurf-daemon@latest restart`';
+                'Something outside this server keeps respawning it. Restart it manually: ' +
+                '`npx supersurf-daemon@latest restart`';
             if (options.rawResult) {
                 return { success: false, error: 'version_mismatch', message: hint };
             }
@@ -164,6 +170,13 @@ async function onConnect(mgr, args = {}, options = {}) {
         mgr.extensionServer = client;
         // Handle extension reconnections — re-query the attached tab so its URL is
         // restored immediately, rather than waiting for the next navigation event.
+        // Note: `client` here is always a DaemonClient, and DaemonClient never
+        // invokes `onReconnect` (only the legacy bridge.ts ExtensionServer does,
+        // on a raw WS reconnect) — so this hook does not currently fire in the
+        // live daemon transport. `extensionConnected` intentionally stays
+        // whatever it was last set to (seeded false/true at connect, then
+        // event-driven by bridge call outcomes) until wired to a real daemon
+        // reconnect signal.
         mgr.extensionServer.onReconnect = () => {
             log('Extension reconnected, rehydrating tab state...');
             void rehydrateAttachedTab(mgr, mgr.extensionServer);
@@ -173,22 +186,32 @@ async function onConnect(mgr, args = {}, options = {}) {
             log('Tab info update:', tabInfo);
             applyTabInfoUpdate(mgr, tabInfo);
         };
-        // Bind experiment registry to daemon transport
-        index_1.experimentRegistry.bind(client);
+        // Bind experiment registry to daemon transport, keyed by this session's id
+        index_1.experimentRegistry.bind(mgr.clientId, client);
         const BB = await getBrowserBridge();
         mgr.bridge = new BB(mgr.config, mgr.extensionServer);
         await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr, mgr.metricsLogger);
         mgr.state = 'active';
         mgr.connectedBrowserName = client.browser;
+        mgr.extensionConnected = client.extensionConnected;
         // Connect to a managed profile if requested
         if (args.profile && typeof args.profile === 'string') {
             log('Connecting to profile:', args.profile);
-            await client.sendCmd('profiles.connect', { profile: args.profile }, 90000);
+            await client.sendCmd('profiles.connect', { profile: args.profile }, 50000);
             mgr.profile = args.profile;
+            // profiles.connect resolves only when the matchmaker has a live
+            // extension connection for this profile slot.
+            mgr.extensionConnected = true;
         }
         // Pre-enable session features from resolved config (fire-and-forget IPC to daemon)
         if (mgr.config.configService) {
-            (0, index_1.applyInitialState)(mgr.config.configService.get().experiments);
+            (0, index_1.applyInitialState)(mgr.clientId, mgr.config.configService.get().experiments);
+        }
+        // Mouse humanization keeps per-session cursor + personality state. Create
+        // the session here or generateMovement() has nothing to look up and every
+        // humanized move silently degrades to a teleport.
+        if (index_1.experimentRegistry.isEnabled('mouse_humanization', mgr.clientId)) {
+            (0, index_2.initSession)(mgr.clientId);
         }
         // Notify MCP client that tool list changed
         mgr.notifyToolsListChanged().catch((err) => log('Error sending notification:', err));
@@ -210,8 +233,11 @@ async function onConnect(mgr, args = {}, options = {}) {
                     text: mgr.statusHeader() +
                         (mgr.config.showUpgradeNotice ? `${shared_1.UPGRADE_NOTICE_MESSAGE}\n\n` : '') +
                         `### Connected to Service\n\n` +
-                        `**State:** Active\n` +
+                        `**State:** ${mgr.extensionConnected ? 'Active' : 'Active — no extension connected'}\n` +
                         `**Browser:** ${mgr.connectedBrowserName}\n\n` +
+                        (mgr.extensionConnected
+                            ? ''
+                            : `⚠️ **No extension connected** — browser tools will fail. Open the SuperSurf popup and click "Enable", or reconnect with \`profile:'<name>'\` to spawn a managed browser.\n\n`) +
                         `**Next Steps:**\n` +
                         `1. Call \`browser_tabs action='list'\` to see tabs\n` +
                         `2. Call \`browser_tabs action='attach' index=N\` to attach\n\n` +
@@ -229,6 +255,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         }
         mgr.state = 'passive';
         mgr.profile = null;
+        mgr.extensionConnected = false;
         // Remember why, so a follow-up `status` call surfaces the real cause
         // (e.g. wedged-port EADDRINUSE) instead of a bare cached "Disabled".
         mgr.lastConnectError = error.message;
@@ -324,17 +351,20 @@ async function onDisconnect(mgr, options = {}) {
         await mgr.extensionServer.stop();
         mgr.extensionServer = null;
     }
-    // Close session log + clear tip suppression counters
+    // Close session log, clear tip suppression counters, drop session-scoped
+    // experiment + cursor state. All keyed by client_id so a second
+    // ConnectionManager in this process keeps its own.
     if (mgr.clientId) {
         (0, logger_1.getRegistry)().clearSessionLog(mgr.clientId);
         (0, tips_1.clearTipCounters)(mgr.clientId);
+        index_1.experimentRegistry.unbind(mgr.clientId);
+        (0, index_2.destroySession)(mgr.clientId);
     }
     mgr.state = 'passive';
     mgr.connectedBrowserName = null;
     mgr.attachedTab = null;
     mgr.profile = null;
-    (0, index_2.destroySession)('_default');
-    index_1.experimentRegistry.unbind();
+    mgr.extensionConnected = false;
     mgr.notifyToolsListChanged().catch((err) => log('Error sending notification:', err));
     if (options.rawResult) {
         return { success: true, state: 'passive' };
@@ -348,72 +378,6 @@ async function onDisconnect(mgr, options = {}) {
             },
         ],
     };
-}
-// ─── Playbooks — implicit connect ─────────────────────────────
-/**
- * Check an active/connected session's bound profile against the profile a
- * `playbooks run` call resolves to (explicit `profile` arg, else the
- * playbook's own `profile` field). Returns an error response on mismatch, or
- * `null` when the call may proceed on the current session unchanged. Never
- * re-binds — a mismatch is refused, not silently corrected.
- */
-function checkPlaybookProfileMismatch(mgr, args, options = {}) {
-    const resolved = (0, playbooks_1.resolveRunProfile)(args);
-    if (!resolved || resolved === mgr.profile)
-        return null;
-    const bound = mgr.profile ? `\`${mgr.profile}\`` : 'no profile';
-    const msg = `Playbook targets profile \`${resolved}\`, but the current session is bound to ${bound}. ` +
-        `Call \`disconnect\` then \`connect\` with \`profile: '${resolved}'\`, or omit \`profile\` ` +
-        `to run it on the current session instead.`;
-    if (options.rawResult) {
-        return { success: false, error: 'profile_mismatch', message: msg };
-    }
-    return { content: [{ type: 'text', text: msg }], isError: true };
-}
-/**
- * Passive-state `playbooks run`: connect implicitly — resolving the target
- * profile the same way `checkPlaybookProfileMismatch` does — then run the
- * playbook on the fresh session, then disconnect again if `detach` was
- * requested. Reuses `onConnect`/`onDisconnect` directly rather than
- * duplicating daemon spawn/handshake logic.
- */
-async function onPlaybooksRunImplicit(mgr, args, options = {}) {
-    const resolvedProfile = (0, playbooks_1.resolveRunProfile)(args);
-    const detach = args.detach === true;
-    const clientId = `playbooks-implicit-${Date.now()}`;
-    const connectArgs = { client_id: clientId };
-    if (resolvedProfile)
-        connectArgs.profile = resolvedProfile;
-    // Match the metrics-logger bootstrap `backend.ts` does for an explicit
-    // `connect` call, or an implicitly-connected session silently loses
-    // usage-metrics logging for the rest of its life.
-    const metricsEnabled = mgr.config.configService?.get().logging.usage_metrics ?? false;
-    if (!mgr.metricsLogger && metricsEnabled) {
-        mgr.metricsLogger = new usage_metrics_logger_1.UsageMetricsLogger(clientId);
-    }
-    const connectResult = await onConnect(mgr, connectArgs, options);
-    const connectFailed = options.rawResult ? connectResult?.success === false : connectResult?.isError === true;
-    if (connectFailed)
-        return connectResult;
-    const noteLines = [
-        resolvedProfile
-            ? `Connected implicitly (profile: ${resolvedProfile}) to run playbook.`
-            : 'Connected implicitly to run playbook.',
-    ];
-    let runResult;
-    try {
-        runResult = await mgr.bridge.callTool('playbooks', args, options);
-    }
-    finally {
-        if (detach) {
-            await onDisconnect(mgr, options);
-            noteLines.push('Disconnected after run (detach requested).');
-        }
-    }
-    if (runResult?.content?.[0]?.type === 'text') {
-        runResult.content[0].text = `${noteLines.join('\n')}\n\n${runResult.content[0].text}`;
-    }
-    return runResult;
 }
 // ─── Status ──────────────────────────────────────────────────
 /** Return current connection state, browser info, and attached tab details. */

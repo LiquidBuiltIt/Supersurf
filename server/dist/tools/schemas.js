@@ -15,6 +15,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getToolSchemas = getToolSchemas;
+const browser_storage_1 = require("./browser_storage");
 /** Returns all core (non-experimental) tool schemas. */
 function getToolSchemas() {
     const schemas = [
@@ -445,6 +446,8 @@ function getToolSchemas() {
             inputSchema: { type: 'object', properties: {} },
             annotations: { title: 'Performance metrics', readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
+        // ── Storage ──
+        browser_storage_1.browserStorageSchema,
         // ── Download ──
         {
             name: 'browser_download',
@@ -488,50 +491,49 @@ function getToolSchemas() {
         // ── Playbooks ──
         {
             name: 'playbooks',
-            description: 'Record and run named action sequences. `history` lists this session\'s ' +
-                'numbered actions across all browser tools; `create` freezes a cited sequence of those ' +
-                'ids into a saved playbook; `run` replays a saved playbook in order — interact steps ' +
-                'heal broken selectors, read steps (extract, snapshot, network…) return their output ' +
-                'in the run result. Cite ids from `history` — never invent them. Requires the ' +
-                '`fingerprinting` experiment for create/run. `run` works with no active session — ' +
-                'it connects implicitly, using `profile` or the playbook\'s own bound profile. ' +
-                'Listing, editing, removal, export and import live in the CLI: `supersurf playbook`.',
+            description: 'Discover, validate and run playbook scripts — parameterized JavaScript ' +
+                'functions saved as `~/.supersurf/playbooks/<name>.playbook.js`. ' +
+                '`list` shows every script with its call signature, description and starting ' +
+                'point, and flags any that fail validation. `inspect` shows one script\'s ' +
+                'params, permissions and run history. `validate` re-checks one or every ' +
+                'script and reports the verdict. `run` executes one with `params`, in its own ' +
+                'browser session and its own tab, and returns the script\'s return value — ' +
+                'the tab closes at the end, so anything you need must come back that way. ' +
+                '`history` lists this session\'s numbered browser actions, which is how you ' +
+                'read back the selectors a working run actually used while authoring a script. ' +
+                'SuperSurf does NOT write playbook files — author them with your own file ' +
+                'tools, then `validate`. Requires the `fingerprinting` experiment for `run`.',
             inputSchema: {
                 type: 'object',
                 properties: {
                     action: {
                         type: 'string',
-                        enum: ['history', 'create', 'run'],
-                        description: 'history = list this session\'s numbered actions; create = save a playbook from cited ids; run = execute a saved playbook.',
+                        enum: ['history', 'list', 'inspect', 'validate', 'run'],
+                        description: 'history = this session\'s numbered browser actions; list = every playbook script; inspect = one script\'s full detail; validate = re-check one or all scripts; run = execute one script.',
                     },
                     name: {
                         type: 'string',
-                        description: 'Playbook name, snake_case. Required for create and run. Normalized automatically; an existing name is an error.',
+                        description: 'Playbook name, snake_case — the filename without `.playbook.js`. Required for inspect and run; optional for validate (omit to check every script).',
                     },
-                    purpose: {
-                        type: 'string',
-                        description: 'What this playbook accomplishes, in one line. Used by create.',
-                    },
-                    steps: {
-                        type: 'array',
-                        items: { type: 'number' },
-                        description: 'Action ids to freeze into the playbook, in execution order, e.g. [5211, 5212, 5214]. Any id from `history` is valid — clicks, navigations, extractions alike. Used by create. Drop the ids whose outcome you did not want.',
-                    },
-                    limit: {
-                        type: 'number',
-                        description: 'History window size. Default 50, max 500.',
-                    },
-                    offset: {
-                        type: 'number',
-                        description: 'History paging offset, counted back from the newest action. Default 0.',
+                    params: {
+                        type: 'object',
+                        description: 'run only. Arguments for the script, matching its declared `@param` set (see `inspect`). Unknown or mistyped keys are an error, never silently dropped.',
                     },
                     profile: {
                         type: 'string',
-                        description: 'run only. Managed profile to run against. If omitted, falls back to the profile the playbook was created under, then a plain (no-profile) connect. With no active session, `run` connects implicitly using this resolved profile. With an active session, a resolved profile that differs from the session\'s bound profile is an error — it never re-binds mid-session.',
+                        description: 'run only. Managed profile to run against. Overrides the script\'s own `@profile`, which is only a default. The run always gets its own session and its own tab.',
                     },
-                    detach: {
-                        type: 'boolean',
-                        description: 'run only. When `run` triggered an implicit connect, disconnect again once the run finishes (success or failure) instead of leaving the session active. Default false.',
+                    domain: {
+                        type: 'string',
+                        description: 'list only. Restrict results to scripts whose `@startingPoint` matches this domain (e.g. "github.com"). Lowercased with a leading "www." stripped, the same way the status-header hint matches. Omit to list every script.',
+                    },
+                    limit: {
+                        type: 'number',
+                        description: 'history only. Window size. Default 50, max 500.',
+                    },
+                    offset: {
+                        type: 'number',
+                        description: 'history only. Paging offset, counted back from the newest action. Default 0.',
                     },
                 },
                 required: ['action'],

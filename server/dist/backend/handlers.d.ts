@@ -50,26 +50,6 @@ export declare function rehydrateAttachedTab(mgr: ConnectionManagerAPI, client: 
 export declare function onDisconnect(mgr: ConnectionManagerAPI, options?: {
     rawResult?: boolean;
 }): Promise<any>;
-/**
- * Check an active/connected session's bound profile against the profile a
- * `playbooks run` call resolves to (explicit `profile` arg, else the
- * playbook's own `profile` field). Returns an error response on mismatch, or
- * `null` when the call may proceed on the current session unchanged. Never
- * re-binds — a mismatch is refused, not silently corrected.
- */
-export declare function checkPlaybookProfileMismatch(mgr: ConnectionManagerAPI, args: Record<string, unknown>, options?: {
-    rawResult?: boolean;
-}): any | null;
-/**
- * Passive-state `playbooks run`: connect implicitly — resolving the target
- * profile the same way `checkPlaybookProfileMismatch` does — then run the
- * playbook on the fresh session, then disconnect again if `detach` was
- * requested. Reuses `onConnect`/`onDisconnect` directly rather than
- * duplicating daemon spawn/handshake logic.
- */
-export declare function onPlaybooksRunImplicit(mgr: ConnectionManagerAPI, args: Record<string, unknown>, options?: {
-    rawResult?: boolean;
-}): Promise<any>;
 /** Return current connection state, browser info, and attached tab details. */
 export declare function onStatus(mgr: ConnectionManagerAPI, options?: {
     rawResult?: boolean;

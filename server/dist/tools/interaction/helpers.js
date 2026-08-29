@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.KEY_MAP = void 0;
 exports.getViewportSize = getViewportSize;
+exports.humanizationSessionId = humanizationSessionId;
 exports.moveCursorTo = moveCursorTo;
 exports.detectSpawnedTabs = detectSpawnedTabs;
 const index_1 = require("../../experimental/index");
@@ -11,11 +12,23 @@ const log = (0, logger_1.createLog)('[Interact]');
 async function getViewportSize(ctx) {
     return await ctx.ext.sendCmd('getViewportDimensions', { tabId: ctx.tabId });
 }
-async function moveCursorTo(ctx, x, y, sessionId) {
+/**
+ * Resolve the mouse-humanization session key for a tool call.
+ *
+ * Keyed by the owning ConnectionManager's `client_id` so two managers in one
+ * Node process keep separate cursor state. Falls back to '_default' only for
+ * contexts built without a connection manager (unit tests) — BrowserBridge
+ * always wires one in production.
+ */
+function humanizationSessionId(ctx) {
+    const id = ctx.connectionManager?.clientId;
+    return typeof id === 'string' && id.length > 0 ? id : '_default';
+}
+async function moveCursorTo(ctx, x, y) {
     if (index_1.experimentRegistry.isEnabled('mouse_humanization')) {
         try {
             const viewport = await getViewportSize(ctx);
-            const waypoints = (0, index_2.generateMovement)(sessionId, x, y, viewport);
+            const waypoints = (0, index_2.generateMovement)(humanizationSessionId(ctx), x, y, viewport);
             log(`Humanized move → (${x},${y}) via ${waypoints.length} waypoints`);
             await ctx.ext.sendCmd('humanizedMouseMove', { waypoints, tabId: ctx.tabId });
             return;

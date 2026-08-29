@@ -16,7 +16,7 @@ exports.buildStatusHeader = buildStatusHeader;
  * Returns a string ending with `\n---\n\n` for markdown separation.
  */
 function buildStatusHeader(input) {
-    const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, configDriftWarning, lastConnectError } = input;
+    const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, extensionConnected, configDriftWarning, lastConnectError, playbookHint, playbookWarning } = input;
     const version = config.server.version;
     const driftLine = configDriftWarning
         ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf-daemon@latest restart`\n\n'
@@ -25,7 +25,11 @@ function buildStatusHeader(input) {
         const failLine = lastConnectError
             ? `⚠️ Last connect failed: ${lastConnectError}\n\n`
             : '';
-        return `${driftLine}${failLine}🔴 v${version} | Disabled\n---\n\n`;
+        // Warning before hint here too: `playbooks validate` answers in the passive
+        // state, so a broken script must be reportable before `connect`.
+        const passiveWarn = playbookWarning ? `\n${playbookWarning}` : '';
+        const passiveHint = playbookHint ? `\n${playbookHint}` : '';
+        return `${driftLine}${failLine}🔴 v${version} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
     }
     const parts = [];
     let buildTime = null;
@@ -42,7 +46,11 @@ function buildStatusHeader(input) {
         }
     }
     const versionStr = buildTime && debugMode ? `v${version} [${buildTime}]` : `v${version}`;
-    parts.push(`✅ ${versionStr}`);
+    const noExtension = extensionConnected === false;
+    parts.push(`${noExtension ? '⚠️' : '✅'} ${versionStr}`);
+    if (noExtension) {
+        parts.push(`No extension connected — open the SuperSurf popup, or connect with profile:'<name>' to spawn a managed browser`);
+    }
     if (connectedBrowserName) {
         parts.push(`🌐 ${connectedBrowserName}`);
     }
@@ -71,6 +79,8 @@ function buildStatusHeader(input) {
     if (stealthMode) {
         parts.push(`🕵️ Stealth`);
     }
-    return driftLine + parts.join(' | ') + '\n---\n\n';
+    const warnLine = playbookWarning ? `\n${playbookWarning}` : '';
+    const hintLine = playbookHint ? `\n${playbookHint}` : '';
+    return driftLine + parts.join(' | ') + warnLine + hintLine + '\n---\n\n';
 }
 //# sourceMappingURL=status.js.map

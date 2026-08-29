@@ -1,32 +1,31 @@
 /**
- * The `playbooks` MCP tool — history, create, run.
+ * The `playbooks` MCP tool — history, list, inspect, validate, run.
  *
- * NOT an experiment. This is core infrastructure that CHECKS the `fingerprinting`
- * experiment: `create` and `run` refuse without it, because a saved playbook whose
- * selectors cannot heal is a brittle macro, not a playbook. `history` works
- * regardless — it only reports what already happened.
+ * There is deliberately no `create` and no write action. SuperSurf never
+ * authors a playbook file; the agent writes `*.playbook.js` with its own
+ * harness's file tools. `history` is the one survivor of the recording era:
+ * it reads the in-memory action trail, never the disk, so a script author can
+ * read back the selectors a working run actually used.
+ *
+ * The `security.playbook_eval` gate is CALLER-BASED and enforced here, on the
+ * agent path only. `supersurf playbook run` calls `runPlaybook` directly and
+ * ignores the leaf — the untrusted party is the agent, not the human at a
+ * terminal who can read the file before running it.
  *
  * @module tools/playbooks
  */
 import type { ToolContext } from './lib/types';
-/** Seams for tests. Production passes nothing and gets the real implementations. */
+import { type RunOutcome } from '../playbooks/runner';
+/** Seam for tests. Production passes nothing and gets the real runner. */
 export interface PlaybookDeps {
-    executeAction?: (ctx: ToolContext, action: any) => Promise<string>;
-    navigate?: (ctx: ToolContext, args: any, options: any) => Promise<any>;
-    callHandler?: (ctx: ToolContext, name: string, args: Record<string, unknown>, options: {
-        rawResult?: boolean;
-    }) => Promise<any | null>;
+    runPlaybook?: (opts: any) => Promise<RunOutcome>;
 }
-/**
- * Resolve which profile a `run` call should target: the explicit `profile`
- * arg wins, else the playbook's own `profile` field (set by `create` when the
- * recording session was profile-bound), else `undefined` (no profile).
- *
- * Exported so `backend/handlers.ts` can resolve the target profile BEFORE a
- * bridge exists — passive-state `run` needs the answer to pick a profile for
- * its implicit `connect`, and active-state `run` needs it to check for a
- * mismatch against the session's already-bound profile.
- */
-export declare function resolveRunProfile(args: any): string | undefined;
 export declare function onPlaybooks(ctx: ToolContext, args: any, options: any, deps?: PlaybookDeps): Promise<any>;
+/**
+ * `list`, `inspect` and `validate` are registry reads — no browser, no
+ * extension — so `backend.ts` calls them directly to bypass the passive gate.
+ */
+export declare function doList(args: any): any;
+export declare function doInspect(args: any): any;
+export declare function doValidate(args: any): any;
 //# sourceMappingURL=playbooks.d.ts.map

@@ -33,16 +33,25 @@ async function onWindow(ctx, args, options) {
 }
 /** View, accept, or dismiss a held native dialog (alert, confirm, prompt, beforeunload). */
 async function onDialog(ctx, args, options) {
+    // 10s ceiling: a held dialog freezes the renderer, and the default 60s IPC
+    // timeout turned every wedged dialog command into a minute-long stall.
+    const DIALOG_TIMEOUT_MS = 10000;
     // Priority: explicit `action` wins over the deprecated `accept` alias, which wins over a bare view.
-    if (args.action !== undefined) {
-        const result = await ctx.ext.sendCmd('dialog', { action: args.action, text: args.text, tabId: ctx.tabId });
-        return ctx.formatResult('browser_handle_dialog', result, options);
+    const params = args.action !== undefined ? { action: args.action, text: args.text, tabId: ctx.tabId } :
+        args.accept !== undefined ? { accept: args.accept, text: args.text, tabId: ctx.tabId } :
+            { tabId: ctx.tabId };
+    let result;
+    try {
+        result = await ctx.ext.sendCmd('dialog', params, DIALOG_TIMEOUT_MS);
     }
-    if (args.accept !== undefined) {
-        const result = await ctx.ext.sendCmd('dialog', { accept: args.accept, text: args.text, tabId: ctx.tabId });
-        return ctx.formatResult('browser_handle_dialog', result, options);
+    catch (e) {
+        if (/request timeout: dialog/i.test(String(e?.message || e))) {
+            throw new Error('The extension did not answer the dialog command within 10s. ' +
+                'The renderer may be frozen by a held dialog on an unattached tab — ' +
+                'check `browser_tabs` and retry with the correct tabId.');
+        }
+        throw e;
     }
-    const result = await ctx.ext.sendCmd('dialog', { tabId: ctx.tabId });
     return ctx.formatResult('browser_handle_dialog', result, options);
 }
 /** Assert that specific text is visible in the page body. Returns isError=true when not found. */

@@ -63,7 +63,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyzeCode = analyzeCode;
 exports.wrapWithPageProxy = wrapWithPageProxy;
 const acorn = __importStar(require("acorn"));
-const walk = __importStar(require("acorn-walk"));
+const analyzer_1 = require("../../security/analyzer");
 // ── Helpers ──────────────────────────────────────────────────
 /** Check if a node is an Identifier with the given name. */
 function isIdentifier(node, name) {
@@ -331,86 +331,7 @@ const BLOCKED_PATTERNS = [
  * @returns Analysis result: safe=true or safe=false with a reason string
  */
 function analyzeCode(code) {
-    if (!code || !code.trim()) {
-        return { safe: true };
-    }
-    let ast;
-    try {
-        ast = acorn.parse(code, {
-            ecmaVersion: 'latest',
-            sourceType: 'module',
-            allowReturnOutsideFunction: true,
-            allowAwaitOutsideFunction: true,
-        });
-    }
-    catch {
-        // Syntax errors → let Runtime.evaluate return its own error
-        return { safe: true };
-    }
-    let violation = null;
-    walk.ancestor(ast, {
-        CallExpression(node, _state, ancestors) {
-            if (violation)
-                return;
-            for (const pattern of BLOCKED_PATTERNS) {
-                if (pattern.nodeType === 'CallExpression' && pattern.matcher(node, ancestors)) {
-                    violation = { safe: false, reason: pattern.reason };
-                    return;
-                }
-            }
-        },
-        MemberExpression(node, _state, ancestors) {
-            if (violation)
-                return;
-            for (const pattern of BLOCKED_PATTERNS) {
-                if (pattern.nodeType === 'MemberExpression' && pattern.matcher(node, ancestors)) {
-                    violation = { safe: false, reason: pattern.reason };
-                    return;
-                }
-            }
-        },
-        NewExpression(node, _state, ancestors) {
-            if (violation)
-                return;
-            for (const pattern of BLOCKED_PATTERNS) {
-                if (pattern.nodeType === 'NewExpression' && pattern.matcher(node, ancestors)) {
-                    violation = { safe: false, reason: pattern.reason };
-                    return;
-                }
-            }
-        },
-        ImportExpression(node, _state, ancestors) {
-            if (violation)
-                return;
-            for (const pattern of BLOCKED_PATTERNS) {
-                if (pattern.nodeType === 'ImportExpression' && pattern.matcher(node, ancestors)) {
-                    violation = { safe: false, reason: pattern.reason };
-                    return;
-                }
-            }
-        },
-        TaggedTemplateExpression(node, _state, ancestors) {
-            if (violation)
-                return;
-            for (const pattern of BLOCKED_PATTERNS) {
-                if (pattern.nodeType === 'TaggedTemplateExpression' && pattern.matcher(node, ancestors)) {
-                    violation = { safe: false, reason: pattern.reason };
-                    return;
-                }
-            }
-        },
-        Literal(node, _state, ancestors) {
-            if (violation)
-                return;
-            for (const pattern of BLOCKED_PATTERNS) {
-                if (pattern.nodeType === 'Literal' && pattern.matcher(node, ancestors)) {
-                    violation = { safe: false, reason: pattern.reason };
-                    return;
-                }
-            }
-        },
-    });
-    return violation ?? { safe: true };
+    return (0, analyzer_1.analyzeWithRules)(code, { patterns: BLOCKED_PATTERNS });
 }
 // ── Page-context Proxy wrapper (Layer 3) ────────────────────
 /** Global APIs blocked from user code at runtime via the Proxy wrapper. */
