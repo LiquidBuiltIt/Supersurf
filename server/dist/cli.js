@@ -15,39 +15,6 @@
  *
  * @module cli
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
@@ -55,13 +22,12 @@ const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
 const commander_1 = require("commander");
 const child_process_1 = require("child_process");
 const stream_1 = require("stream");
-const path = __importStar(require("path"));
-const os = __importStar(require("os"));
 const backend_1 = require("./backend");
 const logger_1 = require("./logger");
 const stdio_1 = require("./stdio");
 const dotenv_1 = require("./dotenv");
 const shared_1 = require("./shared");
+const backend_config_1 = require("./backend-config");
 const { version: VERSION } = require('../package.json');
 /** Parse --debug value into a DebugMode. */
 function parseDebugMode(value) {
@@ -70,50 +36,6 @@ function parseDebugMode(value) {
     if (value)
         return 'truncate';
     return false;
-}
-/** Translate CLI options into a PartialConfig slice for ConfigService. */
-function cliToPartial(options) {
-    const out = {};
-    if (options.port !== undefined)
-        out.daemon = { port: Number(options.port) };
-    if (options.debug === true || options.debug === 'no_truncate' || (typeof options.debug === 'string' && options.debug && options.debug !== 'false')) {
-        out.logging = { debug: options.debug === 'no_truncate' ? 'no_truncate' : 'truncate' };
-    }
-    if (options.disableSecureEval)
-        out.security = { secure_eval: false };
-    return out;
-}
-/** Build a ConfigService merging CLI + env + file inputs. */
-function buildConfig(options) {
-    const configPath = process.env.SUPERSURF_CONFIG_FILE
-        || path.join(os.homedir(), '.supersurf', 'config.json');
-    const { config: fileCfg, warnings: fileWarn } = (0, shared_1.loadJsonConfig)(configPath);
-    const { config: envCfg, warnings: envWarn } = (0, shared_1.loadEnvConfig)(process.env);
-    for (const w of [...fileWarn, ...envWarn])
-        console.error(`[server] ${w}`);
-    return new shared_1.ConfigService({
-        cli: cliToPartial(options),
-        env: envCfg,
-        file: fileCfg,
-        onWarn: (m) => console.error(`[server] ${m}`),
-    });
-}
-/** Build a BackendConfig from a resolved ConfigService snapshot. */
-function backendConfigFrom(configService, showUpgradeNotice) {
-    const c = configService.get();
-    return {
-        debug: !!c.logging.debug,
-        port: c.daemon.port,
-        server: {
-            name: 'SuperSurf',
-            version: VERSION,
-        },
-        enabledExperiments: Object.entries(c.experiments)
-            .filter(([k, v]) => v && k !== 'profiles')
-            .map(([k]) => k),
-        configService,
-        showUpgradeNotice,
-    };
 }
 /**
  * Debug wrapper mode. Spawns the server as a child process and monitors its exit code.
@@ -212,7 +134,7 @@ async function main(options) {
     if (versionCheck.shouldNotify) {
         console.error(shared_1.UPGRADE_NOTICE_MESSAGE);
     }
-    const configService = buildConfig(options);
+    const configService = (0, backend_config_1.buildConfigService)(options, (m) => console.error(`[server] ${m}`));
     const debugSetting = configService.get().logging.debug;
     const debugMode = debugSetting === 'no_truncate'
         ? 'no_truncate'
@@ -233,7 +155,7 @@ async function main(options) {
             logger.log('[cli] Custom port:', options.port);
         }
     }
-    const config = backendConfigFrom(configService, versionCheck.shouldNotify);
+    const config = (0, backend_config_1.backendConfigFrom)(configService, VERSION, versionCheck.shouldNotify);
     const backend = new backend_1.ConnectionManager(config);
     if (global.DEBUG_MODE) {
         console.error(`[cli] Creating MCP Server v${VERSION}...`);
@@ -271,6 +193,7 @@ program
     .option('--child', 'Internal: child process spawned by wrapper')
     .option('--script-mode', 'JSON-RPC over stdio for automation scripts')
     .option('--disable-secure-eval', 'Disable secure_eval RCE protection on browser_evaluate (not recommended — equivalent to SUPERSURF_DISABLE_SECURE_EVAL=1)')
+    .option('--disable-playbook-eval', 'Refuse agent-invoked playbook scripts that declare the `eval` permission (equivalent to SUPERSURF_DISABLE_PLAYBOOK_EVAL=1). Terminal `supersurf playbook run` is unaffected.')
     .action(async (options) => {
     if (options.scriptMode) {
         (0, dotenv_1.loadDotenv)(process.cwd());
@@ -279,8 +202,8 @@ program
         if (versionCheck.shouldNotify) {
             console.error(shared_1.UPGRADE_NOTICE_MESSAGE);
         }
-        const configService = buildConfig(options);
-        const config = backendConfigFrom(configService, versionCheck.shouldNotify);
+        const configService = (0, backend_config_1.buildConfigService)(options, (m) => console.error(`[server] ${m}`));
+        const config = (0, backend_config_1.backendConfigFrom)(configService, VERSION, versionCheck.shouldNotify);
         await (0, stdio_1.startScriptMode)(config);
         return;
     }

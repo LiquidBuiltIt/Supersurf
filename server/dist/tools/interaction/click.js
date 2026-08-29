@@ -125,7 +125,7 @@ function describeClickOutcome(target, probe, hadSpawn) {
         // Arm the side-effect probe BEFORE dispatching so the observer/listener
         // are live for the click itself.
         await (0, frames_1.evalInFrameOrTop)(ctx, armProbeExpr(targetExpr), clickContextId).catch(() => { });
-        await (0, helpers_1.moveCursorTo)(ctx, x, y, '_default');
+        await (0, helpers_1.moveCursorTo)(ctx, x, y);
         await ctx.cdp('Input.dispatchMouseEvent', {
             type: 'mousePressed', x, y, button, clickCount, buttons: 1,
         });

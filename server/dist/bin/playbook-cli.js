@@ -1,353 +1,181 @@
 #!/usr/bin/env node
 "use strict";
 /**
- * `supersurf playbook` — manage saved playbooks.
+ * `supersurf playbook` — discover, validate, run and migrate playbook scripts.
  *
- * File management (`ls`/`show`/`edit`/`rm`/`export`/`import`) is daemon-free
- * by design, modelled on `creds.ts` rather than `profiles-cli.ts`: it must
- * work with no daemon running and no browser connected. Creation is
- * deliberately absent — playbooks are built from action ids that live in the
- * agent's context, not in the user's terminal.
+ * `ls`/`inspect`/`validate` are daemon-free by design, modelled on `creds.ts`
+ * rather than `profiles-cli.ts`: they must work with no daemon running and no
+ * browser connected. There is no `create` and no `edit`: a playbook is a
+ * JavaScript file, so it is written with an editor, removed with `rm`, and
+ * copied with `cp`.
  *
- * `run` is the one command that needs a live browser: it drives the same
- * `ConnectionManager` the MCP server and `--script-mode` use (see
- * `stdio.ts`), in-process, so there is exactly one playbook runner — the
- * `playbooks` MCP tool — regardless of caller.
+ * `run` at a terminal IGNORES `security.playbook_eval`. That gate exists
+ * because an agent is an untrusted caller; the human running this command can
+ * read the file first, so gating them would be theatre.
  *
  * @module bin/playbook-cli
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildPlaybookProgram = buildPlaybookProgram;
 exports.runLs = runLs;
-exports.runShow = runShow;
-exports.runEdit = runEdit;
-exports.runRm = runRm;
-exports.runExport = runExport;
-exports.runImport = runImport;
+exports.runInspect = runInspect;
+exports.runValidate = runValidate;
+exports.parseParamFlags = parseParamFlags;
 exports.runRun = runRun;
 exports.runPlaybookProgram = runPlaybookProgram;
 const commander_1 = require("commander");
-const fs = __importStar(require("node:fs"));
-const path = __importStar(require("node:path"));
-const os = __importStar(require("node:os"));
-const node_child_process_1 = require("node:child_process");
-const store_1 = require("../playbooks/store");
-const format_1 = require("../playbooks/format");
-const backend_1 = require("../backend");
-const shared_1 = require("../shared");
-const { version: PACKAGE_VERSION } = require('../../package.json');
-function defaultSpawnEditor(cmd, args) {
-    const result = (0, node_child_process_1.spawnSync)(cmd, args, { stdio: 'inherit' });
-    return { status: result.status, error: result.error };
+const paths_1 = require("../playbooks/paths");
+const registry_1 = require("../playbooks/registry");
+const playbooks_1 = require("../tools/playbooks");
+const runner_1 = require("../playbooks/runner");
+const migrate_1 = require("../playbooks/migrate");
+/** Pull the single text block out of a `playbooks` tool result. */
+function body(res) {
+    return String(res?.content?.find((b) => b?.type === 'text')?.text ?? '');
 }
 function buildPlaybookProgram() {
     const program = new commander_1.Command();
     program
         .name('supersurf playbook')
-        .description('Manage saved SuperSurf playbooks');
+        .description('Discover, validate, run and migrate SuperSurf playbook scripts');
     program
         .command('ls')
-        .description('List saved playbooks')
+        .description('List playbook scripts with their call signatures')
         .action(async () => { await runLs(); });
     program
-        .command('show')
-        .description('Print a playbook\'s steps')
+        .command('inspect')
+        .description('Print one script\'s params, permissions and run history')
         .argument('<name>', 'playbook name')
-        .action(async (name) => { await runShow(name); });
+        .action(async (name) => { process.exitCode = await runInspect(name); });
     program
-        .command('edit')
-        .description('Open a playbook in $EDITOR, or drop a step with --drop')
-        .argument('<name>', 'playbook name')
-        .option('--drop <step>', 'step number to remove (1-based, as shown by `show`)')
-        .action(async (name, opts) => { await runEdit(name, opts); });
-    program
-        .command('rm')
-        .description('Remove a playbook')
-        .argument('<name>', 'playbook name')
-        .action(async (name) => { await runRm(name); });
-    program
-        .command('export')
-        .description('Write a playbook to a file')
-        .argument('<name>', 'playbook name')
-        .argument('<file>', 'destination path')
-        .action(async (name, file) => { await runExport(name, file); });
-    program
-        .command('import')
-        .description('Read a playbook from a file')
-        .argument('<file>', 'source path')
-        .action(async (file) => { await runImport(file); });
+        .command('validate')
+        .description('Re-check one script, or every script when no name is given')
+        .argument('[name]', 'playbook name')
+        .action(async (name) => { process.exitCode = await runValidate(name); });
     program
         .command('run')
-        .description('Run a saved playbook against a connected browser (no MCP client needed)')
+        .description('Run a playbook script against a browser (no MCP client needed)')
         .argument('<name>', 'playbook name')
-        .option('--profile <profile>', 'managed browser profile to connect to')
+        .option('--param <key=value>', 'script argument; repeat for each param', (v, acc) => acc.concat(v), [])
+        .option('--profile <profile>', 'managed browser profile; overrides the script\'s own default')
         .option('--json', 'print machine-readable JSON instead of the run trail')
-        .action(async (name, opts) => {
-        process.exitCode = await runRun(name, opts);
-    });
+        .action(async (name, flags) => { process.exitCode = await runRun(name, flags); });
+    program
+        .command('migrate')
+        .description('One-shot: convert legacy JSON playbooks to .playbook.js and report what needs hand-finishing')
+        .option('--dry-run', 'report what would be written without writing anything')
+        .action(async (flags) => { process.exitCode = await (0, migrate_1.runMigrate)(flags); });
     return program;
 }
 async function runLs(opts = {}) {
     const log = opts.log ?? console.log;
-    const all = (0, store_1.listPlaybooks)();
-    if (all.length === 0) {
-        log('(no playbooks saved)');
-        return;
-    }
-    const nameWidth = Math.max(4, ...all.map(p => p.name.length));
-    const header = `${'Name'.padEnd(nameWidth)}  Steps  Purpose`;
-    log(header);
-    log('-'.repeat(header.length));
-    for (const p of all.sort((a, b) => a.name.localeCompare(b.name))) {
-        log(`${p.name.padEnd(nameWidth)}  ${String(p.steps.length).padStart(5)}  ${p.purpose}`);
-    }
+    await (0, registry_1.refreshRegistry)();
+    log(body((0, playbooks_1.doList)({})));
 }
-async function runShow(name, opts = {}) {
+async function runInspect(name, opts = {}) {
     const log = opts.log ?? console.log;
-    const pb = (0, store_1.loadPlaybook)(name);
-    if (!pb)
-        throw new Error(`No playbook named '${name}'`);
-    log((0, format_1.formatSteps)(pb));
+    const errLog = opts.errLog ?? console.error;
+    await (0, registry_1.refreshRegistry)();
+    const res = (0, playbooks_1.doInspect)({ name });
+    if (res.isError) {
+        errLog(body(res));
+        return 1;
+    }
+    log(body(res));
+    return 0;
 }
-async function runEdit(name, flags, opts = {}) {
+async function runValidate(name, opts = {}) {
     const log = opts.log ?? console.log;
-    if (flags.drop !== undefined) {
-        const pb = (0, store_1.loadPlaybook)(name);
-        if (!pb)
-            throw new Error(`No playbook named '${name}'`);
-        const n = Number(flags.drop);
-        if (!Number.isInteger(n) || n < 1 || n > pb.steps.length) {
-            throw new Error(`Step ${flags.drop} is out of range — '${name}' has ${pb.steps.length} steps`);
-        }
-        if (pb.steps.length === 1) {
-            throw new Error(`'${name}' has only one step. Remove the playbook instead: supersurf playbook rm ${name}`);
-        }
-        const [dropped] = pb.steps.splice(n - 1, 1);
-        (0, store_1.savePlaybook)(pb);
-        log(`Dropped step ${n} (${dropped.type}) from '${pb.name}'. ${pb.steps.length} steps remain.`);
-        return;
-    }
-    const normalized = (0, store_1.normalizeName)(name);
-    const filePath = path.join((0, store_1.getBaseDir)(), `${normalized}.json`);
-    const isTTY = opts.isTTY ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
-    if (!isTTY) {
-        throw new Error(`No terminal attached. Pass --drop <step>, edit the file directly at ${filePath}, ` +
-            'or run in an interactive shell to edit in $EDITOR.');
-    }
-    const editorCmd = process.env.VISUAL || process.env.EDITOR;
-    if (!editorCmd) {
-        throw new Error("No editor is configured. Set $EDITOR (or $VISUAL) to use 'playbook edit', " +
-            `or edit the playbook file directly at ${filePath}, or use --drop <step>.`);
-    }
-    const pb = (0, store_1.loadPlaybook)(name);
-    if (!pb)
-        throw new Error(`No playbook named '${name}'`);
-    const original = JSON.stringify(pb, null, 2);
-    const tmpPath = path.join(os.tmpdir(), `supersurf-playbook-${normalized}-${process.pid}.json`);
-    fs.writeFileSync(tmpPath, original, { mode: 0o600 });
-    const [cmd, ...editorArgs] = editorCmd.split(/\s+/).filter(Boolean);
-    const spawnEditor = opts.spawnEditor ?? defaultSpawnEditor;
-    const result = spawnEditor(cmd, [...editorArgs, tmpPath]);
-    const { status, error } = typeof result === 'number' ? { status: result, error: undefined } : result;
-    if (error) {
-        fs.rmSync(tmpPath, { force: true });
-        throw new Error(`Could not launch editor '${editorCmd}': ${error.message}. ` +
-            `Edit the file directly at ${filePath}, or pass --drop <step>.`);
-    }
-    if (status !== 0) {
-        fs.rmSync(tmpPath, { force: true });
-        throw new Error(`Editor exited with status ${status}; playbook unchanged.`);
-    }
-    const edited = fs.readFileSync(tmpPath, 'utf8');
-    if (edited === original) {
-        fs.rmSync(tmpPath, { force: true });
-        log(`No changes to '${normalized}'.`);
-        return;
-    }
-    let parsed;
-    try {
-        parsed = JSON.parse(edited);
-    }
-    catch (err) {
-        throw new Error(`Edited file is not valid JSON: ${err instanceof Error ? err.message : String(err)}. Your edit is kept at ${tmpPath}.`);
-    }
-    if (!parsed || typeof parsed !== 'object' ||
-        !Array.isArray(parsed.steps) || parsed.steps.length === 0 ||
-        parsed.version !== 1) {
-        throw new Error(`Edited file is not a playbook (expected version 1 and a non-empty steps array). Your edit is kept at ${tmpPath}.`);
-    }
-    if (typeof parsed.name === 'string' && (0, store_1.normalizeName)(parsed.name) !== normalized) {
-        log(`Name is fixed to '${normalized}'; use export/import to rename.`);
-    }
-    parsed.name = normalized;
-    (0, store_1.savePlaybook)(parsed);
-    fs.rmSync(tmpPath, { force: true });
-    log(`Saved '${normalized}' (${parsed.steps.length} steps).`);
-}
-async function runRm(name, opts = {}) {
-    const log = opts.log ?? console.log;
-    if (!(0, store_1.removePlaybook)(name))
-        throw new Error(`No playbook named '${name}'`);
-    log(`Removed playbook '${(0, store_1.normalizeName)(name)}'`);
-}
-async function runExport(name, file, opts = {}) {
-    const log = opts.log ?? console.log;
-    const pb = (0, store_1.loadPlaybook)(name);
-    if (!pb)
-        throw new Error(`No playbook named '${name}'`);
-    fs.writeFileSync(file, JSON.stringify(pb, null, 2), { mode: 0o600 });
-    log(`Exported '${pb.name}' (${pb.steps.length} steps) to ${file}`);
-}
-async function runImport(file, opts = {}) {
-    const log = opts.log ?? console.log;
-    let parsed;
-    try {
-        parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    }
-    catch (err) {
-        throw new Error(`Could not read ${file}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    if (!parsed || typeof parsed.name !== 'string' || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
-        throw new Error(`${file} is not a playbook (expected a name and a non-empty steps array)`);
-    }
-    if ((0, store_1.playbookExists)(parsed.name)) {
-        throw new Error(`A playbook named '${(0, store_1.normalizeName)(parsed.name)}' already exists. ` +
-            `Remove it first: supersurf playbook rm ${(0, store_1.normalizeName)(parsed.name)}`);
-    }
-    (0, store_1.savePlaybook)({ ...parsed, name: (0, store_1.normalizeName)(parsed.name), version: 1 });
-    log(`Imported '${(0, store_1.normalizeName)(parsed.name)}' (${parsed.steps.length} steps)`);
+    const errLog = opts.errLog ?? console.error;
+    await (0, registry_1.refreshRegistry)();
+    const res = (0, playbooks_1.doValidate)(name ? { name } : {});
+    (res.isError ? errLog : log)(body(res));
+    return res.isError ? 1 : 0;
 }
 /**
- * Build a `BackendConfig` from CLI-less config resolution (env + `~/.supersurf/config.json`
- * + hardcoded defaults) — the same merge `cli.ts`'s `buildConfig`/`backendConfigFrom` do,
- * duplicated here rather than imported because `cli.ts` runs `program.parse()` as a
- * top-level side effect and can't be safely imported as a module.
+ * Turn repeated `--param key=value` flags into a params object, coercing to
+ * the type `meta` declares. An undeclared key stays a string on purpose:
+ * `validateParams` rejects it by name, which is a better error than a coercion
+ * failure on a param that does not exist.
  */
-function buildBackendConfig() {
-    const configPath = process.env.SUPERSURF_CONFIG_FILE
-        || path.join(os.homedir(), '.supersurf', 'config.json');
-    const { config: fileCfg } = (0, shared_1.loadJsonConfig)(configPath);
-    const { config: envCfg } = (0, shared_1.loadEnvConfig)(process.env);
-    const configService = new shared_1.ConfigService({ cli: {}, env: envCfg, file: fileCfg });
-    const c = configService.get();
-    return {
-        debug: !!c.logging.debug,
-        port: c.daemon.port,
-        server: { name: 'SuperSurf', version: PACKAGE_VERSION },
-        enabledExperiments: Object.entries(c.experiments)
-            .filter(([k, v]) => v && k !== 'profiles')
-            .map(([k]) => k),
-        configService,
-    };
+function parseParamFlags(pairs, meta) {
+    const spec = meta.params ?? {};
+    const params = {};
+    for (const pair of pairs) {
+        const eq = pair.indexOf('=');
+        if (eq <= 0)
+            return { error: `--param expects key=value, got \`${pair}\`` };
+        const key = pair.slice(0, eq);
+        const raw = pair.slice(eq + 1);
+        const type = spec[key]?.type;
+        if (type === 'number') {
+            const n = Number(raw);
+            if (!Number.isFinite(n))
+                return { error: `--param ${key}: expected a number, got \`${raw}\`` };
+            params[key] = n;
+        }
+        else if (type === 'boolean') {
+            if (raw !== 'true' && raw !== 'false')
+                return { error: `--param ${key}: expected true or false, got \`${raw}\`` };
+            params[key] = raw === 'true';
+        }
+        else {
+            params[key] = raw;
+        }
+    }
+    return { params };
 }
-function defaultCreateBackend() {
-    return new backend_1.ConnectionManager(buildBackendConfig());
-}
-/**
- * Run a saved playbook end-to-end: connect, call the `playbooks` MCP tool with
- * `{action:'run', name}`, print its result, then disconnect. Always disconnects —
- * on a failed step, a connect failure, an unexpected error, or SIGINT — because a
- * left-open session pins the daemon (and, for a managed profile, the browser) alive.
- *
- * Returns the process exit code rather than throwing, so a reported failed step
- * (not a bug — a normal "the playbook broke on step 3" outcome) prints its own
- * trail instead of being flattened into the generic `[playbook] <message>` shape
- * `runPlaybookProgram`'s catch-all uses for actual exceptions.
- */
 async function runRun(name, flags, opts = {}) {
     const log = opts.log ?? console.log;
     const errLog = opts.errLog ?? console.error;
-    const normalized = (0, store_1.normalizeName)(name);
-    const pb = (0, store_1.loadPlaybook)(normalized);
-    if (!pb) {
-        errLog(`[playbook] No playbook named '${normalized}'. List them with: supersurf playbook ls`);
+    const run = opts.runPlaybook ?? runner_1.runPlaybook;
+    const normalized = (0, paths_1.normalizeName)(name);
+    await (0, registry_1.refreshRegistry)();
+    const record = (0, registry_1.getRecord)(normalized);
+    if (!record) {
+        errLog(`[playbook] No playbook named '${normalized}' in ${(0, paths_1.getPlaybooksDir)()}. List them with: supersurf playbook ls`);
         return 1;
     }
-    // Resolution order: --profile flag, then the playbook's own optional
-    // `profile` field (a parallel branch is adding this to the schema — read
-    // it defensively, don't assume the type declares it yet), then none.
-    const profile = flags.profile ?? (typeof pb.profile === 'string' ? pb.profile : undefined);
-    const backend = (opts.createBackend ?? defaultCreateBackend)();
-    let disconnectStarted = false;
-    const disconnect = async () => {
-        if (disconnectStarted)
-            return;
-        disconnectStarted = true;
-        try {
-            await backend.callTool('disconnect', {}, { rawResult: true });
-        }
-        catch {
-            // Best-effort — we're already on our way out.
-        }
-    };
-    const onSigint = () => {
-        void disconnect().finally(() => process.exit(1));
-    };
-    process.once('SIGINT', onSigint);
-    try {
-        const connectArgs = { client_id: `playbook-run-${process.pid}` };
-        if (profile)
-            connectArgs.profile = profile;
-        const connectResult = await backend.callTool('connect', connectArgs, { rawResult: true });
-        if (!connectResult?.success) {
-            errLog(`[playbook] Connect failed: ${connectResult?.message ?? 'unknown error'}`);
-            return 1;
-        }
-        const runResult = await backend.callTool('playbooks', { action: 'run', name: normalized }, { rawResult: true });
-        const body = String(runResult?.content?.find((b) => b?.type === 'text')?.text ?? '');
-        const failed = Boolean(runResult?.isError);
-        if (flags.json) {
-            log(JSON.stringify({ name: normalized, success: !failed, output: body }));
-        }
-        else if (failed) {
-            errLog(body);
-        }
-        else {
-            log(body);
-        }
-        return failed ? 1 : 0;
-    }
-    catch (err) {
-        errLog(`[playbook] ${err instanceof Error ? err.message : String(err)}`);
+    if (!record.valid || !record.meta) {
+        errLog(`[playbook] '${normalized}' did not validate — ${record.error ?? 'unknown validation error'}`);
         return 1;
     }
-    finally {
-        await disconnect();
-        process.off('SIGINT', onSigint);
+    const parsed = parseParamFlags(flags.param ?? [], record.meta);
+    if (parsed.error) {
+        errLog(`[playbook] ${parsed.error}`);
+        return 1;
     }
+    // No `security.playbook_eval` check here, deliberately — see the module docblock.
+    const outcome = await run({
+        record,
+        params: parsed.params,
+        caller: 'cli',
+        profile: flags.profile,
+        onLog: flags.json ? undefined : (m) => log(`  ${m}`),
+    });
+    if (flags.json) {
+        log(JSON.stringify({
+            name: normalized, ok: outcome.ok, durationMs: outcome.durationMs,
+            ...(outcome.result !== undefined ? { result: outcome.result } : {}),
+            ...(outcome.error ? { error: outcome.error } : {}),
+            ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
+        }));
+        return outcome.ok ? 0 : 1;
+    }
+    if (outcome.ok) {
+        log(`✓ ${normalized} — ${outcome.durationMs}ms`);
+        if (outcome.result !== undefined) {
+            log(typeof outcome.result === 'string' ? outcome.result : JSON.stringify(outcome.result, null, 2));
+        }
+        return 0;
+    }
+    errLog(`✗ ${normalized} — ${outcome.durationMs}ms`);
+    errLog(outcome.error ?? 'unknown error');
+    if (outcome.evidence?.snapshot) {
+        errLog('Page at the point of failure (the run\'s tab is already closed):');
+        errLog(outcome.evidence.snapshot);
+    }
+    return 1;
 }
 async function runPlaybookProgram(argv) {
     const program = buildPlaybookProgram();

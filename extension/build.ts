@@ -26,6 +26,10 @@ function copyAssets(dir: string): number {
     const srcPath = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
+      // Retired-but-kept code lives in `<name>.old/` and is excluded from tsc
+      // (extension/tsconfig.json). Skip its assets too, or dead HTML/CSS still
+      // ships in the packaged extension.
+      if (entry.name.endsWith('.old')) continue;
       copied += copyAssets(srcPath);
       continue;
     }

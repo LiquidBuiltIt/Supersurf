@@ -32,6 +32,7 @@ class DaemonClient {
     _buildTime = null;
     _configDrift = false;
     _version = null;
+    _extensionConnected = false;
     dialogEventBuffer = [];
     onReconnect = null;
     onTabInfoUpdate = null;
@@ -51,6 +52,11 @@ class DaemonClient {
     /** The daemon's reported package version, or null for a pre-v3 daemon. */
     get version() {
         return this._version;
+    }
+    /** Unmanaged-slot extension presence reported by the daemon on session_ack.
+     *  False for pre-upgrade daemons that omit the field. */
+    get extensionConnected() {
+        return this._extensionConnected;
     }
     /** True when the daemon has detected a config file change since its startup. */
     isConfigDrifted() {
@@ -103,6 +109,7 @@ class DaemonClient {
                             if (msg.config_drift === true)
                                 this._configDrift = true;
                             this._version = msg.version || null;
+                            this._extensionConnected = msg.extensionConnected === true;
                             log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
                             resolve();
                             continue;

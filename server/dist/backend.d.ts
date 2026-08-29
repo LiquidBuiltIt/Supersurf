@@ -37,6 +37,7 @@ export declare class ConnectionManager implements ConnectionManagerAPI {
     attachedTab: TabInfo | null;
     profile: string | null;
     stealthMode: boolean;
+    extensionConnected: boolean;
     metricsLogger: UsageMetricsLogger | null;
     /** Reason the last `connect` attempt failed (e.g. wedged-port EADDRINUSE).
      *  Surfaced in the passive status header; cleared on the next connect attempt. */
@@ -46,9 +47,35 @@ export declare class ConnectionManager implements ConnectionManagerAPI {
     /** Tracks whether the config-drift warning has already been surfaced this session
      *  (one-shot per session — sticky until daemon restart). */
     private _warnedConfigDrift;
+    /** Domain -> playbook-names map, rebuilt whenever `refreshRegistry()` reports
+     *  a change. Not a lazy disk cache any more: the registry is the cache, and
+     *  this is a cheap projection of it. */
+    private _playbookDomainIndex;
+    /** Normalized domains whose discovery hint has already been shown this session
+     *  (one-shot per domain — same pattern as `_warnedConfigDrift`). */
+    private _warnedPlaybookDomains;
+    /** Validation errors already reported this session, keyed `name:error`, so a
+     *  broken file is named once rather than on every tool result. */
+    private _warnedInvalidPlaybooks;
     constructor(config: BackendConfig);
     /** Store server reference and client metadata. Does not start the WebSocket — that happens in `enable`. */
     initialize(server: Server | null, clientInfo: Record<string, unknown>): Promise<void>;
+    /**
+     * Domain-matched playbook discovery hint for the current tab, or null when
+     * there's nothing to show. Harness principle: this only reports — it never
+     * runs anything. Synchronous by contract: `statusHeader()` cannot await, so
+     * this reads the registry cache that `callTool()` already refreshed. Wrapped
+     * so a lookup failure degrades to "no hint" instead of breaking the status
+     * header (and every tool response with it).
+     */
+    private playbookHint;
+    /**
+     * One-shot-per-file warning naming playbook scripts that failed validation.
+     * The verdict rides the next tool result — that is the whole point of
+     * stat-on-tool-call validation. Keyed by `name:error` so a re-broken file
+     * with a NEW error is reported again, while the same error stays quiet.
+     */
+    private playbookWarning;
     /** Build a one-line status string prepended to every tool response. */
     statusHeader(): string;
     /** Return all available tool schemas: connection tools + browser tools + debug tools (if enabled). */

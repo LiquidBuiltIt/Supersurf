@@ -8,7 +8,7 @@ const helpers_1 = require("./helpers");
     async run(ctx, action) {
         const meta = { name: action.name, purpose: action.purpose };
         const { x, y } = await (0, frames_1.getCenterInFrame)(ctx, action.selector, meta);
-        await (0, helpers_1.moveCursorTo)(ctx, x, y, '_default');
+        await (0, helpers_1.moveCursorTo)(ctx, x, y);
         return `Hovered ${action.selector} at (${x}, ${y})`;
     },
 });

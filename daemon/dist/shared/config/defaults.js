@@ -5,12 +5,12 @@ exports.HARDCODED_DEFAULTS = {
     experiments: {
         page_diffing: false,
         smart_waiting: false,
-        storage_inspection: false,
         mouse_humanization: false,
         fingerprinting: false,
     },
     security: {
         secure_eval: true,
+        playbook_eval: true,
         domain_whitelist: {
             enabled: false,
             mode: 'tranco',

@@ -9,7 +9,7 @@ const index_1 = require("../../experimental/index");
         const clickTimestamp = Date.now();
         const button = action.button || 'left';
         const clickCount = action.clickCount || 1;
-        await (0, helpers_1.moveCursorTo)(ctx, action.x, action.y, '_default');
+        await (0, helpers_1.moveCursorTo)(ctx, action.x, action.y);
         await ctx.cdp('Input.dispatchMouseEvent', {
             type: 'mousePressed', x: action.x, y: action.y, button, clickCount, buttons: 1,
         });

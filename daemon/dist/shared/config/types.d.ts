@@ -5,12 +5,16 @@ export interface Config {
     experiments: {
         page_diffing: boolean;
         smart_waiting: boolean;
-        storage_inspection: boolean;
         mouse_humanization: boolean;
         fingerprinting: boolean;
     };
     security: {
         secure_eval: boolean;
+        /** Whether an AGENT may invoke a playbook script that declares the `eval`
+         *  permission. Caller-based: `supersurf playbook run` at a terminal ignores
+         *  it, because a human can read the file first. `true` means allowed —
+         *  same polarity as `secure_eval`. */
+        playbook_eval: boolean;
         domain_whitelist: {
             enabled: boolean;
             mode: 'tranco' | 'custom' | 'both';
@@ -47,6 +51,7 @@ export type PartialConfig = {
     experiments?: Partial<Config['experiments']>;
     security?: {
         secure_eval?: boolean;
+        playbook_eval?: boolean;
         domain_whitelist?: Partial<Config['security']['domain_whitelist']>;
     };
     daemon?: Partial<Config['daemon']>;

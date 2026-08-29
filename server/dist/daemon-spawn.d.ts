@@ -4,6 +4,7 @@
  * @module daemon-spawn
  * @exports isDaemonRunning - Check if daemon process is alive
  * @exports ensureDaemon - Spawn daemon if not running, wait for socket
+ * @exports stopDaemon - Stop the daemon and remove stale socket/PID files
  * @exports getSockPath - Return the daemon socket path
  * @exports getPidPath - Return the daemon PID file path
  */
@@ -22,6 +23,12 @@ export declare function getPidPath(): string;
  * Reads the PID file and verifies the process is alive.
  */
 export declare function isDaemonRunning(): boolean;
+/**
+ * Stop the daemon: SIGTERM the PID-file process, wait up to 5s for exit,
+ * SIGKILL as a last resort, then remove stale socket/PID files.
+ * Safe no-op when nothing is running.
+ */
+export declare function stopDaemon(): Promise<void>;
 /**
  * Resolve the daemon entry script. The daemon ships as a SEPARATE package
  * (`supersurf-daemon`), declared as a dependency of supersurf-mcp, so it

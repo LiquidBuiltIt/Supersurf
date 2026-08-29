@@ -5,6 +5,7 @@
  * @module daemon-spawn
  * @exports isDaemonRunning - Check if daemon process is alive
  * @exports ensureDaemon - Spawn daemon if not running, wait for socket
+ * @exports stopDaemon - Stop the daemon and remove stale socket/PID files
  * @exports getSockPath - Return the daemon socket path
  * @exports getPidPath - Return the daemon PID file path
  */
@@ -16,6 +17,7 @@ exports.explainStartupFailure = explainStartupFailure;
 exports.getSockPath = getSockPath;
 exports.getPidPath = getPidPath;
 exports.isDaemonRunning = isDaemonRunning;
+exports.stopDaemon = stopDaemon;
 exports.resolveDaemonEntry = resolveDaemonEntry;
 exports.ensureDaemon = ensureDaemon;
 const fs_1 = __importDefault(require("fs"));
@@ -81,6 +83,48 @@ function isDaemonRunning() {
     catch {
         return false;
     }
+}
+/**
+ * Stop the daemon: SIGTERM the PID-file process, wait up to 5s for exit,
+ * SIGKILL as a last resort, then remove stale socket/PID files.
+ * Safe no-op when nothing is running.
+ */
+async function stopDaemon() {
+    let pid = null;
+    try {
+        pid = parseInt(fs_1.default.readFileSync(PID_FILE, 'utf8').trim(), 10);
+    }
+    catch {
+        pid = null;
+    }
+    if (pid !== null && !isNaN(pid) && isProcessAlive(pid)) {
+        log(`Stopping daemon (pid=${pid})`);
+        try {
+            process.kill(pid, 'SIGTERM');
+        }
+        catch { }
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline && isProcessAlive(pid)) {
+            await new Promise(r => setTimeout(r, 100));
+        }
+        if (isProcessAlive(pid)) {
+            log(`Daemon did not exit on SIGTERM, sending SIGKILL (pid=${pid})`);
+            try {
+                process.kill(pid, 'SIGKILL');
+            }
+            catch { }
+        }
+    }
+    try {
+        if (fs_1.default.existsSync(SOCK_FILE))
+            fs_1.default.unlinkSync(SOCK_FILE);
+    }
+    catch { }
+    try {
+        if (fs_1.default.existsSync(PID_FILE))
+            fs_1.default.unlinkSync(PID_FILE);
+    }
+    catch { }
 }
 /**
  * Resolve the daemon entry script. The daemon ships as a SEPARATE package

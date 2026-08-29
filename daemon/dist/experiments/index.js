@@ -14,7 +14,6 @@ exports.DaemonExperimentRegistry = void 0;
 const AVAILABLE_EXPERIMENTS = [
     'page_diffing',
     'smart_waiting',
-    'storage_inspection',
     'mouse_humanization',
     'fingerprinting',
 ];
