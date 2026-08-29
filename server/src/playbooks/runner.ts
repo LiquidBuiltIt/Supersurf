@@ -274,6 +274,7 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
       file: record.file,
       params,
       meta: record.meta,
+      hash: record.hash,
       onCommand: async (method: string, cmdParams: any) => {
         const { tool, args } = mapCommand(method, cmdParams, record.name);
         return unwrap(await backend.callTool(tool, args, { rawResult: true }));

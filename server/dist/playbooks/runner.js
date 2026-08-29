@@ -230,6 +230,7 @@ async function runPlaybook(opts) {
             file: record.file,
             params,
             meta: record.meta,
+            hash: record.hash,
             onCommand: async (method, cmdParams) => {
                 const { tool, args } = (0, command_map_1.mapCommand)(method, cmdParams, record.name);
                 return unwrap(await backend.callTool(tool, args, { rawResult: true }));

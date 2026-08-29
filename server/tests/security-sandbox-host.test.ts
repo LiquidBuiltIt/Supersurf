@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import crypto from 'crypto';
 import {
   runPlaybookScript,
   validateParams,
   permissionFlagsFor,
   resolveChildEntry,
+  checkChildEntrySandboxing,
 } from '../src/security/sandbox/host';
 import type { PlaybookMeta } from '../src/security/meta';
 
@@ -14,10 +16,17 @@ let dir: string;
 beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-host-')); });
 afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
-function write(name: string, source: string): string {
-  const p = path.join(dir, `${name}.playbook.js`);
-  fs.writeFileSync(p, source, 'utf8');
-  return p;
+function sha256(source: string): string {
+  return crypto.createHash('sha256').update(source, 'utf8').digest('hex');
+}
+
+/** Writes the playbook and returns both its path and the hash a validator
+ *  would have computed for it — `runPlaybookScript` now requires that hash
+ *  and refuses to run when it doesn't match what's on disk. */
+function write(name: string, source: string): { file: string; hash: string } {
+  const file = path.join(dir, `${name}.playbook.js`);
+  fs.writeFileSync(file, source, 'utf8');
+  return { file, hash: sha256(source) };
 }
 
 const META: PlaybookMeta = { description: 'test' };
@@ -106,10 +115,47 @@ describe('resolveChildEntry', () => {
   });
 });
 
+describe('checkChildEntrySandboxing', () => {
+  const ORIGINAL = process.env.SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK;
+    else process.env.SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK = ORIGINAL;
+  });
+
+  it('lets a compiled child.js through untouched', () => {
+    expect(checkChildEntrySandboxing('/srv/dist/security/sandbox/child.js', noLogs)).toBeNull();
+  });
+
+  it('refuses the tsx fallback by default', () => {
+    delete process.env.SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK;
+    const err = checkChildEntrySandboxing('/srv/src/security/sandbox/child.ts', noLogs);
+    expect(err).toContain('npm run build');
+    expect(err).toContain('SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK');
+    // The fix-it instruction must come before the escape hatch, or an agent
+    // skims to the env var and never builds.
+    expect(err!.indexOf('npm run build')).toBeLessThan(err!.indexOf('SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK'));
+  });
+
+  it('proceeds when the opt-out is set, but logs an unmissable warning', () => {
+    process.env.SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK = '1';
+    const logs: string[] = [];
+    const err = checkChildEntrySandboxing('/srv/src/security/sandbox/child.ts', (m) => logs.push(m));
+    expect(err).toBeNull();
+    expect(logs.length).toBe(1);
+    expect(logs[0]).toContain('SECURITY');
+    expect(logs[0]).toContain('UNRESTRICTED');
+  });
+
+  it('does not treat an unrelated opt-out value as consent', () => {
+    process.env.SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK = 'true'; // not the literal '1'
+    expect(checkChildEntrySandboxing('/srv/src/security/sandbox/child.ts', noLogs)).not.toBeNull();
+  });
+});
+
 describe('runPlaybookScript', () => {
   it('returns the script result', async () => {
-    const file = write('ok', `export const meta = { description: 'x' };\nexport default async function () { return { hi: 1 }; }\n`);
-    const res = await runPlaybookScript({ file, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    const { file, hash } = write('ok', `export const meta = { description: 'x' };\nexport default async function () { return { hi: 1 }; }\n`);
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
     expect(res.ok).toBe(true);
     expect(res.result).toEqual({ hi: 1 });
     expect(res.durationMs).toBeGreaterThanOrEqual(0);
@@ -117,14 +163,14 @@ describe('runPlaybookScript', () => {
 
   it('forwards commands to onCommand verbatim and returns the reply', async () => {
     const seen: Array<{ method: string; params: any }> = [];
-    const file = write('cmd', `export const meta = { description: 'x' };
+    const { file, hash } = write('cmd', `export const meta = { description: 'x' };
 export default async function ({ supersurf }) {
   await supersurf.goto('https://example.com');
   return await supersurf.seeText('Example');
 }
 `);
     const res = await runPlaybookScript({
-      file, params: {}, meta: META, onLog: noLogs,
+      file, hash, params: {}, meta: META, onLog: noLogs,
       onCommand: async (method, params) => {
         seen.push({ method, params });
         return method === 'seeText' ? { visible: true, text: 'Example' } : { success: true };
@@ -147,68 +193,100 @@ export default async function ({ supersurf }) {
       description: 'x',
       params: { a: { type: 'number', required: true }, b: { type: 'number', required: true } },
     };
-    const file = write('params', `export const meta = { description: 'x' };\nexport default async function ({ params }) { return params.a + params.b; }\n`);
-    const res = await runPlaybookScript({ file, params: { a: 2, b: 3 }, meta, onCommand: noCommands, onLog: noLogs });
+    const { file, hash } = write('params', `export const meta = { description: 'x' };\nexport default async function ({ params }) { return params.a + params.b; }\n`);
+    const res = await runPlaybookScript({ file, hash, params: { a: 2, b: 3 }, meta, onCommand: noCommands, onLog: noLogs });
     expect(res.ok).toBe(true);
     expect(res.result).toBe(5);
   });
 
   it('forwards log() calls to onLog', async () => {
     const logs: string[] = [];
-    const file = write('logs', `export const meta = { description: 'x' };\nexport default async function ({ log }) { log('step one'); return 1; }\n`);
-    await runPlaybookScript({ file, params: {}, meta: META, onCommand: noCommands, onLog: (m) => logs.push(m) });
+    const { file, hash } = write('logs', `export const meta = { description: 'x' };\nexport default async function ({ log }) { log('step one'); return 1; }\n`);
+    await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: (m) => logs.push(m) });
     expect(logs).toContain('step one');
   });
 
   it('reports a thrown error with a stack', async () => {
-    const file = write('boom', `export const meta = { description: 'x' };\nexport default async function () { throw new Error('kaboom'); }\n`);
-    const res = await runPlaybookScript({ file, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    const { file, hash } = write('boom', `export const meta = { description: 'x' };\nexport default async function () { throw new Error('kaboom'); }\n`);
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
     expect(res.ok).toBe(false);
     expect(res.error).toContain('kaboom');
     expect(res.stack).toContain('boom.playbook.js');
   });
 
   it('turns an onCommand rejection into a throw inside the script', async () => {
-    const file = write('reject', `export const meta = { description: 'x' };
+    const { file, hash } = write('reject', `export const meta = { description: 'x' };
 export default async function ({ supersurf }) {
   try { await supersurf.click('#go'); return 'no throw'; }
   catch (e) { return 'caught: ' + e.message; }
 }
 `);
     const res = await runPlaybookScript({
-      file, params: {}, meta: META, onLog: noLogs,
+      file, hash, params: {}, meta: META, onLog: noLogs,
       onCommand: async () => { throw new Error('Element not found: #go'); },
     });
     expect(res.result).toBe('caught: Element not found: #go');
   });
 
   it('kills a script that runs past the timeout', async () => {
-    const file = write('hang', `export const meta = { description: 'x' };\nexport default async function () { await new Promise(() => {}); }\n`);
-    const res = await runPlaybookScript({ file, params: {}, meta: META, onCommand: noCommands, onLog: noLogs, timeoutMs: 400 });
+    const { file, hash } = write('hang', `export const meta = { description: 'x' };\nexport default async function () { await new Promise(() => {}); }\n`);
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs, timeoutMs: 400 });
     expect(res.ok).toBe(false);
     expect(res.error).toContain('timed out');
   });
 
   it('rejects invalid params before spawning anything', async () => {
-    const file = write('typed', `export const meta = { description: 'x', params: { n: { type: 'number', required: true } } };\nexport default async function () { return 1; }\n`);
+    const { file, hash } = write('typed', `export const meta = { description: 'x', params: { n: { type: 'number', required: true } } };\nexport default async function () { return 1; }\n`);
     const meta: PlaybookMeta = { description: 'x', params: { n: { type: 'number', required: true } } };
-    const res = await runPlaybookScript({ file, params: {}, meta, onCommand: noCommands, onLog: noLogs });
+    const res = await runPlaybookScript({ file, hash, params: {}, meta, onCommand: noCommands, onLog: noLogs });
     expect(res.ok).toBe(false);
     expect(res.error).toContain('n');
   });
 
   it('reports a missing file without spawning', async () => {
     const res = await runPlaybookScript({
-      file: path.join(dir, 'gone.playbook.js'), params: {}, meta: META, onCommand: noCommands, onLog: noLogs,
+      file: path.join(dir, 'gone.playbook.js'), hash: 'irrelevant', params: {}, meta: META, onCommand: noCommands, onLog: noLogs,
     });
     expect(res.ok).toBe(false);
     expect(res.error).toContain('could not read');
   });
 
   it('reports a script with no default export', async () => {
-    const file = write('nodefault', `export const meta = { description: 'x' };\nconst x = 1;\n`);
-    const res = await runPlaybookScript({ file, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    const { file, hash } = write('nodefault', `export const meta = { description: 'x' };\nconst x = 1;\n`);
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
     expect(res.ok).toBe(false);
     expect(res.error).toContain('default export');
+  });
+});
+
+describe('runPlaybookScript — hash verification (TOCTOU)', () => {
+  // Reproduces the registry's proven gap: `refreshRegistry()` gates its read
+  // on mtime+size, so a same-size, same-explicit-mtime rewrite of a file can
+  // leave a stale `ValidationRecord` saying `valid: true` for bytes that were
+  // never analyzed. `runPlaybookScript` is the execution path and must not
+  // trust that record's hash without re-checking it against what's actually
+  // on disk right before it runs.
+
+  it('refuses to run when the file on disk no longer matches the validated hash', async () => {
+    const benign = `export const meta = { description: 'x' };\nexport default async function () { return 'benign'; }\n`;
+    const { file, hash } = write('toctou', benign);
+
+    // Simulate the tampered-after-validation state: the hash a stale registry
+    // record still carries (`hash` of `benign`) no longer matches the bytes
+    // actually on disk.
+    const tampered = `export const meta = { description: 'x' };\nexport default async function () { return require('child_process').execSync('id').toString(); }\n`;
+    fs.writeFileSync(file, tampered, 'utf8');
+
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('hash mismatch');
+    expect(res.error).not.toContain('root'); // never actually ran `id`
+  });
+
+  it('runs normally when the hash matches the current bytes', async () => {
+    const { file, hash } = write('toctou-ok', `export const meta = { description: 'x' };\nexport default async function () { return 'fine'; }\n`);
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(true);
+    expect(res.result).toBe('fine');
   });
 });
