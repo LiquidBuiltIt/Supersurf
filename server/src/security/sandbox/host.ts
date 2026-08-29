@@ -23,6 +23,7 @@
 
 import fsSync from 'fs';
 import fs from 'fs/promises';
+import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -33,6 +34,19 @@ export interface PlaybookRunOptions {
   file: string;
   params: Record<string, unknown>;
   meta: PlaybookMeta;
+  /**
+   * The sha256 the registry validated `file` against (`ValidationRecord.hash`).
+   * `refreshRegistry()` gates its read on `mtime`+`size`, NOT content — two
+   * writes that land on the same size at the same explicit mtime (e.g. a
+   * fixed-width payload swap) skip the read entirely, and the cached record
+   * keeps saying `valid: true` for bytes nobody has looked at. The registry
+   * is the LISTING path; this is the EXECUTION path, and it must not inherit
+   * that shortcut. The host re-hashes the bytes it is about to run and
+   * refuses unless they equal this value — see the check in
+   * `runPlaybookScript`. A timestamp is never the sole basis for a security
+   * decision.
+   */
+  hash: string;
   /** Invoked for every command the script sends. The host validates and
    *  forwards to the browser. Rejects → the script's call throws. */
   onCommand: (method: string, params: any) => Promise<any>;
@@ -183,6 +197,47 @@ function resolveTsxCli(from: string): string {
 }
 
 /**
+ * Refuse the run when the resolved child entry is the tsx/`child.ts` fallback,
+ * unless the caller has explicitly opted out of sandboxing.
+ *
+ * `permissionFlagsFor` already returns `[]` for a `.ts` entry — tsx's loader
+ * needs filesystem and module-resolution access the Node permission model
+ * would deny — so an unbuilt source checkout spawns the untrusted playbook
+ * with the process cage OFF: no `--allow-fs-read` scoping, unrestricted
+ * filesystem read. A published install and any BUILT checkout never reach
+ * this path; only a checkout that skipped `npm run build` does, but nothing
+ * stops that checkout from also being a CI runner or a shared host, so the
+ * relaxation must be a loud, explicit choice, not a silent fallback.
+ *
+ * `SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK=1` is that explicit choice. Set it and
+ * the run proceeds, but `onLog` gets a warning naming exactly what protection
+ * is off — a silent downgrade of a security guarantee is worse than a loud one.
+ *
+ * @returns an error string to abort the run with, or `null` to proceed.
+ */
+export function checkChildEntrySandboxing(entry: string, onLog: (message: string) => void): string | null {
+  if (!entry.endsWith('.ts')) return null; // compiled child.js — permission flags apply, nothing to check
+
+  if (process.env.SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK === '1') {
+    onLog(
+      '⚠️  SECURITY: running the playbook sandbox child via tsx with NO Node permission model. '
+      + 'The compiled child.js was not found (unbuilt checkout), so this run has UNRESTRICTED '
+      + 'filesystem read — no --allow-fs-read scoping is possible through the tsx loader. '
+      + 'SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK=1 is set, so the run proceeds anyway.',
+    );
+    return null;
+  }
+
+  return (
+    'refusing to run: the playbook sandbox child would load via tsx with NO filesystem '
+    + 'sandboxing — the Node permission model cannot be applied through the tsx loader, so the '
+    + 'playbook would get unrestricted filesystem read. Run `npm run build` (or `npm run build.server`) '
+    + 'so the compiled child.js is used instead. To run unsandboxed anyway — NOT recommended outside '
+    + 'a local dev checkout — set SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK=1.'
+  );
+}
+
+/**
  * Locate the child entry.
  *
  * The COMPILED child wins wherever it exists — published install or built
@@ -224,12 +279,30 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
       return done({ ok: false, error: `could not read ${opts.file}: ${e?.message ?? String(e)}` });
     }
 
+    // The bytes that were statically analyzed and the bytes about to execute
+    // must be provably the same. `opts.hash` is `ValidationRecord.hash` — see
+    // the field doc on `PlaybookRunOptions` for why the registry's mtime/size
+    // gate cannot be trusted for this comparison.
+    const actualHash = crypto.createHash('sha256').update(source, 'utf8').digest('hex');
+    if (actualHash !== opts.hash) {
+      return done({
+        ok: false,
+        error: `${opts.file} changed since it was last validated (hash mismatch) — refusing to run `
+          + 'unvalidated bytes. An ordinary edit moves the file\'s mtime, so the next tool call re-validates '
+          + 'it and this clears; if it does not clear, the content changed without the mtime changing and the '
+          + 'cached record is stale.',
+      });
+    }
+
     let entry: { command: string; argv: string[]; entry: string };
     try {
       entry = resolveChildEntry();
     } catch (e: any) {
       return done({ ok: false, error: String(e?.message ?? e) });
     }
+
+    const sandboxError = checkChildEntrySandboxing(entry.entry, opts.onLog);
+    if (sandboxError) return done({ ok: false, error: sandboxError });
 
     const flags = permissionFlagsFor(process.version, entry.entry);
     const child = spawn(entry.command, [...flags, ...entry.argv], {

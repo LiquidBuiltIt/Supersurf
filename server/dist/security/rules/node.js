@@ -30,6 +30,15 @@ function isMemberCall(callee, obj, prop) {
 /** Node host globals a playbook must never touch. None of them exist in the
  *  sandbox context — they are absent by omission — but naming them turns a
  *  baffling `process is not defined` into a readable validation error. */
+/**
+ * Names that reach a prototype, and through it the host realm. The two
+ * `__lookup*__` accessors belong here for the same reason `__proto__` does:
+ * `({}).__lookupGetter__('__proto__')` hands back Object.prototype's own
+ * getter, which returns a prototype when called — the same walk, one
+ * indirection further out, and invisible to a rule that only knows the two
+ * obvious names.
+ */
+const PROTO_WALK = ['__proto__', 'constructor', '__lookupGetter__', '__lookupSetter__'];
 const HOST_GLOBALS = ['process', 'global', 'globalThis', 'require', 'module', 'exports', 'Buffer', '__dirname', '__filename'];
 /** Code-generation entry points. `codeGeneration: { strings: false }` already
  *  makes these throw inside the vm; blocking them statically explains why. */
@@ -69,10 +78,10 @@ const patterns = [
         nodeType: 'MemberExpression',
         matcher: (node) => {
             if (node.property?.type === 'Identifier') {
-                return ['__proto__', 'constructor'].includes(node.property.name);
+                return PROTO_WALK.includes(node.property.name);
             }
             if (node.property?.type === 'Literal' && typeof node.property.value === 'string') {
-                return ['__proto__', 'constructor'].includes(node.property.value);
+                return PROTO_WALK.includes(node.property.value);
             }
             return false;
         },

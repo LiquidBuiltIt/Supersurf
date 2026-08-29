@@ -26,6 +26,19 @@ export interface PlaybookRunOptions {
     file: string;
     params: Record<string, unknown>;
     meta: PlaybookMeta;
+    /**
+     * The sha256 the registry validated `file` against (`ValidationRecord.hash`).
+     * `refreshRegistry()` gates its read on `mtime`+`size`, NOT content — two
+     * writes that land on the same size at the same explicit mtime (e.g. a
+     * fixed-width payload swap) skip the read entirely, and the cached record
+     * keeps saying `valid: true` for bytes nobody has looked at. The registry
+     * is the LISTING path; this is the EXECUTION path, and it must not inherit
+     * that shortcut. The host re-hashes the bytes it is about to run and
+     * refuses unless they equal this value — see the check in
+     * `runPlaybookScript`. A timestamp is never the sole basis for a security
+     * decision.
+     */
+    hash: string;
     /** Invoked for every command the script sends. The host validates and
      *  forwards to the browser. Rejects → the script's call throws. */
     onCommand: (method: string, params: any) => Promise<any>;
@@ -59,6 +72,26 @@ export declare function validateParams(params: Record<string, unknown>, meta: Pl
  * built checkout, runs the compiled `child.js` with the flags on.
  */
 export declare function permissionFlagsFor(nodeVersion: string, entry: string): string[];
+/**
+ * Refuse the run when the resolved child entry is the tsx/`child.ts` fallback,
+ * unless the caller has explicitly opted out of sandboxing.
+ *
+ * `permissionFlagsFor` already returns `[]` for a `.ts` entry — tsx's loader
+ * needs filesystem and module-resolution access the Node permission model
+ * would deny — so an unbuilt source checkout spawns the untrusted playbook
+ * with the process cage OFF: no `--allow-fs-read` scoping, unrestricted
+ * filesystem read. A published install and any BUILT checkout never reach
+ * this path; only a checkout that skipped `npm run build` does, but nothing
+ * stops that checkout from also being a CI runner or a shared host, so the
+ * relaxation must be a loud, explicit choice, not a silent fallback.
+ *
+ * `SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK=1` is that explicit choice. Set it and
+ * the run proceeds, but `onLog` gets a warning naming exactly what protection
+ * is off — a silent downgrade of a security guarantee is worse than a loud one.
+ *
+ * @returns an error string to abort the run with, or `null` to proceed.
+ */
+export declare function checkChildEntrySandboxing(entry: string, onLog: (message: string) => void): string | null;
 /**
  * Locate the child entry.
  *

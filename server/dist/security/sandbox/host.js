@@ -27,10 +27,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.validateParams = validateParams;
 exports.permissionFlagsFor = permissionFlagsFor;
+exports.checkChildEntrySandboxing = checkChildEntrySandboxing;
 exports.resolveChildEntry = resolveChildEntry;
 exports.runPlaybookScript = runPlaybookScript;
 const fs_1 = __importDefault(require("fs"));
 const promises_1 = __importDefault(require("fs/promises"));
+const crypto_1 = __importDefault(require("crypto"));
 const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));
 const child_process_1 = require("child_process");
@@ -169,6 +171,41 @@ function resolveTsxCli(from) {
         + `to restore the tsx devDependency. Looked at: ${looked.join(', ')}`);
 }
 /**
+ * Refuse the run when the resolved child entry is the tsx/`child.ts` fallback,
+ * unless the caller has explicitly opted out of sandboxing.
+ *
+ * `permissionFlagsFor` already returns `[]` for a `.ts` entry — tsx's loader
+ * needs filesystem and module-resolution access the Node permission model
+ * would deny — so an unbuilt source checkout spawns the untrusted playbook
+ * with the process cage OFF: no `--allow-fs-read` scoping, unrestricted
+ * filesystem read. A published install and any BUILT checkout never reach
+ * this path; only a checkout that skipped `npm run build` does, but nothing
+ * stops that checkout from also being a CI runner or a shared host, so the
+ * relaxation must be a loud, explicit choice, not a silent fallback.
+ *
+ * `SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK=1` is that explicit choice. Set it and
+ * the run proceeds, but `onLog` gets a warning naming exactly what protection
+ * is off — a silent downgrade of a security guarantee is worse than a loud one.
+ *
+ * @returns an error string to abort the run with, or `null` to proceed.
+ */
+function checkChildEntrySandboxing(entry, onLog) {
+    if (!entry.endsWith('.ts'))
+        return null; // compiled child.js — permission flags apply, nothing to check
+    if (process.env.SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK === '1') {
+        onLog('⚠️  SECURITY: running the playbook sandbox child via tsx with NO Node permission model. '
+            + 'The compiled child.js was not found (unbuilt checkout), so this run has UNRESTRICTED '
+            + 'filesystem read — no --allow-fs-read scoping is possible through the tsx loader. '
+            + 'SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK=1 is set, so the run proceeds anyway.');
+        return null;
+    }
+    return ('refusing to run: the playbook sandbox child would load via tsx with NO filesystem '
+        + 'sandboxing — the Node permission model cannot be applied through the tsx loader, so the '
+        + 'playbook would get unrestricted filesystem read. Run `npm run build` (or `npm run build.server`) '
+        + 'so the compiled child.js is used instead. To run unsandboxed anyway — NOT recommended outside '
+        + 'a local dev checkout — set SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK=1.');
+}
+/**
  * Locate the child entry.
  *
  * The COMPILED child wins wherever it exists — published install or built
@@ -206,6 +243,20 @@ function runPlaybookScript(opts) {
         catch (e) {
             return done({ ok: false, error: `could not read ${opts.file}: ${e?.message ?? String(e)}` });
         }
+        // The bytes that were statically analyzed and the bytes about to execute
+        // must be provably the same. `opts.hash` is `ValidationRecord.hash` — see
+        // the field doc on `PlaybookRunOptions` for why the registry's mtime/size
+        // gate cannot be trusted for this comparison.
+        const actualHash = crypto_1.default.createHash('sha256').update(source, 'utf8').digest('hex');
+        if (actualHash !== opts.hash) {
+            return done({
+                ok: false,
+                error: `${opts.file} changed since it was last validated (hash mismatch) — refusing to run `
+                    + 'unvalidated bytes. An ordinary edit moves the file\'s mtime, so the next tool call re-validates '
+                    + 'it and this clears; if it does not clear, the content changed without the mtime changing and the '
+                    + 'cached record is stale.',
+            });
+        }
         let entry;
         try {
             entry = resolveChildEntry();
@@ -213,6 +264,9 @@ function runPlaybookScript(opts) {
         catch (e) {
             return done({ ok: false, error: String(e?.message ?? e) });
         }
+        const sandboxError = checkChildEntrySandboxing(entry.entry, opts.onLog);
+        if (sandboxError)
+            return done({ ok: false, error: sandboxError });
         const flags = permissionFlagsFor(process.version, entry.entry);
         const child = (0, child_process_1.spawn)(entry.command, [...flags, ...entry.argv], {
             // No environment: the child must never see credentials or config.
