@@ -35,7 +35,9 @@ function fakeBackend(over: Partial<Record<string, any>> = {}): { backend: Runner
     async callTool(name: string, a: any) {
       calls.push({ name, args: a });
       if (name === 'connect') return { success: true };
-      if (name === 'browser_tabs' && a.action === 'new') return { success: true, tabId: 77 };
+      if (name === 'browser_tabs' && a.action === 'new') {
+        return { attachedTab: { id: 1, index: 0, title: 'Untitled', url: 'about:blank', groupId: -1 }, stealthMode: false };
+      }
       if (name === 'browser_snapshot') return { success: true, snapshot: '<page snapshot>' };
       return over[name] ?? { success: true };
     },
@@ -310,6 +312,26 @@ describe('runPlaybook', () => {
     expect(out.ok).toBe(false);
     expect(out.error).toContain('daemon unreachable');
     expect(calls.some(c => c.name === 'browser_tabs')).toBe(false);
+  });
+
+  it('fails without closing any tab when the tab open itself fails, leaving the caller\'s tab alone', async () => {
+    const calls: any[] = [];
+    const backend: RunnerBackend = {
+      async callTool(name: string, a: any) {
+        calls.push({ name, args: a });
+        if (name === 'connect') return { success: true };
+        if (name === 'browser_tabs' && a.action === 'new') return { success: false, error: 'No such tab' };
+        return { success: true };
+      },
+    };
+    const out = await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'agent',
+      createBackend: () => backend,
+      runScript: async () => ({ ok: true, durationMs: 1 }),
+    });
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain('No such tab');
+    expect(calls.some(c => c.name === 'browser_tabs' && c.args.action === 'close')).toBe(false);
   });
 
   it('refuses a record with no meta', async () => {
