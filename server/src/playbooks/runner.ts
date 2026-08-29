@@ -20,52 +20,18 @@ import { mapCommand } from './command-map';
 import { experimentRegistry } from '../experimental';
 import { initSession as initHumanization } from '../experimental/mouse-humanization/index';
 import { appendRunRecord, type RunRecord } from './runs';
+import {
+  runPlaybookScript,
+  type PlaybookRunOptions,
+  type PlaybookRunResult,
+} from '../security/sandbox/host';
 import type { PlaybookMeta } from '../security/meta';
 import type { ValidationRecord } from '../security/validate';
 
 const { version: PACKAGE_VERSION } = require('../../package.json');
 
-/**
- * Spec §7.5 — the LOCKED sandbox-host contract.
- *
- * Declared here rather than imported because `../security/sandbox/host` is Plan
- * 2's module and has not landed on this branch. The shapes below are §7.5
- * verbatim, so they are structurally identical to the real ones. Once the
- * branches merge, delete these two interfaces and `loadRunScript`, and restore
- * the direct import:
- *
- *   import { runPlaybookScript, type PlaybookRunOptions, type PlaybookRunResult }
- *     from '../security/sandbox/host';
- *
- * The lazy `require` is deliberate: `runner.ts` must be importable (and its
- * unit tests runnable through the `runScript` seam) without the host module
- * existing. A static import would make the whole module unloadable.
- */
-export interface PlaybookRunOptions {
-  file: string;
-  params: Record<string, unknown>;
-  meta: PlaybookMeta;
-  onCommand: (method: string, params: any) => Promise<unknown>;
-  onLog: (msg: string) => void;
-  timeoutMs?: number;
-}
-
-export interface PlaybookRunResult {
-  ok: boolean;
-  result?: unknown;
-  error?: string;
-  stack?: string;
-  durationMs: number;
-}
-
+/** The sandbox-host entrypoint, seam-able for unit tests. */
 type RunScript = (opts: PlaybookRunOptions) => Promise<PlaybookRunResult>;
-
-/** Resolve Plan 2's host at call time, not at import time. */
-function loadRunScript(): RunScript {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const host = require('../security/sandbox/host');
-  return host.runPlaybookScript as RunScript;
-}
 
 /** The slice of `ConnectionManager` a run needs. Narrow so tests can fake it. */
 export interface RunnerBackend {
@@ -244,7 +210,7 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
     return finish({ ok: false, error: paramError, durationMs: Date.now() - started });
   }
 
-  const runScript: RunScript = opts.runScript ?? loadRunScript();
+  const runScript: RunScript = opts.runScript ?? runPlaybookScript;
   const backend = (opts.createBackend ?? defaultBackend)();
 
   // Own session. The daemon rejects a duplicate id, so this must not collide
