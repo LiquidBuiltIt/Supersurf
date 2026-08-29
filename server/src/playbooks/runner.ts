@@ -240,12 +240,36 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
   let evidence: { snapshot?: string } | undefined;
   let outcome: PlaybookRunResult;
 
+  // Own tab. `meta.startingPoint` is a discovery hint, not a URL to load —
+  // the script's first `goto` decides where it actually lands.
+  //
+  // `createTab` does not throw on failure — it returns `{ success: false,
+  // error }` as ordinary data (the dispatcher's catch-all wraps a thrown
+  // extension error into that shape). Discarding the return value here used
+  // to mean a failed open silently fell through to `tabOpened = true`, and
+  // the run then drove — and at teardown CLOSED — whatever tab the CALLING
+  // agent had attached. Check the envelope before trusting it.
+  // Teardown below is straight-line, not a `finally`, so a throw escaping this
+  // call would leak the session it just opened. Fold a throw into the same
+  // failure envelope the dispatcher produces.
+  let newTabRes: any;
   try {
-    // Own tab. `meta.startingPoint` is a discovery hint, not a URL to load —
-    // the script's first `goto` decides where it actually lands.
-    await backend.callTool('browser_tabs', { action: 'new' }, { rawResult: true });
-    tabOpened = true;
+    newTabRes = await backend.callTool('browser_tabs', { action: 'new' }, { rawResult: true });
+  } catch (err: any) {
+    newTabRes = { success: false, error: err?.message ?? String(err) };
+  }
 
+  if (newTabRes?.success === false) {
+    try { await backend.callTool('disconnect', {}, { rawResult: true }); } catch { /* teardown */ }
+    return finish({
+      ok: false,
+      error: `Tab open failed: ${newTabRes?.message ?? newTabRes?.error ?? 'unknown error'}`,
+      durationMs: Date.now() - started,
+    });
+  }
+  tabOpened = true;
+
+  try {
     outcome = await runScript({
       file: record.file,
       params,
