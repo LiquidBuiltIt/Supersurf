@@ -334,6 +334,27 @@ describe('runPlaybook', () => {
     expect(calls.some(c => c.name === 'browser_tabs' && c.args.action === 'close')).toBe(false);
   });
 
+  it('disconnects instead of leaking the session when the tab open throws', async () => {
+    const calls: any[] = [];
+    const backend: RunnerBackend = {
+      async callTool(name: string, a: any) {
+        calls.push({ name, args: a });
+        if (name === 'connect') return { success: true };
+        if (name === 'browser_tabs' && a.action === 'new') throw new Error('transport closed');
+        return { success: true };
+      },
+    };
+    const out = await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'agent',
+      createBackend: () => backend,
+      runScript: async () => ({ ok: true, durationMs: 1 }),
+    });
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain('transport closed');
+    expect(calls.some(c => c.name === 'browser_tabs' && c.args.action === 'close')).toBe(false);
+    expect(calls.some(c => c.name === 'disconnect')).toBe(true);
+  });
+
   it('refuses a record with no meta', async () => {
     const { backend } = fakeBackend();
     const out = await runPlaybook({
