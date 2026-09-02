@@ -214,14 +214,31 @@ describe('the supersurf-daemon bin still has a home', () => {
   // supersurf-mcp used to ship a duplicate `supersurf-daemon` bin, reachable
   // only through a global install. Item 28 drops it. What must remain true is
   // that the name is still served by the package that actually owns it. Its
-  // argv handling is covered by daemon/tests/main.test.ts's parseArgs suite,
-  // and Task 5 smoke-runs `node daemon/dist/main.js status` by hand.
+  // argv handling is covered by daemon/tests/main.test.ts's parseArgs suite.
   const daemonRoot = path.resolve(__dirname, '..', '..', 'daemon');
 
   it('is declared by the supersurf-daemon package and its artifact is committed', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(daemonRoot, 'package.json'), 'utf8'));
     expect(pkg.bin).toEqual({ 'supersurf-daemon': 'dist/main.js' });
     expect(fs.existsSync(path.join(daemonRoot, 'dist', 'main.js'))).toBe(true);
+  });
+
+  it('the committed bundle actually boots and answers `status`', () => {
+    // Restores the EXECUTION the deleted server-side shim test performed. The
+    // structural test above only stats the file, and dist/main.js is a BUNDLE
+    // (tsc + shared.bundle.ts) -- a bundler regression, a syntax error or a
+    // lost exec bit would otherwise leave this suite green. `status` reads the
+    // socket and spawns nothing, so it is safe with or without a live daemon.
+    const bin = path.join(daemonRoot, 'dist', 'main.js');
+    const r = spawnSync('node', [bin, 'status'], {
+      encoding: 'utf8',
+      env: childEnv(),
+      timeout: 15000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+    expect(r.error, `spawn failed: ${r.error?.message}`).toBeUndefined();
+    expect(out).toMatch(/SuperSurf Daemon|Daemon (is )?not running/i);
   });
 });
 
@@ -232,7 +249,7 @@ describe('runtime hint strings name a package npm will actually serve', () => {
   // that is not this project (dispute refused 2026-06-09). Anything that tells
   // a user or an agent to run `npx supersurf ...` sends them to a stranger's
   // package. `supersurf <sub>` with no npx prefix is fine -- that is the
-  // curl-installed compiled binary.
+  // standalone compiled binary built from cli/.
   const files = [
     'tools/playbooks.ts',
     'tools.ts',

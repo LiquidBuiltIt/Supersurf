@@ -55,7 +55,9 @@ try {
 
   // Item 28's headline acceptance criterion: the CLI left this package. A
   // stray bin here would put `supersurf` back on PATH from an npm install and
-  // shadow the curl-installed binary.
+  // shadow the standalone `supersurf` binary built from cli/. NOTE: that
+  // binary has no distribution channel yet -- `npm run build` does not run
+  // build.cli and `npm run publish` does not upload it (BACKLOG item 28).
   const installed = JSON.parse(
     readFileSync(join(work, 'node_modules', 'supersurf-mcp', 'package.json'), 'utf8'),
   );
