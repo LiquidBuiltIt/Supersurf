@@ -15,6 +15,39 @@
  *
  * @module cli
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
@@ -216,6 +249,40 @@ program
         options.debug = options.debug || true;
     }
     await main(options);
+});
+// `supersurf playbook run` at a terminal shells out to THIS program. The
+// compiled `supersurf` binary cannot carry `playbooks/runner.ts` — it pulls the
+// ConnectionManager, the daemon and, through `tools/`, the `sharp` native
+// addon. So `run` is the ONLY playbook subcommand registered here; `ls`,
+// `inspect`, `validate` and `migrate` stay in the binary and never reach the
+// server. Do not grow this into a second playbook CLI.
+//
+// Registering a subcommand leaves the root `.action()` above intact: Commander
+// still runs it when no subcommand is named, so a bare `npx supersurf-mcp`
+// starts the MCP server exactly as before. The `mcp` argv filter below is
+// likewise untouched.
+const playbook = program
+    .command('playbook')
+    .description('Playbook operations that need the server; `supersurf playbook` covers the rest');
+playbook
+    .command('run')
+    .description('Run a playbook script against a browser (no MCP client needed)')
+    .argument('<name>', 'playbook name')
+    .option('--param <key=value>', 'script argument; repeat for each param', (v, acc) => acc.concat(v), [])
+    .option('--profile <profile>', 'managed browser profile; overrides the script\'s own default')
+    .option('--json', 'print machine-readable JSON instead of the run trail')
+    .action(async (name, flags) => {
+    // Lazy on purpose: `playbooks/run-cli` reaches the runner, the sandbox host
+    // and the experiment registry. An MCP start must not pay for a subcommand
+    // it never invokes.
+    try {
+        const { runRun } = await Promise.resolve().then(() => __importStar(require('./playbooks/run-cli')));
+        process.exitCode = await runRun(name, flags);
+    }
+    catch (err) {
+        console.error(`[playbook] ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = 1;
+    }
 });
 // Owner ruling R1 (BACKLOG #25): `npx supersurf-mcp@latest mcp` was the
 // documented invocation for two releases and is baked into every MCP client
