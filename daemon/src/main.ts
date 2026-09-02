@@ -41,7 +41,7 @@ import { RequestScheduler } from './scheduler';
 import { IPCServer } from './ipc';
 import { DaemonExperimentRegistry } from './experiments/index';
 import { ProfileRegistry } from './profiles/registry';
-import { ensureExtension } from './profiles/extension-source';
+import { ensureExtension, isExtensionCached, getExtensionDir } from './profiles/extension-source';
 import { replayPidLog, findOrphanPids, killOrphanPids, truncatePidLog, appendPidLog } from './profiles/chrome';
 
 const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
@@ -443,11 +443,25 @@ async function main(): Promise<void> {
   // Ensure ~/.supersurf/daemon/ exists
   fs.mkdirSync(path.join(SUPERSURF_DIR, 'daemon'), { recursive: true });
 
-  // Pull extension from GitHub if not cached
+  // Pull extension from GitHub if not cached. A failure is not fatal at
+  // startup — a cached copy may still be usable, and unmanaged (bring-your-own
+  // Chromium) sessions never touch this directory. But it IS fatal to a managed
+  // profile spawn, so the reason is carried forward to spawnProfile rather than
+  // being swallowed into daemon.log, where it only ever resurfaced as a
+  // 45s match timeout with no cause attached.
+  let extensionPullError: string | null = null;
   try {
     await ensureExtension();
   } catch (err: any) {
-    logger.log(`[Daemon] Warning: Failed to pull extension: ${err.message}`);
+    extensionPullError = err?.message ? String(err.message) : String(err);
+    logger.log(`[Daemon] Failed to pull extension: ${extensionPullError}`);
+    const cached = isExtensionCached();
+    console.error(
+      `SuperSurf: could not download the browser extension — ${extensionPullError}\n` +
+      (cached
+        ? `  Using the cached copy at ${getExtensionDir()}. It may be out of date.`
+        : `  No cached copy at ${getExtensionDir()}. Managed profiles cannot start until this succeeds.`),
+    );
   }
 
   // Initialize profile registry
@@ -466,7 +480,7 @@ async function main(): Promise<void> {
     disableGpu: cfg.get().profiles.startup_opts.disable_gpu,
     chromePath: cfg.get().profiles.chrome_path,
   };
-  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version, startupOpts });
+  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version, startupOpts, extensionPullError });
 
   // Watch ~/.supersurf/config.json for post-startup edits. The daemon snapshots
   // config at startup and never hot-reloads — drift means the user's edits won't

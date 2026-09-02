@@ -9,6 +9,12 @@ import { RequestScheduler } from '../src/scheduler';
 import { DaemonExperimentRegistry } from '../src/experiments/index';
 import { ProfileRegistry } from '../src/profiles/registry';
 import type { ExtensionBridge } from '../src/extension-bridge';
+import { isExtensionCached } from '../src/profiles/extension-source';
+
+vi.mock('../src/profiles/extension-source', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/profiles/extension-source')>();
+  return { ...actual, isExtensionCached: vi.fn().mockReturnValue(true) };
+});
 
 function mockBridge(): ExtensionBridge {
   // Real (if minimal) version-rejection bookkeeping so tests can exercise the
@@ -946,6 +952,75 @@ describe('IPCServer', () => {
         connected: false,
       });
       client.end();
+    });
+  });
+
+  describe('extension pull failure', () => {
+    function makeIpcServer(metaOverrides: Record<string, unknown> = {}): IPCServer {
+      return new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry, {
+        port: 5555,
+        version: '9.9.9-test',
+        ...metaOverrides,
+      });
+    }
+
+    async function callProfileMethod(
+      sessionId: string,
+      method: string,
+      params: Record<string, unknown>,
+      server: IPCServer,
+    ): Promise<any> {
+      await server.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId });
+      await readLine(client);
+
+      writeLine(client, { jsonrpc: '2.0', id: 'req-1', method, params });
+      const res = await readLine(client);
+      client.end();
+      if (res.error) throw new Error(res.error.message);
+      return res.result;
+    }
+
+    beforeEach(() => {
+      profileRegistry.create('dev');
+    });
+
+    it('fails profiles.connect with the pull error when the extension is not cached', async () => {
+      ipc = makeIpcServer({
+        extensionPullError: 'getaddrinfo ENOTFOUND api.github.com',
+      });
+      vi.mocked(isExtensionCached).mockReturnValue(false);
+
+      await expect(
+        callProfileMethod('sess-1', 'profiles.connect', { profile: 'dev' }, ipc),
+      ).rejects.toThrow(/could not download the browser extension/i);
+    });
+
+    it('names the underlying pull error so the user can act on it', async () => {
+      ipc = makeIpcServer({
+        extensionPullError: 'getaddrinfo ENOTFOUND api.github.com',
+      });
+      vi.mocked(isExtensionCached).mockReturnValue(false);
+
+      await expect(
+        callProfileMethod('sess-1', 'profiles.connect', { profile: 'dev' }, ipc),
+      ).rejects.toThrow(/ENOTFOUND api\.github\.com/);
+    });
+
+    it('spawns normally when the extension is cached despite an earlier pull error', async () => {
+      ipc = makeIpcServer({
+        extensionPullError: 'getaddrinfo ENOTFOUND api.github.com',
+      });
+      vi.mocked(isExtensionCached).mockReturnValue(true);
+      // Skip the real bootstrap queue (would spawn a real Chromium); the
+      // point of this test is only that the pull-error guard doesn't fire.
+      (bridge as any).matchmaker.enqueueBootstrap = vi.fn().mockResolvedValue(undefined);
+
+      // A stale-but-present cache is usable; the pull failure is not fatal —
+      // the guard is a no-op and the connect proceeds to a normal match.
+      const result = await callProfileMethod('sess-1', 'profiles.connect', { profile: 'dev' }, ipc);
+      expect(result.success).toBe(true);
     });
   });
 });
