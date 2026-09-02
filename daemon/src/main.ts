@@ -425,8 +425,10 @@ async function main(): Promise<void> {
   // Experiment defaults come from the resolved config snapshot (file + env merged).
   const expSnapshot = cfg.get().experiments;
 
+  const version = getVersion();
+
   // Initialize components
-  const bridge = new ExtensionBridge(port, '127.0.0.1');
+  const bridge = new ExtensionBridge(port, '127.0.0.1', version);
   const sessions = new SessionRegistry();
   const scheduler = new RequestScheduler(bridge, sessions);
   const experiments = new DaemonExperimentRegistry({ defaults: expSnapshot });
@@ -460,7 +462,6 @@ async function main(): Promise<void> {
   }
   truncatePidLog();
 
-  const version = getVersion();
   const startupOpts = {
     disableGpu: cfg.get().profiles.startup_opts.disable_gpu,
     chromePath: cfg.get().profiles.chrome_path,

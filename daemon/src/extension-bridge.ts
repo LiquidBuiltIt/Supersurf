@@ -17,6 +17,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { FileLogger } from 'shared';
 import { Matchmaker } from './profiles/matchmaker';
 import { applyKeepBrowserPreference } from './profiles/keep-browser';
+import { applyHandshakeVersion } from './profiles/extension-version';
 import { registrationHtml } from './profiles/registration-page';
 import type { PooledConnection } from './profiles/types';
 
@@ -25,6 +26,14 @@ const debugLog = (...args: unknown[]) => {
   if (logger) logger.log('[WS]', ...args);
   else if ((global as any).DAEMON_DEBUG) console.error('[WS]', ...args);
 };
+
+/**
+ * How long a pooled connection may stay unchecked before it is allowed through
+ * anyway. The Matchmaker will not hand out a 'pending' connection, so without
+ * this deadline a client that connects and never handshakes would wedge its
+ * slot for the full match window. Fails open by design.
+ */
+const HANDSHAKE_DEADLINE_MS = 5000;
 
 /**
  * WebSocket server that bridges the daemon to Chrome extension(s).
@@ -41,9 +50,12 @@ export class ExtensionBridge {
 
   onTabInfoUpdate: ((tabInfo: any) => void) | null = null;
 
-  constructor(port: number = 5555, host: string = '127.0.0.1') {
+  private daemonVersion: string;
+
+  constructor(port: number = 5555, host: string = '127.0.0.1', daemonVersion: string = 'unknown') {
     this.port = port;
     this.host = host;
+    this.daemonVersion = daemonVersion;
     this.matchmaker = new Matchmaker();
   }
 
@@ -66,6 +78,15 @@ export class ExtensionBridge {
   /** True if at least one extension is connected. */
   get connected(): boolean {
     return this.matchmaker.hasConnections;
+  }
+
+  /**
+   * The most recent extension version rejection, or null. Rides session_ack so
+   * an agent calling `connect` without a profile learns immediately, rather
+   * than discovering it as a silent absence of browser tools.
+   */
+  get extensionVersionError(): string | null {
+    return this.matchmaker.lastVersionRejection?.message ?? null;
   }
 
   /** Spin up the HTTP + WebSocket server and begin accepting connections. */
@@ -119,6 +140,9 @@ export class ExtensionBridge {
           pingInterval: null,
           inflight: new Map(),
           keepBrowserOnSessionEnd: false,
+          version: null,
+          versionStatus: 'pending',
+          versionError: null,
         };
 
         // Keep-alive ping every 10s
@@ -128,15 +152,32 @@ export class ExtensionBridge {
           }
         }, 10000);
 
+        // Bounded wait for the handshake. A connection is pooled before its
+        // handshake arrives, and the Matchmaker will not hand out an unchecked
+        // one — so a silent client must not be able to hold its slot forever.
+        const handshakeDeadline = setTimeout(() => {
+          if (conn.versionStatus !== 'pending') return;
+          debugLog(`No handshake within ${HANDSHAKE_DEADLINE_MS}ms — allowing connection unchecked`);
+          conn.versionStatus = 'warn';
+          conn.versionError =
+            'The connected extension never sent a handshake, so its version was not checked.';
+          console.error(
+            'SuperSurf: extension version guard inactive — the connected extension never sent a ' +
+            `handshake within ${HANDSHAKE_DEADLINE_MS}ms, so its version was not checked.`,
+          );
+          this.matchmaker.tryResolvePendingMatches();
+        }, HANDSHAKE_DEADLINE_MS);
+
         // Add to pool
         this.matchmaker.addConnection(ws, conn);
 
         debugLog('Extension connected');
 
-        ws.on('message', (data) => this.handleMessage(ws, conn, data));
+        ws.on('message', (data) => this.handleMessage(ws, conn, data, handshakeDeadline));
         ws.on('pong', () => debugLog('Pong received'));
         ws.on('close', () => {
           debugLog('Extension disconnected');
+          clearTimeout(handshakeDeadline);
           this.matchmaker.removeConnection(ws);
         });
         ws.on('error', (error) => debugLog('WebSocket error:', error));
@@ -155,7 +196,12 @@ export class ExtensionBridge {
   }
 
   /** Route incoming WebSocket messages for a specific connection. */
-  private handleMessage(ws: WebSocket, conn: PooledConnection, data: any): void {
+  private handleMessage(
+    ws: WebSocket,
+    conn: PooledConnection,
+    data: any,
+    handshakeDeadline?: ReturnType<typeof setTimeout>,
+  ): void {
     try {
       const message = JSON.parse(data.toString());
 
@@ -183,13 +229,37 @@ export class ExtensionBridge {
       // Handshake
       if (message.type === 'handshake') {
         debugLog('Handshake received:', message);
+        if (handshakeDeadline) clearTimeout(handshakeDeadline);
         conn.browser = message.browser || 'chrome';
         conn.buildTimestamp = message.buildTimestamp || null;
         applyKeepBrowserPreference(conn, message.keepBrowserOnSessionEnd);
 
+        // Version check before anything else touches the pool. On rejection
+        // this fails any waiting agent by name and closes the socket, so the
+        // profile update below must not run — it would re-enter the pending
+        // match resolver for a connection that is already unusable.
+        const verdict = applyHandshakeVersion(conn, message, this.daemonVersion, this.matchmaker);
+        if (verdict.status === 'rejected') {
+          debugLog(`Extension rejected: ${verdict.message}`);
+          return;
+        }
+        if (verdict.status === 'warn' && verdict.message) {
+          debugLog(`Extension version warning: ${verdict.message}`);
+          if (!verdict.guardActive) {
+            // The version check did not run at all for this connection. A guard
+            // that is silently off reads as a guard that passed, so this goes to
+            // stderr — the surface a user actually sees from `supersurf daemon`.
+            console.error(`SuperSurf: extension version guard inactive — ${verdict.message}`);
+          }
+        }
+
         // Profile field in handshake (subsequent launches)
         if (message.profile) {
           this.matchmaker.updateProfile(ws, message.profile);
+        } else {
+          // The version check may have promoted this connection out of
+          // 'pending'; give any queued match a chance at it.
+          this.matchmaker.tryResolvePendingMatches();
         }
 
         return;

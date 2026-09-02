@@ -113,3 +113,63 @@ export function compareExtensionVersion(
 
   return { status: 'ok', message: null, guardActive: true };
 }
+
+/** The Matchmaker surface `applyHandshakeVersion` needs. Narrowed for testability. */
+export interface VersionAwareMatchmaker {
+  failPendingMatches(profile: string | null, error: Error): number;
+  recordVersionRejection(rejection: { profile: string | null; version: string | null; message: string }): void;
+  clearVersionRejection(profile: string | null): void;
+}
+
+/** The subset of a pooled connection this module mutates. */
+interface VersionedConn {
+  ws: { close(code?: number, reason?: string): void };
+  profile: string | null;
+  version: string | null;
+  versionStatus: ExtensionVersionStatus;
+  versionError: string | null;
+}
+
+/**
+ * Apply a handshake's version field to a pooled connection.
+ *
+ * Mirrors the applyKeepBrowserPreference precedent in ./keep-browser.ts — a
+ * pure-ish mutator over a connection-shaped object, so the reject path is
+ * testable without a live WebSocket server.
+ *
+ * On rejection this deliberately does three things in order: mark the
+ * connection unusable, fail any agent already waiting on this slot with the
+ * named error, and only then close the socket. Closing first would remove the
+ * connection from the pool while the waiter still sat in the pending queue.
+ */
+export function applyHandshakeVersion(
+  conn: VersionedConn,
+  message: { version?: unknown; profile?: unknown },
+  daemonVersion: string,
+  matchmaker: VersionAwareMatchmaker,
+): VersionVerdict {
+  const verdict = compareExtensionVersion(daemonVersion, message.version);
+  conn.version = typeof message.version === 'string' ? message.version : null;
+  conn.versionStatus = verdict.status;
+  conn.versionError = verdict.message;
+
+  // The handshake's own profile field is more current than the cookie-derived
+  // one already on the connection, and the bridge has not applied it yet.
+  const slot = typeof message.profile === 'string' && message.profile
+    ? message.profile
+    : conn.profile;
+
+  if (verdict.status === 'rejected') {
+    matchmaker.recordVersionRejection({
+      profile: slot,
+      version: conn.version,
+      message: verdict.message!,
+    });
+    matchmaker.failPendingMatches(slot, new Error(verdict.message!));
+    conn.ws.close(4001, 'extension version mismatch');
+    return verdict;
+  }
+
+  matchmaker.clearVersionRejection(slot);
+  return verdict;
+}

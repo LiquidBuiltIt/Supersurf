@@ -160,7 +160,7 @@ export class Matchmaker {
   }
 
   /** Try to resolve pending matches against the current pool. */
-  private tryResolvePendingMatches(): void {
+  tryResolvePendingMatches(): void {
     const resolved: PendingMatch[] = [];
 
     for (const pending of this.pendingMatches) {
