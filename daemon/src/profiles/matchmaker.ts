@@ -11,7 +11,7 @@
 import crypto from 'crypto';
 import { WebSocket } from 'ws';
 import type { FileLogger } from 'shared';
-import type { PooledConnection, PendingMatch } from './types';
+import type { PooledConnection, PendingMatch, VersionRejection } from './types';
 
 const debugLog = (...args: unknown[]) => {
   const logger = (global as any).DAEMON_LOGGER as FileLogger | undefined;
@@ -21,6 +21,17 @@ const debugLog = (...args: unknown[]) => {
 
 const DEFAULT_TIMEOUT = 60000; // 60s total
 
+/**
+ * A connection is only matchable once its handshake has been checked.
+ * 'pending' is excluded deliberately: the connection is pooled before its
+ * handshake lands (extension-bridge.ts), so without this gate a mismatched
+ * extension could win an immediate match before it is ever checked. The bridge
+ * arms a bounded handshake deadline so nothing stays 'pending' forever.
+ */
+function isUsable(conn: PooledConnection): boolean {
+  return conn.versionStatus === 'ok' || conn.versionStatus === 'warn';
+}
+
 export class Matchmaker {
   private pool: Map<WebSocket, PooledConnection> = new Map();
   private pendingMatches: PendingMatch[] = [];
@@ -28,6 +39,12 @@ export class Matchmaker {
   pendingSpawns: Set<string> = new Set();
   /** Serializes first-time profile spawns. */
   private bootstrapQueue: Promise<void> = Promise.resolve();
+  /**
+   * Version rejections keyed by profile ('' is the unmanaged slot). Retained
+   * after the offending socket closes so a later requestMatch fails fast with a
+   * named error instead of burning the full match window.
+   */
+  private versionRejections: Map<string, VersionRejection> = new Map();
 
   /** Get the number of connections in the pool. */
   get poolSize(): number {
@@ -85,6 +102,13 @@ export class Matchmaker {
    * @returns The matched PooledConnection
    */
   requestMatch(profile: string | null, timeoutMs: number = DEFAULT_TIMEOUT): Promise<PooledConnection> {
+    // A version-rejected extension for this slot fails now, not in 45s.
+    const rejection = this.getVersionRejection(profile);
+    if (rejection) {
+      debugLog(`Match refused for profile=${profile || 'unmanaged'} — version rejected`);
+      return Promise.reject(new Error(rejection.message));
+    }
+
     // Try immediate match
     const immediate = this.findMatch(profile);
     if (immediate) {
@@ -119,7 +143,7 @@ export class Matchmaker {
         return null;
       }
       for (const conn of this.pool.values()) {
-        if (conn.profile === null && conn.ws.readyState === WebSocket.OPEN) {
+        if (conn.profile === null && conn.ws.readyState === WebSocket.OPEN && isUsable(conn)) {
           return conn;
         }
       }
@@ -128,7 +152,7 @@ export class Matchmaker {
 
     // Managed: find matching profile
     for (const conn of this.pool.values()) {
-      if (conn.profile === profile && conn.ws.readyState === WebSocket.OPEN) {
+      if (conn.profile === profile && conn.ws.readyState === WebSocket.OPEN && isUsable(conn)) {
         return conn;
       }
     }
@@ -152,6 +176,60 @@ export class Matchmaker {
     if (resolved.length > 0) {
       this.pendingMatches = this.pendingMatches.filter(p => !resolved.includes(p));
     }
+  }
+
+  /**
+   * Reject every pending match for a slot with a specific error.
+   *
+   * The reject path closes the offending socket, which removes it from the
+   * pool — but a queued PendingMatch has no way to learn why its candidate
+   * vanished and would otherwise sit until its own timeout. That timeout is
+   * exactly the failure mode the version guard exists to replace.
+   *
+   * @returns How many pending matches were failed.
+   */
+  failPendingMatches(profile: string | null, error: Error): number {
+    const doomed = this.pendingMatches.filter(p => p.profile === profile);
+    if (doomed.length === 0) return 0;
+
+    this.pendingMatches = this.pendingMatches.filter(p => p.profile !== profile);
+    for (const pending of doomed) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+    debugLog(`Failed ${doomed.length} pending match(es) for profile=${profile || 'unmanaged'}: ${error.message}`);
+    return doomed.length;
+  }
+
+  /** Remember a version rejection so a later requestMatch fails fast. */
+  recordVersionRejection(rejection: VersionRejection): void {
+    this.versionRejections.set(rejection.profile ?? '', rejection);
+    debugLog(`Version rejection recorded for profile=${rejection.profile || 'unmanaged'} (${rejection.version})`);
+  }
+
+  /** Forget a version rejection — a healthy extension took the slot. */
+  clearVersionRejection(profile: string | null): void {
+    if (this.versionRejections.delete(profile ?? '')) {
+      debugLog(`Version rejection cleared for profile=${profile || 'unmanaged'}`);
+    }
+  }
+
+  /** The recorded version rejection for a slot, if any. */
+  getVersionRejection(profile: string | null): VersionRejection | null {
+    return this.versionRejections.get(profile ?? '') ?? null;
+  }
+
+  /**
+   * The recorded rejection for the UNMANAGED slot, or null. Backs the
+   * `extensionVersionError` field on session_ack, which is emitted before any
+   * profile binding exists — so the unmanaged slot is the only slot a
+   * not-yet-bound session could use. Deliberately does NOT fall back to a
+   * managed profile's rejection: that would surface profile A's broken
+   * extension to a session that never touches profile A. Managed sessions
+   * learn their own rejection, correctly scoped, through requestMatch.
+   */
+  get lastVersionRejection(): VersionRejection | null {
+    return this.versionRejections.get('') ?? null;
   }
 
   /**
@@ -221,5 +299,6 @@ export class Matchmaker {
       ws.close();
     }
     this.pool.clear();
+    this.versionRejections.clear();
   }
 }
