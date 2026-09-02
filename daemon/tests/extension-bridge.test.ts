@@ -29,6 +29,27 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Block until the bridge has actually PROCESSED a handshake, and return the
+ * pooled connection it produced.
+ *
+ * A fixed sleep is not a sync point. The negative test below asserts
+ * console.error was NOT called, and with a bare `await wait(50)` it passes
+ * just as happily when the handshake never arrived at all — deleting the
+ * `ws.send()` outright left all three tests green. `versionStatus` leaves
+ * 'pending' only once the guard has run, so it is the real signal.
+ */
+async function waitForHandshake(b: ExtensionBridge, timeoutMs = 2000): Promise<any> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const conn of ((b as any).matchmaker as any)['pool'].values()) {
+      if (conn.versionStatus !== 'pending') return conn;
+    }
+    await wait(5);
+  }
+  throw new Error('handshake was never processed');
+}
+
 describe('ExtensionBridge — extension version guard stderr escalation (R1)', () => {
   let bridge: ExtensionBridge;
   let port: number;
@@ -59,8 +80,9 @@ describe('ExtensionBridge — extension version guard stderr escalation (R1)', (
     await ready;
 
     ws.send(JSON.stringify({ type: 'handshake', browser: 'chrome', version: 'not-a-version' }));
-    await wait(50);
+    const conn = await waitForHandshake(bridge);
 
+    expect(conn.version).toBe('not-a-version');
     expect(errorSpy).toHaveBeenCalled();
     const calls = errorSpy.mock.calls.map((args) => args.join(' '));
     expect(calls.some((line) => line.includes('guard inactive'))).toBe(true);
@@ -75,8 +97,11 @@ describe('ExtensionBridge — extension version guard stderr escalation (R1)', (
     // Daemon is 3.4.0, extension reports 3.4.1 — patch-only skew, status
     // 'warn' but guardActive stays true. debugLog-only, per R1.
     ws.send(JSON.stringify({ type: 'handshake', browser: 'chrome', version: '3.4.1' }));
-    await wait(50);
+    const conn = await waitForHandshake(bridge);
 
+    // Prove the handshake actually landed before asserting the negative.
+    expect(conn.version).toBe('3.4.1');
+    expect(conn.versionStatus).toBe('warn');
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
@@ -86,8 +111,9 @@ describe('ExtensionBridge — extension version guard stderr escalation (R1)', (
     await ready;
 
     ws.send(JSON.stringify({ type: 'handshake', browser: 'chrome' }));
-    await wait(50);
+    const conn = await waitForHandshake(bridge);
 
+    expect(conn.version).toBeNull();
     expect(errorSpy).toHaveBeenCalled();
     const calls = errorSpy.mock.calls.map((args) => args.join(' '));
     expect(calls.some((line) => line.includes('guard inactive'))).toBe(true);

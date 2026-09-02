@@ -808,8 +808,13 @@ describe('IPCServer', () => {
       client.end();
     });
 
-    it('fails profiles.connect immediately when the extension version was rejected', async () => {
+    it('propagates a matchmaker version rejection as a named profiles.connect error', async () => {
       // The whole point of the item: a named error now, not a 45s timeout.
+      // Scope note: mockBridge()'s matchmaker stub supplies the fast-fail, so
+      // what this locks is the IPC path — profiles.connect gets past the
+      // "Profile not found" guard, reaches requestMatch, and surfaces the
+      // rejection instead of swallowing it. The fast-fail itself is locked in
+      // tests/profiles/matchmaker.test.ts.
       await ipc.start();
       profileRegistry.create('dev');
       (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({ profile: 'dev' });
@@ -827,9 +832,9 @@ describe('IPCServer', () => {
       writeLine(client, { jsonrpc: '2.0', id: 'c-verfail', method: 'profiles.connect', params: { profile: 'dev' } });
       const res = await readLine(client);
 
-      expect(Date.now() - start).toBeLessThan(2000);
       expect(res.error).toBeDefined();
       expect(res.error.message).toContain('not compatible');
+      expect(Date.now() - start).toBeLessThan(5000);
       client.end();
     });
 

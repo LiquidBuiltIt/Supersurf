@@ -565,6 +565,9 @@ describe('WebSocketConnection', () => {
       const sent = JSON.parse((ws.socket!.send as any).mock.calls[0][0]);
       expect(sent.type).toBe('handshake');
       expect(sent.profile).toBe('scraper');
+      // The version guard depends on this field on EVERY branch, not just the
+      // no-profile one the dedicated test below covers.
+      expect(sent.version).toBe(mockChrome.runtime.getManifest().version);
     });
 
     it('omits profile in handshake when storage is empty', async () => {
