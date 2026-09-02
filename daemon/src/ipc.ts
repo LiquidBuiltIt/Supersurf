@@ -4,8 +4,12 @@
  * Accepts connections from MCP servers over a Unix domain socket.
  * Protocol:
  *   1. MCP server sends: { type: "session_register", sessionId: "..." }\n
- *   2. Daemon responds: { type: "session_ack", browser: "...", buildTimestamp: "...", extensionVersionError: "..." }\n
+ *   2. Daemon responds: { type: "session_ack", browser: "...", buildTimestamp: "...",
+ *                          extensionVersionError: string | null }\n
  *      or { type: "session_reject", reason: "..." }\n
+ *      `extensionVersionError` is null whenever no extension has been rejected for a
+ *      version mismatch, which is the normal case. It is only a string while the
+ *      unmanaged slot is holding a rejection.
  *   3. Post-handshake: NDJSON (newline-delimited JSON-RPC 2.0) for tool calls
  *
  * @module ipc
