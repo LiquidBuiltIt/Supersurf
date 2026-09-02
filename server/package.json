@@ -3,12 +3,10 @@
   "mcpName": "io.github.LiquidBuiltIt/supersurf-mcp",
   "version": "3.4.0",
   "description": "Open-source MCP server for browser automation — gives AI agents control of a real Chrome browser via extension",
-  "main": "dist/bin/supersurf.js",
-  "types": "dist/bin/supersurf.d.ts",
+  "main": "dist/cli.js",
+  "types": "dist/cli.d.ts",
   "bin": {
-    "supersurf": "dist/bin/supersurf.js",
-    "supersurf-mcp": "dist/bin/supersurf-mcp.js",
-    "supersurf-daemon": "dist/bin/supersurf-daemon.js"
+    "supersurf-mcp": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -54,7 +52,7 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc && npx tsx ../scripts/shared.bundle.ts server && chmod +x dist/bin/supersurf.js dist/bin/supersurf-mcp.js dist/bin/supersurf-daemon.js",
+    "build": "tsc && npx tsx ../scripts/shared.bundle.ts server && chmod +x dist/cli.js",
     "prepublishOnly": "cp ../LICENSE . && npm run clean && npm run build",
     "dev": "npx tsx src/cli.ts --debug",
     "test": "vitest run",
