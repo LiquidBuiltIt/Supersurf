@@ -12,24 +12,22 @@
  * because an agent is an untrusted caller; the human running this command can
  * read the file first, so gating them would be theatre.
  *
- * @module bin/playbook-cli
+ * @module playbook-cli
  */
 
 import { Command } from 'commander';
-import { getPlaybooksDir, normalizeName } from '../playbooks/paths';
-import { refreshRegistry, getRecord } from '../playbooks/registry';
-import { doList, doInspect, doValidate } from '../playbooks/report';
-import { runPlaybook as realRunPlaybook, type RunOutcome } from '../playbooks/runner';
-import { runMigrate } from '../playbooks/migrate';
-import type { PlaybookMeta } from '../security/meta';
+import {
+  getPlaybooksDir, normalizeName,
+  refreshRegistry, getRecord,
+  doList, doInspect, doValidate,
+  runMigrate,
+  type PlaybookMeta,
+} from './server-imports';
+import { shellOut } from './shell-out';
 
 export interface RunOpts {
   log?: (msg: string) => void;
   errLog?: (msg: string) => void;
-}
-
-export interface RunRunOpts extends RunOpts {
-  runPlaybook?: (opts: any) => Promise<RunOutcome>;
 }
 
 /** Pull the single text block out of a `playbooks` tool result. */
@@ -135,14 +133,28 @@ export function parseParamFlags(
   return { params };
 }
 
+/**
+ * `run` is the ONE playbook subcommand that shells out. It reaches
+ * playbooks/runner.ts and therefore the ConnectionManager, the daemon and
+ * tools/ — including tools/screenshot.ts, the tree's only `sharp` importer.
+ * Compiling it in would reinstate the per-platform native-addon build matrix
+ * that item 26's shape removed. Accepted cost: an npx cold start per run.
+ *
+ * The terminal path deliberately ignores `security.playbook_eval`; that gate
+ * exists because an AGENT is an untrusted caller. The child inherits this
+ * process's real stdio, so its output is unmediated.
+ *
+ * The name/validity/param pre-flight stays on this side: it is compiled in and
+ * costs nothing, so a typo or a blocked script fails here instead of after an
+ * npx cold start. The `--param` flags are then forwarded exactly as typed —
+ * the child re-parses them against the same meta.
+ */
 export async function runRun(
   name: string,
   flags: { param?: string[]; profile?: string; json?: boolean },
-  opts: RunRunOpts = {},
+  opts: RunOpts = {},
 ): Promise<number> {
-  const log = opts.log ?? console.log;
   const errLog = opts.errLog ?? console.error;
-  const run = opts.runPlaybook ?? realRunPlaybook;
 
   const normalized = normalizeName(name);
   await refreshRegistry();
@@ -159,40 +171,12 @@ export async function runRun(
   const parsed = parseParamFlags(flags.param ?? [], record.meta);
   if (parsed.error) { errLog(`[playbook] ${parsed.error}`); return 1; }
 
-  // No `security.playbook_eval` check here, deliberately — see the module docblock.
-  const outcome = await run({
-    record,
-    params: parsed.params!,
-    caller: 'cli',
-    profile: flags.profile,
-    onLog: flags.json ? undefined : (m: string) => log(`  ${m}`),
-  });
+  const args = ['playbook', 'run', normalized];
+  for (const pair of flags.param ?? []) args.push('--param', pair);
+  if (flags.profile) args.push('--profile', flags.profile);
+  if (flags.json) args.push('--json');
 
-  if (flags.json) {
-    log(JSON.stringify({
-      name: normalized, ok: outcome.ok, durationMs: outcome.durationMs,
-      ...(outcome.result !== undefined ? { result: outcome.result } : {}),
-      ...(outcome.error ? { error: outcome.error } : {}),
-      ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
-    }));
-    return outcome.ok ? 0 : 1;
-  }
-
-  if (outcome.ok) {
-    log(`✓ ${normalized} — ${outcome.durationMs}ms`);
-    if (outcome.result !== undefined) {
-      log(typeof outcome.result === 'string' ? outcome.result : JSON.stringify(outcome.result, null, 2));
-    }
-    return 0;
-  }
-
-  errLog(`✗ ${normalized} — ${outcome.durationMs}ms`);
-  errLog(outcome.error ?? 'unknown error');
-  if (outcome.evidence?.snapshot) {
-    errLog('Page at the point of failure (the run\'s tab is already closed):');
-    errLog(outcome.evidence.snapshot);
-  }
-  return 1;
+  return shellOut('supersurf-mcp', args);
 }
 
 export async function runPlaybookProgram(argv: string[]): Promise<void> {

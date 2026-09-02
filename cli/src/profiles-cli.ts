@@ -14,7 +14,7 @@
  * Talks to the daemon over the same Unix-socket IPC as MCP sessions, via a
  * throwaway session (same pattern as backend/handlers.ts profile CRUD).
  */
-import { ensureDaemon, getSockPath } from '../daemon-spawn';
+import { ensureDaemon, getSockPath } from './daemon-spawn';
 import { DaemonClient } from 'shared';
 
 export const PROFILES_USAGE = `supersurf profiles — manage browser profiles

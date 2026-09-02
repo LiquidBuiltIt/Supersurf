@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
-import { VERSION } from './version';
+import { dispatch } from './dispatcher';
 
-console.log(`supersurf ${VERSION}`);
+dispatch(process.argv).catch((err) => {
+  console.error(`[supersurf] Fatal: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+});

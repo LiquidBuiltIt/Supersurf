@@ -1,6 +1,6 @@
 import { checkAndTouchVersionState, UPGRADE_NOTICE_MESSAGE } from 'shared';
-
-const { version: VERSION } = require('../../package.json');
+import { shellOut } from './shell-out';
+import { VERSION } from './version';
 
 export type Target = 'mcp' | 'daemon' | 'profiles' | 'export' | 'playbook' | 'creds' | 'help';
 
@@ -77,18 +77,11 @@ export async function dispatch(argv: string[]): Promise<void> {
 
   process.argv = remainingArgv;
   if (target === 'mcp') {
-    await import('../cli');
+    // Shell out with real fd inheritance: `mcp` is a stdio protocol server, so a
+    // relay would corrupt the JSON-RPC stream. Pinned to this binary's version.
+    shellOut('supersurf-mcp', remainingArgv.slice(2));
   } else if (target === 'daemon') {
-    // The daemon ships as a SEPARATE package (`supersurf-daemon`). Resolve it
-    // via the package name — exactly how daemon-spawn.ts does — which works in
-    // both local dev (workspace symlink) and a published install. The old
-    // '../daemon/main' relative path assumed a bundle-copy into server/dist
-    // that was never wired into any build script, so this entry crashed with
-    // MODULE_NOT_FOUND and the daemon CLI (status|stop|restart|observe) was
-    // completely dead. Importing the resolved entry runs its CLI against the
-    // process.argv we just set above.
-    const { resolveDaemonEntry } = await import('../daemon-spawn');
-    await import(resolveDaemonEntry());
+    shellOut('supersurf-daemon', remainingArgv.slice(2));
   } else if (target === 'profiles') {
     const { runProfilesCli } = await import('./profiles-cli');
     await runProfilesCli(remainingArgv);
