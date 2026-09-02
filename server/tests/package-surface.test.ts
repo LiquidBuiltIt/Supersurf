@@ -28,6 +28,22 @@ describe('supersurf-mcp package surface', () => {
     expect(fs.existsSync(path.join(SERVER, 'dist', 'bin'))).toBe(false);
   });
 
+  // `npx supersurf-mcp` execs dist/cli.js directly through the bin symlink npm
+  // creates, so the file has to be self-executable: lose the mode bit and npm
+  // reports EACCES, lose the shebang and the shell runs it as a shell script.
+  // Neither failure is visible to any assertion above — both leave the path,
+  // the bin map and the file contents perfectly valid. `dist/` is tracked, so
+  // the mode is a committed property of the repo and can regress in a diff.
+  it('ships dist/cli.js executable', () => {
+    const mode = fs.statSync(path.join(SERVER, 'dist', 'cli.js')).mode;
+    expect(mode & 0o111).not.toBe(0);
+  });
+
+  it('ships dist/cli.js with a shebang on the first line', () => {
+    const first = fs.readFileSync(path.join(SERVER, 'dist', 'cli.js'), 'utf8').split('\n')[0];
+    expect(first.startsWith('#!')).toBe(true);
+  });
+
   it('main/types point at the CLI entry', () => {
     expect(pkg.main).toBe('dist/cli.js');
     expect(pkg.types).toBe('dist/cli.d.ts');

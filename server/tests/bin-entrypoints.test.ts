@@ -14,8 +14,24 @@
  *      They become a STRUCTURAL lock instead: the bin points straight at the
  *      program that owns argument parsing, so there is no longer a file in
  *      between that COULD rewrite argv. That is a stronger guarantee than a
- *      source regex, and the compiled-behaviour block below still proves it
- *      end to end (`legacy === bare` fails the moment anything touches argv).
+ *      source regex.
+ *
+ *      CORRECTION. An earlier revision of this comment claimed `legacy ===
+ *      bare` "fails the moment anything touches argv". It does not, and the
+ *      claim was load-bearing: `--help` short-circuits Commander before it
+ *      validates positionals, so BOTH sides of that comparison are invariant
+ *      under argv rewriting. Measured on the built artifact, bare `--help`
+ *      output is byte-identical to `mcp --help` AND to a doubled `mcp mcp
+ *      --help` AND to an arbitrary junk positional. A reintroduced shim that
+ *      spliced `mcp` would have passed every assertion in this file.
+ *
+ *      What `legacy === bare` actually guarantees is narrower and still worth
+ *      keeping: the OPTION-PARSING SURFACE is identical for both invocation
+ *      forms — same program name, same flags, same description, and no
+ *      deprecation banner on the legacy form. It says nothing about argv
+ *      splicing. The assertion that covers splicing is the BOOT-PATH block
+ *      below, because the boot path is the only place the symptom appears
+ *      (BACKLOG #25: `error: too many arguments`).
  *
  *   2. The four `supersurf-daemon` bin assertions are gone because the bin is
  *      gone: `supersurf-mcp` used to ship a duplicate reachable only through a
@@ -25,8 +41,9 @@
  *      handling is covered by `daemon/tests/main.test.ts`'s parseArgs suite.
  */
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 const DIST = path.resolve(__dirname, '..', 'dist');
@@ -41,13 +58,51 @@ function childEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/**
+ * Run the built artifact on the BOOT path and return how it died.
+ *
+ * `--help` cannot see argv splicing (see the CORRECTION in the header), so the
+ * only way to assert on it is to actually boot the program. Booting an MCP
+ * server from a test needs two things handled:
+ *
+ *   1. STDIN. The server runs until stdin closes (`setupExitWatchdog` in
+ *      `src/cli.ts` hooks `process.stdin.on('close')`). Inheriting a live
+ *      stdin — a TTY when a human runs `npm test` — hangs forever.
+ *      `stdio[0] = 'ignore'` points it at /dev/null, which closes
+ *      immediately, so a clean boot self-terminates in well under a second.
+ *      `scripts/smoke-pack.ts` pins stdin the same way for the same reason;
+ *      do not "fix" either one to 'inherit'. `timeout` is a backstop only.
+ *   2. HOME. `main()` calls `checkAndTouchVersionState`, which writes
+ *      `~/.supersurf/version-state.json`. Left alone, running the test suite
+ *      would stamp the real one and swallow a genuine upgrade notice, so the
+ *      child gets a throwaway home. Nothing else is written and no daemon is
+ *      spawned — boot lands in `passive` state and stops there.
+ */
+function bootProbe(args: string[]): { status: number | null; signal: string | null; stderr: string } {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'supersurf-bootprobe-'));
+  try {
+    const r = spawnSync('node', [MCP_BIN, ...args], {
+      encoding: 'utf8',
+      env: { ...childEnv(), HOME: home },
+      timeout: 20000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (r.error) throw r.error;
+    return { status: r.status, signal: r.signal, stderr: r.stderr ?? '' };
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
 describe('bin entrypoints — no shim can rewrite argv', () => {
   // BACKLOG #25: supersurf-mcp.ts:7 spliced 'mcp' into argv, so the documented
   // `npx supersurf-mcp@latest mcp` handed Commander a stray positional and got
   // "error: too many arguments". Item 28 removes the shim layer entirely: the
   // bin now points straight at the program that owns argument parsing, so
   // there is no longer a file in between that COULD rewrite argv. That is a
-  // stronger guarantee than the old source-regex, and this asserts it.
+  // stronger guarantee than the old source-regex, and this block asserts the
+  // structure. The behaviour it is supposed to produce is asserted on the
+  // boot path at the bottom of this file.
   const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8'));
 
   it('routes npx straight at the program, with no shim in between', () => {
@@ -75,12 +130,13 @@ describe('supersurf-mcp bin — compiled behaviour', () => {
   const bin = MCP_BIN;
 
   it('has a compiled artifact committed alongside its source', () => {
-    // dist/ is tracked in this repo. A source fix with no rebuild ships the
-    // old broken shim in the npm tarball.
+    // dist/ is tracked in this repo and `package.json:bin` points into it, so
+    // this file IS what `npx supersurf-mcp` executes. A source fix landed
+    // without a rebuild ships the previous build's behaviour to users.
     expect(fs.existsSync(bin)).toBe(true);
   });
 
-  it('starts the MCP server CLI instead of rejecting a stray positional', () => {
+  it('exposes the MCP server CLI on --help', () => {
     const out = execFileSync('node', [bin, '--help'], {
       encoding: 'utf8',
       env: childEnv(),
@@ -88,17 +144,21 @@ describe('supersurf-mcp bin — compiled behaviour', () => {
     });
     expect(out).toContain('MCP server for browser automation');
     expect(out).toContain('--script-mode');
-    expect(out).not.toContain('too many arguments');
     expect(out).not.toContain('Deprecated');
   });
 
-  it('accepts and ignores a legacy leading `mcp` positional', () => {
+  it('offers the legacy `mcp` form the same option-parsing surface as the bare form', () => {
     // Owner ruling R1 (BACKLOG #25): `npx supersurf-mcp@latest mcp` was the
     // documented form for two releases and is baked into every MCP client
     // config written from README.md:109. It must keep working, identically to
-    // the bare form and with no warning -- but the tolerance lives in cli.ts,
-    // the program that owns argument parsing, NOT in the bin. The bin is still
-    // a pure `import '../cli'` passthrough.
+    // the bare form and with no warning -- and the tolerance lives in cli.ts,
+    // the program that owns argument parsing, in the filtered-argv rebuild at
+    // the bottom of that file.
+    //
+    // SCOPE, because this comparison has been over-claimed before: `--help`
+    // returns before Commander validates positionals, so an equal result here
+    // proves the two forms present the SAME OPTIONS, and nothing about argv
+    // splicing. The boot-path block below is what proves that.
     const bare = execFileSync('node', [bin, '--help'], {
       encoding: 'utf8',
       env: childEnv(),
@@ -110,8 +170,43 @@ describe('supersurf-mcp bin — compiled behaviour', () => {
       timeout: 8000,
     });
     expect(legacy).toBe(bare);
-    expect(legacy).not.toContain('too many arguments');
     expect(legacy).not.toContain('Deprecated');
+  });
+});
+
+describe('supersurf-mcp bin — boot path (where argv splicing is visible)', () => {
+  // BACKLOG #25's symptom is a Commander positional-count rejection, and
+  // Commander only counts positionals on the way into an action handler.
+  // Every `--help` assertion in this file is therefore blind to it. These
+  // three run the artifact for real.
+
+  it('boots clean with no arguments', () => {
+    const r = bootProbe([]);
+    expect(r.stderr).not.toContain('too many arguments');
+    expect(r.status).toBe(0);
+  });
+
+  it('boots clean with the legacy leading `mcp` positional', () => {
+    const r = bootProbe(['mcp']);
+    expect(r.stderr).not.toContain('too many arguments');
+    expect(r.status).toBe(0);
+  });
+
+  it('rejects a doubled `mcp`, proving the two probes above can fail', () => {
+    // A NEGATIVE CONTROL, not a feature. `mcp mcp` simulates a reintroduced
+    // shim splicing 'mcp' on top of the user's own: cli.ts drops exactly one
+    // leading 'mcp', the second survives as a stray positional, and Commander
+    // rejects it. That is verbatim the bug.
+    //
+    // Its job is to keep the two probes above honest. `not.toContain` passes
+    // on empty output, so a probe that silently stopped launching the child
+    // would report "clean" forever — which is precisely how the `--help`
+    // assertions this block replaces came to give false assurance. If this
+    // test ever goes green-by-passing-nothing, delete the block; do not
+    // relax it.
+    const r = bootProbe(['mcp', 'mcp']);
+    expect(r.stderr).toContain('too many arguments');
+    expect(r.status).toBe(1);
   });
 });
 
