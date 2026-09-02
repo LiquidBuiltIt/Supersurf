@@ -39,6 +39,7 @@ const mockDaemonClientInstance = {
   browser: 'chrome',
   version: '0.1.0' as string | null,
   extensionConnected: false,
+  extensionVersionError: null as string | null,
   onReconnect: null as (() => void) | null,
   onTabInfoUpdate: null as ((tabInfo: any) => void) | null,
   isConfigDrifted: vi.fn(() => false),
@@ -139,6 +140,7 @@ describe('ConnectionManager', () => {
     mockDaemonClientInstance.browser = 'chrome';
     mockDaemonClientInstance.version = '0.1.0';
     mockDaemonClientInstance.extensionConnected = false;
+    mockDaemonClientInstance.extensionVersionError = null;
     mockDaemonClientInstance.onReconnect = null;
     mockDaemonClientInstance.onTabInfoUpdate = null;
     mockMetricsWrite.mockClear();
@@ -297,7 +299,7 @@ describe('ConnectionManager', () => {
     });
 
     it('refuses connect with a named error when the extension version is rejected', async () => {
-      (mockDaemonClientInstance as any).extensionVersionError =
+      mockDaemonClientInstance.extensionVersionError =
         'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
 
       const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
@@ -306,14 +308,60 @@ describe('ConnectionManager', () => {
       expect(result.error).toBe('extension_version_mismatch');
       expect(result.message).toContain('not compatible');
       expect(backend.state).toBe('passive');
+      // Matches the daemon-version-mismatch precedent above: a refused connect
+      // must not leak the daemon socket it opened to find out.
+      expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
+    });
+
+    it('refuses connect over MCP with an isError content block', async () => {
+      mockDaemonClientInstance.extensionVersionError =
+        'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
+
+      const result = await backend.callTool('connect', { client_id: 'test' });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Extension Version Mismatch');
+      expect(result.content[0].text).toContain('not compatible');
+      expect(backend.state).toBe('passive');
     });
 
     it('connects normally when extensionVersionError is null', async () => {
-      (mockDaemonClientInstance as any).extensionVersionError = null;
+      mockDaemonClientInstance.extensionVersionError = null;
 
       const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
 
       expect(result.success).not.toBe(false);
+      expect(backend.state).toBe('active');
+    });
+
+    it('does not refuse a profile-bound connect over the unmanaged slot error', async () => {
+      // session_ack is emitted before any profile binding exists, so its
+      // extensionVersionError can only describe the unmanaged slot. Refusing
+      // here would blame a browser this session never touches; profiles.connect
+      // fast-fails with the correctly scoped message instead.
+      mockDaemonClientInstance.extensionVersionError =
+        'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
+
+      const result = await backend.callTool(
+        'connect',
+        { client_id: 'test', profile: 'work' },
+        { rawResult: true },
+      );
+
+      expect(result.error).not.toBe('extension_version_mismatch');
+      expect(backend.state).toBe('active');
+    });
+
+    it('does not refuse when a healthy extension still serves the unmanaged slot', async () => {
+      // Only the offending socket is closed, so a stale second extension can
+      // record a rejection while a good one is still connected.
+      mockDaemonClientInstance.extensionVersionError =
+        'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
+      mockDaemonClientInstance.extensionConnected = true;
+
+      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+
+      expect(result.error).not.toBe('extension_version_mismatch');
       expect(backend.state).toBe('active');
     });
   });
