@@ -79,11 +79,11 @@ export async function dispatch(argv: string[]): Promise<void> {
   if (target === 'mcp') {
     // Shell out with real fd inheritance: `mcp` is a stdio protocol server, so a
     // relay would corrupt the JSON-RPC stream. Pinned to this binary's version.
-    // Awaited, not fired and forgotten: shellOut's promise never settles, so
-    // this correctly parks until the child's exit handler ends the process.
-    await shellOut('supersurf-mcp', remainingArgv.slice(2));
+    // `shellOut` resolves the child's exit code and leaves the exiting to us,
+    // the same shape the `export` target below already used.
+    process.exit(await shellOut('supersurf-mcp', remainingArgv.slice(2)));
   } else if (target === 'daemon') {
-    await shellOut('supersurf-daemon', remainingArgv.slice(2));
+    process.exit(await shellOut('supersurf-daemon', remainingArgv.slice(2)));
   } else if (target === 'profiles') {
     const { runProfilesCli } = await import('./profiles-cli');
     await runProfilesCli(remainingArgv);

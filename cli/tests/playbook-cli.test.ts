@@ -17,13 +17,26 @@ import { VERSION } from '../src/version';
  * level: what matters now is the argv handed to `spawn`.
  */
 const spawned: { cmd: string; args: string[] }[] = [];
+
+/**
+ * What the fake child exits with. A real child ALWAYS exits, asynchronously,
+ * and `shellOut` resolves from that event — so a mock that discards its
+ * listeners models a process that never returns, and every caller hangs.
+ */
+const childExit: { code: number | null; signal: NodeJS.Signals | null } = { code: 0, signal: null };
+
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return {
     ...actual,
     spawn: vi.fn((cmd: string, args: string[]) => {
       spawned.push({ cmd, args });
-      return { on: vi.fn(), kill: vi.fn() } as any;
+      const listeners = new Map<string, (...a: any[]) => void>();
+      setImmediate(() => listeners.get('exit')?.(childExit.code, childExit.signal));
+      return {
+        on: vi.fn((event: string, cb: (...a: any[]) => void) => { listeners.set(event, cb); }),
+        kill: vi.fn(),
+      } as any;
     }),
   };
 });
@@ -126,7 +139,16 @@ describe('parseParamFlags', () => {
 });
 
 describe('runRun shells out instead of loading the runner', () => {
-  beforeEach(() => { spawned.length = 0; });
+  // `runPlaybookProgram` assigns the result to `process.exitCode`; restore it
+  // so a deliberate non-zero here never becomes vitest's own exit status.
+  let savedExitCode: typeof process.exitCode;
+  beforeEach(() => {
+    spawned.length = 0;
+    savedExitCode = process.exitCode;
+    childExit.code = 0;
+    childExit.signal = null;
+  });
+  afterEach(() => { process.exitCode = savedExitCode; });
 
   it('invokes the pinned mcp package with the playbook run subcommand', async () => {
     fs.writeFileSync(playbookFile('post_tweet'), '// ok');
@@ -137,13 +159,26 @@ describe('runRun shells out instead of loading the runner', () => {
     expect(spawned[0].args.join(' ')).toContain('playbook run post_tweet');
     expect(spawned[0].args.join(' ')).toContain('--param text=hi');
     expect(spawned[0].args).not.toContain('@latest');
+    // The child's code reaches process.exitCode. Nothing calls process.exit on
+    // this path, which is what makes runRun's Promise<number> mean something.
+    expect(process.exitCode).toBe(0);
   });
 
-  it('forwards --profile and --json exactly as typed', async () => {
+  it('forwards --profile and --json exactly as typed, and returns the child\'s exit code', async () => {
     fs.writeFileSync(playbookFile('post_tweet'), '// ok');
-    await runRun('post_tweet', { param: ['text=hi'], profile: 'dev', json: true }, opts());
+    childExit.code = 7;
+    const code = await runRun('post_tweet', { param: ['text=hi'], profile: 'dev', json: true }, opts());
     expect(spawned[0].args.join(' ')).toContain('--profile dev');
     expect(spawned[0].args).toContain('--json');
+    expect(code).toBe(7);
+  });
+
+  it('turns a signal death into 128 + signum instead of a bare 0', async () => {
+    fs.writeFileSync(playbookFile('post_tweet'), '// ok');
+    childExit.code = null;
+    childExit.signal = 'SIGINT';
+    const code = await runRun('post_tweet', { param: ['text=hi'] }, opts());
+    expect(code).toBe(128 + os.constants.signals.SIGINT);
   });
 
   it('refuses to run an invalid playbook — nothing is spawned', async () => {
