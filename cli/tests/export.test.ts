@@ -7,7 +7,7 @@ import {
   findUsageLogs,
   buildOutputName,
   runExportProgram,
-} from '../src/bin/export';
+} from '../src/export';
 
 function mkTmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'ss-export-'));

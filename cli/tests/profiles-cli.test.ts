@@ -21,7 +21,7 @@ vi.mock('../src/daemon-spawn', () => ({
   getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
 }));
 
-import { parseProfilesArgs, runProfilesCli, PROFILES_USAGE } from '../src/bin/profiles-cli';
+import { parseProfilesArgs, runProfilesCli, PROFILES_USAGE } from '../src/profiles-cli';
 import { DaemonClient } from 'shared';
 
 let lastSendCmd: ReturnType<typeof vi.fn>;

@@ -1,13 +1,32 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { setPlaybooksDirForTests, playbookFile } from '../src/playbooks/paths';
-import { resetRegistryForTests, setValidatorForTests } from '../src/playbooks/registry';
+import { setPlaybooksDirForTests, playbookFile } from '../../server/src/playbooks/paths';
+import { resetRegistryForTests, setValidatorForTests } from '../../server/src/playbooks/registry';
 import {
   buildPlaybookProgram, runLs, runInspect, runValidate, runRun, parseParamFlags,
-} from '../src/bin/playbook-cli';
-import type { ValidationRecord } from '../src/security/validate';
+} from '../src/playbook-cli';
+import type { ValidationRecord } from '../../server/src/security/validate';
+import { VERSION } from '../src/version';
+
+/**
+ * `run` no longer runs anything in-process — it shells out to the pinned
+ * `supersurf-mcp` package (Task 4). The seam these tests used to stub
+ * (`RunRunOpts.runPlaybook`) is gone with it, so the assertion moves down a
+ * level: what matters now is the argv handed to `spawn`.
+ */
+const spawned: { cmd: string; args: string[] }[] = [];
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    spawn: vi.fn((cmd: string, args: string[]) => {
+      spawned.push({ cmd, args });
+      return { on: vi.fn(), kill: vi.fn() } as any;
+    }),
+  };
+});
 
 let dir: string;
 let out: string[];
@@ -106,59 +125,43 @@ describe('parseParamFlags', () => {
   });
 });
 
-describe('runRun', () => {
-  it('ignores security.playbook_eval — the terminal caller is trusted', async () => {
+describe('runRun shells out instead of loading the runner', () => {
+  beforeEach(() => { spawned.length = 0; });
+
+  it('invokes the pinned mcp package with the playbook run subcommand', async () => {
     fs.writeFileSync(playbookFile('post_tweet'), '// ok');
-    setValidatorForTests(async (p: string) => ({
-      file: p, name: 'post_tweet', hash: 'h', valid: true,
-      meta: { ...META, permissions: ['eval'] }, signature: 'post_tweet({ text })', validatedAt: 1,
-    }));
-    let seen: any = null;
-    const code = await runRun('post_tweet', { param: ['text=hi'] }, {
-      ...opts(),
-      runPlaybook: async (o: any) => { seen = o; return { ok: true, durationMs: 1, logs: [] }; },
-    });
-    expect(code).toBe(0);
-    expect(seen.caller).toBe('cli');
+    const { runPlaybookProgram } = await import('../src/playbook-cli');
+    await runPlaybookProgram(['node', 'supersurf', 'run', 'post_tweet', '--param', 'text=hi']);
+    expect(spawned[0].cmd).toBe('npx');
+    expect(spawned[0].args).toContain(`supersurf-mcp@${VERSION}`);
+    expect(spawned[0].args.join(' ')).toContain('playbook run post_tweet');
+    expect(spawned[0].args.join(' ')).toContain('--param text=hi');
+    expect(spawned[0].args).not.toContain('@latest');
   });
 
-  it('passes --profile through as an override', async () => {
+  it('forwards --profile and --json exactly as typed', async () => {
     fs.writeFileSync(playbookFile('post_tweet'), '// ok');
-    let seen: any = null;
-    await runRun('post_tweet', { param: ['text=hi'], profile: 'dev' }, {
-      ...opts(),
-      runPlaybook: async (o: any) => { seen = o; return { ok: true, durationMs: 1, logs: [] }; },
-    });
-    expect(seen.profile).toBe('dev');
+    await runRun('post_tweet', { param: ['text=hi'], profile: 'dev', json: true }, opts());
+    expect(spawned[0].args.join(' ')).toContain('--profile dev');
+    expect(spawned[0].args).toContain('--json');
   });
 
-  it('returns 1 and prints the evidence on a failed run', async () => {
-    fs.writeFileSync(playbookFile('post_tweet'), '// ok');
-    const code = await runRun('post_tweet', { param: ['text=hi'] }, {
-      ...opts(),
-      runPlaybook: async () => ({ ok: false, error: 'not visible', durationMs: 3, logs: [], evidence: { snapshot: '<page>' } }),
-    });
-    expect(code).toBe(1);
-    expect(err.join('\n')).toContain('<page>');
-  });
-
-  it('refuses to run an invalid playbook', async () => {
+  it('refuses to run an invalid playbook — nothing is spawned', async () => {
     fs.writeFileSync(playbookFile('broken'), '// bad');
-    let called = false;
-    const code = await runRun('broken', {}, {
-      ...opts(),
-      runPlaybook: async () => { called = true; return { ok: true, durationMs: 1, logs: [] }; },
-    });
-    expect(code).toBe(1);
-    expect(called).toBe(false);
+    expect(await runRun('broken', {}, opts())).toBe(1);
+    expect(spawned).toEqual([]);
   });
 
-  it('emits machine-readable JSON with --json', async () => {
+  it('rejects a malformed --param before paying for an npx cold start', async () => {
     fs.writeFileSync(playbookFile('post_tweet'), '// ok');
-    await runRun('post_tweet', { param: ['text=hi'], json: true }, {
-      ...opts(),
-      runPlaybook: async () => ({ ok: true, result: { posted: true }, durationMs: 7, logs: [] }),
-    });
-    expect(JSON.parse(out[0])).toEqual({ name: 'post_tweet', ok: true, result: { posted: true }, durationMs: 7 });
+    expect(await runRun('post_tweet', { param: ['justakey'] }, opts())).toBe(1);
+    expect(err.join('\n')).toContain('key=value');
+    expect(spawned).toEqual([]);
+  });
+
+  it('names the playbook and the directory when it does not exist', async () => {
+    expect(await runRun('nope', {}, opts())).toBe(1);
+    expect(err.join('\n')).toContain('No playbook named');
+    expect(spawned).toEqual([]);
   });
 });

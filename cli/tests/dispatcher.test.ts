@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickTarget, HELP_TEXT } from '../src/bin/dispatcher';
+import { pickTarget, HELP_TEXT } from '../src/dispatcher';
 
 describe('pickTarget', () => {
   it('routes "mcp" subcommand to mcp target and strips it from argv', () => {

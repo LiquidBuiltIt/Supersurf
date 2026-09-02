@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCredsProgram } from '../src/bin/creds';
+import { buildCredsProgram } from '../src/creds';
 
 describe('buildCredsProgram', () => {
   it('returns a commander program named "supersurf creds"', () => {
@@ -46,7 +46,7 @@ describe('buildCredsProgram', () => {
   });
 });
 
-import { runAdd } from '../src/bin/creds';
+import { runAdd } from '../src/creds';
 import { InMemoryKeychainBackend } from 'shared';
 
 describe('runAdd', () => {
@@ -96,7 +96,7 @@ describe('runAdd', () => {
   });
 });
 
-import { runList, runRemove } from '../src/bin/creds';
+import { runList, runRemove } from '../src/creds';
 
 describe('runList', () => {
   it('prints "(no credentials stored)" when empty', async () => {
