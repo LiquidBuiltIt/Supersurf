@@ -14,9 +14,9 @@
  */
 
 import type { ConnectionManagerAPI } from './types';
-import { DaemonClient } from '../daemon-client';
+import { DaemonClient } from 'shared';
 import { ensureDaemon, stopDaemon, getSockPath } from '../daemon-spawn';
-import { createLog, getRegistry } from '../logger';
+import { createLog, getRegistry } from 'shared';
 import { experimentRegistry, applyInitialState } from '../experimental/index';
 import {
   initSession as initHumanization,

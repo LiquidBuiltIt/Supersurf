@@ -23,7 +23,7 @@ import { spawn } from 'child_process';
 import { PassThrough } from 'stream';
 
 import { ConnectionManager } from './backend';
-import { getLogger, getRegistry, type DebugMode } from './logger';
+import { getLogger, getRegistry, type DebugMode } from 'shared';
 import { startScriptMode } from './stdio';
 import { loadDotenv } from './dotenv';
 import {
@@ -262,6 +262,41 @@ program
     }
 
     await main(options);
+  });
+
+// `supersurf playbook run` at a terminal shells out to THIS program. The
+// compiled `supersurf` binary cannot carry `playbooks/runner.ts` — it pulls the
+// ConnectionManager, the daemon and, through `tools/`, the `sharp` native
+// addon. So `run` is the ONLY playbook subcommand registered here; `ls`,
+// `inspect`, `validate` and `migrate` stay in the binary and never reach the
+// server. Do not grow this into a second playbook CLI.
+//
+// Registering a subcommand leaves the root `.action()` above intact: Commander
+// still runs it when no subcommand is named, so a bare `npx supersurf-mcp`
+// starts the MCP server exactly as before. The `mcp` argv filter below is
+// likewise untouched.
+const playbook = program
+  .command('playbook')
+  .description('Playbook operations that need the server; `supersurf playbook` covers the rest');
+
+playbook
+  .command('run')
+  .description('Run a playbook script against a browser (no MCP client needed)')
+  .argument('<name>', 'playbook name')
+  .option('--param <key=value>', 'script argument; repeat for each param', (v: string, acc: string[]) => acc.concat(v), [] as string[])
+  .option('--profile <profile>', 'managed browser profile; overrides the script\'s own default')
+  .option('--json', 'print machine-readable JSON instead of the run trail')
+  .action(async (name: string, flags: { param?: string[]; profile?: string; json?: boolean }) => {
+    // Lazy on purpose: `playbooks/run-cli` reaches the runner, the sandbox host
+    // and the experiment registry. An MCP start must not pay for a subcommand
+    // it never invokes.
+    try {
+      const { runRun } = await import('./playbooks/run-cli');
+      process.exitCode = await runRun(name, flags);
+    } catch (err) {
+      console.error(`[playbook] ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 1;
+    }
   });
 
 // Owner ruling R1 (BACKLOG #25): `npx supersurf-mcp@latest mcp` was the

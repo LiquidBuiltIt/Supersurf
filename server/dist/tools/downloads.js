@@ -15,9 +15,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.onBrowserDownload = onBrowserDownload;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const logger_1 = require("../logger");
+const shared_1 = require("../shared");
 const sandbox_1 = require("./lib/sandbox");
-const log = (0, logger_1.createLog)('[Downloads]');
+const log = (0, shared_1.createLog)('[Downloads]');
 /**
  * Download a file from a URL via the browser, optionally moving it to a destination path.
  *

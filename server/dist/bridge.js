@@ -25,8 +25,8 @@ exports.ExtensionServer = void 0;
 const crypto_1 = __importDefault(require("crypto"));
 const http_1 = __importDefault(require("http"));
 const ws_1 = require("ws");
-const logger_1 = require("./logger");
-const log = (0, logger_1.createLog)('[WS]');
+const shared_1 = require("./shared");
+const log = (0, shared_1.createLog)('[WS]');
 /**
  * WebSocket server that bridges the MCP server to the Chrome extension.
  * Manages a single active connection, with reconnection support.

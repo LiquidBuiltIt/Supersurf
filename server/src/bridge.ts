@@ -20,34 +20,11 @@
 import crypto from 'crypto';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createLog } from './logger';
+import { createLog } from 'shared';
+import type { IExtensionTransport, DialogEvent } from 'shared';
+export type { IExtensionTransport, DialogEvent } from 'shared';
 
 const log = createLog('[WS]');
-
-/** A native dialog currently held open by the extension, mirrored over the wire. */
-export interface DialogEvent {
-  type: 'alert' | 'confirm' | 'prompt' | 'beforeunload';
-  message: string;
-  defaultPrompt: string;
-  url: string;
-  hasBrowserHandler: boolean;
-  timestamp: number;
-}
-
-/** Transport interface abstracting the WebSocket connection to the Chrome extension. */
-export interface IExtensionTransport {
-  sendCmd(method: string, params?: Record<string, unknown>, timeout?: number): Promise<any>;
-  readonly connected: boolean;
-  readonly browser: string;
-  readonly buildTime: string | null;
-  onReconnect: (() => void) | null;
-  onTabInfoUpdate: ((tabInfo: any) => void) | null;
-  notifyClientId(clientId: string): void;
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  /** Drain buffered native-dialog events accumulated from prior responses. */
-  consumeDialogEvents(): DialogEvent[];
-}
 
 /** Pending request awaiting a JSON-RPC response from the extension. */
 interface InflightRequest {

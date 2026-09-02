@@ -143,7 +143,7 @@ CLI flags can be appended to the args array:
 ```bash
 npm run mcp
 # or manually:
-claude mcp add supersurf -- node server/dist/bin/supersurf.js mcp
+claude mcp add supersurf -- node server/dist/cli.js
 ```
 
 </details>

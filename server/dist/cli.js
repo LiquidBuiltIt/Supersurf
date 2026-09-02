@@ -15,6 +15,39 @@
  *
  * @module cli
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
 const stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
@@ -23,10 +56,10 @@ const commander_1 = require("commander");
 const child_process_1 = require("child_process");
 const stream_1 = require("stream");
 const backend_1 = require("./backend");
-const logger_1 = require("./logger");
+const shared_1 = require("./shared");
 const stdio_1 = require("./stdio");
 const dotenv_1 = require("./dotenv");
-const shared_1 = require("./shared");
+const shared_2 = require("./shared");
 const backend_config_1 = require("./backend-config");
 const { version: VERSION } = require('../package.json');
 /** Parse --debug value into a DebugMode. */
@@ -130,9 +163,9 @@ async function main(options) {
     // This process is always a JSON-RPC transport over stdout (MCP protocol) —
     // the upgrade notice MUST go to stderr, never stdout, or it corrupts the
     // protocol stream. Checked/recorded before any other output.
-    const versionCheck = (0, shared_1.checkAndTouchVersionState)(VERSION);
+    const versionCheck = (0, shared_2.checkAndTouchVersionState)(VERSION);
     if (versionCheck.shouldNotify) {
-        console.error(shared_1.UPGRADE_NOTICE_MESSAGE);
+        console.error(shared_2.UPGRADE_NOTICE_MESSAGE);
     }
     const configService = (0, backend_config_1.buildConfigService)(options, (m) => console.error(`[server] ${m}`));
     const debugSetting = configService.get().logging.debug;
@@ -142,9 +175,9 @@ async function main(options) {
             ? 'truncate'
             : false;
     global.DEBUG_MODE = !!debugMode;
-    const reg = (0, logger_1.getRegistry)();
+    const reg = (0, shared_1.getRegistry)();
     reg.debugMode = debugMode;
-    const logger = (0, logger_1.getLogger)(options.logFile);
+    const logger = (0, shared_1.getLogger)(options.logFile);
     if (debugMode) {
         logger.enable();
         logger.log('[cli] Starting SuperSurf MCP server in PASSIVE mode');
@@ -198,9 +231,9 @@ program
     if (options.scriptMode) {
         (0, dotenv_1.loadDotenv)(process.cwd());
         // Script mode is JSON-RPC over stdio too — same stderr-only rule as MCP mode.
-        const versionCheck = (0, shared_1.checkAndTouchVersionState)(VERSION);
+        const versionCheck = (0, shared_2.checkAndTouchVersionState)(VERSION);
         if (versionCheck.shouldNotify) {
-            console.error(shared_1.UPGRADE_NOTICE_MESSAGE);
+            console.error(shared_2.UPGRADE_NOTICE_MESSAGE);
         }
         const configService = (0, backend_config_1.buildConfigService)(options, (m) => console.error(`[server] ${m}`));
         const config = (0, backend_config_1.backendConfigFrom)(configService, VERSION, versionCheck.shouldNotify);
@@ -216,6 +249,40 @@ program
         options.debug = options.debug || true;
     }
     await main(options);
+});
+// `supersurf playbook run` at a terminal shells out to THIS program. The
+// compiled `supersurf` binary cannot carry `playbooks/runner.ts` — it pulls the
+// ConnectionManager, the daemon and, through `tools/`, the `sharp` native
+// addon. So `run` is the ONLY playbook subcommand registered here; `ls`,
+// `inspect`, `validate` and `migrate` stay in the binary and never reach the
+// server. Do not grow this into a second playbook CLI.
+//
+// Registering a subcommand leaves the root `.action()` above intact: Commander
+// still runs it when no subcommand is named, so a bare `npx supersurf-mcp`
+// starts the MCP server exactly as before. The `mcp` argv filter below is
+// likewise untouched.
+const playbook = program
+    .command('playbook')
+    .description('Playbook operations that need the server; `supersurf playbook` covers the rest');
+playbook
+    .command('run')
+    .description('Run a playbook script against a browser (no MCP client needed)')
+    .argument('<name>', 'playbook name')
+    .option('--param <key=value>', 'script argument; repeat for each param', (v, acc) => acc.concat(v), [])
+    .option('--profile <profile>', 'managed browser profile; overrides the script\'s own default')
+    .option('--json', 'print machine-readable JSON instead of the run trail')
+    .action(async (name, flags) => {
+    // Lazy on purpose: `playbooks/run-cli` reaches the runner, the sandbox host
+    // and the experiment registry. An MCP start must not pay for a subcommand
+    // it never invokes.
+    try {
+        const { runRun } = await Promise.resolve().then(() => __importStar(require('./playbooks/run-cli')));
+        process.exitCode = await runRun(name, flags);
+    }
+    catch (err) {
+        console.error(`[playbook] ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = 1;
+    }
 });
 // Owner ruling R1 (BACKLOG #25): `npx supersurf-mcp@latest mcp` was the
 // documented invocation for two releases and is baked into every MCP client

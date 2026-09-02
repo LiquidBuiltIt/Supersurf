@@ -11,7 +11,7 @@
 import type { ToolContext } from './lib/types';
 import fs from 'fs';
 import path from 'path';
-import { createLog } from '../logger';
+import { createLog } from 'shared';
 import { sandboxPath } from './lib/sandbox';
 
 const log = createLog('[Downloads]');

@@ -16,16 +16,11 @@
  */
 import type { ToolContext } from './lib/types';
 import { type RunOutcome } from '../playbooks/runner';
+import { doList, doInspect, doValidate } from '../playbooks/report';
+export { doList, doInspect, doValidate };
 /** Seam for tests. Production passes nothing and gets the real runner. */
 export interface PlaybookDeps {
     runPlaybook?: (opts: any) => Promise<RunOutcome>;
 }
 export declare function onPlaybooks(ctx: ToolContext, args: any, options: any, deps?: PlaybookDeps): Promise<any>;
-/**
- * `list`, `inspect` and `validate` are registry reads — no browser, no
- * extension — so `backend.ts` calls them directly to bypass the passive gate.
- */
-export declare function doList(args: any): any;
-export declare function doInspect(args: any): any;
-export declare function doValidate(args: any): any;
 //# sourceMappingURL=playbooks.d.ts.map

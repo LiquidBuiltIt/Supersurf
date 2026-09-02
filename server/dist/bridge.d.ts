@@ -18,29 +18,8 @@
  */
 import http from 'http';
 import { WebSocket } from 'ws';
-/** A native dialog currently held open by the extension, mirrored over the wire. */
-export interface DialogEvent {
-    type: 'alert' | 'confirm' | 'prompt' | 'beforeunload';
-    message: string;
-    defaultPrompt: string;
-    url: string;
-    hasBrowserHandler: boolean;
-    timestamp: number;
-}
-/** Transport interface abstracting the WebSocket connection to the Chrome extension. */
-export interface IExtensionTransport {
-    sendCmd(method: string, params?: Record<string, unknown>, timeout?: number): Promise<any>;
-    readonly connected: boolean;
-    readonly browser: string;
-    readonly buildTime: string | null;
-    onReconnect: (() => void) | null;
-    onTabInfoUpdate: ((tabInfo: any) => void) | null;
-    notifyClientId(clientId: string): void;
-    start(): Promise<void>;
-    stop(): Promise<void>;
-    /** Drain buffered native-dialog events accumulated from prior responses. */
-    consumeDialogEvents(): DialogEvent[];
-}
+import type { IExtensionTransport, DialogEvent } from 'shared';
+export type { IExtensionTransport, DialogEvent } from 'shared';
 /**
  * WebSocket server that bridges the MCP server to the Chrome extension.
  * Manages a single active connection, with reconnection support.

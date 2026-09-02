@@ -14,8 +14,8 @@ exports.SCREENSHOT_ELIGIBLE = void 0;
 exports.formatResult = formatResult;
 exports.maybeAppendScreenshot = maybeAppendScreenshot;
 exports.formatError = formatError;
-const logger_1 = require("../../logger");
-const log = (0, logger_1.createLog)('[ResultFormatter]');
+const shared_1 = require("../../shared");
+const log = (0, shared_1.createLog)('[ResultFormatter]');
 /** Tools that support the `screenshot` param for inline post-action capture. */
 exports.SCREENSHOT_ELIGIBLE = new Set([
     'browser_interact', 'browser_navigate', 'browser_fill_form',

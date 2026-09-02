@@ -8,7 +8,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 
 const ROOT = path.resolve(__dirname, '..');
-const PACKAGES = ['shared', 'daemon', 'server', 'extension'];
+const PACKAGES = ['shared', 'cli', 'daemon', 'server', 'extension'];
 
 const C_BOLD = '\x1b[1m';
 const C_DIM = '\x1b[2m';

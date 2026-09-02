@@ -13,14 +13,18 @@ function makeConfigWithSecureEval(enabled: boolean) {
 }
 
 // Mock the logger
-vi.mock('../src/logger', () => ({
-  getLogger: () => ({
-    log: vi.fn(),
-    enable: vi.fn(),
-    disable: vi.fn(),
-  }),
-  createLog: () => (..._args: unknown[]) => {},
-}));
+vi.mock('shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('shared')>();
+  return {
+    ...actual,
+    getLogger: () => ({
+      log: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+    }),
+    createLog: () => (..._args: unknown[]) => {},
+  };
+});
 
 // Mock usage-metrics logger to avoid filesystem writes during tests
 vi.mock('../src/usage-metrics-logger', () => ({

@@ -21,7 +21,7 @@ import os from 'os';
 import path from 'path';
 import sharp from 'sharp';
 import sizeOf from 'image-size';
-import { createLog } from '../logger';
+import { createLog } from 'shared';
 import { sandboxPath } from './lib/sandbox';
 
 const log = createLog('[Screenshot]');

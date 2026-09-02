@@ -56,14 +56,14 @@ exports.onProfileCreate = onProfileCreate;
 exports.onProfileList = onProfileList;
 exports.onProfileDelete = onProfileDelete;
 exports.onReloadMCP = onReloadMCP;
-const daemon_client_1 = require("../daemon-client");
+const shared_1 = require("../shared");
 const daemon_spawn_1 = require("../daemon-spawn");
-const logger_1 = require("../logger");
+const shared_2 = require("../shared");
 const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const tips_1 = require("../tips");
-const shared_1 = require("../shared");
-const log = (0, logger_1.createLog)('[Conn]');
+const shared_3 = require("../shared");
+const log = (0, shared_2.createLog)('[Conn]');
 // Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
 let BrowserBridge = null;
 async function getBrowserBridge() {
@@ -119,7 +119,7 @@ async function onConnect(mgr, args = {}, options = {}) {
     mgr.clientId = args.client_id.trim();
     log('Client ID set to:', mgr.clientId);
     // Start session log file
-    const reg = (0, logger_1.getRegistry)();
+    const reg = (0, shared_2.getRegistry)();
     if (reg.debugMode) {
         const sessionLogger = reg.setSessionLog(mgr.clientId);
         log('Session log:', sessionLogger.logFilePath);
@@ -134,7 +134,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         await (0, daemon_spawn_1.ensureDaemon)(port, mgr.debugMode, mgr.config.enabledExperiments || []);
         // Connect to daemon via Unix socket
         const sockPath = (0, daemon_spawn_1.getSockPath)();
-        let client = new daemon_client_1.DaemonClient(sockPath, mgr.clientId);
+        let client = new shared_1.DaemonClient(sockPath, mgr.clientId);
         await client.start();
         // Refuse to attach to a daemon of a different generation. ensureDaemon
         // only checks PID liveness, so a stale daemon from a previous package
@@ -148,7 +148,7 @@ async function onConnect(mgr, args = {}, options = {}) {
             await client.stop().catch(() => { });
             await (0, daemon_spawn_1.stopDaemon)();
             await (0, daemon_spawn_1.ensureDaemon)(port, mgr.debugMode, mgr.config.enabledExperiments || []);
-            client = new daemon_client_1.DaemonClient(sockPath, mgr.clientId);
+            client = new shared_1.DaemonClient(sockPath, mgr.clientId);
             await client.start();
             daemonVersion = client.version;
         }
@@ -231,7 +231,7 @@ async function onConnect(mgr, args = {}, options = {}) {
                 {
                     type: 'text',
                     text: mgr.statusHeader() +
-                        (mgr.config.showUpgradeNotice ? `${shared_1.UPGRADE_NOTICE_MESSAGE}\n\n` : '') +
+                        (mgr.config.showUpgradeNotice ? `${shared_3.UPGRADE_NOTICE_MESSAGE}\n\n` : '') +
                         `### Connected to Service\n\n` +
                         `**State:** ${mgr.extensionConnected ? 'Active' : 'Active — no extension connected'}\n` +
                         `**Browser:** ${mgr.connectedBrowserName}\n\n` +
@@ -355,7 +355,7 @@ async function onDisconnect(mgr, options = {}) {
     // experiment + cursor state. All keyed by client_id so a second
     // ConnectionManager in this process keeps its own.
     if (mgr.clientId) {
-        (0, logger_1.getRegistry)().clearSessionLog(mgr.clientId);
+        (0, shared_2.getRegistry)().clearSessionLog(mgr.clientId);
         (0, tips_1.clearTipCounters)(mgr.clientId);
         index_1.experimentRegistry.unbind(mgr.clientId);
         (0, index_2.destroySession)(mgr.clientId);
@@ -440,7 +440,7 @@ async function withDaemonConnection(mgr, fn) {
     // Create a temporary daemon connection
     await (0, daemon_spawn_1.ensureDaemon)(mgr.config.port || 5555, mgr.debugMode, mgr.config.enabledExperiments || []);
     const sockPath = (0, daemon_spawn_1.getSockPath)();
-    const tempClient = new daemon_client_1.DaemonClient(sockPath, `profile-mgmt-${Date.now()}`);
+    const tempClient = new shared_1.DaemonClient(sockPath, `profile-mgmt-${Date.now()}`);
     try {
         await tempClient.start();
         return await fn({

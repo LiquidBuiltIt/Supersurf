@@ -14,7 +14,7 @@
  * Requires network (npm install of the tarball's runtime deps).
  */
 import { execSync } from 'child_process';
-import { mkdtempSync, rmSync, readdirSync } from 'fs';
+import { mkdtempSync, rmSync, readdirSync, readFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
@@ -43,10 +43,32 @@ try {
   console.log('→ Loading entrypoints (VITEST=1)...');
   // Throws if a require is unresolvable in the clean install. The daemon is a
   // SEPARATE package (supersurf-daemon) now — not bundled into the server.
+  //
+  // dist/cli.js parses process.argv at import time, so require()ing it boots
+  // the MCP server. stdin is pinned to 'ignore' (not 'inherit'): the server's
+  // exit watchdog shuts down on stdin close, and inheriting a live stdin — a
+  // TTY when a human runs this — would leave the server sitting there forever.
   execSync(
-    `node -e "process.env.VITEST='1'; require('${join(pkgRoot, 'bin', 'dispatcher.js')}'); console.log('modules-ok')"`,
-    { env: { ...process.env, VITEST: '1' }, stdio: 'inherit' },
+    `node -e "process.env.VITEST='1'; require('${join(pkgRoot, 'cli.js')}'); console.log('modules-ok')"`,
+    { env: { ...process.env, VITEST: '1' }, stdio: ['ignore', 'inherit', 'inherit'] },
   );
+
+  // Item 28's headline acceptance criterion: the CLI left this package. A
+  // stray bin here would put `supersurf` back on PATH from an npm install and
+  // shadow the standalone `supersurf` binary built from cli/. NOTE: that
+  // binary has no distribution channel yet -- `npm run build` does not run
+  // build.cli and `npm run publish` does not upload it (BACKLOG item 28).
+  const installed = JSON.parse(
+    readFileSync(join(work, 'node_modules', 'supersurf-mcp', 'package.json'), 'utf8'),
+  );
+  if (installed.bin.supersurf || installed.bin['supersurf-daemon']) {
+    throw new Error(
+      `supersurf-mcp tarball still declares a stray bin: ${Object.keys(installed.bin).join(', ')}`,
+    );
+  }
+  if (existsSync(join(pkgRoot, 'bin'))) {
+    throw new Error('supersurf-mcp tarball still ships dist/bin/ — the CLI leaked back in');
+  }
 
   console.log('\n✓ Smoke test passed — supersurf-mcp loads standalone.');
 } finally {
