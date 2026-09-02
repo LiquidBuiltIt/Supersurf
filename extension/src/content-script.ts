@@ -36,21 +36,33 @@ window.addEventListener('message', (event) => {
   // On fresh installs the service worker may not be ready yet, so retry with backoff.
   if (event.data?.__supersurf === true && event.data?.action === 'register-profile' && event.data?.profile) {
     const profile = event.data.profile;
+    // Reply only to the page that asked. '*' would leak the ack to any
+    // main-world script listening on this window.
+    const replyOrigin = event.origin;
     const msg = { type: 'profileRegister', profile };
     let attempts = 0;
     const ack = () => {
       // The registration page waits on this and shows a timeout state without
-      // it. Only sent once the background script actually took the message.
-      window.postMessage({ __supersurf: true, action: 'register-profile-ack', profile }, '*');
+      // it. Only sent once the storage write actually completed — "registered"
+      // has to mean the binding is on disk, not that a message was accepted.
+      try {
+        window.postMessage({ __supersurf: true, action: 'register-profile-ack', profile }, replyOrigin);
+      } catch {
+        // A page with an opaque origin cannot be replied to; nothing to do.
+      }
     };
     const trySend = () => {
       try {
-        chrome.runtime.sendMessage(msg, () => {
+        chrome.runtime.sendMessage(msg, (res: { ok?: boolean } | undefined) => {
+          // No listener / service worker asleep — Chrome closes the port and
+          // sets lastError. Retry; the worker may still be spinning up.
           if (chrome.runtime.lastError) {
             if (++attempts < 10) setTimeout(trySend, 500);
             return;
           }
-          ack();
+          // A negative reply means the write failed. Do NOT ack — the page's
+          // failure state is exactly the right outcome there.
+          if (res?.ok) ack();
         });
       } catch {
         if (++attempts < 10) setTimeout(trySend, 500);

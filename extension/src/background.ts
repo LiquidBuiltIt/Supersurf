@@ -245,7 +245,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   });
 
   // Listen for tech stack info and profile registration from content script
-  chrome.runtime.onMessage.addListener((message, sender) => {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'techStack' && sender.tab?.id) {
       techStackInfo[sender.tab.id] = message.data;
       tabHandlers.setTechStackInfo(sender.tab.id, message.data);
@@ -253,8 +253,20 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
     // Profile registration from daemon's registration page — keep the tab open
     // so a sole registration tab does not quit Chromium mid-connect.
+    //
+    // The content script waits on this response and the registration page shows
+    // a failure state without it, so the reply must report the *storage write*,
+    // not merely that the message was received. `return true` keeps the message
+    // port open for the async reply — it is scoped to this branch on purpose:
+    // returning it for `techStack` too would leave that port dangling.
     if (message.type === 'profileRegister' && message.profile) {
-      void applyProfileRegister(message.profile, sender.tab?.id, chrome.storage, chrome.tabs);
+      applyProfileRegister(message.profile, sender.tab?.id, chrome.storage, chrome.tabs)
+        .then(() => sendResponse?.({ ok: true }))
+        .catch((e) => {
+          logger.log('[Background] Profile register failed:', e);
+          sendResponse?.({ ok: false });
+        });
+      return true;
     }
   });
 

@@ -15,19 +15,69 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Build the registration page. Posts `register-profile` to the extension,
- * then reveals a success state. The tab is left open for the user/agent.
+ * Escape text for safe interpolation into a single-quoted JS string literal
+ * inside an inline `<script>` block. `<` is escaped too, so a name containing
+ * `</script>` cannot close the block early.
+ */
+function escapeJs(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/</g, '\\x3C');
+}
+
+/**
+ * The page's inline script, without its `<script>` wrapper.
+ *
+ * Exported so the tests can execute it against a stub DOM instead of only
+ * grepping the rendered HTML for substrings. Its only free identifiers are
+ * `window`, `document`, `location`, `setTimeout` and `clearTimeout`.
+ */
+export function registrationScript(profileName: string): string {
+  const safeJs = escapeJs(profileName);
+
+  return `(function () {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        document.body.classList.add('is-failed');
+        document.title = 'Registration timed out — ${safeJs}';
+      }, 15000);
+
+      window.addEventListener('message', function (event) {
+        if (event.source !== window) return;
+        if (event.origin !== location.origin) return;
+        var d = event.data;
+        if (!d || d.__supersurf !== true || d.action !== 'register-profile-ack') return;
+        if (d.profile !== '${safeJs}') return;
+        // Deliberately not guarded by \`settled\`: an ack that lands after the
+        // timeout still means the profile bound, so it clears the failure.
+        settled = true;
+        clearTimeout(timer);
+        document.body.classList.remove('is-failed');
+        document.body.classList.add('is-ready');
+        document.title = 'Profile ready — ${safeJs}';
+      });
+
+      window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${safeJs}' }, '*');
+    })();`;
+}
+
+/**
+ * Build the registration page. Posts `register-profile` to the extension and
+ * waits for the content script's ack before claiming success; without an ack
+ * within 15s it shows a failure state. The tab is left open for the user/agent.
  */
 export function registrationHtml(profileName: string): string {
   const safe = escapeHtml(profileName);
-  const safeJs = profileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Profile ready — ${safe}</title>
+  <title>Registering profile — ${safe}</title>
   <style>
     :root {
       --ink: #15202b;
@@ -165,29 +215,7 @@ export function registrationHtml(profileName: string): string {
     </section>
   </main>
   <script>
-    (function () {
-      var settled = false;
-      var timer = setTimeout(function () {
-        if (settled) return;
-        settled = true;
-        document.body.classList.add('is-failed');
-        document.title = 'Registration timed out — ${safeJs}';
-      }, 15000);
-
-      window.addEventListener('message', function (event) {
-        if (event.source !== window) return;
-        var d = event.data;
-        if (!d || d.__supersurf !== true || d.action !== 'register-profile-ack') return;
-        if (d.profile !== '${safeJs}') return;
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        document.body.classList.add('is-ready');
-        document.title = 'Profile ready — ${safeJs}';
-      });
-
-      window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${safeJs}' }, '*');
-    })();
+    ${registrationScript(profileName)}
   </script>
 </body>
 </html>`;
