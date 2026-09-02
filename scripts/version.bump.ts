@@ -61,6 +61,7 @@ const targets = [
   'extension/manifest.json',
   'daemon/package.json',
   'shared/package.json',
+  'cli/package.json',
 ];
 
 // ── Rollback ──────────────────────────────────────────────────
