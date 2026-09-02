@@ -65,6 +65,36 @@ describe('Matchmaker', () => {
       expect(reject).toHaveBeenCalledWith(expect.any(Error));
       expect(conn.inflight.size).toBe(0);
     });
+
+    it('drains inflight with the version error when the guard closed the socket', () => {
+      const ws = mockWs();
+      const conn = mockConn(ws);
+      conn.versionStatus = 'rejected';
+      conn.versionError = 'Extension 2.0.0 is too old for daemon 3.4.0.';
+      const reject = vi.fn();
+      conn.inflight.set('req-1', { resolve: vi.fn(), reject });
+
+      matchmaker.addConnection(ws, conn);
+      matchmaker.removeConnection(ws);
+
+      expect(reject).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Extension 2.0.0 is too old for daemon 3.4.0.' }),
+      );
+    });
+
+    it('still uses the generic message when a healthy connection drops', () => {
+      const ws = mockWs();
+      const conn = mockConn(ws);
+      const reject = vi.fn();
+      conn.inflight.set('req-1', { resolve: vi.fn(), reject });
+
+      matchmaker.addConnection(ws, conn);
+      matchmaker.removeConnection(ws);
+
+      expect(reject).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Extension disconnected' }),
+      );
+    });
   });
 
   describe('requestMatch', () => {

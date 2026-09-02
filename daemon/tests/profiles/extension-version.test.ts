@@ -106,7 +106,6 @@ function stubMatchmaker() {
     failPendingMatches: vi.fn().mockReturnValue(0),
     recordVersionRejection: vi.fn(),
     clearVersionRejection: vi.fn(),
-    tryResolvePendingMatches: vi.fn(),
   };
 }
 

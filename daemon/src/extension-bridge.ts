@@ -157,13 +157,14 @@ export class ExtensionBridge {
         // one — so a silent client must not be able to hold its slot forever.
         const handshakeDeadline = setTimeout(() => {
           if (conn.versionStatus !== 'pending') return;
-          debugLog(`No handshake within ${HANDSHAKE_DEADLINE_MS}ms — allowing connection unchecked`);
+          const slot = conn.profile || 'unmanaged';
+          debugLog(`No handshake within ${HANDSHAKE_DEADLINE_MS}ms (${slot}) — allowing connection unchecked`);
           conn.versionStatus = 'warn';
           conn.versionError =
             'The connected extension never sent a handshake, so its version was not checked.';
           console.error(
-            'SuperSurf: extension version guard inactive — the connected extension never sent a ' +
-            `handshake within ${HANDSHAKE_DEADLINE_MS}ms, so its version was not checked.`,
+            `SuperSurf: extension version guard inactive for "${slot}" — the connected extension ` +
+            `never sent a handshake within ${HANDSHAKE_DEADLINE_MS}ms, so its version was not checked.`,
           );
           this.matchmaker.tryResolvePendingMatches();
         }, HANDSHAKE_DEADLINE_MS);
@@ -180,7 +181,10 @@ export class ExtensionBridge {
           clearTimeout(handshakeDeadline);
           this.matchmaker.removeConnection(ws);
         });
-        ws.on('error', (error) => debugLog('WebSocket error:', error));
+        ws.on('error', (error) => {
+          clearTimeout(handshakeDeadline);
+          debugLog('WebSocket error:', error);
+        });
       });
 
       this.httpServer.on('error', (error) => {
@@ -200,7 +204,7 @@ export class ExtensionBridge {
     ws: WebSocket,
     conn: PooledConnection,
     data: any,
-    handshakeDeadline?: ReturnType<typeof setTimeout>,
+    handshakeDeadline: ReturnType<typeof setTimeout>,
   ): void {
     try {
       const message = JSON.parse(data.toString());
@@ -229,7 +233,7 @@ export class ExtensionBridge {
       // Handshake
       if (message.type === 'handshake') {
         debugLog('Handshake received:', message);
-        if (handshakeDeadline) clearTimeout(handshakeDeadline);
+        clearTimeout(handshakeDeadline);
         conn.browser = message.browser || 'chrome';
         conn.buildTimestamp = message.buildTimestamp || null;
         applyKeepBrowserPreference(conn, message.keepBrowserOnSessionEnd);
@@ -254,7 +258,7 @@ export class ExtensionBridge {
         }
 
         // Profile field in handshake (subsequent launches)
-        if (message.profile) {
+        if (typeof message.profile === 'string' && message.profile) {
           this.matchmaker.updateProfile(ws, message.profile);
         } else {
           // The version check may have promoted this connection out of

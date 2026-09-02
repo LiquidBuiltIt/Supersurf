@@ -68,9 +68,14 @@ export class Matchmaker {
     const conn = this.pool.get(ws);
     if (!conn) return;
 
-    // Drain inflight
+    // Drain inflight. A connection closed by the version guard carries the
+    // reason, and an agent mid-request deserves that over 'Extension
+    // disconnected' — the generic message is the silent failure this feature exists to remove.
+    const reason = conn.versionStatus === 'rejected' && conn.versionError
+      ? conn.versionError
+      : 'Extension disconnected';
     for (const [, pending] of conn.inflight) {
-      pending.reject(new Error('Extension disconnected'));
+      pending.reject(new Error(reason));
     }
     conn.inflight.clear();
 
