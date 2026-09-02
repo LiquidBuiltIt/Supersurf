@@ -15,7 +15,7 @@
  * throwaway session (same pattern as backend/handlers.ts profile CRUD).
  */
 import { ensureDaemon, getSockPath } from '../daemon-spawn';
-import { DaemonClient } from '../daemon-client';
+import { DaemonClient } from 'shared';
 
 export const PROFILES_USAGE = `supersurf profiles — manage browser profiles
 

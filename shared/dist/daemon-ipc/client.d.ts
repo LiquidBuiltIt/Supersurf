@@ -7,7 +7,7 @@
  * @module daemon-client
  * @exports DaemonClient
  */
-import type { IExtensionTransport, DialogEvent } from './bridge';
+import type { IExtensionTransport, DialogEvent } from './types';
 /**
  * Transport that connects to the SuperSurf daemon over a Unix domain socket.
  * Implements IExtensionTransport for drop-in replacement of ExtensionServer.
@@ -60,4 +60,4 @@ export declare class DaemonClient implements IExtensionTransport {
     /** Clean up socket resources. */
     private cleanup;
 }
-//# sourceMappingURL=daemon-client.d.ts.map
+//# sourceMappingURL=client.d.ts.map

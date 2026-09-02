@@ -3,10 +3,10 @@ import net from 'net';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { DaemonClient } from '../src/daemon-client';
+import { DaemonClient } from '../daemon-ipc/client';
 
 // Mock the logger
-vi.mock('../src/logger', () => ({
+vi.mock('../logger/registry', () => ({
   createLog: () => (..._args: unknown[]) => {},
 }));
 

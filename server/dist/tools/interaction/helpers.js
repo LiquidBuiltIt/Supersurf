@@ -7,8 +7,8 @@ exports.moveCursorTo = moveCursorTo;
 exports.detectSpawnedTabs = detectSpawnedTabs;
 const index_1 = require("../../experimental/index");
 const index_2 = require("../../experimental/mouse-humanization/index");
-const logger_1 = require("../../logger");
-const log = (0, logger_1.createLog)('[Interact]');
+const shared_1 = require("../../shared");
+const log = (0, shared_1.createLog)('[Interact]');
 async function getViewportSize(ctx) {
     return await ctx.ext.sendCmd('getViewportDimensions', { tabId: ctx.tabId });
 }

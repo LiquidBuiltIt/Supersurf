@@ -3,14 +3,18 @@ import { ExtensionServer } from '../src/bridge';
 import WebSocket from 'ws';
 
 // Mock the logger
-vi.mock('../src/logger', () => ({
-  getLogger: () => ({
-    log: vi.fn(),
-    enable: vi.fn(),
-    disable: vi.fn(),
-  }),
-  createLog: () => (..._args: unknown[]) => {},
-}));
+vi.mock('shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('shared')>();
+  return {
+    ...actual,
+    getLogger: () => ({
+      log: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+    }),
+    createLog: () => (..._args: unknown[]) => {},
+  };
+});
 
 // Use a range of ports to avoid conflicts between test runs
 let portCounter = 9100;

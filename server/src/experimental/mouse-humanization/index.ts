@@ -20,7 +20,7 @@
 import { BALABIT_PROFILE, type DistributionProfile } from './profile';
 import { generatePersonality, type MousePersonality } from './personality';
 import { generatePath, type Waypoint, type Viewport } from './generator';
-import { createLog } from '../../logger';
+import { createLog } from 'shared';
 
 const log = createLog('[Mouse]');
 

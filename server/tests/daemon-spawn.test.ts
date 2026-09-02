@@ -4,9 +4,13 @@ import os from 'os';
 import path from 'path';
 
 // Mock logger
-vi.mock('../src/logger', () => ({
-  createLog: () => (..._args: unknown[]) => {},
-}));
+vi.mock('shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('shared')>();
+  return {
+    ...actual,
+    createLog: () => (..._args: unknown[]) => {},
+  };
+});
 
 // We need to mock the file paths and child_process
 const mockSuperSurfDir = path.join(os.tmpdir(), 'daemon-spawn-test');

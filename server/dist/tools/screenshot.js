@@ -26,9 +26,9 @@ const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));
 const sharp_1 = __importDefault(require("sharp"));
 const image_size_1 = __importDefault(require("image-size"));
-const logger_1 = require("../logger");
+const shared_1 = require("../shared");
 const sandbox_1 = require("./lib/sandbox");
-const log = (0, logger_1.createLog)('[Screenshot]');
+const log = (0, shared_1.createLog)('[Screenshot]');
 /** Max pixel dimension for screenshots returned as base64 to the agent. */
 const SCREENSHOT_MAX_DIMENSION = 2000;
 const DEFAULT_SCREENSHOT_DIR = path_1.default.join(os_1.default.tmpdir(), 'supersurf-screenshots');

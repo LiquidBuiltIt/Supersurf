@@ -20,7 +20,7 @@ exports.runProfilesCli = runProfilesCli;
  * throwaway session (same pattern as backend/handlers.ts profile CRUD).
  */
 const daemon_spawn_1 = require("../daemon-spawn");
-const daemon_client_1 = require("../daemon-client");
+const shared_1 = require("../shared");
 exports.PROFILES_USAGE = `supersurf profiles — manage browser profiles
 
 Usage: supersurf profiles <command>
@@ -79,7 +79,7 @@ function formatStatus(p) {
 async function withCliDaemonClient(fn) {
     const port = Number(process.env.SUPERSURF_PORT) || 5555;
     await (0, daemon_spawn_1.ensureDaemon)(port);
-    const client = new daemon_client_1.DaemonClient((0, daemon_spawn_1.getSockPath)(), `profiles-cli-${process.pid}`);
+    const client = new shared_1.DaemonClient((0, daemon_spawn_1.getSockPath)(), `profiles-cli-${process.pid}`);
     try {
         await client.start();
         return await fn(client);

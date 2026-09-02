@@ -2,7 +2,7 @@
 import type { ToolContext } from '../lib/types';
 import { experimentRegistry } from '../../experimental/index';
 import { generateMovement } from '../../experimental/mouse-humanization/index';
-import { createLog } from '../../logger';
+import { createLog } from 'shared';
 
 const log = createLog('[Interact]');
 

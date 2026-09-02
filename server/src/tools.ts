@@ -11,7 +11,7 @@
 
 import type { IExtensionTransport } from './bridge';
 import type { ToolSchema, ToolContext } from './tools/lib/types';
-import { createLog } from './logger';
+import { createLog } from 'shared';
 import { UsageMetricsLogger } from './usage-metrics-logger';
 import { getExperimentalToolSchemas, experimentRegistry } from './experimental/index';
 import { resolveWithHealing, captureInContext, healInContext, domainOf, routeOf } from './experimental/fingerprinting/index';

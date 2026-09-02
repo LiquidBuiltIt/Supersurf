@@ -54,14 +54,14 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConnectionManager = void 0;
 const usage_metrics_logger_1 = require("./usage-metrics-logger");
-const logger_1 = require("./logger");
+const shared_1 = require("./shared");
 const status_1 = require("./backend/status");
 const hint_1 = require("./playbooks/hint");
 const registry_1 = require("./playbooks/registry");
 const playbooks_1 = require("./tools/playbooks");
 const schemas_1 = require("./backend/schemas");
 const handlers_1 = require("./backend/handlers");
-const log = (0, logger_1.createLog)('[Conn]');
+const log = (0, shared_1.createLog)('[Conn]');
 // Lazy-load BrowserBridge to avoid circular dependency: tools.ts imports types from backend
 let BrowserBridge = null;
 /** Lazy singleton loader for BrowserBridge class. */

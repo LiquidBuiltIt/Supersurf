@@ -21,7 +21,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { IExtensionTransport } from './bridge';
 import { UsageMetricsLogger } from './usage-metrics-logger';
-import { createLog } from './logger';
+import { createLog } from 'shared';
 
 // Re-export types so existing imports from './backend' still work
 export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend/types';

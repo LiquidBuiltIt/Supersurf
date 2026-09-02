@@ -11,7 +11,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BrowserBridge = void 0;
-const logger_1 = require("./logger");
+const shared_1 = require("./shared");
 const index_1 = require("./experimental/index");
 const index_2 = require("./experimental/fingerprinting/index");
 const handle_resolve_1 = require("./experimental/fingerprinting/handle-resolve");
@@ -22,7 +22,7 @@ const cdp_1 = require("./tools/lib/cdp");
 const element_resolver_1 = require("./tools/lib/element-resolver");
 const result_formatter_1 = require("./tools/lib/result-formatter");
 const dispatcher_1 = require("./tools/lib/dispatcher");
-const log = (0, logger_1.createLog)('[Bridge]');
+const log = (0, shared_1.createLog)('[Bridge]');
 /**
  * Lifecycle wrapper for browser tool execution. Created by
  * `backend/handlers.ts:onConnect` after the daemon transport is up;

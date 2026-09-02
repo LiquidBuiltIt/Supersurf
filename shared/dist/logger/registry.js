@@ -25,11 +25,11 @@ exports.LoggerRegistry = exports.createLog = exports.FileLogger = void 0;
 exports.getLogger = getLogger;
 exports.getRegistry = getRegistry;
 const path_1 = __importDefault(require("path"));
-const shared_1 = require("./shared");
+const logger_1 = require("./logger");
 // Re-export core types for existing consumers
-var shared_2 = require("./shared");
-Object.defineProperty(exports, "FileLogger", { enumerable: true, get: function () { return shared_2.FileLogger; } });
-const SESSIONS_DIR = path_1.default.join(shared_1.LOG_ROOT, 'sessions');
+var logger_2 = require("./logger");
+Object.defineProperty(exports, "FileLogger", { enumerable: true, get: function () { return logger_2.FileLogger; } });
+const SESSIONS_DIR = path_1.default.join(logger_1.LOG_ROOT, 'sessions');
 // ─── Session-aware logger registry ──────────────────────────
 /**
  * Singleton managing the server logger and per-session loggers.
@@ -55,8 +55,8 @@ class LoggerRegistry {
     /** Get or create the server-level logger. */
     getServerLogger(customLogPath) {
         if (!this.serverLogger) {
-            const logPath = customLogPath ?? path_1.default.join(shared_1.LOG_ROOT, 'server.log');
-            this.serverLogger = new shared_1.FileLogger(logPath);
+            const logPath = customLogPath ?? path_1.default.join(logger_1.LOG_ROOT, 'server.log');
+            this.serverLogger = new logger_1.FileLogger(logPath);
             this.serverLogger.truncate = this._debugMode !== 'no_truncate';
         }
         return this.serverLogger;
@@ -66,9 +66,9 @@ class LoggerRegistry {
         // Clean up old logger for same sessionId if it exists
         this.clearSessionLog(sessionId);
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `supersurf-debug-${(0, shared_1.sanitizeFilename)(sessionId)}-${ts}.log`;
+        const filename = `supersurf-debug-${(0, logger_1.sanitizeFilename)(sessionId)}-${ts}.log`;
         const logPath = path_1.default.join(SESSIONS_DIR, filename);
-        const logger = new shared_1.FileLogger(logPath);
+        const logger = new logger_1.FileLogger(logPath);
         logger.truncate = this._debugMode !== 'no_truncate';
         if (this._debugMode) {
             logger.enable();
@@ -120,4 +120,4 @@ function getRegistry() {
  */
 const createLog = (prefix, sessionId) => (...args) => global.DEBUG_MODE && registry.getLogger(sessionId).log(prefix, ...args);
 exports.createLog = createLog;
-//# sourceMappingURL=logger.js.map
+//# sourceMappingURL=registry.js.map

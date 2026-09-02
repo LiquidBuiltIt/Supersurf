@@ -18,42 +18,43 @@ import { initSession, getSession, destroySession } from '../src/experimental/mou
 // ---- Mocks ----
 
 const clearSessionLog = vi.fn();
-vi.mock('../src/logger', () => ({
-  getLogger: () => ({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
-  getRegistry: () => ({
-    debugMode: false,
-    setSessionLog: vi.fn().mockReturnValue({ logFilePath: '/tmp/test.log', enable: vi.fn(), log: vi.fn() }),
-    clearSessionLog,
-    getLogger: vi.fn().mockReturnValue({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
-  }),
-  createLog: () => (..._args: unknown[]) => {},
-}));
+// A fresh transport object per construction, so bind() keying is observable.
+vi.mock('shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('shared')>();
+  return {
+    ...actual,
+    getLogger: () => ({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
+    getRegistry: () => ({
+      debugMode: false,
+      setSessionLog: vi.fn().mockReturnValue({ logFilePath: '/tmp/test.log', enable: vi.fn(), log: vi.fn() }),
+      clearSessionLog,
+      getLogger: vi.fn().mockReturnValue({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
+    }),
+    createLog: () => (..._args: unknown[]) => {},
+    DaemonClient: vi.fn(function (this: any, _sock: string, clientId: string) {
+      this.clientId = clientId;
+      this.start = vi.fn().mockResolvedValue(undefined);
+      this.stop = vi.fn().mockResolvedValue(undefined);
+      this.notifyClientId = vi.fn();
+      this.sendCmd = vi.fn().mockResolvedValue({});
+      this.connected = true;
+      this.browser = 'chrome';
+      this.buildTime = null;
+      this.version = '0.1.0';
+      this.extensionConnected = true;
+      this.onReconnect = null;
+      this.onTabInfoUpdate = null;
+      this.isConfigDrifted = vi.fn(() => false);
+      return this;
+    }),
+  };
+});
 
 const { clearTipCounters } = vi.hoisted(() => ({ clearTipCounters: vi.fn() }));
 vi.mock('../src/tips', async () => {
   const actual = await vi.importActual<typeof import('../src/tips')>('../src/tips');
   return { ...actual, clearTipCounters };
 });
-
-// A fresh transport object per construction, so bind() keying is observable.
-vi.mock('../src/daemon-client', () => ({
-  DaemonClient: vi.fn(function (this: any, _sock: string, clientId: string) {
-    this.clientId = clientId;
-    this.start = vi.fn().mockResolvedValue(undefined);
-    this.stop = vi.fn().mockResolvedValue(undefined);
-    this.notifyClientId = vi.fn();
-    this.sendCmd = vi.fn().mockResolvedValue({});
-    this.connected = true;
-    this.browser = 'chrome';
-    this.buildTime = null;
-    this.version = '0.1.0';
-    this.extensionConnected = true;
-    this.onReconnect = null;
-    this.onTabInfoUpdate = null;
-    this.isConfigDrifted = vi.fn(() => false);
-    return this;
-  }),
-}));
 
 vi.mock('../src/daemon-spawn', () => ({
   ensureDaemon: vi.fn().mockResolvedValue(undefined),

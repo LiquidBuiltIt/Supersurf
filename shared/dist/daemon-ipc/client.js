@@ -15,8 +15,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DaemonClient = void 0;
 const net_1 = __importDefault(require("net"));
 const crypto_1 = __importDefault(require("crypto"));
-const logger_1 = require("./logger");
-const log = (0, logger_1.createLog)('[Daemon]');
+const registry_1 = require("../logger/registry");
+const log = (0, registry_1.createLog)('[Daemon]');
 /**
  * Transport that connects to the SuperSurf daemon over a Unix domain socket.
  * Implements IExtensionTransport for drop-in replacement of ExtensionServer.
@@ -234,4 +234,4 @@ class DaemonClient {
     }
 }
 exports.DaemonClient = DaemonClient;
-//# sourceMappingURL=daemon-client.js.map
+//# sourceMappingURL=client.js.map

@@ -10,8 +10,8 @@
 
 import net from 'net';
 import crypto from 'crypto';
-import type { IExtensionTransport, DialogEvent } from './bridge';
-import { createLog } from './logger';
+import type { IExtensionTransport, DialogEvent } from './types';
+import { createLog } from '../logger/registry';
 
 const log = createLog('[Daemon]');
 

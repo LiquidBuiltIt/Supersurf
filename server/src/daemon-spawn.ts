@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
-import { createLog } from './logger';
+import { createLog } from 'shared';
 
 const log = createLog('[Spawn]');
 

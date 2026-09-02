@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { FileLogger, LoggerRegistry } from '../src/logger';
+import { LoggerRegistry } from '../logger/registry';
+import { FileLogger } from '../logger/logger';
 
 describe('FileLogger', () => {
   let tempDir: string;
@@ -239,7 +240,7 @@ describe('FileLogger', () => {
       const customPath = path.join(tempDir, 'singleton-test.log');
 
       vi.resetModules();
-      const { getLogger } = await import('../src/logger');
+      const { getLogger } = await import('../logger/registry');
 
       const logger = getLogger(customPath);
       expect(logger).toBeDefined();
@@ -250,7 +251,7 @@ describe('FileLogger', () => {
       const customPath = path.join(tempDir, 'singleton-same.log');
 
       vi.resetModules();
-      const { getLogger } = await import('../src/logger');
+      const { getLogger } = await import('../logger/registry');
 
       const logger1 = getLogger(customPath);
       const logger2 = getLogger();

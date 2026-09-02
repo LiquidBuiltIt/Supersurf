@@ -9,7 +9,7 @@
 //   - formatError: format an error message as an MCP error block, or a
 //     plain `{ success: false }` object in rawResult mode.
 
-import { createLog } from '../../logger';
+import { createLog } from 'shared';
 
 const log = createLog('[ResultFormatter]');
 

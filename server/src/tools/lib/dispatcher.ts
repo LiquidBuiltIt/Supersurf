@@ -7,7 +7,7 @@
 // BrowserBridge just builds the ToolContext and forwards to dispatchTool().
 
 import type { ToolContext } from './types';
-import { createLog } from '../../logger';
+import { createLog } from 'shared';
 import { UsageMetricsLogger } from '../../usage-metrics-logger';
 import { callExperimentalTool, experimentRegistry } from '../../experimental/index';
 import { getTip } from '../../tips';

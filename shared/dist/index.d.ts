@@ -7,4 +7,7 @@ export { shouldShowUpgradeNotice, checkAndTouchVersionState, defaultVersionState
 export type { VersionCheckResult, VersionState } from './version-state/index';
 export { getKeychainBackend, InMemoryKeychainBackend, MacosKeychainBackend, LinuxKeychainBackend, KeychainError, KeychainNotAvailableError, SUPERSURF_SERVICE, } from './keychain/index';
 export type { KeychainBackend, CredentialEntry } from './keychain/index';
+export { DaemonClient } from './daemon-ipc/client';
+export type { IExtensionTransport, DialogEvent } from './daemon-ipc/types';
+export { LoggerRegistry, getLogger, getRegistry, createLog } from './logger/registry';
 //# sourceMappingURL=index.d.ts.map

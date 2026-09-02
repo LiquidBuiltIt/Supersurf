@@ -9,7 +9,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.__testPrependDialogNotice = void 0;
 exports.dispatchTool = dispatchTool;
-const logger_1 = require("../../logger");
+const shared_1 = require("../../shared");
 const index_1 = require("../../experimental/index");
 const tips_1 = require("../../tips");
 const trail_1 = require("../../playbooks/trail");
@@ -18,7 +18,7 @@ const playbooks_1 = require("../playbooks");
 const handler_registry_1 = require("./handler-registry");
 const result_formatter_1 = require("./result-formatter");
 const dialog_notice_1 = require("./dialog-notice");
-const log = (0, logger_1.createLog)('[Dispatch]');
+const log = (0, shared_1.createLog)('[Dispatch]');
 /**
  * Dispatch a named tool call to the appropriate handler.
  * On unknown names, falls back to the experimental registry; on no match,

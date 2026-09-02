@@ -23,7 +23,7 @@ import { spawn } from 'child_process';
 import { PassThrough } from 'stream';
 
 import { ConnectionManager } from './backend';
-import { getLogger, getRegistry, type DebugMode } from './logger';
+import { getLogger, getRegistry, type DebugMode } from 'shared';
 import { startScriptMode } from './stdio';
 import { loadDotenv } from './dotenv';
 import {

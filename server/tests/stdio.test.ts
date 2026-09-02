@@ -1,30 +1,30 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Readable } from 'stream';
 
-// Mock the logger
-vi.mock('../src/logger', () => ({
-  getLogger: () => ({
-    log: vi.fn(),
-    enable: vi.fn(),
-    disable: vi.fn(),
-  }),
-  createLog: () => (..._args: unknown[]) => {},
-}));
-
-// Mock DaemonClient (replaces ExtensionServer)
-vi.mock('../src/daemon-client', () => ({
-  DaemonClient: vi.fn(() => ({
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-    notifyClientId: vi.fn(),
-    sendCmd: vi.fn().mockResolvedValue(undefined),
-    connected: true,
-    buildTime: null,
-    browser: 'chrome',
-    onReconnect: null,
-    onTabInfoUpdate: null,
-  })),
-}));
+// Mock the logger and DaemonClient (replaces ExtensionServer)
+vi.mock('shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('shared')>();
+  return {
+    ...actual,
+    getLogger: () => ({
+      log: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+    }),
+    createLog: () => (..._args: unknown[]) => {},
+    DaemonClient: vi.fn(() => ({
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      notifyClientId: vi.fn(),
+      sendCmd: vi.fn().mockResolvedValue(undefined),
+      connected: true,
+      buildTime: null,
+      browser: 'chrome',
+      onReconnect: null,
+      onTabInfoUpdate: null,
+    })),
+  };
+});
 
 // Mock daemon-spawn
 vi.mock('../src/daemon-spawn', () => ({

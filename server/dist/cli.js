@@ -23,10 +23,10 @@ const commander_1 = require("commander");
 const child_process_1 = require("child_process");
 const stream_1 = require("stream");
 const backend_1 = require("./backend");
-const logger_1 = require("./logger");
+const shared_1 = require("./shared");
 const stdio_1 = require("./stdio");
 const dotenv_1 = require("./dotenv");
-const shared_1 = require("./shared");
+const shared_2 = require("./shared");
 const backend_config_1 = require("./backend-config");
 const { version: VERSION } = require('../package.json');
 /** Parse --debug value into a DebugMode. */
@@ -130,9 +130,9 @@ async function main(options) {
     // This process is always a JSON-RPC transport over stdout (MCP protocol) —
     // the upgrade notice MUST go to stderr, never stdout, or it corrupts the
     // protocol stream. Checked/recorded before any other output.
-    const versionCheck = (0, shared_1.checkAndTouchVersionState)(VERSION);
+    const versionCheck = (0, shared_2.checkAndTouchVersionState)(VERSION);
     if (versionCheck.shouldNotify) {
-        console.error(shared_1.UPGRADE_NOTICE_MESSAGE);
+        console.error(shared_2.UPGRADE_NOTICE_MESSAGE);
     }
     const configService = (0, backend_config_1.buildConfigService)(options, (m) => console.error(`[server] ${m}`));
     const debugSetting = configService.get().logging.debug;
@@ -142,9 +142,9 @@ async function main(options) {
             ? 'truncate'
             : false;
     global.DEBUG_MODE = !!debugMode;
-    const reg = (0, logger_1.getRegistry)();
+    const reg = (0, shared_1.getRegistry)();
     reg.debugMode = debugMode;
-    const logger = (0, logger_1.getLogger)(options.logFile);
+    const logger = (0, shared_1.getLogger)(options.logFile);
     if (debugMode) {
         logger.enable();
         logger.log('[cli] Starting SuperSurf MCP server in PASSIVE mode');
@@ -198,9 +198,9 @@ program
     if (options.scriptMode) {
         (0, dotenv_1.loadDotenv)(process.cwd());
         // Script mode is JSON-RPC over stdio too — same stderr-only rule as MCP mode.
-        const versionCheck = (0, shared_1.checkAndTouchVersionState)(VERSION);
+        const versionCheck = (0, shared_2.checkAndTouchVersionState)(VERSION);
         if (versionCheck.shouldNotify) {
-            console.error(shared_1.UPGRADE_NOTICE_MESSAGE);
+            console.error(shared_2.UPGRADE_NOTICE_MESSAGE);
         }
         const configService = (0, backend_config_1.buildConfigService)(options, (m) => console.error(`[server] ${m}`));
         const config = (0, backend_config_1.backendConfigFrom)(configService, VERSION, versionCheck.shouldNotify);

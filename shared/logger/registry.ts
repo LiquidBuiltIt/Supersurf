@@ -18,11 +18,12 @@
  */
 
 import path from 'path';
-import { FileLogger, LOG_ROOT, sanitizeFilename } from 'shared';
-import type { DebugMode } from 'shared';
+import { FileLogger, LOG_ROOT, sanitizeFilename } from './logger';
+import type { DebugMode } from './logger';
 
 // Re-export core types for existing consumers
-export { FileLogger, DebugMode } from 'shared';
+export { FileLogger } from './logger';
+export type { DebugMode } from './logger';
 
 const SESSIONS_DIR = path.join(LOG_ROOT, 'sessions');
 

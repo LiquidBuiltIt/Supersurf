@@ -10,21 +10,6 @@ import { ensureDaemon, stopDaemon } from '../src/daemon-spawn';
 
 // ---- Mocks ----
 
-// Mock the logger module
-vi.mock('../src/logger', () => ({
-  getLogger: () => ({
-    log: vi.fn(),
-    enable: vi.fn(),
-    disable: vi.fn(),
-  }),
-  getRegistry: () => ({
-    debugMode: false,
-    setSessionLog: vi.fn().mockReturnValue({ logFilePath: '/tmp/test.log', enable: vi.fn(), log: vi.fn() }),
-    clearSessionLog: vi.fn(),
-    getLogger: vi.fn().mockReturnValue({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
-  }),
-  createLog: () => (..._args: unknown[]) => {},
-}));
 
 // Mock experimental registry
 vi.mock('../src/experimental/index', () => ({
@@ -59,11 +44,27 @@ const mockDaemonClientInstance = {
   isConfigDrifted: vi.fn(() => false),
 };
 
-vi.mock('../src/daemon-client', () => ({
-  DaemonClient: vi.fn(function () {
-    return mockDaemonClientInstance;
-  }),
-}));
+vi.mock('shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('shared')>();
+  return {
+    ...actual,
+    getLogger: () => ({
+      log: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+    }),
+    getRegistry: () => ({
+      debugMode: false,
+      setSessionLog: vi.fn().mockReturnValue({ logFilePath: '/tmp/test.log', enable: vi.fn(), log: vi.fn() }),
+      clearSessionLog: vi.fn(),
+      getLogger: vi.fn().mockReturnValue({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
+    }),
+    createLog: () => (..._args: unknown[]) => {},
+    DaemonClient: vi.fn(function () {
+      return mockDaemonClientInstance;
+    }),
+  };
+});
 
 // Mock daemon-spawn
 vi.mock('../src/daemon-spawn', () => ({
@@ -195,7 +196,7 @@ describe('ConnectionManager', () => {
 
     it('spawns daemon and creates DaemonClient', async () => {
       const { ensureDaemon } = await import('../src/daemon-spawn');
-      const { DaemonClient } = await import('../src/daemon-client');
+      const { DaemonClient } = await import('shared');
 
       await backend.callTool('connect', { client_id: 'test' });
 

@@ -1,16 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../src/daemon-client', () => ({
-  // Vitest 4 requires a `function`/`class` implementation for a mock that's
-  // invoked with `new` (an arrow-function impl throws "is not a constructor").
-  DaemonClient: vi.fn(function () {
-    return {
-      start: vi.fn().mockResolvedValue(undefined),
-      stop: vi.fn().mockResolvedValue(undefined),
-      sendCmd: vi.fn().mockResolvedValue(undefined),
-    };
-  }),
-}));
+vi.mock('shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('shared')>();
+  return {
+    ...actual,
+    // Vitest 4 requires a `function`/`class` implementation for a mock that's
+    // invoked with `new` (an arrow-function impl throws "is not a constructor").
+    DaemonClient: vi.fn(function () {
+      return {
+        start: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockResolvedValue(undefined),
+        sendCmd: vi.fn().mockResolvedValue(undefined),
+      };
+    }),
+  };
+});
 
 vi.mock('../src/daemon-spawn', () => ({
   ensureDaemon: vi.fn().mockResolvedValue(undefined),
@@ -18,7 +22,7 @@ vi.mock('../src/daemon-spawn', () => ({
 }));
 
 import { parseProfilesArgs, runProfilesCli, PROFILES_USAGE } from '../src/bin/profiles-cli';
-import { DaemonClient } from '../src/daemon-client';
+import { DaemonClient } from 'shared';
 
 let lastSendCmd: ReturnType<typeof vi.fn>;
 

@@ -16,9 +16,10 @@
  *
  * @module logger
  */
-import { FileLogger } from 'shared';
-import type { DebugMode } from 'shared';
-export { FileLogger, DebugMode } from 'shared';
+import { FileLogger } from './logger';
+import type { DebugMode } from './logger';
+export { FileLogger } from './logger';
+export type { DebugMode } from './logger';
 /**
  * Singleton managing the server logger and per-session loggers.
  * Propagates debug mode (and truncation setting) to all managed loggers.
@@ -51,4 +52,4 @@ export declare function getRegistry(): LoggerRegistry;
  */
 export declare const createLog: (prefix: string, sessionId?: string | null) => (...args: unknown[]) => any;
 export { LoggerRegistry };
-//# sourceMappingURL=logger.d.ts.map
+//# sourceMappingURL=registry.d.ts.map

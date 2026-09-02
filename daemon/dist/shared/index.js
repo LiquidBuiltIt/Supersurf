@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SUPERSURF_SERVICE = exports.KeychainNotAvailableError = exports.KeychainError = exports.LinuxKeychainBackend = exports.MacosKeychainBackend = exports.InMemoryKeychainBackend = exports.getKeychainBackend = exports.UPGRADE_NOTICE_MESSAGE = exports.defaultVersionStatePath = exports.checkAndTouchVersionState = exports.shouldShowUpgradeNotice = exports.QUERY_ALL_DEEP_SOURCE = exports.QUERY_DEEP_SOURCE = exports.ensureConfigFile = exports.loadEnvConfig = exports.loadJsonConfig = exports.SCAFFOLD_DEFAULTS = exports.HARDCODED_DEFAULTS = exports.ConfigService = exports.replacer = exports.truncateString = exports.sanitizeFilename = exports.LOG_ROOT = exports.FileLogger = void 0;
+exports.createLog = exports.getRegistry = exports.getLogger = exports.LoggerRegistry = exports.DaemonClient = exports.SUPERSURF_SERVICE = exports.KeychainNotAvailableError = exports.KeychainError = exports.LinuxKeychainBackend = exports.MacosKeychainBackend = exports.InMemoryKeychainBackend = exports.getKeychainBackend = exports.UPGRADE_NOTICE_MESSAGE = exports.defaultVersionStatePath = exports.checkAndTouchVersionState = exports.shouldShowUpgradeNotice = exports.QUERY_ALL_DEEP_SOURCE = exports.QUERY_DEEP_SOURCE = exports.ensureConfigFile = exports.loadEnvConfig = exports.loadJsonConfig = exports.SCAFFOLD_DEFAULTS = exports.HARDCODED_DEFAULTS = exports.ConfigService = exports.replacer = exports.truncateString = exports.sanitizeFilename = exports.LOG_ROOT = exports.FileLogger = void 0;
 var logger_1 = require("./logger/logger");
 Object.defineProperty(exports, "FileLogger", { enumerable: true, get: function () { return logger_1.FileLogger; } });
 Object.defineProperty(exports, "LOG_ROOT", { enumerable: true, get: function () { return logger_1.LOG_ROOT; } });
@@ -30,4 +30,11 @@ Object.defineProperty(exports, "LinuxKeychainBackend", { enumerable: true, get: 
 Object.defineProperty(exports, "KeychainError", { enumerable: true, get: function () { return index_3.KeychainError; } });
 Object.defineProperty(exports, "KeychainNotAvailableError", { enumerable: true, get: function () { return index_3.KeychainNotAvailableError; } });
 Object.defineProperty(exports, "SUPERSURF_SERVICE", { enumerable: true, get: function () { return index_3.SUPERSURF_SERVICE; } });
+var client_1 = require("./daemon-ipc/client");
+Object.defineProperty(exports, "DaemonClient", { enumerable: true, get: function () { return client_1.DaemonClient; } });
+var registry_1 = require("./logger/registry");
+Object.defineProperty(exports, "LoggerRegistry", { enumerable: true, get: function () { return registry_1.LoggerRegistry; } });
+Object.defineProperty(exports, "getLogger", { enumerable: true, get: function () { return registry_1.getLogger; } });
+Object.defineProperty(exports, "getRegistry", { enumerable: true, get: function () { return registry_1.getRegistry; } });
+Object.defineProperty(exports, "createLog", { enumerable: true, get: function () { return registry_1.createLog; } });
 //# sourceMappingURL=index.js.map
