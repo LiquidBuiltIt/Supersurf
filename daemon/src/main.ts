@@ -456,6 +456,12 @@ async function main(): Promise<void> {
     extensionPullError = err?.message ? String(err.message) : String(err);
     logger.log(`[Daemon] Failed to pull extension: ${extensionPullError}`);
     const cached = isExtensionCached();
+    // Note on reach: `daemon start` re-spawns itself via daemonize() with
+    // stdio 'ignore', so this line is only visible on the foreground path.
+    // Under the server it lands in daemon.startup.log, which is read only when
+    // the daemon dies — and a pull failure is not fatal. The throw in
+    // spawnProfile is therefore what actually reaches a human; this is the
+    // cheap second surface, not the primary one.
     console.error(
       `SuperSurf: could not download the browser extension — ${extensionPullError}\n` +
       (cached

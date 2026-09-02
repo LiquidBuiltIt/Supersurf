@@ -3,13 +3,27 @@ import net from 'net';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { IPCServer } from '../src/ipc';
+import { IPCServer, type IPCServerMeta } from '../src/ipc';
 import { SessionRegistry } from '../src/session';
 import { RequestScheduler } from '../src/scheduler';
 import { DaemonExperimentRegistry } from '../src/experiments/index';
 import { ProfileRegistry } from '../src/profiles/registry';
 import type { ExtensionBridge } from '../src/extension-bridge';
 import { isExtensionCached } from '../src/profiles/extension-source';
+
+// spawnProfile calls spawnChromium for real. The pull-error guard currently
+// throws before it is reached, but a regression that removed the guard would
+// otherwise launch a real browser from the test suite and write the real PID
+// log. Stub it so the failure mode is a red test, not a window.
+vi.mock('../src/profiles/chrome', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/profiles/chrome')>();
+  return {
+    ...actual,
+    spawnChromium: vi.fn(() => ({ pid: 1234, on: vi.fn(), unref: vi.fn() })),
+    // Also stubbed: the real one appends the fake pid to the real PID log.
+    appendPidLog: vi.fn(),
+  };
+});
 
 vi.mock('../src/profiles/extension-source', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/profiles/extension-source')>();
@@ -961,7 +975,7 @@ describe('IPCServer', () => {
   });
 
   describe('extension pull failure', () => {
-    function makeIpcServer(metaOverrides: Record<string, unknown> = {}): IPCServer {
+    function makeIpcServer(metaOverrides: Partial<IPCServerMeta> = {}): IPCServer {
       return new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry, {
         port: 5555,
         version: '9.9.9-test',
@@ -989,6 +1003,7 @@ describe('IPCServer', () => {
 
     beforeEach(() => {
       profileRegistry.create('dev');
+      vi.mocked(isExtensionCached).mockReturnValue(true);
     });
 
     it('fails profiles.connect with the pull error when the extension is not cached', async () => {
@@ -1000,6 +1015,10 @@ describe('IPCServer', () => {
       await expect(
         callProfileMethod('sess-1', 'profiles.connect', { profile: 'dev' }, ipc),
       ).rejects.toThrow(/could not download the browser extension/i);
+      // The guard must throw OUTSIDE the bootstrap queue, or a doomed spawn
+      // serializes behind it. The mock runs its callback and propagates the
+      // throw, so without this the ordering is untested.
+      expect((bridge as any).matchmaker.enqueueBootstrap).not.toHaveBeenCalled();
     });
 
     it('names the underlying pull error so the user can act on it', async () => {
@@ -1011,6 +1030,7 @@ describe('IPCServer', () => {
       await expect(
         callProfileMethod('sess-1', 'profiles.connect', { profile: 'dev' }, ipc),
       ).rejects.toThrow(/ENOTFOUND api\.github\.com/);
+      expect((bridge as any).matchmaker.enqueueBootstrap).not.toHaveBeenCalled();
     });
 
     it('spawns normally when the extension is cached despite an earlier pull error', async () => {
