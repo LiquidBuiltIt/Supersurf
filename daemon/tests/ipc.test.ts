@@ -11,6 +11,11 @@ import { ProfileRegistry } from '../src/profiles/registry';
 import type { ExtensionBridge } from '../src/extension-bridge';
 
 function mockBridge(): ExtensionBridge {
+  // Real (if minimal) version-rejection bookkeeping so tests can exercise the
+  // recordVersionRejection -> requestMatch fast-fail path end to end, the way
+  // the real Matchmaker does it (daemon/src/profiles/matchmaker.ts).
+  const versionRejections = new Map<string, { profile: string | null; version: string | null; message: string }>();
+
   return {
     sendCmd: vi.fn().mockResolvedValue({ success: true }),
     connected: true,
@@ -27,7 +32,14 @@ function mockBridge(): ExtensionBridge {
       getConnectionForProfile: vi.fn().mockReturnValue(null),
       enqueueBootstrap: vi.fn(async (fn: () => Promise<void>) => { await fn(); }),
       pendingSpawns: new Set<string>(),
-      requestMatch: vi.fn().mockResolvedValue({ profile: 'x' }),
+      requestMatch: vi.fn(async (profile: string | null) => {
+        const rejection = versionRejections.get(profile ?? '');
+        if (rejection) throw new Error(rejection.message);
+        return { profile: 'x' };
+      }),
+      recordVersionRejection: vi.fn((rejection: { profile: string | null; version: string | null; message: string }) => {
+        versionRejections.set(rejection.profile ?? '', rejection);
+      }),
     },
   } as any;
 }
@@ -787,6 +799,31 @@ describe('IPCServer', () => {
       expect(spawnSpy).toHaveBeenCalledOnce();
       expect(res.error).toBeDefined();
       expect(res.error.message).toContain('exited before the extension connected');
+      client.end();
+    });
+
+    it('fails profiles.connect immediately when the extension version was rejected', async () => {
+      // The whole point of the item: a named error now, not a 45s timeout.
+      await ipc.start();
+      profileRegistry.create('dev');
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({ profile: 'dev' });
+      (bridge as any).matchmaker.recordVersionRejection({
+        profile: 'dev',
+        version: '2.9.0',
+        message: 'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.',
+      });
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'version-rejected' });
+      await readLine(client);
+
+      const start = Date.now();
+      writeLine(client, { jsonrpc: '2.0', id: 'c-verfail', method: 'profiles.connect', params: { profile: 'dev' } });
+      const res = await readLine(client);
+
+      expect(Date.now() - start).toBeLessThan(2000);
+      expect(res.error).toBeDefined();
+      expect(res.error.message).toContain('not compatible');
       client.end();
     });
 

@@ -588,6 +588,20 @@ describe('WebSocketConnection', () => {
       expect(sent.type).toBe('handshake');
       expect(sent.profile).toBeUndefined();
     });
+
+    it('always includes the manifest version in the handshake', async () => {
+      // The daemon's version guard depends entirely on this field. Nothing
+      // else sends it, so removing it silently disables the guard.
+      mockChrome.storage.local.get.mockResolvedValueOnce({});
+
+      await (ws as any)._handleOpen();
+      await new Promise(r => setTimeout(r, 10));
+
+      const sent = JSON.parse((ws.socket!.send as any).mock.calls[0][0]);
+      expect(sent.type).toBe('handshake');
+      // Matches the mock manifest version in extension/tests/__mocks__/chrome.ts.
+      expect(sent.version).toBe('0.1.0');
+    });
   });
 
   describe('WebSocketConnection dialog race + short-circuit', () => {
