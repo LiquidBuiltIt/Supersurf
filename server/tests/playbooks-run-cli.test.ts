@@ -362,3 +362,51 @@ describe('runRun — the terminal run path', () => {
     });
   });
 });
+
+describe('the security.playbook_eval bypass stays unreachable from an agent', () => {
+  // run-cli.ts hard-codes `caller: 'cli'`, which deliberately skips the
+  // security.playbook_eval gate. That is only sound because the gate is
+  // CALLER-based: argv is fixed at launch by the human who can read the script
+  // first, and an agent's only channel is an MCP tool call into an
+  // already-running process. The moment a second importer exists -- a tool
+  // handler, a spawned child, anything an agent can reach -- the gate is void.
+  //
+  // Nothing else asserts this. Every other test in this file checks how the
+  // bypass BEHAVES; this one checks that it stays out of the agent's reach.
+  // Without it the gate can evaporate silently with the suite still green.
+  const SERVER_SRC = path.resolve(__dirname, '..', 'src');
+
+  function walkTs(dir: string, rel = ''): string[] {
+    const out: string[] = [];
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      // Skip the retired `.old` convention -- excluded from every build.
+      if (e.name.endsWith('.old') || e.name.endsWith('.old.ts')) continue;
+      const abs = path.join(dir, e.name);
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) out.push(...walkTs(abs, r));
+      else if (e.name.endsWith('.ts')) out.push(r);
+    }
+    return out;
+  }
+
+  it('is imported by exactly one module — the terminal CLI entrypoint', () => {
+    const files = walkTs(SERVER_SRC);
+    // Non-vacuity: an empty walk would make this pass for the wrong reason.
+    expect(files.length).toBeGreaterThan(20);
+
+    const importers = files.filter((rel) =>
+      /['"][^'"]*playbooks\/run-cli['"]/.test(
+        fs.readFileSync(path.join(SERVER_SRC, rel), 'utf8'),
+      ),
+    );
+    expect(importers).toEqual(['cli.ts']);
+  });
+
+  it('names `caller` as cli in exactly one place across the server source', () => {
+    const files = walkTs(SERVER_SRC);
+    const sites = files.filter((rel) =>
+      /caller:\s*['"]cli['"]/.test(fs.readFileSync(path.join(SERVER_SRC, rel), 'utf8')),
+    );
+    expect(sites).toEqual(['playbooks/run-cli.ts']);
+  });
+});
