@@ -191,7 +191,7 @@ class ExtensionServer {
      */
     async sendCmd(method, params = {}, timeout = 60000) {
         if (!this.socket || this.socket.readyState !== ws_1.WebSocket.OPEN) {
-            throw new Error('Extension not connected. Run `npx supersurf-daemon status` to diagnose, then check the extension popup in Chrome.');
+            throw new Error('Extension not connected. Run `npx supersurf-daemon@latest status` to diagnose, then check the extension popup in Chrome.');
         }
         const id = crypto_1.default.randomUUID().slice(0, 8);
         // Log outgoing command with params

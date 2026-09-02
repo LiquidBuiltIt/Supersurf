@@ -23,14 +23,14 @@ If SuperSurf isn't installed yet, help the user get set up:
 
 ```bash
 # Claude Code
-claude mcp add supersurf -- npx supersurf-mcp@latest mcp
+claude mcp add supersurf -- npx supersurf-mcp@latest
 
 # Claude Desktop / other MCP clients — add to config:
 {
   "mcpServers": {
     "supersurf": {
       "command": "npx",
-      "args": ["supersurf-mcp@latest", "mcp"]
+      "args": ["supersurf-mcp@latest"]
     }
   }
 }
@@ -201,7 +201,7 @@ Experiments are toggled in `~/.supersurf/config.json` under the `experiments` ke
 ```
 
 ```
-supersurf daemon restart
+npx supersurf-daemon@latest restart
 ```
 
 | Feature | What It Does | When To Use |
@@ -482,7 +482,7 @@ Every tool response starts with a status line:
 | ⚠️ Obfuscated CSS | Class names look machine-generated — style selectors may be unstable |
 | 🕵️ | Stealth mode active |
 
-When disconnected, the header reads `🔴 vX.Y.Z | Disabled`, plus a one-line reason if the last `connect` attempt failed (e.g. a port conflict). If `~/.supersurf/config.json` changed since the daemon started, a one-shot warning line precedes the header until you restart the daemon (`supersurf daemon restart`).
+When disconnected, the header reads `🔴 vX.Y.Z | Disabled`, plus a one-line reason if the last `connect` attempt failed (e.g. a port conflict). If `~/.supersurf/config.json` changed since the daemon started, a one-shot warning line precedes the header until you restart the daemon (`npx supersurf-daemon@latest restart`).
 
 ---
 

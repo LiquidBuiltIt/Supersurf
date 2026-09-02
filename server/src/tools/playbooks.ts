@@ -47,7 +47,7 @@ function gate(): string | null {
   if (experimentRegistry.isEnabled('fingerprinting')) return null;
   return 'Playbook runs need the `fingerprinting` experiment, which is off.\n\n' +
     'Enable it in `~/.supersurf/config.json` under `experiments`, then restart the daemon:\n' +
-    '  npx supersurf daemon restart\n\n' +
+    '  npx supersurf-daemon@latest restart\n\n' +
     'Without it, a script\'s selectors cannot heal when the page changes, so a run ' +
     'would break on the first CSS change.';
 }

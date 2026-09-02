@@ -50,7 +50,7 @@ Commands:
   playbook  Playbook scripts: ls | inspect <name> | validate [name] | run <name> [--param k=v] | migrate
 
 Examples:
-  npx supersurf-mcp@latest mcp
+  supersurf mcp
   supersurf daemon status
   supersurf profiles open dev
   supersurf export

@@ -106,7 +106,7 @@ Content scripts in an isolated world — **invisible to page JS**. Your real bro
 **2. Register with your MCP client**
 
 ```bash
-claude mcp add supersurf -- npx supersurf-mcp@latest mcp  # Claude Code
+claude mcp add supersurf -- npx supersurf-mcp@latest  # Claude Code
 ```
 
 <details>
@@ -117,7 +117,7 @@ claude mcp add supersurf -- npx supersurf-mcp@latest mcp  # Claude Code
   "mcpServers": {
     "supersurf": {
       "command": "npx",
-      "args": ["supersurf-mcp@latest", "mcp"]
+      "args": ["supersurf-mcp@latest"]
     }
   }
 }
@@ -129,7 +129,7 @@ CLI flags can be appended to the args array:
   "mcpServers": {
     "supersurf": {
       "command": "npx",
-      "args": ["supersurf-mcp@latest", "mcp", "--debug", "--port", "5555"]
+      "args": ["supersurf-mcp@latest", "--debug", "--port", "5555"]
     }
   }
 }

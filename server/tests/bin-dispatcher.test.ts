@@ -90,4 +90,17 @@ describe('HELP_TEXT', () => {
   it('documents the export command', () => {
     expect(HELP_TEXT).toContain('export');
   });
+
+  // BACKLOG #25: the example printed `npx supersurf-mcp@latest mcp`, the exact
+  // form that crashed. This help text belongs to the `supersurf` binary, so its
+  // examples use the binary's own form.
+  it('does not print the argv-splicing npx form that used to crash', () => {
+    expect(HELP_TEXT).not.toContain('npx supersurf-mcp@latest mcp');
+  });
+
+  it('shows the binary-native mcp example', () => {
+    expect(HELP_TEXT).toContain('supersurf mcp');
+    // `npx supersurf` is a permanently-squatted package that is not us.
+    expect(HELP_TEXT).not.toMatch(/npx supersurf(@|\s|$)/);
+  });
 });
