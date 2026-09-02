@@ -4,6 +4,7 @@
  * @module profiles/types
  */
 import type { WebSocket } from 'ws';
+import type { ExtensionVersionStatus } from './extension-version';
 /** Persisted profile configuration stored in supersurf.json. */
 export interface ProfileConfig {
     name: string;
@@ -42,6 +43,22 @@ export interface PooledConnection {
      * Default false (opt-in). Idle / shutdown / orphan paths ignore this flag.
      */
     keepBrowserOnSessionEnd: boolean;
+    /** Manifest version reported in the handshake, or null before/without one. */
+    version: string | null;
+    /**
+     * Version check lifecycle. Starts 'pending' because the connection enters the
+     * pool before its handshake arrives; the Matchmaker refuses to hand out a
+     * 'pending' or 'rejected' connection.
+     */
+    versionStatus: ExtensionVersionStatus;
+    /** User-facing reason for a 'warn' or 'rejected' status. */
+    versionError: string | null;
+}
+/** A version-rejected extension, retained after its socket closes. */
+export interface VersionRejection {
+    profile: string | null;
+    version: string | null;
+    message: string;
 }
 /** An agent waiting for a matching extension connection. */
 export interface PendingMatch {

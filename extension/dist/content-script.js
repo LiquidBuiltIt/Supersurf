@@ -1,4 +1,3 @@
-"use strict";
 /**
  * Content script — tech stack detection + console message relay.
  *
@@ -16,6 +15,7 @@
  *
  * Adapted from Blueprint MCP (Apache 2.0) -- stripped of OAuth token watching.
  */
+import { handleProfileRegisterRelay } from './handlers/profile-register-relay.js';
 // Relay console messages captured by the injected MAIN-world script.
 // The injected script posts { __supersurfConsole: { level, text, timestamp } }
 // to window; we forward it to the service worker via chrome.runtime.sendMessage.
@@ -31,26 +31,14 @@ window.addEventListener('message', (event) => {
             timestamp: message.timestamp,
         });
     }
-    // Profile registration from daemon's registration page.
-    // On fresh installs the service worker may not be ready yet, so retry with backoff.
-    if (event.data?.__supersurf === true && event.data?.action === 'register-profile' && event.data?.profile) {
-        const msg = { type: 'profileRegister', profile: event.data.profile };
-        let attempts = 0;
-        const trySend = () => {
-            try {
-                chrome.runtime.sendMessage(msg, () => {
-                    if (chrome.runtime.lastError && ++attempts < 10) {
-                        setTimeout(trySend, 500);
-                    }
-                });
-            }
-            catch {
-                if (++attempts < 10)
-                    setTimeout(trySend, 500);
-            }
-        };
-        trySend();
-    }
+    // Profile registration from daemon's registration page. Everything about the
+    // relay (retry budget, reply origin, ack decision) lives in the handler
+    // module so it is testable without a browser; this stays a thin delegation.
+    handleProfileRegisterRelay(event, {
+        runtime: chrome.runtime,
+        postMessage: (data, targetOrigin) => window.postMessage(data, targetOrigin),
+        setTimeout: (fn, ms) => setTimeout(fn, ms),
+    });
 });
 /**
  * Detect frontend tech stack by probing window globals, DOM structure, and stylesheets.

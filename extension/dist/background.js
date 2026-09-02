@@ -29,7 +29,7 @@ import { registerMouseHandlers, handleIdleDrift } from './experimental/mouse-hum
 import { registerSecureEvalHandlers } from './security/secure-eval/index.js';
 import { SessionContext } from './session-context.js';
 import { DomainWhitelist } from './domain-whitelist.js';
-import { applyProfileRegister } from './handlers/profile-register.js';
+import { handleProfileRegisterMessage } from './handlers/profile-register.js';
 import { isMajorJump } from './utils/version.js';
 // chrome.debugger is a reserved word — access via bracket notation
 const chromeDebugger = chrome['debugger'];
@@ -235,16 +235,20 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         }
     });
     // Listen for tech stack info and profile registration from content script
-    chrome.runtime.onMessage.addListener((message, sender) => {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.type === 'techStack' && sender.tab?.id) {
             techStackInfo[sender.tab.id] = message.data;
             tabHandlers.setTechStackInfo(sender.tab.id, message.data);
         }
-        // Profile registration from daemon's registration page — keep the tab open
-        // so a sole registration tab does not quit Chromium mid-connect.
-        if (message.type === 'profileRegister' && message.profile) {
-            void applyProfileRegister(message.profile, sender.tab?.id, chrome.storage, chrome.tabs);
-        }
+        // Profile registration from daemon's registration page. The handler returns
+        // `true` only for its own branch (keeping the port open for the async
+        // reply) and `undefined` otherwise, so `techStack` does not leave a
+        // dangling port. Logic and its tests live in handlers/profile-register.
+        return handleProfileRegisterMessage(message, sender, sendResponse, {
+            storage: chrome.storage,
+            tabs: chrome.tabs,
+            log: (...args) => logger.log(...args),
+        });
     });
     // When a profile is registered in storage, reconnect to the daemon.
     // getConnectionUrl() reads the (now-updated) mcpPort, _handleOpen() includes the profile in the handshake.

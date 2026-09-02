@@ -1,1 +1,1 @@
-{"version":3,"file":"registration-page.d.ts","sourceRoot":"","sources":["../../src/profiles/registration-page.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AAYH;;;GAGG;AACH,wBAAgB,gBAAgB,CAAC,WAAW,EAAE,MAAM,GAAG,MAAM,CAmI5D"}
+{"version":3,"file":"registration-page.d.ts","sourceRoot":"","sources":["../../src/profiles/registration-page.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AAwBH;;;;;;GAMG;AACH,wBAAgB,kBAAkB,CAAC,WAAW,EAAE,MAAM,GAAG,MAAM,CAgC9D;AAED;;;;;GAKG;AACH,wBAAgB,gBAAgB,CAAC,WAAW,EAAE,MAAM,GAAG,MAAM,CAuJ5D"}
