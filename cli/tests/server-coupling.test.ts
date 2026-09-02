@@ -74,8 +74,11 @@ describe('cli/ imports server source from exactly one file (BACKLOG #28, ruling 
   const files = walk(SRC);
 
   it('finds the cli source tree at all', () => {
-    // Guards against the walk silently returning [] and the lock passing vacuously.
-    expect(files.length).toBeGreaterThan(5);
+    // Guards against the walk silently returning [] and the lock passing
+    // vacuously. The tree holds 10 files; a threshold of 5 would still pass if
+    // a regression halved the scanned set, so this sits just under the real
+    // count rather than at half of it.
+    expect(files.length).toBeGreaterThanOrEqual(8);
     expect(files).toContain(ALLOWED);
   });
 
@@ -111,10 +114,14 @@ describe('cli/ imports server source from exactly one file (BACKLOG #28, ruling 
    * a variable import()/require() specifier, or a template-literal specifier,
    * never matches that regex, because it only recognizes a string literal
    * immediately after `from`/`require(`/`import(`/`import `. Any of those
-   * forms still has to spell `server/src` out as a plain string SOMEWHERE in
-   * the file for the variable to ever resolve to that path — so a dumb
-   * whole-file substring scan catches what the syntax-aware regex above
-   * misses, at the cost of caring about syntax at all.
+   * forms still has to spell the path out as a plain string SOMEWHERE in
+   * the file for the variable to ever resolve to it — so a dumb whole-file
+   * substring scan catches what the syntax-aware regex above misses, at the
+   * cost of caring about syntax at all.
+   *
+   * `server/dist` is scanned alongside `server/src`. Importing the compiled
+   * output is exactly as fatal to the standalone binary as importing the
+   * source, and nothing else in this file would catch it.
    *
    * Comments are stripped first (preserving line numbers) so this doesn't
    * flag prose that merely NAMES a server/ path for documentation — e.g.
@@ -122,10 +129,11 @@ describe('cli/ imports server source from exactly one file (BACKLOG #28, ruling 
    * server/src/daemon-spawn.ts. That is not weaker coverage of the invariant:
    * reaching into server/ takes code, never a comment.
    */
-  it('no file other than server-imports.ts contains the raw substring "server/src" outside a comment (syntax-blind backstop)', () => {
+  it('no file other than server-imports.ts contains a raw "server/src" or "server/dist" substring outside a comment (syntax-blind backstop)', () => {
     // Same non-vacuity guard as test 1: an emptied `files` list would make
     // this loop run zero times and pass for the wrong reason.
-    expect(files.length).toBeGreaterThan(5);
+    expect(files.length).toBeGreaterThanOrEqual(8);
+    const NEEDLES = ['server/src', 'server/dist'];
 
     const stripComments = (src: string) =>
       src
@@ -139,8 +147,11 @@ describe('cli/ imports server source from exactly one file (BACKLOG #28, ruling 
       const rawLines = raw.split('\n');
       const strippedLines = stripComments(raw).split('\n');
       strippedLines.forEach((line, idx) => {
-        if (line.includes('server/src')) {
-          offenders.push(`${rel}:${idx + 1}: ${rawLines[idx].trim()}`);
+        for (const needle of NEEDLES) {
+          if (line.includes(needle)) {
+            offenders.push(`${rel}:${idx + 1}: ${rawLines[idx].trim()}`);
+            break;
+          }
         }
       });
     }
