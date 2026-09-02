@@ -1,10 +1,36 @@
+/**
+ * The `supersurf-mcp` entrypoint lock.
+ *
+ * WHAT CHANGED AND WHY (BACKLOG #28). This file used to assert on
+ * `server/src/bin/*.ts` and `server/dist/bin/*.js`. Item 28 moved the CLI into
+ * `cli/` and deleted both directories, so two groups of assertions were
+ * retargeted rather than dropped:
+ *
+ *   1. The three SOURCE-TEXT assertions (no argv splice, no dispatcher route,
+ *      no deprecation notice) read shim files that no longer exist. They are
+ *      NOT ported onto `src/cli.ts` — that file legitimately contains
+ *      `process.argv.slice(2)` and a deliberate filtered-argv rebuild for the
+ *      legacy `mcp` positional, so the old regexes would fail on correct code.
+ *      They become a STRUCTURAL lock instead: the bin points straight at the
+ *      program that owns argument parsing, so there is no longer a file in
+ *      between that COULD rewrite argv. That is a stronger guarantee than a
+ *      source regex, and the compiled-behaviour block below still proves it
+ *      end to end (`legacy === bare` fails the moment anything touches argv).
+ *
+ *   2. The four `supersurf-daemon` bin assertions are gone because the bin is
+ *      gone: `supersurf-mcp` used to ship a duplicate reachable only through a
+ *      global install, and item 28 drops it. Their absence is deliberate, not
+ *      an oversight. What survives is the one thing that still must be true —
+ *      the name is served by the package that owns it. That bin's argv
+ *      handling is covered by `daemon/tests/main.test.ts`'s parseArgs suite.
+ */
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-const SRC_BIN = path.resolve(__dirname, '..', 'src', 'bin');
-const DIST_BIN = path.resolve(__dirname, '..', 'dist', 'bin');
+const DIST = path.resolve(__dirname, '..', 'dist');
+const MCP_BIN = path.join(DIST, 'cli.js');
 
 /** Child env with VITEST removed — daemon/src/main.ts:618 no-ops when it is set. */
 function childEnv(): NodeJS.ProcessEnv {
@@ -15,35 +41,38 @@ function childEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-describe('bin entrypoints — no argv rewriting', () => {
-  // BACKLOG #25: supersurf-mcp.ts:7 spliced 'mcp' into argv, so a user who typed
-  // the documented `npx supersurf-mcp@latest mcp` handed Commander a stray
-  // positional and got "error: too many arguments. Expected 0 arguments but got 1."
-  // A bin owns exactly one thing and must never edit the argv it was handed.
-  it.each(['supersurf-mcp.ts', 'supersurf-daemon.ts'])(
-    '%s does not splice a subcommand into process.argv',
-    (file) => {
-      const src = fs.readFileSync(path.join(SRC_BIN, file), 'utf8');
-      expect(src).not.toMatch(/process\.argv\.slice\(2\)/);
-      expect(src).not.toMatch(/\[\s*process\.argv\[0\]/);
-    },
-  );
+describe('bin entrypoints — no shim can rewrite argv', () => {
+  // BACKLOG #25: supersurf-mcp.ts:7 spliced 'mcp' into argv, so the documented
+  // `npx supersurf-mcp@latest mcp` handed Commander a stray positional and got
+  // "error: too many arguments". Item 28 removes the shim layer entirely: the
+  // bin now points straight at the program that owns argument parsing, so
+  // there is no longer a file in between that COULD rewrite argv. That is a
+  // stronger guarantee than the old source-regex, and this asserts it.
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8'));
 
-  it('supersurf-mcp.ts does not route through the dispatcher', () => {
-    const src = fs.readFileSync(path.join(SRC_BIN, 'supersurf-mcp.ts'), 'utf8');
-    expect(src).not.toContain('dispatcher');
+  it('routes npx straight at the program, with no shim in between', () => {
+    expect(pkg.bin['supersurf-mcp']).toBe('dist/cli.js');
   });
 
-  it('no bin prints a deprecation notice pointing at a name npm will never grant', () => {
-    for (const file of ['supersurf-mcp.ts', 'supersurf-daemon.ts', 'supersurf.ts']) {
-      const src = fs.readFileSync(path.join(SRC_BIN, file), 'utf8');
-      expect(src).not.toMatch(/Deprecated/i);
-    }
+  it('ships no bin source directory a shim could reappear in', () => {
+    expect(fs.existsSync(path.resolve(__dirname, '..', 'src', 'bin'))).toBe(false);
+  });
+
+  it('ships no bin directory', () => {
+    expect(fs.existsSync(path.join(DIST, 'bin'))).toBe(false);
+  });
+
+  it('the entry never points a user at a name npm will never grant', () => {
+    // Preserves the old "no deprecation notice" assertion: the notice it
+    // banned told users to run `supersurf mcp`, and the bare `supersurf` npm
+    // name is permanently squatted.
+    const src = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'cli.ts'), 'utf8');
+    expect(src).not.toMatch(/Deprecated/i);
   });
 });
 
 describe('supersurf-mcp bin — compiled behaviour', () => {
-  const bin = path.join(DIST_BIN, 'supersurf-mcp.js');
+  const bin = MCP_BIN;
 
   it('has a compiled artifact committed alongside its source', () => {
     // dist/ is tracked in this repo. A source fix with no rebuild ships the
@@ -60,6 +89,7 @@ describe('supersurf-mcp bin — compiled behaviour', () => {
     expect(out).toContain('MCP server for browser automation');
     expect(out).toContain('--script-mode');
     expect(out).not.toContain('too many arguments');
+    expect(out).not.toContain('Deprecated');
   });
 
   it('accepts and ignores a legacy leading `mcp` positional', () => {
@@ -85,57 +115,18 @@ describe('supersurf-mcp bin — compiled behaviour', () => {
   });
 });
 
-describe('supersurf-daemon bin — compiled behaviour', () => {
-  const bin = path.join(DIST_BIN, 'supersurf-daemon.js');
+describe('the supersurf-daemon bin still has a home', () => {
+  // supersurf-mcp used to ship a duplicate `supersurf-daemon` bin, reachable
+  // only through a global install. Item 28 drops it. What must remain true is
+  // that the name is still served by the package that actually owns it. Its
+  // argv handling is covered by daemon/tests/main.test.ts's parseArgs suite,
+  // and Task 5 smoke-runs `node daemon/dist/main.js status` by hand.
+  const daemonRoot = path.resolve(__dirname, '..', '..', 'daemon');
 
-  it('has a compiled artifact committed alongside its source', () => {
-    expect(fs.existsSync(bin)).toBe(true);
-  });
-
-  it('passes a bare subcommand straight through to the daemon CLI', () => {
-    // `status` is the only daemon subcommand that is safe to run in a test: it
-    // queries ~/.supersurf/daemon.sock read-only and never spawns anything.
-    // A live daemon that answers the query successfully prints
-    // `SuperSurf Daemon v...`; no daemon (or a stale PID file) prints
-    // `Daemon not running` and exits 1. Either proves argv reached the real
-    // daemon CLI untouched, which is all this test needs to lock.
-    let out = '';
-    try {
-      out = execFileSync('node', [bin, 'status'], {
-        encoding: 'utf8',
-        env: childEnv(),
-        timeout: 8000,
-      });
-    } catch (err: any) {
-      out = String(err.stdout ?? '');
-    }
-    expect(out).toMatch(/Daemon (not running|running)|SuperSurf Daemon v/);
-  });
-
-  it('does not print a deprecation notice', () => {
-    let stderr = '';
-    try {
-      stderr = String(
-        execFileSync('node', [bin, 'status'], {
-          encoding: 'utf8',
-          env: childEnv(),
-          timeout: 8000,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        }),
-      );
-    } catch (err: any) {
-      stderr = String(err.stderr ?? '');
-    }
-    expect(stderr).not.toContain('Deprecated');
-  });
-
-  it('does not consume a leading `daemon` word as a subcommand', () => {
-    // The old shim spliced 'daemon' in, which only survived because
-    // daemon/src/main.ts parseArgs is a tolerant token scanner that ignores
-    // unknown words. Nothing should depend on that leniency any more.
-    const src = fs.readFileSync(path.join(SRC_BIN, 'supersurf-daemon.ts'), 'utf8');
-    expect(src).not.toContain("'daemon'");
-    expect(src).not.toContain('dispatcher');
+  it('is declared by the supersurf-daemon package and its artifact is committed', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(daemonRoot, 'package.json'), 'utf8'));
+    expect(pkg.bin).toEqual({ 'supersurf-daemon': 'dist/main.js' });
+    expect(fs.existsSync(path.join(daemonRoot, 'dist', 'main.js'))).toBe(true);
   });
 });
 
