@@ -264,4 +264,15 @@ program
     await main(options);
   });
 
-program.parse(process.argv);
+// Owner ruling R1 (BACKLOG #25): `npx supersurf-mcp@latest mcp` was the
+// documented invocation for two releases and is baked into every MCP client
+// config written from README.md:109. Drop exactly one leading `mcp`
+// positional so that legacy form and the new bare form behave identically,
+// with no warning. Do not mutate process.argv itself -- build a filtered
+// copy and hand that to Commander instead.
+const argv =
+  process.argv[2] === 'mcp'
+    ? [...process.argv.slice(0, 2), ...process.argv.slice(3)]
+    : process.argv;
+
+program.parse(argv);
