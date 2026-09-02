@@ -18,7 +18,7 @@
 import { Command } from 'commander';
 import { getPlaybooksDir, normalizeName } from '../playbooks/paths';
 import { refreshRegistry, getRecord } from '../playbooks/registry';
-import { doList, doInspect, doValidate } from '../tools/playbooks';
+import { doList, doInspect, doValidate } from '../playbooks/report';
 import { runPlaybook as realRunPlaybook, type RunOutcome } from '../playbooks/runner';
 import { runMigrate } from '../playbooks/migrate';
 import type { PlaybookMeta } from '../security/meta';

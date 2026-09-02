@@ -26,7 +26,7 @@ exports.runPlaybookProgram = runPlaybookProgram;
 const commander_1 = require("commander");
 const paths_1 = require("../playbooks/paths");
 const registry_1 = require("../playbooks/registry");
-const playbooks_1 = require("../tools/playbooks");
+const report_1 = require("../playbooks/report");
 const runner_1 = require("../playbooks/runner");
 const migrate_1 = require("../playbooks/migrate");
 /** Pull the single text block out of a `playbooks` tool result. */
@@ -70,13 +70,13 @@ function buildPlaybookProgram() {
 async function runLs(opts = {}) {
     const log = opts.log ?? console.log;
     await (0, registry_1.refreshRegistry)();
-    log(body((0, playbooks_1.doList)({})));
+    log(body((0, report_1.doList)({})));
 }
 async function runInspect(name, opts = {}) {
     const log = opts.log ?? console.log;
     const errLog = opts.errLog ?? console.error;
     await (0, registry_1.refreshRegistry)();
-    const res = (0, playbooks_1.doInspect)({ name });
+    const res = (0, report_1.doInspect)({ name });
     if (res.isError) {
         errLog(body(res));
         return 1;
@@ -88,7 +88,7 @@ async function runValidate(name, opts = {}) {
     const log = opts.log ?? console.log;
     const errLog = opts.errLog ?? console.error;
     await (0, registry_1.refreshRegistry)();
-    const res = (0, playbooks_1.doValidate)(name ? { name } : {});
+    const res = (0, report_1.doValidate)(name ? { name } : {});
     (res.isError ? errLog : log)(body(res));
     return res.isError ? 1 : 0;
 }
