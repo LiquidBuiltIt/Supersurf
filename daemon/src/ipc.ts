@@ -4,7 +4,7 @@
  * Accepts connections from MCP servers over a Unix domain socket.
  * Protocol:
  *   1. MCP server sends: { type: "session_register", sessionId: "..." }\n
- *   2. Daemon responds: { type: "session_ack", browser: "...", buildTimestamp: "..." }\n
+ *   2. Daemon responds: { type: "session_ack", browser: "...", buildTimestamp: "...", extensionVersionError: "..." }\n
  *      or { type: "session_reject", reason: "..." }\n
  *   3. Post-handshake: NDJSON (newline-delimited JSON-RPC 2.0) for tool calls
  *
@@ -163,6 +163,10 @@ export class IPCServer {
                 // profile-bound at ack time; a later profiles.connect success
                 // is itself proof of a live extension for that slot.
                 extensionConnected: this.bridge.matchmaker.getConnectionForProfile(null) !== null,
+                // A version-rejected extension. Managed sessions learn via the
+                // profiles.connect rejection; an unmanaged session has no such
+                // round trip, so the ack is the only place to tell it.
+                extensionVersionError: this.bridge.extensionVersionError ?? null,
               });
 
               handshakeComplete = true;

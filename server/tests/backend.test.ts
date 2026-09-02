@@ -295,6 +295,27 @@ describe('ConnectionManager', () => {
       const result = await backend.callTool('connect', { client_id: 'test' });
       expect(result.content[0].text).not.toContain("it's been a while");
     });
+
+    it('refuses connect with a named error when the extension version is rejected', async () => {
+      (mockDaemonClientInstance as any).extensionVersionError =
+        'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
+
+      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('extension_version_mismatch');
+      expect(result.message).toContain('not compatible');
+      expect(backend.state).toBe('passive');
+    });
+
+    it('connects normally when extensionVersionError is null', async () => {
+      (mockDaemonClientInstance as any).extensionVersionError = null;
+
+      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+
+      expect(result.success).not.toBe(false);
+      expect(backend.state).toBe('active');
+    });
   });
 
   describe('daemon version mismatch auto-restart', () => {

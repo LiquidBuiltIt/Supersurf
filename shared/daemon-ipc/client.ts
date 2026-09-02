@@ -37,6 +37,7 @@ export class DaemonClient implements IExtensionTransport {
   private _configDrift: boolean = false;
   private _version: string | null = null;
   private _extensionConnected: boolean = false;
+  private _extensionVersionError: string | null = null;
   private dialogEventBuffer: DialogEvent[] = [];
 
   onReconnect: (() => void) | null = null;
@@ -68,6 +69,11 @@ export class DaemonClient implements IExtensionTransport {
    *  False for pre-upgrade daemons that omit the field. */
   get extensionConnected(): boolean {
     return this._extensionConnected;
+  }
+
+  /** The daemon's reported extension version rejection, or null. */
+  get extensionVersionError(): string | null {
+    return this._extensionVersionError;
   }
 
   /** True when the daemon has detected a config file change since its startup. */
@@ -129,6 +135,8 @@ export class DaemonClient implements IExtensionTransport {
               if (msg.config_drift === true) this._configDrift = true;
               this._version = msg.version || null;
               this._extensionConnected = msg.extensionConnected === true;
+              this._extensionVersionError =
+                typeof msg.extensionVersionError === 'string' ? msg.extensionVersionError : null;
               log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
               resolve();
               continue;

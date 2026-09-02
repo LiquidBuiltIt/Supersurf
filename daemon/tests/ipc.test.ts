@@ -16,6 +16,7 @@ function mockBridge(): ExtensionBridge {
     connected: true,
     browser: 'chrome',
     buildTime: '2026-01-01T00:00:00Z',
+    extensionVersionError: null,
     notifyClientId: vi.fn(),
     onReconnect: null,
     onTabInfoUpdate: null,
@@ -139,6 +140,35 @@ describe('IPCServer', () => {
 
     expect(response.type).toBe('session_ack');
     expect(response.extensionConnected).toBe(true);
+
+    client.end();
+  });
+
+  it('reports extensionVersionError on session_ack when set', async () => {
+    (bridge as any).extensionVersionError =
+      'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'sess-version-check' });
+    const response = await readLine(client);
+
+    expect(response.type).toBe('session_ack');
+    expect(response.extensionVersionError).toContain('not compatible');
+
+    client.end();
+  });
+
+  it('reports null extensionVersionError when no rejection is recorded', async () => {
+    (bridge as any).extensionVersionError = null;
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'sess-version-ok' });
+    const response = await readLine(client);
+
+    expect(response.type).toBe('session_ack');
+    expect(response.extensionVersionError).toBeNull();
 
     client.end();
   });

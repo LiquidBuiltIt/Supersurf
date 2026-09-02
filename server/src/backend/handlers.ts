@@ -150,6 +150,28 @@ export async function onConnect(
       };
     }
 
+    // A version-rejected extension. Without this the session proceeds, the
+    // matchmaker refuses every slot, and the agent discovers the problem as a
+    // 50s profiles.connect timeout with no cause attached.
+    const extensionVersionError = client.extensionVersionError;
+    if (extensionVersionError) {
+      await client.stop().catch(() => {});
+      mgr.state = 'passive';
+      if (options.rawResult) {
+        return {
+          success: false,
+          error: 'extension_version_mismatch',
+          message: extensionVersionError,
+        };
+      }
+      return {
+        content: [
+          { type: 'text', text: `### Extension Version Mismatch\n\n${extensionVersionError}` },
+        ],
+        isError: true,
+      };
+    }
+
     mgr.extensionServer = client;
 
     // Handle extension reconnections — re-query the attached tab so its URL is
