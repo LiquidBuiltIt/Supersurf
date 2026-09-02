@@ -200,7 +200,7 @@ export class BrowserBridge {
         'Extension not connected.\n\n' +
         '**The extension typically auto-connects within a few seconds after calling `connect`. Wait a moment and retry this tool call.**\n\n' +
         '**If the issue persists:**\n' +
-        '1. Run `npx supersurf-daemon status` to check if the daemon is running\n' +
+        '1. Run `npx supersurf-daemon@latest status` to check if the daemon is running\n' +
         '2. Ensure the SuperSurf extension is loaded in Chrome (`chrome://extensions`)\n' +
         '3. Open the extension popup and verify it shows "Connected"',
         options,

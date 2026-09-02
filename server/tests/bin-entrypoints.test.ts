@@ -138,3 +138,34 @@ describe('supersurf-daemon bin — compiled behaviour', () => {
     expect(src).not.toContain('dispatcher');
   });
 });
+
+describe('runtime hint strings name a package npm will actually serve', () => {
+  const SRC = path.resolve(__dirname, '..', 'src');
+
+  // The bare `supersurf` npm name is a permanently-squatted 0.0.1 placeholder
+  // that is not this project (dispute refused 2026-06-09). Anything that tells
+  // a user or an agent to run `npx supersurf ...` sends them to a stranger's
+  // package. `supersurf <sub>` with no npx prefix is fine -- that is the
+  // curl-installed compiled binary.
+  const files = [
+    'tools/playbooks.ts',
+    'tools.ts',
+    'bridge.ts',
+    'backend/handlers.ts',
+    'backend/status.ts',
+    'daemon-spawn.ts',
+  ];
+
+  it.each(files)('%s never prints `npx supersurf` bare', (rel) => {
+    const src = fs.readFileSync(path.join(SRC, rel), 'utf8');
+    expect(src).not.toMatch(/npx supersurf(?!-)/);
+  });
+
+  it.each(files)('%s pins @latest on every npx supersurf-daemon hint', (rel) => {
+    const src = fs.readFileSync(path.join(SRC, rel), 'utf8');
+    const hits = src.match(/npx supersurf-daemon(@latest)?/g) ?? [];
+    for (const hit of hits) {
+      expect(hit).toBe('npx supersurf-daemon@latest');
+    }
+  });
+});
