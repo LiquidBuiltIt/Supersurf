@@ -1,5 +1,32 @@
-import { describe, it, expect } from 'vitest';
-import { pickTarget, HELP_TEXT } from '../src/dispatcher';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { pickTarget, HELP_TEXT, dispatch } from '../src/dispatcher';
+import { VERSION } from '../src/version';
+
+/**
+ * `dispatch()` was never exercised with an `mcp` or `daemon` target, and
+ * `shellOut()` itself was never invoked, in any test before this one — the
+ * direct reason a hanging-promise regression reached a commit. Mocking
+ * 'node:child_process' here (rather than mocking './shell-out') exercises the
+ * REAL shellOut implementation, which is the point.
+ */
+const spawned: { cmd: string; args: string[]; opts: any }[] = [];
+const childExit: { code: number | null; signal: NodeJS.Signals | null } = { code: 0, signal: null };
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    spawn: vi.fn((cmd: string, args: string[], opts: any) => {
+      spawned.push({ cmd, args, opts });
+      const listeners = new Map<string, (...a: any[]) => void>();
+      setImmediate(() => listeners.get('exit')?.(childExit.code, childExit.signal));
+      return {
+        on: vi.fn((event: string, cb: (...a: any[]) => void) => { listeners.set(event, cb); }),
+        kill: vi.fn(),
+      } as any;
+    }),
+  };
+});
 
 describe('pickTarget', () => {
   it('routes "mcp" subcommand to mcp target and strips it from argv', () => {
@@ -102,5 +129,63 @@ describe('HELP_TEXT', () => {
     expect(HELP_TEXT).toContain('supersurf mcp');
     // `npx supersurf` is a permanently-squatted package that is not us.
     expect(HELP_TEXT).not.toMatch(/npx supersurf(@|\s|$)/);
+  });
+});
+
+describe('dispatch — shells out for the mcp and daemon targets', () => {
+  const savedArgv = process.argv;
+  let exitCode: number | undefined;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    spawned.length = 0;
+    childExit.code = 0;
+    childExit.signal = null;
+    exitCode = undefined;
+    // process.exit really does exit in dispatch() for these two targets, so
+    // it must be stubbed to observe the code instead of killing the runner.
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exitCode = code;
+      return undefined as never;
+    }) as any);
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+    process.argv = savedArgv;
+  });
+
+  it('mcp target spawns the pinned supersurf-mcp package with inherited stdio, and exits with the child code', async () => {
+    childExit.code = 5;
+    await dispatch(['node', 'supersurf', 'mcp', '--debug']);
+    expect(spawned[0].cmd).toBe('npx');
+    expect(spawned[0].args).toEqual(['--yes', `supersurf-mcp@${VERSION}`, '--debug']);
+    expect(spawned[0].opts).toMatchObject({ stdio: 'inherit' });
+    expect(exitCode).toBe(5);
+  });
+
+  it('daemon target spawns the pinned supersurf-daemon package with inherited stdio, and exits with the child code', async () => {
+    childExit.code = 2;
+    await dispatch(['node', 'supersurf', 'daemon', 'status']);
+    expect(spawned[0].cmd).toBe('npx');
+    expect(spawned[0].args).toEqual(['--yes', `supersurf-daemon@${VERSION}`, 'status']);
+    expect(spawned[0].opts).toMatchObject({ stdio: 'inherit' });
+    expect(exitCode).toBe(2);
+  });
+
+  // The highest-value assertion in this suite: a compiled binary that
+  // resolved `@latest` could launch a protocol version it does not
+  // understand. This must stay pinned to the binary's own VERSION.
+  it('never resolves either target to @latest', async () => {
+    await dispatch(['node', 'supersurf', 'mcp']);
+    const mcpTarget = spawned[0].args[1];
+    expect(mcpTarget.endsWith(`@${VERSION}`)).toBe(true);
+    expect(mcpTarget).not.toContain('@latest');
+
+    spawned.length = 0;
+    await dispatch(['node', 'supersurf', 'daemon']);
+    const daemonTarget = spawned[0].args[1];
+    expect(daemonTarget.endsWith(`@${VERSION}`)).toBe(true);
+    expect(daemonTarget).not.toContain('@latest');
   });
 });

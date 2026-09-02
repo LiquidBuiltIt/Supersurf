@@ -42,13 +42,31 @@ function walk(dir: string, rel = ''): string[] {
  *
  * The `import\s+` alternative catches the BARE side-effect form,
  * `import '../../server/src/tools/screenshot';`, which every other branch
- * misses because it has no `from`. That is not a hypothetical gap:
- * server/src/bin/supersurf-mcp.ts is literally `import '../cli';`, so the bare
- * form is the in-repo idiom for pulling the whole MCP server in for its side
- * effects — precisely what this lock exists to stop.
+ * misses because it has no `from`. That is not a hypothetical gap: this repo's
+ * own boundary is `server/src/playbooks/run-cli.ts` — a live server-side
+ * module that `cli/src/playbook-cli.ts` deliberately never imports, bare or
+ * otherwise, because `run` shells out to the pinned `supersurf-mcp` package
+ * instead of loading it in-process. Keeping that true is exactly what this
+ * lock exists to enforce, so the bare form has to be caught even on a day no
+ * file trips it.
  *
  * It cannot double-match `import x from 'y'`: the `import\s+` branch demands a
  * quote immediately after the whitespace, and there it finds an identifier.
+ *
+ * KNOWN BLIND SPOTS — string-literal specifiers ONLY. This regex produces ZERO
+ * matches for any of the following, each of which couples cli/ to server/
+ * exactly as much as a literal specifier would:
+ *   - `await import(pkg)`                        — variable specifier: no
+ *     quote immediately follows `import(`.
+ *   - `` await import(`../../server/${sub}`) ``   — template literal: a
+ *     backtick is not `['"]`.
+ *   - `require(mod)`                              — variable specifier: no
+ *     quote immediately follows `require(`.
+ * Accepted, not an oversight: the syntax-blind backstop test below (scanning
+ * for the raw substring `server/src`) catches all three, because a path built
+ * this way still has to spell `server/src` out as a literal somewhere in the
+ * file for `pkg`/`mod`/`sub` to ever resolve to it. A syntax-aware rewrite of
+ * this regex would buy little over that second, dumber check.
  */
 const SPECIFIER = /(?:from\s*|require\s*\(\s*|import\s*\(\s*|import\s+)['"]([^'"]+)['"]/g;
 
@@ -86,5 +104,51 @@ describe('cli/ imports server source from exactly one file (BACKLOG #28, ruling 
       expect(m[1]).not.toContain('/tools/');
       expect(m[1]).not.toContain('experimental');
     }
+  });
+
+  /**
+   * Backstop for SPECIFIER's known blind spots (see the docblock above it):
+   * a variable import()/require() specifier, or a template-literal specifier,
+   * never matches that regex, because it only recognizes a string literal
+   * immediately after `from`/`require(`/`import(`/`import `. Any of those
+   * forms still has to spell `server/src` out as a plain string SOMEWHERE in
+   * the file for the variable to ever resolve to that path — so a dumb
+   * whole-file substring scan catches what the syntax-aware regex above
+   * misses, at the cost of caring about syntax at all.
+   *
+   * Comments are stripped first (preserving line numbers) so this doesn't
+   * flag prose that merely NAMES a server/ path for documentation — e.g.
+   * daemon-spawn.ts's own docblock, which compares itself to the separate
+   * server/src/daemon-spawn.ts. That is not weaker coverage of the invariant:
+   * reaching into server/ takes code, never a comment.
+   */
+  it('no file other than server-imports.ts contains the raw substring "server/src" outside a comment (syntax-blind backstop)', () => {
+    // Same non-vacuity guard as test 1: an emptied `files` list would make
+    // this loop run zero times and pass for the wrong reason.
+    expect(files.length).toBeGreaterThan(5);
+
+    const stripComments = (src: string) =>
+      src
+        .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
+        .replace(/\/\/.*$/gm, '');
+
+    const offenders: string[] = [];
+    for (const rel of files) {
+      if (rel === ALLOWED) continue;
+      const raw = fs.readFileSync(path.join(SRC, rel), 'utf8');
+      const rawLines = raw.split('\n');
+      const strippedLines = stripComments(raw).split('\n');
+      strippedLines.forEach((line, idx) => {
+        if (line.includes('server/src')) {
+          offenders.push(`${rel}:${idx + 1}: ${rawLines[idx].trim()}`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      'SPECIFIER only sees string-literal specifiers; this backstop catches variable ' +
+        'and template-literal import()/require() forms it misses. Offender(s):\n' +
+        offenders.join('\n'),
+    ).toEqual([]);
   });
 });
