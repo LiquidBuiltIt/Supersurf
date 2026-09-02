@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 const CLI_ROOT = path.resolve(__dirname, '..');
+const REPO_ROOT = path.resolve(CLI_ROOT, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(CLI_ROOT, 'package.json'), 'utf8'));
 const rootPkg = JSON.parse(fs.readFileSync(path.resolve(CLI_ROOT, '..', 'package.json'), 'utf8'));
 
@@ -31,7 +33,15 @@ describe('cli package metadata', () => {
   });
 
   it('never emits a tracked dist/', () => {
-    expect(fs.existsSync(path.join(CLI_ROOT, 'dist'))).toBe(false);
+    const tracked = execFileSync('git', ['ls-files', 'cli'], { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean);
+    expect(tracked.some((f) => f.startsWith('cli/build/'))).toBe(false);
+  });
+
+  it('gitignores build output', () => {
+    const gitignore = fs.readFileSync(path.join(REPO_ROOT, '.gitignore'), 'utf8');
+    expect(gitignore).toContain('cli/build/');
   });
 });
 
