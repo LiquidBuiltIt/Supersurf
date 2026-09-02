@@ -23,10 +23,19 @@ export function npxTarget(pkg: NpmTarget): string {
 }
 
 /**
- * Replace this process with `npx <pkg>@<VERSION> <args...>`. Never returns:
- * it exits with the child's code, or 128+signal when the child was signalled.
+ * Run `npx <pkg>@<VERSION> <args...>` and hand it this process's fds.
+ *
+ * Returns a promise that NEVER SETTLES, and that is the honest type. `spawn` is
+ * asynchronous, so control really does come back to the caller here — a bare
+ * `never` return would be a lie that TypeScript then propagates, marking every
+ * statement after a call site unreachable and letting `runRun` resolve
+ * `undefined` while its signature promises a `number`. Nothing after the spawn
+ * is ever observed because this process leaves from the `exit` handler below,
+ * so a pending promise models the control flow exactly. `Promise<never>` is
+ * assignable to any `Promise<T>`, so call sites that return it from a
+ * `Promise<number>` still typecheck.
  */
-export function shellOut(pkg: NpmTarget, args: string[]): never {
+export function shellOut(pkg: NpmTarget, args: string[]): Promise<never> {
   const child = spawn('npx', ['--yes', npxTarget(pkg), ...args], {
     stdio: 'inherit',
   });
@@ -49,5 +58,6 @@ export function shellOut(pkg: NpmTarget, args: string[]): never {
     process.exit(signal ? 128 + (require('node:os').constants.signals[signal] ?? 0) : (code ?? 0));
   });
 
-  return undefined as never;
+  // Deliberately never resolved or rejected — see the docblock.
+  return new Promise<never>(() => {});
 }

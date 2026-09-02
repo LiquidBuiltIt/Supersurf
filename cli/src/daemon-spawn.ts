@@ -55,6 +55,17 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
       'Node.js and npx must be on PATH.',
     );
   }
+  // `res.error` only covers spawn-level failure. If npx ran and exited non-zero
+  // — unpublished version, registry 404, daemon crashing on start — surface
+  // that now. Falling through would make the user wait out the 30s poll and
+  // then point them at an empty daemon.log, hiding the npx error they just
+  // watched scroll past on the inherited stderr.
+  if (res.status !== 0) {
+    throw new Error(
+      `\`npx ${npxTarget('supersurf-daemon')} start\` exited with status ${res.status}` +
+      `${res.signal ? ` (signal ${res.signal})` : ''}. See the output above.`,
+    );
+  }
 
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {

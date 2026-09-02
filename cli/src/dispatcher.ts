@@ -51,10 +51,10 @@ export function pickTarget(argv: string[]): DispatchPlan {
 export async function dispatch(argv: string[]): Promise<void> {
   const { target, remainingArgv } = pickTarget(argv);
 
-  // `mcp` (JSON-RPC over stdout — see cli.ts) and `daemon` (its own CLI in
-  // daemon/src/main.ts, imported below) each own their own stderr-only/human
-  // notice check. Every other subcommand here — profiles, export, help/usage
-  // errors — is plain human-facing stdio, so the notice is safe on stdout.
+  // `mcp` (JSON-RPC over stdout) and `daemon` are shelled out below, and each
+  // owns its own stderr-only/human notice check inside its own package. Every
+  // other subcommand here — profiles, export, help/usage errors — is plain
+  // human-facing stdio, so the notice is safe on stdout.
   if (target !== 'mcp' && target !== 'daemon') {
     const versionCheck = checkAndTouchVersionState(VERSION);
     if (versionCheck.shouldNotify) {
@@ -79,9 +79,11 @@ export async function dispatch(argv: string[]): Promise<void> {
   if (target === 'mcp') {
     // Shell out with real fd inheritance: `mcp` is a stdio protocol server, so a
     // relay would corrupt the JSON-RPC stream. Pinned to this binary's version.
-    shellOut('supersurf-mcp', remainingArgv.slice(2));
+    // Awaited, not fired and forgotten: shellOut's promise never settles, so
+    // this correctly parks until the child's exit handler ends the process.
+    await shellOut('supersurf-mcp', remainingArgv.slice(2));
   } else if (target === 'daemon') {
-    shellOut('supersurf-daemon', remainingArgv.slice(2));
+    await shellOut('supersurf-daemon', remainingArgv.slice(2));
   } else if (target === 'profiles') {
     const { runProfilesCli } = await import('./profiles-cli');
     await runProfilesCli(remainingArgv);
