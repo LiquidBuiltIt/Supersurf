@@ -31,7 +31,7 @@ function escapeJs(value: string): string {
  *
  * Exported so the tests can execute it against a stub DOM instead of only
  * grepping the rendered HTML for substrings. Its only free identifiers are
- * `window`, `document`, `location`, `setTimeout` and `clearTimeout`.
+ * `window`, `document`, `setTimeout` and `clearTimeout`.
  */
 export function registrationScript(profileName: string): string {
   const safeJs = escapeJs(profileName);
@@ -42,12 +42,15 @@ export function registrationScript(profileName: string): string {
         if (settled) return;
         settled = true;
         document.body.classList.add('is-failed');
-        document.title = 'Registration timed out — ${safeJs}';
+        document.title = 'Registration failed — ${safeJs}';
       }, 15000);
 
       window.addEventListener('message', function (event) {
+        // \`event.source === window\` already proves the message came from a
+        // script running in this very window, so an origin comparison adds no
+        // security — it only risks rejecting every valid ack if Chrome does
+        // not report the page's own origin for an isolated-world content script.
         if (event.source !== window) return;
-        if (event.origin !== location.origin) return;
         var d = event.data;
         if (!d || d.__supersurf !== true || d.action !== 'register-profile-ack') return;
         if (d.profile !== '${safeJs}') return;
@@ -67,7 +70,8 @@ export function registrationScript(profileName: string): string {
 /**
  * Build the registration page. Posts `register-profile` to the extension and
  * waits for the content script's ack before claiming success; without an ack
- * within 15s it shows a failure state. The tab is left open for the user/agent.
+ * within 15s it shows a failure state (no response, or the write failed).
+ * The tab is left open for the user/agent.
  */
 export function registrationHtml(profileName: string): string {
   const safe = escapeHtml(profileName);
@@ -207,11 +211,12 @@ export function registrationHtml(profileName: string): string {
           <path d="M12 7v6" /><path d="M12 16.5v.5" />
         </svg>
       </div>
-      <h1>Registration timed out</h1>
+      <h1>Registration failed</h1>
       <p class="profile">Could not bind <strong>${safe}</strong> to this browser.</p>
-      <p>The SuperSurf extension did not respond. Check that it is installed and enabled at
-      chrome://extensions, then reload this page. If it is enabled, restart the daemon with
-      <strong>npx supersurf daemon restart</strong>.</p>
+      <p>The SuperSurf extension either did not respond or could not save the binding.
+      Check that it is installed and enabled at chrome://extensions, then reload this page.
+      If it is enabled, restart the daemon with
+      <strong>npx supersurf daemon restart</strong> and open this page again.</p>
     </section>
   </main>
   <script>

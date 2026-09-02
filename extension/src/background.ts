@@ -31,7 +31,7 @@ import { registerMouseHandlers, handleIdleDrift } from './experimental/mouse-hum
 import { registerSecureEvalHandlers } from './security/secure-eval/index.js';
 import { SessionContext } from './session-context.js';
 import { DomainWhitelist } from './domain-whitelist.js';
-import { applyProfileRegister } from './handlers/profile-register.js';
+import { handleProfileRegisterMessage } from './handlers/profile-register.js';
 import { isMajorJump } from './utils/version.js';
 
 // chrome.debugger is a reserved word — access via bracket notation
@@ -251,23 +251,15 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
       tabHandlers.setTechStackInfo(sender.tab.id, message.data);
     }
 
-    // Profile registration from daemon's registration page — keep the tab open
-    // so a sole registration tab does not quit Chromium mid-connect.
-    //
-    // The content script waits on this response and the registration page shows
-    // a failure state without it, so the reply must report the *storage write*,
-    // not merely that the message was received. `return true` keeps the message
-    // port open for the async reply — it is scoped to this branch on purpose:
-    // returning it for `techStack` too would leave that port dangling.
-    if (message.type === 'profileRegister' && message.profile) {
-      applyProfileRegister(message.profile, sender.tab?.id, chrome.storage, chrome.tabs)
-        .then(() => sendResponse?.({ ok: true }))
-        .catch((e) => {
-          logger.log('[Background] Profile register failed:', e);
-          sendResponse?.({ ok: false });
-        });
-      return true;
-    }
+    // Profile registration from daemon's registration page. The handler returns
+    // `true` only for its own branch (keeping the port open for the async
+    // reply) and `undefined` otherwise, so `techStack` does not leave a
+    // dangling port. Logic and its tests live in handlers/profile-register.
+    return handleProfileRegisterMessage(message, sender, sendResponse, {
+      storage: chrome.storage,
+      tabs: chrome.tabs,
+      log: (...args: unknown[]) => logger.log(...(args as any[])),
+    });
   });
 
   // When a profile is registered in storage, reconnect to the daemon.

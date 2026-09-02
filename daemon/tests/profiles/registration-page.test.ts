@@ -7,9 +7,9 @@ const PAGE_ORIGIN = 'http://127.0.0.1:5555';
  * Execute the page's inline script against a hand-rolled DOM stub.
  *
  * No jsdom / happy-dom: the script's only free identifiers are `window`,
- * `document`, `location`, `setTimeout` and `clearTimeout`. The first three are
- * injected as `new Function` parameters (which shadow the globals); the timer
- * pair resolves to vitest's fake timers on the global object.
+ * `document`, `setTimeout` and `clearTimeout`. The first two are injected as
+ * `new Function` parameters (which shadow the globals); the timer pair
+ * resolves to vitest's fake timers on the global object.
  */
 function runPage(profile: string) {
   const classes = new Set<string>();
@@ -33,10 +33,8 @@ function runPage(profile: string) {
       posted.push({ data, targetOrigin });
     },
   };
-  const location = { origin: PAGE_ORIGIN };
-
-  const run = new Function('window', 'document', 'location', registrationScript(profile));
-  run(win, doc, location);
+  const run = new Function('window', 'document', registrationScript(profile));
+  run(win, doc);
 
   /** Deliver a message event to the page's own listener. */
   const dispatch = (data: any, opts: { source?: any; origin?: string } = {}) => {
@@ -123,7 +121,7 @@ describe('registrationScript (executed)', () => {
     vi.advanceTimersByTime(1);
     expect(page.classes.has('is-failed')).toBe(true);
     expect(page.classes.has('is-ready')).toBe(false);
-    expect(page.doc.title).toBe('Registration timed out — dev');
+    expect(page.doc.title).toBe('Registration failed — dev');
   });
 
   it('lets a late ack clear the failed state', () => {
@@ -138,13 +136,18 @@ describe('registrationScript (executed)', () => {
     expect(page.doc.title).toBe('Profile ready — dev');
   });
 
-  it('ignores an ack from a foreign origin', () => {
+  it('accepts an ack whatever origin the event reports', () => {
     const page = runPage('dev');
 
-    page.ack({ origin: 'https://evil.example' });
+    // Deliberate: `event.source === window` already proves the message came
+    // from a script in this very window, so the page does NOT compare origins.
+    // Chrome's attribution for an isolated-world content script cannot be
+    // verified without a real browser, and guessing it wrong would reject every
+    // valid ack and show a 15-second false failure.
+    page.ack({ origin: 'https://not-the-page-origin.example' });
 
-    expect(page.classes.has('is-ready')).toBe(false);
-    expect(vi.getTimerCount()).toBe(1);
+    expect(page.classes.has('is-ready')).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('ignores an ack from a foreign window', () => {
@@ -153,6 +156,13 @@ describe('registrationScript (executed)', () => {
     page.ack({ source: { notThisWindow: true } });
 
     expect(page.classes.has('is-ready')).toBe(false);
+    expect(page.doc.title).toBe('');
+    // The failure timer must still be armed, or the page never resolves at all.
+    expect(vi.getTimerCount()).toBe(1);
+
+    // ...and a genuine ack afterwards still works.
+    page.ack();
+    expect(page.classes.has('is-ready')).toBe(true);
   });
 
   it('ignores an ack for a different profile', () => {
@@ -161,6 +171,15 @@ describe('registrationScript (executed)', () => {
     page.ack({ profile: 'other' });
 
     expect(page.classes.has('is-ready')).toBe(false);
+    expect(page.doc.title).toBe('');
+    expect(vi.getTimerCount()).toBe(1);
+
+    page.ack();
+    expect(page.classes.has('is-ready')).toBe(true);
+  });
+
+  it('does not reference location, so no origin comparison can creep back', () => {
+    expect(registrationScript('dev')).not.toContain('location');
   });
 
   it('ignores unrelated and malformed messages', () => {
@@ -233,6 +252,19 @@ describe('registrationHtml', () => {
     const html = registrationHtml('dev');
     expect(html).toContain('class="failed"');
     expect(html).toContain('chrome://extensions');
+    expect(html).toContain('npx supersurf daemon restart');
+  });
+
+  it('blames neither cause exclusively in the failure copy', () => {
+    // The failure state has two causes: no reply at all, or a reply of
+    // { ok: false } after the storage write failed. Copy that says only
+    // "did not respond" is simply wrong on the second one.
+    const html = registrationHtml('dev');
+    const failed = /<section class="failed"[\s\S]*?<\/section>/.exec(html)?.[0];
+    expect(failed).toBeDefined();
+    expect(failed).toMatch(/did not respond or could not save/i);
+    expect(failed).not.toMatch(/timed out/i);
+    expect(registrationScript('dev')).not.toMatch(/timed out/i);
   });
 
   it('carries the CSS that makes each state visible', () => {
