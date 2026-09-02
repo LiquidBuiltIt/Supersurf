@@ -110,6 +110,16 @@ export function registrationHtml(profileName: string): string {
     }
     body.is-ready .pending { display: none; }
     body.is-ready .ready { display: block; }
+    .failed { display: none; }
+    .failed .mark {
+      border-color: #b4443a;
+      color: #b4443a;
+      animation: pop 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+    .failed h1 { color: #b4443a; }
+    body.is-failed .pending { display: none; }
+    body.is-failed .failed { display: block; }
+    body.is-ready .failed { display: none; }
     @keyframes pulse {
       0%, 100% { opacity: 0.55; }
       50% { opacity: 1; }
@@ -141,11 +151,43 @@ export function registrationHtml(profileName: string): string {
       <p class="profile">Registered as <strong>${safe}</strong>.</p>
       <p>You can keep this tab open or close it manually. SuperSurf will stay connected either way.</p>
     </section>
+    <section class="failed" aria-live="polite">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <path d="M12 7v6" /><path d="M12 16.5v.5" />
+        </svg>
+      </div>
+      <h1>Registration timed out</h1>
+      <p class="profile">Could not bind <strong>${safe}</strong> to this browser.</p>
+      <p>The SuperSurf extension did not respond. Check that it is installed and enabled at
+      chrome://extensions, then reload this page. If it is enabled, restart the daemon with
+      <strong>npx supersurf daemon restart</strong>.</p>
+    </section>
   </main>
   <script>
-    window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${safeJs}' }, '*');
-    document.body.classList.add('is-ready');
-    document.title = 'Profile ready — ${safeJs}';
+    (function () {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        document.body.classList.add('is-failed');
+        document.title = 'Registration timed out — ${safeJs}';
+      }, 15000);
+
+      window.addEventListener('message', function (event) {
+        if (event.source !== window) return;
+        var d = event.data;
+        if (!d || d.__supersurf !== true || d.action !== 'register-profile-ack') return;
+        if (d.profile !== '${safeJs}') return;
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        document.body.classList.add('is-ready');
+        document.title = 'Profile ready — ${safeJs}';
+      });
+
+      window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${safeJs}' }, '*');
+    })();
   </script>
 </body>
 </html>`;

@@ -35,14 +35,22 @@ window.addEventListener('message', (event) => {
   // Profile registration from daemon's registration page.
   // On fresh installs the service worker may not be ready yet, so retry with backoff.
   if (event.data?.__supersurf === true && event.data?.action === 'register-profile' && event.data?.profile) {
-    const msg = { type: 'profileRegister', profile: event.data.profile };
+    const profile = event.data.profile;
+    const msg = { type: 'profileRegister', profile };
     let attempts = 0;
+    const ack = () => {
+      // The registration page waits on this and shows a timeout state without
+      // it. Only sent once the background script actually took the message.
+      window.postMessage({ __supersurf: true, action: 'register-profile-ack', profile }, '*');
+    };
     const trySend = () => {
       try {
         chrome.runtime.sendMessage(msg, () => {
-          if (chrome.runtime.lastError && ++attempts < 10) {
-            setTimeout(trySend, 500);
+          if (chrome.runtime.lastError) {
+            if (++attempts < 10) setTimeout(trySend, 500);
+            return;
           }
+          ack();
         });
       } catch {
         if (++attempts < 10) setTimeout(trySend, 500);
