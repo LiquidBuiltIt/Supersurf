@@ -31,27 +31,95 @@ window.addEventListener('message', (event) => {
             timestamp: message.timestamp,
         });
     }
-    // Profile registration from daemon's registration page.
-    // On fresh installs the service worker may not be ready yet, so retry with backoff.
-    if (event.data?.__supersurf === true && event.data?.action === 'register-profile' && event.data?.profile) {
-        const msg = { type: 'profileRegister', profile: event.data.profile };
-        let attempts = 0;
-        const trySend = () => {
-            try {
-                chrome.runtime.sendMessage(msg, () => {
-                    if (chrome.runtime.lastError && ++attempts < 10) {
-                        setTimeout(trySend, 500);
-                    }
-                });
-            }
-            catch {
-                if (++attempts < 10)
-                    setTimeout(trySend, 500);
-            }
-        };
-        trySend();
-    }
+    // Profile registration from daemon's registration page. Everything about the
+    // relay (retry budget, reply origin, ack decision) lives in the handler
+    // module so it is testable without a browser; this stays a thin delegation.
+    handleProfileRegisterRelay(event, {
+        runtime: chrome.runtime,
+        postMessage: (data, targetOrigin) => window.postMessage(data, targetOrigin),
+        setTimeout: (fn, ms) => setTimeout(fn, ms),
+    });
 });
+/**
+ * Retry budget. On a fresh install the MV3 service worker may still be spinning
+ * up, so a first send can fail outright. Attempt 1 fires immediately and each
+ * retry is a further RELAY_RETRY_MS later, so the last attempt starts at
+ * (RELAY_MAX_ATTEMPTS - 1) * RELAY_RETRY_MS = 12 s. That has to stay under the
+ * registration page's 15 s timeout, otherwise the relay gives up early and the
+ * page sits there blaming the extension for seconds after we stopped trying.
+ * Fixed interval, not backoff -- a slow worker start is worth re-probing often.
+ */
+const RELAY_MAX_ATTEMPTS = 25;
+const RELAY_RETRY_MS = 500;
+/**
+ * Handle a `register-profile` page message.
+ *
+ * The daemon's registration page posts `register-profile` to its own window.
+ * This forwards it to the service worker and, only once the worker confirms the
+ * storage write, posts `register-profile-ack` back so the page can clear its
+ * 15 s failure timeout.
+ *
+ * Deliberately lives in this file rather than its own module: MV3 content
+ * scripts are classic scripts, so a single `import` here makes Chrome refuse to
+ * parse the whole file and silently kills console capture and tech-stack
+ * detection along with registration. A classic script cannot export either, so
+ * this is covered by `npm run smoke.register` -- a real headless Chromium doing
+ * the whole round trip -- rather than by a stubbed unit test. That is deliberate:
+ * the stubbed test this replaced passed while the feature was completely dead in
+ * a browser. `extension/build.ts` fails the build if a module statement ever
+ * reappears in the compiled output.
+ *
+ * @returns `true` when the event was a registration request and the relay took
+ *          it, `false` when the event was not ours.
+ */
+function handleProfileRegisterRelay(event, deps) {
+    const data = event?.data;
+    if (!data || data.__supersurf !== true || data.action !== 'register-profile' || !data.profile) {
+        return false;
+    }
+    const profile = data.profile;
+    // Reply only to the page that asked. '*' would leak the ack to any
+    // main-world script listening on this window.
+    const replyOrigin = event.origin ?? '';
+    const msg = { type: 'profileRegister', profile };
+    let attempts = 0;
+    const ack = () => {
+        // The registration page waits on this and shows a failure state without
+        // it. Only sent once the storage write actually completed -- "registered"
+        // has to mean the binding is on disk, not that a message was accepted.
+        try {
+            deps.postMessage({ __supersurf: true, action: 'register-profile-ack', profile }, replyOrigin);
+        }
+        catch {
+            // A page with an opaque origin cannot be replied to; nothing to do.
+        }
+    };
+    const retry = () => {
+        if (++attempts < RELAY_MAX_ATTEMPTS)
+            deps.setTimeout(trySend, RELAY_RETRY_MS);
+    };
+    const trySend = () => {
+        try {
+            deps.runtime.sendMessage(msg, (res) => {
+                // No listener / service worker asleep -- Chrome closes the port and
+                // sets lastError. Retry; the worker may still be spinning up.
+                if (deps.runtime.lastError) {
+                    retry();
+                    return;
+                }
+                // A negative reply means the write failed. Do NOT ack -- the page's
+                // failure state is exactly the right outcome there.
+                if (res?.ok)
+                    ack();
+            });
+        }
+        catch {
+            retry();
+        }
+    };
+    trySend();
+    return true;
+}
 /**
  * Detect frontend tech stack by probing window globals, DOM structure, and stylesheets.
  *

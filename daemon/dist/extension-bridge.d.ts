@@ -23,13 +23,20 @@ export declare class ExtensionBridge {
     /** Connection pool and profile-based routing. */
     matchmaker: Matchmaker;
     onTabInfoUpdate: ((tabInfo: any) => void) | null;
-    constructor(port?: number, host?: string);
+    private daemonVersion;
+    constructor(port?: number, host?: string, daemonVersion?: string);
     /** Browser name from the first available connection (backwards compat). */
     get browser(): string;
     /** Build timestamp from the first available connection (backwards compat). */
     get buildTime(): string | null;
     /** True if at least one extension is connected. */
     get connected(): boolean;
+    /**
+     * The most recent extension version rejection, or null. Rides session_ack so
+     * an agent calling `connect` without a profile learns immediately, rather
+     * than discovering it as a silent absence of browser tools.
+     */
+    get extensionVersionError(): string | null;
     /** Spin up the HTTP + WebSocket server and begin accepting connections. */
     start(): Promise<void>;
     /** Route incoming WebSocket messages for a specific connection. */

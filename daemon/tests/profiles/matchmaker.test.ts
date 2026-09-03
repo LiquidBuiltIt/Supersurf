@@ -22,6 +22,9 @@ function mockConn(ws: WebSocket, profile: string | null = null): PooledConnectio
     pingInterval: null,
     inflight: new Map(),
     keepBrowserOnSessionEnd: true,
+    version: '3.4.0',
+    versionStatus: 'ok',
+    versionError: null,
   };
 }
 
@@ -61,6 +64,36 @@ describe('Matchmaker', () => {
 
       expect(reject).toHaveBeenCalledWith(expect.any(Error));
       expect(conn.inflight.size).toBe(0);
+    });
+
+    it('drains inflight with the version error when the guard closed the socket', () => {
+      const ws = mockWs();
+      const conn = mockConn(ws);
+      conn.versionStatus = 'rejected';
+      conn.versionError = 'Extension 2.0.0 is too old for daemon 3.4.0.';
+      const reject = vi.fn();
+      conn.inflight.set('req-1', { resolve: vi.fn(), reject });
+
+      matchmaker.addConnection(ws, conn);
+      matchmaker.removeConnection(ws);
+
+      expect(reject).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Extension 2.0.0 is too old for daemon 3.4.0.' }),
+      );
+    });
+
+    it('still uses the generic message when a healthy connection drops', () => {
+      const ws = mockWs();
+      const conn = mockConn(ws);
+      const reject = vi.fn();
+      conn.inflight.set('req-1', { resolve: vi.fn(), reject });
+
+      matchmaker.addConnection(ws, conn);
+      matchmaker.removeConnection(ws);
+
+      expect(reject).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Extension disconnected' }),
+      );
     });
   });
 
@@ -216,6 +249,170 @@ describe('Matchmaker', () => {
 
       expect(matchmaker.poolSize).toBe(0);
       expect(ws.close).toHaveBeenCalled();
+    });
+  });
+
+  describe('version gating', () => {
+    it('does not hand out a connection whose version was rejected', () => {
+      const ws = mockWs();
+      const conn = mockConn(ws, 'dev');
+      conn.versionStatus = 'rejected';
+      conn.versionError = 'nope';
+      matchmaker.addConnection(ws, conn);
+
+      expect(matchmaker.getConnectionForProfile('dev')).toBeNull();
+    });
+
+    it('does not hand out a connection whose handshake has not landed yet', () => {
+      const ws = mockWs();
+      const conn = mockConn(ws, 'dev');
+      conn.versionStatus = 'pending';
+      matchmaker.addConnection(ws, conn);
+
+      expect(matchmaker.getConnectionForProfile('dev')).toBeNull();
+    });
+
+    it('hands out a connection with a patch-level warning', () => {
+      const ws = mockWs();
+      const conn = mockConn(ws, 'dev');
+      conn.versionStatus = 'warn';
+      conn.versionError = 'patch skew';
+      matchmaker.addConnection(ws, conn);
+
+      expect(matchmaker.getConnectionForProfile('dev')).toBe(conn);
+    });
+
+    it('gates the unmanaged slot the same way', () => {
+      const ws = mockWs();
+      const conn = mockConn(ws, null);
+      conn.versionStatus = 'rejected';
+      matchmaker.addConnection(ws, conn);
+
+      expect(matchmaker.getConnectionForProfile(null)).toBeNull();
+    });
+  });
+
+  describe('failPendingMatches', () => {
+    it('rejects a waiting match with the given error instead of timing out', async () => {
+      const promise = matchmaker.requestMatch('dev', 60000);
+      const failed = matchmaker.failPendingMatches('dev', new Error('version mismatch'));
+
+      expect(failed).toBe(1);
+      await expect(promise).rejects.toThrow('version mismatch');
+    });
+
+    it('leaves matches for other profiles queued', async () => {
+      const other = matchmaker.requestMatch('staging', 60000);
+      matchmaker.requestMatch('dev', 60000).catch(() => {});
+
+      expect(matchmaker.failPendingMatches('dev', new Error('boom'))).toBe(1);
+
+      const ws = mockWs();
+      matchmaker.addConnection(ws, mockConn(ws, 'staging'));
+      await expect(other).resolves.toBeDefined();
+    });
+
+    it('returns 0 when nothing is waiting', () => {
+      expect(matchmaker.failPendingMatches('dev', new Error('boom'))).toBe(0);
+    });
+
+    it('clears the pending timeout so shutdown does not double-reject', async () => {
+      const promise = matchmaker.requestMatch('dev', 60000);
+      matchmaker.failPendingMatches('dev', new Error('version mismatch'));
+      await expect(promise).rejects.toThrow('version mismatch');
+
+      matchmaker.shutdown();
+      // No unhandled rejection, and the queue is empty.
+      expect(matchmaker.failPendingMatches('dev', new Error('again'))).toBe(0);
+    });
+  });
+
+  describe('recorded version rejection', () => {
+    it('fails a later requestMatch immediately rather than waiting', async () => {
+      matchmaker.recordVersionRejection({
+        profile: 'dev',
+        version: '2.9.0',
+        message: 'Extension version 2.9.0 is not compatible',
+      });
+
+      await expect(matchmaker.requestMatch('dev', 60000)).rejects.toThrow(
+        'Extension version 2.9.0 is not compatible',
+      );
+    });
+
+    it('does not leak across profiles', async () => {
+      matchmaker.recordVersionRejection({
+        profile: 'dev',
+        version: '2.9.0',
+        message: 'bad dev',
+      });
+
+      const ws = mockWs();
+      matchmaker.addConnection(ws, mockConn(ws, 'staging'));
+      await expect(matchmaker.requestMatch('staging', 60000)).resolves.toBeDefined();
+    });
+
+    it('does not lock out a healthy connection already serving the same slot', async () => {
+      // Two browsers share the unmanaged slot. The first is fine; the second
+      // runs a stale extension and records a rejection against that same slot.
+      // The rejection is keyed by slot, not by socket, so checking it before
+      // the pool would refuse every later match against a browser that works.
+      const ws = mockWs();
+      matchmaker.addConnection(ws, mockConn(ws, null));
+      matchmaker.recordVersionRejection({
+        profile: null,
+        version: '2.9.0',
+        message: 'Extension version 2.9.0 is not compatible',
+      });
+
+      await expect(matchmaker.requestMatch(null, 60000)).resolves.toBeDefined();
+    });
+
+    it('still fails fast once the healthy connection is gone', async () => {
+      const ws = mockWs();
+      matchmaker.addConnection(ws, mockConn(ws, null));
+      matchmaker.recordVersionRejection({
+        profile: null,
+        version: '2.9.0',
+        message: 'Extension version 2.9.0 is not compatible',
+      });
+      matchmaker.removeConnection(ws);
+
+      await expect(matchmaker.requestMatch(null, 60000)).rejects.toThrow(
+        'Extension version 2.9.0 is not compatible',
+      );
+    });
+
+    it('is cleared by a healthy handshake for the same profile', async () => {
+      matchmaker.recordVersionRejection({ profile: 'dev', version: '2.9.0', message: 'bad' });
+      matchmaker.clearVersionRejection('dev');
+
+      const ws = mockWs();
+      matchmaker.addConnection(ws, mockConn(ws, 'dev'));
+      await expect(matchmaker.requestMatch('dev', 60000)).resolves.toBeDefined();
+    });
+
+    it('records the unmanaged slot under the null profile', async () => {
+      matchmaker.recordVersionRejection({ profile: null, version: '2.9.0', message: 'bad wild' });
+      await expect(matchmaker.requestMatch(null, 60000)).rejects.toThrow('bad wild');
+    });
+
+    it('lastVersionRejection reports the unmanaged slot', () => {
+      matchmaker.recordVersionRejection({ profile: null, version: '2.9.0', message: 'bad wild' });
+      expect(matchmaker.lastVersionRejection?.message).toBe('bad wild');
+    });
+
+    it('lastVersionRejection does not leak a managed profile rejection', () => {
+      // A rejection on profile 'dev' must never surface to a session that is
+      // not bound to 'dev'. session_ack is emitted before any profile binding.
+      matchmaker.recordVersionRejection({ profile: 'dev', version: '2.9.0', message: 'bad dev' });
+      expect(matchmaker.lastVersionRejection).toBeNull();
+    });
+
+    it('shutdown clears recorded rejections', async () => {
+      matchmaker.recordVersionRejection({ profile: 'dev', version: '2.9.0', message: 'bad' });
+      matchmaker.shutdown();
+      expect(matchmaker.getVersionRejection('dev')).toBeNull();
     });
   });
 });

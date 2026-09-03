@@ -3,19 +3,45 @@ import net from 'net';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { IPCServer } from '../src/ipc';
+import { IPCServer, type IPCServerMeta } from '../src/ipc';
 import { SessionRegistry } from '../src/session';
 import { RequestScheduler } from '../src/scheduler';
 import { DaemonExperimentRegistry } from '../src/experiments/index';
 import { ProfileRegistry } from '../src/profiles/registry';
 import type { ExtensionBridge } from '../src/extension-bridge';
+import { isExtensionCached } from '../src/profiles/extension-source';
+
+// spawnProfile calls spawnChromium for real. The pull-error guard currently
+// throws before it is reached, but a regression that removed the guard would
+// otherwise launch a real browser from the test suite and write the real PID
+// log. Stub it so the failure mode is a red test, not a window.
+vi.mock('../src/profiles/chrome', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/profiles/chrome')>();
+  return {
+    ...actual,
+    spawnChromium: vi.fn(() => ({ pid: 1234, on: vi.fn(), unref: vi.fn() })),
+    // Also stubbed: the real one appends the fake pid to the real PID log.
+    appendPidLog: vi.fn(),
+  };
+});
+
+vi.mock('../src/profiles/extension-source', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/profiles/extension-source')>();
+  return { ...actual, isExtensionCached: vi.fn().mockReturnValue(true) };
+});
 
 function mockBridge(): ExtensionBridge {
+  // Real (if minimal) version-rejection bookkeeping so tests can exercise the
+  // recordVersionRejection -> requestMatch fast-fail path end to end, the way
+  // the real Matchmaker does it (daemon/src/profiles/matchmaker.ts).
+  const versionRejections = new Map<string, { profile: string | null; version: string | null; message: string }>();
+
   return {
     sendCmd: vi.fn().mockResolvedValue({ success: true }),
     connected: true,
     browser: 'chrome',
     buildTime: '2026-01-01T00:00:00Z',
+    extensionVersionError: null,
     notifyClientId: vi.fn(),
     onReconnect: null,
     onTabInfoUpdate: null,
@@ -26,7 +52,14 @@ function mockBridge(): ExtensionBridge {
       getConnectionForProfile: vi.fn().mockReturnValue(null),
       enqueueBootstrap: vi.fn(async (fn: () => Promise<void>) => { await fn(); }),
       pendingSpawns: new Set<string>(),
-      requestMatch: vi.fn().mockResolvedValue({ profile: 'x' }),
+      requestMatch: vi.fn(async (profile: string | null) => {
+        const rejection = versionRejections.get(profile ?? '');
+        if (rejection) throw new Error(rejection.message);
+        return { profile: 'x' };
+      }),
+      recordVersionRejection: vi.fn((rejection: { profile: string | null; version: string | null; message: string }) => {
+        versionRejections.set(rejection.profile ?? '', rejection);
+      }),
     },
   } as any;
 }
@@ -139,6 +172,35 @@ describe('IPCServer', () => {
 
     expect(response.type).toBe('session_ack');
     expect(response.extensionConnected).toBe(true);
+
+    client.end();
+  });
+
+  it('reports extensionVersionError on session_ack when set', async () => {
+    (bridge as any).extensionVersionError =
+      'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'sess-version-check' });
+    const response = await readLine(client);
+
+    expect(response.type).toBe('session_ack');
+    expect(response.extensionVersionError).toContain('not compatible');
+
+    client.end();
+  });
+
+  it('reports null extensionVersionError when no rejection is recorded', async () => {
+    (bridge as any).extensionVersionError = null;
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'sess-version-ok' });
+    const response = await readLine(client);
+
+    expect(response.type).toBe('session_ack');
+    expect(response.extensionVersionError).toBeNull();
 
     client.end();
   });
@@ -760,6 +822,36 @@ describe('IPCServer', () => {
       client.end();
     });
 
+    it('propagates a matchmaker version rejection as a named profiles.connect error', async () => {
+      // The whole point of the item: a named error now, not a 45s timeout.
+      // Scope note: mockBridge()'s matchmaker stub supplies the fast-fail, so
+      // what this locks is the IPC path — profiles.connect gets past the
+      // "Profile not found" guard, reaches requestMatch, and surfaces the
+      // rejection instead of swallowing it. The fast-fail itself is locked in
+      // tests/profiles/matchmaker.test.ts.
+      await ipc.start();
+      profileRegistry.create('dev');
+      (bridge as any).matchmaker.getConnectionForProfile.mockReturnValue({ profile: 'dev' });
+      (bridge as any).matchmaker.recordVersionRejection({
+        profile: 'dev',
+        version: '2.9.0',
+        message: 'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.',
+      });
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'version-rejected' });
+      await readLine(client);
+
+      const start = Date.now();
+      writeLine(client, { jsonrpc: '2.0', id: 'c-verfail', method: 'profiles.connect', params: { profile: 'dev' } });
+      const res = await readLine(client);
+
+      expect(res.error).toBeDefined();
+      expect(res.error.message).toContain('not compatible');
+      expect(Date.now() - start).toBeLessThan(5000);
+      client.end();
+    });
+
     it('does NOT kill a user-owned Chromium when the last session disconnects', async () => {
       await ipc.start();
       profileRegistry.create('dev');
@@ -879,6 +971,81 @@ describe('IPCServer', () => {
         connected: false,
       });
       client.end();
+    });
+  });
+
+  describe('extension pull failure', () => {
+    function makeIpcServer(metaOverrides: Partial<IPCServerMeta> = {}): IPCServer {
+      return new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry, {
+        port: 5555,
+        version: '9.9.9-test',
+        ...metaOverrides,
+      });
+    }
+
+    async function callProfileMethod(
+      sessionId: string,
+      method: string,
+      params: Record<string, unknown>,
+      server: IPCServer,
+    ): Promise<any> {
+      await server.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId });
+      await readLine(client);
+
+      writeLine(client, { jsonrpc: '2.0', id: 'req-1', method, params });
+      const res = await readLine(client);
+      client.end();
+      if (res.error) throw new Error(res.error.message);
+      return res.result;
+    }
+
+    beforeEach(() => {
+      profileRegistry.create('dev');
+      vi.mocked(isExtensionCached).mockReturnValue(true);
+    });
+
+    it('fails profiles.connect with the pull error when the extension is not cached', async () => {
+      ipc = makeIpcServer({
+        extensionPullError: 'getaddrinfo ENOTFOUND api.github.com',
+      });
+      vi.mocked(isExtensionCached).mockReturnValue(false);
+
+      await expect(
+        callProfileMethod('sess-1', 'profiles.connect', { profile: 'dev' }, ipc),
+      ).rejects.toThrow(/could not download the browser extension/i);
+      // The guard must throw OUTSIDE the bootstrap queue, or a doomed spawn
+      // serializes behind it. The mock runs its callback and propagates the
+      // throw, so without this the ordering is untested.
+      expect((bridge as any).matchmaker.enqueueBootstrap).not.toHaveBeenCalled();
+    });
+
+    it('names the underlying pull error so the user can act on it', async () => {
+      ipc = makeIpcServer({
+        extensionPullError: 'getaddrinfo ENOTFOUND api.github.com',
+      });
+      vi.mocked(isExtensionCached).mockReturnValue(false);
+
+      await expect(
+        callProfileMethod('sess-1', 'profiles.connect', { profile: 'dev' }, ipc),
+      ).rejects.toThrow(/ENOTFOUND api\.github\.com/);
+      expect((bridge as any).matchmaker.enqueueBootstrap).not.toHaveBeenCalled();
+    });
+
+    it('spawns normally when the extension is cached despite an earlier pull error', async () => {
+      ipc = makeIpcServer({
+        extensionPullError: 'getaddrinfo ENOTFOUND api.github.com',
+      });
+      vi.mocked(isExtensionCached).mockReturnValue(true);
+      // Skip the real bootstrap queue (would spawn a real Chromium); the
+      // point of this test is only that the pull-error guard doesn't fire.
+      (bridge as any).matchmaker.enqueueBootstrap = vi.fn().mockResolvedValue(undefined);
+
+      // A stale-but-present cache is usable; the pull failure is not fatal —
+      // the guard is a no-op and the connect proceeds to a normal match.
+      const result = await callProfileMethod('sess-1', 'profiles.connect', { profile: 'dev' }, ipc);
+      expect(result.success).toBe(true);
     });
   });
 });

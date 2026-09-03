@@ -5,8 +5,12 @@
  * Accepts connections from MCP servers over a Unix domain socket.
  * Protocol:
  *   1. MCP server sends: { type: "session_register", sessionId: "..." }\n
- *   2. Daemon responds: { type: "session_ack", browser: "...", buildTimestamp: "..." }\n
+ *   2. Daemon responds: { type: "session_ack", browser: "...", buildTimestamp: "...",
+ *                          extensionVersionError: string | null }\n
  *      or { type: "session_reject", reason: "..." }\n
+ *      `extensionVersionError` is null whenever no extension has been rejected for a
+ *      version mismatch, which is the normal case. It is only a string while the
+ *      unmanaged slot is holding a rejection.
  *   3. Post-handshake: NDJSON (newline-delimited JSON-RPC 2.0) for tool calls
  *
  * @module ipc
@@ -122,6 +126,10 @@ class IPCServer {
                                 // profile-bound at ack time; a later profiles.connect success
                                 // is itself proof of a live extension for that slot.
                                 extensionConnected: this.bridge.matchmaker.getConnectionForProfile(null) !== null,
+                                // A version-rejected extension. Managed sessions learn via the
+                                // profiles.connect rejection; an unmanaged session has no such
+                                // round trip, so the ack is the only place to tell it.
+                                extensionVersionError: this.bridge.extensionVersionError ?? null,
                             });
                             handshakeComplete = true;
                             debugLog(`Session registered: "${sessionId}"`);
@@ -423,6 +431,15 @@ class IPCServer {
     async spawnProfile(profile, owner) {
         const matchmaker = this.bridge.matchmaker;
         const registry = this.profileRegistry;
+        // Refuse before entering the bootstrap queue. Launching Chromium with a
+        // --load-extension pointing at a directory that was never downloaded
+        // produces a browser that starts fine and never connects — i.e. the exact
+        // 45s match timeout this check exists to replace.
+        if (this.meta.extensionPullError && !(0, extension_source_1.isExtensionCached)()) {
+            throw new Error(`SuperSurf could not download the browser extension, so profile '${profile}' cannot ` +
+                `start: ${this.meta.extensionPullError}. Check your network connection and restart ` +
+                'the daemon with `npx supersurf daemon restart`.');
+        }
         await matchmaker.enqueueBootstrap(async () => {
             if (registry.isRunning(profile))
                 return; // double-check after queue

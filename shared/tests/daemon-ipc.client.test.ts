@@ -408,4 +408,41 @@ describe('DaemonClient', () => {
       await client.stop();
     });
   });
+
+  describe('extensionVersionError', () => {
+    it('parses extensionVersionError from session_ack', async () => {
+      mockDaemon = createMockDaemon(sockPath, {
+        ackResponse: {
+          type: 'session_ack',
+          browser: 'chrome',
+          version: '3.4.0',
+          extensionVersionError: 'Extension version 2.9.0 is not compatible.',
+        },
+      });
+      await new Promise(r => mockDaemon!.on('listening', r));
+
+      const client = new DaemonClient(sockPath, 'test');
+      await client.start();
+      expect(client.extensionVersionError).toBe('Extension version 2.9.0 is not compatible.');
+
+      await client.stop();
+    });
+
+    it('defaults extensionVersionError to null when absent', async () => {
+      mockDaemon = createMockDaemon(sockPath, {
+        ackResponse: {
+          type: 'session_ack',
+          browser: 'chrome',
+          version: '3.4.0',
+        },
+      });
+      await new Promise(r => mockDaemon!.on('listening', r));
+
+      const client = new DaemonClient(sockPath, 'test');
+      await client.start();
+      expect(client.extensionVersionError).toBeNull();
+
+      await client.stop();
+    });
+  });
 });

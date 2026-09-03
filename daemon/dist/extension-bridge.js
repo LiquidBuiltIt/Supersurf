@@ -20,6 +20,7 @@ const http_1 = __importDefault(require("http"));
 const ws_1 = require("ws");
 const matchmaker_1 = require("./profiles/matchmaker");
 const keep_browser_1 = require("./profiles/keep-browser");
+const extension_version_1 = require("./profiles/extension-version");
 const registration_page_1 = require("./profiles/registration-page");
 const debugLog = (...args) => {
     const logger = global.DAEMON_LOGGER;
@@ -28,6 +29,13 @@ const debugLog = (...args) => {
     else if (global.DAEMON_DEBUG)
         console.error('[WS]', ...args);
 };
+/**
+ * How long a pooled connection may stay unchecked before it is allowed through
+ * anyway. The Matchmaker will not hand out a 'pending' connection, so without
+ * this deadline a client that connects and never handshakes would wedge its
+ * slot for the full match window. Fails open by design.
+ */
+const HANDSHAKE_DEADLINE_MS = 5000;
 /**
  * WebSocket server that bridges the daemon to Chrome extension(s).
  * Routes connections via the Matchmaker pool; unmanaged connections (no profile) are supported.
@@ -40,9 +48,11 @@ class ExtensionBridge {
     /** Connection pool and profile-based routing. */
     matchmaker;
     onTabInfoUpdate = null;
-    constructor(port = 5555, host = '127.0.0.1') {
+    daemonVersion;
+    constructor(port = 5555, host = '127.0.0.1', daemonVersion = 'unknown') {
         this.port = port;
         this.host = host;
+        this.daemonVersion = daemonVersion;
         this.matchmaker = new matchmaker_1.Matchmaker();
     }
     /** Browser name from the first available connection (backwards compat). */
@@ -64,6 +74,14 @@ class ExtensionBridge {
     /** True if at least one extension is connected. */
     get connected() {
         return this.matchmaker.hasConnections;
+    }
+    /**
+     * The most recent extension version rejection, or null. Rides session_ack so
+     * an agent calling `connect` without a profile learns immediately, rather
+     * than discovering it as a silent absence of browser tools.
+     */
+    get extensionVersionError() {
+        return this.matchmaker.lastVersionRejection?.message ?? null;
     }
     /** Spin up the HTTP + WebSocket server and begin accepting connections. */
     async start() {
@@ -111,6 +129,9 @@ class ExtensionBridge {
                     pingInterval: null,
                     inflight: new Map(),
                     keepBrowserOnSessionEnd: false,
+                    version: null,
+                    versionStatus: 'pending',
+                    versionError: null,
                 };
                 // Keep-alive ping every 10s
                 conn.pingInterval = setInterval(() => {
@@ -118,16 +139,35 @@ class ExtensionBridge {
                         ws.ping();
                     }
                 }, 10000);
+                // Bounded wait for the handshake. A connection is pooled before its
+                // handshake arrives, and the Matchmaker will not hand out an unchecked
+                // one — so a silent client must not be able to hold its slot forever.
+                const handshakeDeadline = setTimeout(() => {
+                    if (conn.versionStatus !== 'pending')
+                        return;
+                    const slot = conn.profile || 'unmanaged';
+                    debugLog(`No handshake within ${HANDSHAKE_DEADLINE_MS}ms (${slot}) — allowing connection unchecked`);
+                    conn.versionStatus = 'warn';
+                    conn.versionError =
+                        'The connected extension never sent a handshake, so its version was not checked.';
+                    console.error(`SuperSurf: extension version guard inactive for "${slot}" — the connected extension ` +
+                        `never sent a handshake within ${HANDSHAKE_DEADLINE_MS}ms, so its version was not checked.`);
+                    this.matchmaker.tryResolvePendingMatches();
+                }, HANDSHAKE_DEADLINE_MS);
                 // Add to pool
                 this.matchmaker.addConnection(ws, conn);
                 debugLog('Extension connected');
-                ws.on('message', (data) => this.handleMessage(ws, conn, data));
+                ws.on('message', (data) => this.handleMessage(ws, conn, data, handshakeDeadline));
                 ws.on('pong', () => debugLog('Pong received'));
                 ws.on('close', () => {
                     debugLog('Extension disconnected');
+                    clearTimeout(handshakeDeadline);
                     this.matchmaker.removeConnection(ws);
                 });
-                ws.on('error', (error) => debugLog('WebSocket error:', error));
+                ws.on('error', (error) => {
+                    clearTimeout(handshakeDeadline);
+                    debugLog('WebSocket error:', error);
+                });
             });
             this.httpServer.on('error', (error) => {
                 debugLog('HTTP Server error:', error);
@@ -140,7 +180,7 @@ class ExtensionBridge {
         });
     }
     /** Route incoming WebSocket messages for a specific connection. */
-    handleMessage(ws, conn, data) {
+    handleMessage(ws, conn, data, handshakeDeadline) {
         try {
             const message = JSON.parse(data.toString());
             // JSON-RPC response — correlate with connection's inflight map
@@ -165,12 +205,36 @@ class ExtensionBridge {
             // Handshake
             if (message.type === 'handshake') {
                 debugLog('Handshake received:', message);
+                clearTimeout(handshakeDeadline);
                 conn.browser = message.browser || 'chrome';
                 conn.buildTimestamp = message.buildTimestamp || null;
                 (0, keep_browser_1.applyKeepBrowserPreference)(conn, message.keepBrowserOnSessionEnd);
+                // Version check before anything else touches the pool. On rejection
+                // this fails any waiting agent by name and closes the socket, so the
+                // profile update below must not run — it would re-enter the pending
+                // match resolver for a connection that is already unusable.
+                const verdict = (0, extension_version_1.applyHandshakeVersion)(conn, message, this.daemonVersion, this.matchmaker);
+                if (verdict.status === 'rejected') {
+                    debugLog(`Extension rejected: ${verdict.message}`);
+                    return;
+                }
+                if (verdict.status === 'warn' && verdict.message) {
+                    debugLog(`Extension version warning: ${verdict.message}`);
+                    if (!verdict.guardActive) {
+                        // The version check did not run at all for this connection. A guard
+                        // that is silently off reads as a guard that passed, so this goes to
+                        // stderr — the surface a user actually sees from `supersurf daemon`.
+                        console.error(`SuperSurf: extension version guard inactive — ${verdict.message}`);
+                    }
+                }
                 // Profile field in handshake (subsequent launches)
-                if (message.profile) {
+                if (typeof message.profile === 'string' && message.profile) {
                     this.matchmaker.updateProfile(ws, message.profile);
+                }
+                else {
+                    // The version check may have promoted this connection out of
+                    // 'pending'; give any queued match a chance at it.
+                    this.matchmaker.tryResolvePendingMatches();
                 }
                 return;
             }

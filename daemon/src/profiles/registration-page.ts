@@ -15,19 +15,73 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Build the registration page. Posts `register-profile` to the extension,
- * then reveals a success state. The tab is left open for the user/agent.
+ * Escape text for safe interpolation into a single-quoted JS string literal
+ * inside an inline `<script>` block. `<` is escaped too, so a name containing
+ * `</script>` cannot close the block early.
+ */
+function escapeJs(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/</g, '\\x3C');
+}
+
+/**
+ * The page's inline script, without its `<script>` wrapper.
+ *
+ * Exported so the tests can execute it against a stub DOM instead of only
+ * grepping the rendered HTML for substrings. Its only free identifiers are
+ * `window`, `document`, `setTimeout` and `clearTimeout`.
+ */
+export function registrationScript(profileName: string): string {
+  const safeJs = escapeJs(profileName);
+
+  return `(function () {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        document.body.classList.add('is-failed');
+        document.title = 'Registration failed — ${safeJs}';
+      }, 15000);
+
+      window.addEventListener('message', function (event) {
+        // \`event.source === window\` already proves the message came from a
+        // script running in this very window, so an origin comparison adds no
+        // security — it only risks rejecting every valid ack if Chrome does
+        // not report the page's own origin for an isolated-world content script.
+        if (event.source !== window) return;
+        var d = event.data;
+        if (!d || d.__supersurf !== true || d.action !== 'register-profile-ack') return;
+        if (d.profile !== '${safeJs}') return;
+        // Deliberately not guarded by \`settled\`: an ack that lands after the
+        // timeout still means the profile bound, so it clears the failure.
+        settled = true;
+        clearTimeout(timer);
+        document.body.classList.remove('is-failed');
+        document.body.classList.add('is-ready');
+        document.title = 'Profile ready — ${safeJs}';
+      });
+
+      window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${safeJs}' }, '*');
+    })();`;
+}
+
+/**
+ * Build the registration page. Posts `register-profile` to the extension and
+ * waits for the content script's ack before claiming success; without an ack
+ * within 15s it shows a failure state (no response, or the write failed).
+ * The tab is left open for the user/agent.
  */
 export function registrationHtml(profileName: string): string {
   const safe = escapeHtml(profileName);
-  const safeJs = profileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Profile ready — ${safe}</title>
+  <title>Registering profile — ${safe}</title>
   <style>
     :root {
       --ink: #15202b;
@@ -110,6 +164,16 @@ export function registrationHtml(profileName: string): string {
     }
     body.is-ready .pending { display: none; }
     body.is-ready .ready { display: block; }
+    .failed { display: none; }
+    .failed .mark {
+      border-color: #b4443a;
+      color: #b4443a;
+      animation: pop 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+    .failed h1 { color: #b4443a; }
+    body.is-failed .pending { display: none; }
+    body.is-failed .failed { display: block; }
+    body.is-ready .failed { display: none; }
     @keyframes pulse {
       0%, 100% { opacity: 0.55; }
       50% { opacity: 1; }
@@ -141,11 +205,22 @@ export function registrationHtml(profileName: string): string {
       <p class="profile">Registered as <strong>${safe}</strong>.</p>
       <p>You can keep this tab open or close it manually. SuperSurf will stay connected either way.</p>
     </section>
+    <section class="failed" aria-live="polite">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <path d="M12 7v6" /><path d="M12 16.5v.5" />
+        </svg>
+      </div>
+      <h1>Registration failed</h1>
+      <p class="profile">Could not bind <strong>${safe}</strong> to this browser.</p>
+      <p>The SuperSurf extension either did not respond or could not save the binding.
+      Check that it is installed and enabled at chrome://extensions, then reload this page.
+      If it is enabled, restart the daemon with
+      <strong>npx supersurf daemon restart</strong> and open this page again.</p>
+    </section>
   </main>
   <script>
-    window.postMessage({ __supersurf: true, action: 'register-profile', profile: '${safeJs}' }, '*');
-    document.body.classList.add('is-ready');
-    document.title = 'Profile ready — ${safeJs}';
+    ${registrationScript(profileName)}
   </script>
 </body>
 </html>`;

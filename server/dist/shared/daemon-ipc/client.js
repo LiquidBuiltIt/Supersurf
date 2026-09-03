@@ -33,6 +33,7 @@ class DaemonClient {
     _configDrift = false;
     _version = null;
     _extensionConnected = false;
+    _extensionVersionError = null;
     dialogEventBuffer = [];
     onReconnect = null;
     onTabInfoUpdate = null;
@@ -57,6 +58,10 @@ class DaemonClient {
      *  False for pre-upgrade daemons that omit the field. */
     get extensionConnected() {
         return this._extensionConnected;
+    }
+    /** The daemon's reported extension version rejection, or null. */
+    get extensionVersionError() {
+        return this._extensionVersionError;
     }
     /** True when the daemon has detected a config file change since its startup. */
     isConfigDrifted() {
@@ -110,6 +115,8 @@ class DaemonClient {
                                 this._configDrift = true;
                             this._version = msg.version || null;
                             this._extensionConnected = msg.extensionConnected === true;
+                            this._extensionVersionError =
+                                typeof msg.extensionVersionError === 'string' ? msg.extensionVersionError : null;
                             log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
                             resolve();
                             continue;

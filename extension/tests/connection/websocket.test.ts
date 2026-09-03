@@ -565,6 +565,9 @@ describe('WebSocketConnection', () => {
       const sent = JSON.parse((ws.socket!.send as any).mock.calls[0][0]);
       expect(sent.type).toBe('handshake');
       expect(sent.profile).toBe('scraper');
+      // The version guard depends on this field on EVERY branch, not just the
+      // no-profile one the dedicated test below covers.
+      expect(sent.version).toBe(mockChrome.runtime.getManifest().version);
     });
 
     it('omits profile in handshake when storage is empty', async () => {
@@ -587,6 +590,20 @@ describe('WebSocketConnection', () => {
       const sent = JSON.parse((ws.socket!.send as any).mock.calls[0][0]);
       expect(sent.type).toBe('handshake');
       expect(sent.profile).toBeUndefined();
+    });
+
+    it('always includes the manifest version in the handshake', async () => {
+      // The daemon's version guard depends entirely on this field. Nothing
+      // else sends it, so removing it silently disables the guard.
+      mockChrome.storage.local.get.mockResolvedValueOnce({});
+
+      await (ws as any)._handleOpen();
+      await new Promise(r => setTimeout(r, 10));
+
+      const sent = JSON.parse((ws.socket!.send as any).mock.calls[0][0]);
+      expect(sent.type).toBe('handshake');
+      // Matches the mock manifest version in extension/tests/__mocks__/chrome.ts.
+      expect(sent.version).toBe('0.1.0');
     });
   });
 

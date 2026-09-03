@@ -41,7 +41,7 @@ import { RequestScheduler } from './scheduler';
 import { IPCServer } from './ipc';
 import { DaemonExperimentRegistry } from './experiments/index';
 import { ProfileRegistry } from './profiles/registry';
-import { ensureExtension } from './profiles/extension-source';
+import { ensureExtension, isExtensionCached, getExtensionDir } from './profiles/extension-source';
 import { replayPidLog, findOrphanPids, killOrphanPids, truncatePidLog, appendPidLog } from './profiles/chrome';
 
 const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
@@ -425,8 +425,10 @@ async function main(): Promise<void> {
   // Experiment defaults come from the resolved config snapshot (file + env merged).
   const expSnapshot = cfg.get().experiments;
 
+  const version = getVersion();
+
   // Initialize components
-  const bridge = new ExtensionBridge(port, '127.0.0.1');
+  const bridge = new ExtensionBridge(port, '127.0.0.1', version);
   const sessions = new SessionRegistry();
   const scheduler = new RequestScheduler(bridge, sessions);
   const experiments = new DaemonExperimentRegistry({ defaults: expSnapshot });
@@ -441,11 +443,31 @@ async function main(): Promise<void> {
   // Ensure ~/.supersurf/daemon/ exists
   fs.mkdirSync(path.join(SUPERSURF_DIR, 'daemon'), { recursive: true });
 
-  // Pull extension from GitHub if not cached
+  // Pull extension from GitHub if not cached. A failure is not fatal at
+  // startup — a cached copy may still be usable, and unmanaged (bring-your-own
+  // Chromium) sessions never touch this directory. But it IS fatal to a managed
+  // profile spawn, so the reason is carried forward to spawnProfile rather than
+  // being swallowed into daemon.log, where it only ever resurfaced as a
+  // 45s match timeout with no cause attached.
+  let extensionPullError: string | null = null;
   try {
     await ensureExtension();
   } catch (err: any) {
-    logger.log(`[Daemon] Warning: Failed to pull extension: ${err.message}`);
+    extensionPullError = err?.message ? String(err.message) : String(err);
+    logger.log(`[Daemon] Failed to pull extension: ${extensionPullError}`);
+    const cached = isExtensionCached();
+    // Note on reach: `daemon start` re-spawns itself via daemonize() with
+    // stdio 'ignore', so this line is only visible on the foreground path.
+    // Under the server it lands in daemon.startup.log, which is read only when
+    // the daemon dies — and a pull failure is not fatal. The throw in
+    // spawnProfile is therefore what actually reaches a human; this is the
+    // cheap second surface, not the primary one.
+    console.error(
+      `SuperSurf: could not download the browser extension — ${extensionPullError}\n` +
+      (cached
+        ? `  Using the cached copy at ${getExtensionDir()}. It may be out of date.`
+        : `  No cached copy at ${getExtensionDir()}. Managed profiles cannot start until this succeeds.`),
+    );
   }
 
   // Initialize profile registry
@@ -460,12 +482,11 @@ async function main(): Promise<void> {
   }
   truncatePidLog();
 
-  const version = getVersion();
   const startupOpts = {
     disableGpu: cfg.get().profiles.startup_opts.disable_gpu,
     chromePath: cfg.get().profiles.chrome_path,
   };
-  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version, startupOpts });
+  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version, startupOpts, extensionPullError });
 
   // Watch ~/.supersurf/config.json for post-startup edits. The daemon snapshots
   // config at startup and never hot-reloads — drift means the user's edits won't

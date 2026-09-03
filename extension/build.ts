@@ -66,9 +66,43 @@ function writeChangelogJson(): void {
   console.log(`  pages/changelog.json (${released.sections.length} released version(s))`);
 }
 
+/**
+ * Fail the build if the content script is not a classic, self-contained script.
+ *
+ * MV3 `content_scripts` are classic scripts — they cannot be ES modules and the
+ * manifest has no `"type": "module"` option for them. A single `import` or
+ * `export` in the compiled output makes Chrome refuse to parse the file, which
+ * silently disables everything the content script does: profile registration,
+ * console capture, and tech-stack detection. Nothing surfaces an error; the
+ * features just stop. Verified against Chromium 150 on 2026-09-02.
+ *
+ * tsc does not bundle, so this cannot be caught by type-checking — only by
+ * looking at what actually ships.
+ */
+function assertContentScriptIsClassic(): void {
+  const contentScript = path.join(DIST_DIR, 'content-script.js');
+  const source = fs.readFileSync(contentScript, 'utf8');
+  const offender = source
+    .split('\n')
+    .find((line) => /^\s*(import|export)\s/.test(line));
+
+  if (offender) {
+    throw new Error(
+      `dist/content-script.js contains a module statement: ${offender.trim()}\n` +
+      'MV3 content scripts must be classic, self-contained scripts. Chrome refuses ' +
+      'to parse the whole file otherwise, which silently kills profile registration, ' +
+      'console capture and tech-stack detection. Inline the dependency instead.',
+    );
+  }
+  console.log('  dist/content-script.js is a classic script');
+}
+
 console.log('Copying static assets to dist/:');
 const count = copyAssets(SRC_DIR);
 console.log(`\n${count} asset(s) copied.`);
+
+console.log('\nChecking content script:');
+assertContentScriptIsClassic();
 
 console.log('\nBundling changelog data:');
 writeChangelogJson();

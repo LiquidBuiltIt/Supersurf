@@ -24,6 +24,7 @@ export declare class DaemonClient implements IExtensionTransport {
     private _configDrift;
     private _version;
     private _extensionConnected;
+    private _extensionVersionError;
     private dialogEventBuffer;
     onReconnect: (() => void) | null;
     onTabInfoUpdate: ((tabInfo: any) => void) | null;
@@ -36,6 +37,8 @@ export declare class DaemonClient implements IExtensionTransport {
     /** Unmanaged-slot extension presence reported by the daemon on session_ack.
      *  False for pre-upgrade daemons that omit the field. */
     get extensionConnected(): boolean;
+    /** The daemon's reported extension version rejection, or null. */
+    get extensionVersionError(): string | null;
     /** True when the daemon has detected a config file change since its startup. */
     isConfigDrifted(): boolean;
     /** Drain and return buffered native-dialog events captured from prior responses. */

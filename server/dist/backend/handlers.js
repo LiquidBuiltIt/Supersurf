@@ -167,6 +167,39 @@ async function onConnect(mgr, args = {}, options = {}) {
                 isError: true,
             };
         }
+        // A version-rejected extension. Without this the session proceeds, the
+        // matchmaker refuses every slot, and the agent discovers the problem as a
+        // 50s profiles.connect timeout with no cause attached.
+        //
+        // Two guards keep this scoped. `session_ack` is emitted before any profile
+        // binding exists, so its `extensionVersionError` can only describe the
+        // UNMANAGED slot — refusing a `connect profile='work'` because the user's
+        // everyday Chrome is out of date would blame a browser this session never
+        // touches. A managed connect is already covered: `profiles.connect` below
+        // fast-fails with the message scoped to that profile. And `extensionConnected`
+        // reports the unmanaged slot too, so a stale second extension that poisoned
+        // the slot must not refuse a session a healthy one is still serving.
+        const extensionVersionError = client.extensionVersionError;
+        if (extensionVersionError && !args.profile && !client.extensionConnected) {
+            await client.stop().catch(() => { });
+            mgr.state = 'passive';
+            // The generic catch-all records this; an early return has to do it too, or
+            // a later `status` renders a bare "Disabled" with no trace of the reason.
+            mgr.lastConnectError = extensionVersionError;
+            if (options.rawResult) {
+                return {
+                    success: false,
+                    error: 'extension_version_mismatch',
+                    message: extensionVersionError,
+                };
+            }
+            return {
+                content: [
+                    { type: 'text', text: `### Extension Version Mismatch\n\n${extensionVersionError}` },
+                ],
+                isError: true,
+            };
+        }
         mgr.extensionServer = client;
         // Handle extension reconnections — re-query the attached tab so its URL is
         // restored immediately, rather than waiting for the next navigation event.
