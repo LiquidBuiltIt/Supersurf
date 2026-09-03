@@ -52,8 +52,15 @@ function settle(frame: any): void {
   const entry = pending.get(frame.id);
   if (!entry) return;
   pending.delete(frame.id);
-  if (frame.ok) entry.resolve(frame.result);
-  else entry.reject(new Error(String(frame.error ?? 'command failed')));
+  if (frame.ok) { entry.resolve(frame.result); return; }
+  // THE tag site. This is the only place a tool failure becomes a throw inside
+  // the child, so tagging here is what lets the catch below tell an unwrap
+  // throw from the script's own `throw new Error(...)`. Non-enumerable so a
+  // script cannot see the tag on an error it catches and re-inspects.
+  const err = new Error(String(frame.error ?? 'command failed'));
+  Object.defineProperty(err, '__ssType', { value: frame.errorType, enumerable: false });
+  Object.defineProperty(err, '__ssPayload', { value: frame.errorPayload, enumerable: false });
+  entry.reject(err);
 }
 
 // ── Run ─────────────────────────────────────────────────────
@@ -91,7 +98,15 @@ async function start(init: any): Promise<void> {
     const result = await entry({ supersurf: ctx.supersurf, params: ctx.params, log: ctx.log });
     emitAndExit({ t: 'done', result: result === undefined ? null : result });
   } catch (e: any) {
-    emitAndExit({ t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? '') });
+    emitAndExit({
+      t: 'fail',
+      message: String(e?.message ?? e),
+      stack: String(e?.stack ?? ''),
+      // Untagged means the script threw on its own. The host defaults an absent
+      // type to `ScriptAssertion`; sending it explicitly keeps the frame honest.
+      type: e?.__ssType ?? 'ScriptAssertion',
+      payload: e?.__ssPayload,
+    });
   }
 }
 
@@ -121,8 +136,14 @@ process.stdin.on('data', (chunk: string) => {
 process.stdin.on('end', () => process.exit(0));
 
 process.on('uncaughtException', (e: any) => {
-  emitAndExit({ t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? '') });
+  emitAndExit({
+    t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? ''),
+    type: e?.__ssType ?? 'ScriptAssertion', payload: e?.__ssPayload,
+  });
 });
 process.on('unhandledRejection', (e: any) => {
-  emitAndExit({ t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? '') });
+  emitAndExit({
+    t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? ''),
+    type: e?.__ssType ?? 'ScriptAssertion', payload: e?.__ssPayload,
+  });
 });

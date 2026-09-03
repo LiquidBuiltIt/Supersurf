@@ -11,6 +11,7 @@ import {
   checkChildEntrySandboxing,
 } from '../src/security/sandbox/host';
 import type { PlaybookMeta } from '../src/security/meta';
+import { PlaybookCommandError } from '../src/playbooks/errors';
 
 let dir: string;
 beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-host-')); });
@@ -288,5 +289,135 @@ describe('runPlaybookScript — hash verification (TOCTOU)', () => {
     const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
     expect(res.ok).toBe(true);
     expect(res.result).toBe('fine');
+  });
+});
+
+describe('failure typing across the sandbox pipe', () => {
+  it('types a script own throw as ScriptAssertion and keeps the stack', async () => {
+    const { file, hash } = write(
+      'type-assert',
+      'export default async function () { throw new Error("confirmSend must be true"); }',
+    );
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('ScriptAssertion');
+    expect(res.error).toContain('confirmSend must be true');
+    expect(res.stack).toBeTruthy();
+  });
+
+  it('propagates a typed tool failure through the pipe instead of flattening it', async () => {
+    const { file, hash } = write(
+      'type-tool',
+      'export default async function ({ supersurf }) { await supersurf.click("#gone"); }',
+    );
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onLog: noLogs,
+      onCommand: async () => {
+        throw new PlaybookCommandError('Element not found: #gone', 'SelectorMiss', { selector: '#gone' });
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('SelectorMiss');
+    expect(res.payload).toMatchObject({ selector: '#gone' });
+  });
+
+  it('types the wall-clock kill as Timeout', async () => {
+    const { file, hash } = write('type-timeout', 'export default async function () { await new Promise(() => {}); }');
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs, timeoutMs: 400,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('Timeout');
+  });
+
+  it('types a hash mismatch as Refused', async () => {
+    const { file } = write('type-hash', 'export default async function () { return 1; }');
+    const res = await runPlaybookScript({
+      file, hash: 'wrong', params: {}, meta: META, onCommand: noCommands, onLog: noLogs,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('Refused');
+  });
+
+  it('stays ScriptAssertion when the script catches a tool failure and throws a different message', async () => {
+    const { file, hash } = write(
+      'catch-rethrow-different',
+      `export default async function ({ supersurf }) {
+  try { await supersurf.click("#gone"); }
+  catch (e) { throw new Error("my own assertion failed"); }
+}`,
+    );
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onLog: noLogs,
+      onCommand: async () => {
+        throw new PlaybookCommandError('Element not found: #gone', 'SelectorMiss', { selector: '#gone' });
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('ScriptAssertion');
+    expect(res.error).toContain('my own assertion failed');
+  });
+
+  it('returns ok with no type when the script catches a tool failure and continues', async () => {
+    const { file, hash } = write(
+      'catch-continue',
+      `export default async function ({ supersurf }) {
+  try { await supersurf.click("#gone"); } catch (e) { /* swallow */ }
+  return 'fine';
+}`,
+    );
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onLog: noLogs,
+      onCommand: async () => {
+        throw new PlaybookCommandError('Element not found: #gone', 'SelectorMiss', { selector: '#gone' });
+      },
+    });
+    expect(res.ok).toBe(true);
+    expect(res.type).toBeUndefined();
+    expect(res.result).toBe('fine');
+  });
+
+  it('uses the second failure type when the first is caught and a second is uncaught', async () => {
+    const { file, hash } = write(
+      'two-failures',
+      `export default async function ({ supersurf }) {
+  try { await supersurf.click("#gone"); } catch (e) { /* swallow the first */ }
+  await supersurf.click("#also-gone");
+}`,
+    );
+    let calls = 0;
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onLog: noLogs,
+      onCommand: async () => {
+        calls++;
+        if (calls === 1) throw new PlaybookCommandError('Element not found: #gone', 'SelectorMiss', { selector: '#gone' });
+        throw new PlaybookCommandError('Extension not connected', 'HarnessUnavailable', { component: 'extension' });
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('HarnessUnavailable');
+    expect(res.payload).toMatchObject({ component: 'extension' });
+  });
+
+  it('does not let a script forge its own failure type or payload', async () => {
+    // `wrap()` in context.ts only strips properties on the host-method-return
+    // path. A script that constructs and throws its OWN error never crosses
+    // that boundary, so any property it sets — including a forged
+    // __ssType/__ssPayload — reaches child.ts's catch intact. The host must
+    // still refuse to adopt it: nothing that isn't the host's own correlated
+    // record may become the result's type/payload.
+    const { file, hash } = write(
+      'forge',
+      `export default async function () {
+  const e = new Error('boom');
+  e.__ssType = 'HarnessUnavailable';
+  e.__ssPayload = { forged: true };
+  throw e;
+}`,
+    );
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('ScriptAssertion');
+    expect(res.payload).toBeUndefined();
   });
 });

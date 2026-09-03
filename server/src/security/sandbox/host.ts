@@ -28,6 +28,7 @@ import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import type { PlaybookMeta } from '../meta';
+import type { PlaybookErrorType, FailureAt } from '../../playbooks/errors';
 
 /** Everything a run needs. */
 export interface PlaybookRunOptions {
@@ -59,6 +60,14 @@ export interface PlaybookRunResult {
   ok: boolean;
   result?: unknown;      // the script's return value, present iff ok
   error?: string;        // present iff !ok
+  /**
+   * Which KIND of failure. Absent only on success. The runner writes this onto
+   * the run record, and it is what decides whether the failure is worth reading
+   * the page for — see `playbooks/errors.ts`.
+   */
+  type?: PlaybookErrorType;
+  /** Type-specific detail: `{ selector }`, `{ requestedUrl }`, `{ reason }`. */
+  payload?: Record<string, unknown>;
   stack?: string;
   durationMs: number;
 }
@@ -270,13 +279,17 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
 
   return (async (): Promise<PlaybookRunResult> => {
     const paramError = validateParams(opts.params, opts.meta);
-    if (paramError) return done({ ok: false, error: paramError });
+    if (paramError) return done({ ok: false, error: paramError, type: 'Refused', payload: { reason: 'params' } });
 
     let source: string;
     try {
       source = await fs.readFile(opts.file, 'utf8');
     } catch (e: any) {
-      return done({ ok: false, error: `could not read ${opts.file}: ${e?.message ?? String(e)}` });
+      return done({
+        ok: false,
+        error: `could not read ${opts.file}: ${e?.message ?? String(e)}`,
+        type: 'Refused', payload: { reason: 'unreadable' },
+      });
     }
 
     // The bytes that were statically analyzed and the bytes about to execute
@@ -291,6 +304,7 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
           + 'unvalidated bytes. An ordinary edit moves the file\'s mtime, so the next tool call re-validates '
           + 'it and this clears; if it does not clear, the content changed without the mtime changing and the '
           + 'cached record is stale.',
+        type: 'Refused', payload: { reason: 'hash-mismatch' },
       });
     }
 
@@ -298,11 +312,15 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
     try {
       entry = resolveChildEntry();
     } catch (e: any) {
-      return done({ ok: false, error: String(e?.message ?? e) });
+      return done({
+        ok: false,
+        error: String(e?.message ?? e),
+        type: 'HarnessUnavailable', payload: { component: 'sandbox-child' },
+      });
     }
 
     const sandboxError = checkChildEntrySandboxing(entry.entry, opts.onLog);
-    if (sandboxError) return done({ ok: false, error: sandboxError });
+    if (sandboxError) return done({ ok: false, error: sandboxError, type: 'Refused', payload: { reason: 'unsandboxed-child' } });
 
     const flags = permissionFlagsFor(process.version, entry.entry);
     const child = spawn(entry.command, [...flags, ...entry.argv], {
@@ -318,6 +336,33 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
       let settled = false;
       let stderr = '';
       let buffer = '';
+      let commandStep = 0;
+      /**
+       * The most recent CLASSIFIED command failure. `context.ts`'s vm-realm
+       * error rebuild (`wrap()`) is an isolation-posture boundary this module
+       * must not touch — it intentionally strips every property off a
+       * rethrown error except `.message`, so a tool failure the script does
+       * not catch reaches the `fail` frame as an untyped `ScriptAssertion`
+       * with only a message. This host-side memory is how the type survives
+       * anyway: correlate on that message, not on the error object identity
+       * the vm boundary already destroyed. Overwritten on every classified
+       * failure — the LAST one wins, matching how the fail frame can only
+       * ever report the failure that actually killed the run.
+       *
+       * This record — never anything read off a `fail` frame — is the ONLY
+       * source of a result's `type`/`payload`. See the `fail` handler below:
+       * `frame.type`/`frame.payload` are untrusted child input and must never
+       * be adopted directly.
+       *
+       * `handleCommand` below is dispatched with `void`, so with concurrent
+       * commands (e.g. a script awaiting `Promise.all([click(a), click(b)])`)
+       * this is completion-ordered, not necessarily the command that actually
+       * killed the run. That is safe: a mismatched message simply fails the
+       * correlation check in the `fail` handler and the result degrades to
+       * the untyped `ScriptAssertion` default rather than mislabeling a
+       * failure with the wrong type.
+       */
+      let lastCommandFailure: { type: PlaybookErrorType; payload: Record<string, unknown>; message: string } | undefined;
 
       const finish = (result: PlaybookRunResult) => {
         if (settled) return;
@@ -327,17 +372,38 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
         resolve(result);
       };
 
+      const limitMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       const timer = setTimeout(() => {
-        finish(done({ ok: false, error: `playbook timed out after ${opts.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms` }));
-      }, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+        finish(done({
+          ok: false,
+          error: `playbook timed out after ${limitMs}ms`,
+          type: 'Timeout',
+          payload: { limitMs, elapsedMs: Date.now() - started },
+        }));
+      }, limitMs);
 
       /** Answer one `cmd` frame. */
       const handleCommand = async (frame: any) => {
+        const step = ++commandStep;
         try {
           const result = await opts.onCommand(frame.method, frame.params);
           if (!settled) child.stdin.write(JSON.stringify({ t: 'res', id: frame.id, ok: true, result }) + '\n');
         } catch (e: any) {
-          if (!settled) child.stdin.write(JSON.stringify({ t: 'res', id: frame.id, ok: false, error: String(e?.message ?? e) }) + '\n');
+          // `e` is a `PlaybookCommandError` when the runner classified it. The
+          // frame carries the type verbatim; without these two extra keys the
+          // child sees only a string and every failure collapses back into one
+          // undifferentiated bucket.
+          const message = String(e?.message ?? e);
+          if (e?.playbookType) {
+            const at: FailureAt = { step, method: frame.method };
+            lastCommandFailure = { type: e.playbookType, payload: { ...(e.playbookPayload ?? {}), at }, message };
+          }
+          if (!settled) child.stdin.write(JSON.stringify({
+            t: 'res', id: frame.id, ok: false,
+            error: message,
+            errorType: e?.playbookType,
+            errorPayload: e?.playbookPayload,
+          }) + '\n');
         }
       };
 
@@ -355,7 +421,48 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
           if (frame.t === 'cmd') void handleCommand(frame);
           else if (frame.t === 'log') opts.onLog(String(frame.message));
           else if (frame.t === 'done') finish(done({ ok: true, result: frame.result }));
-          else if (frame.t === 'fail') finish(done({ ok: false, error: String(frame.message), stack: frame.stack }));
+          else if (frame.t === 'fail') {
+            // `frame.type` and `frame.payload` are UNTRUSTED CHILD INPUT and
+            // are never adopted as the result's type/payload. `wrap()` in
+            // `context.ts` only strips properties on the host-method-return
+            // path; a script that throws its OWN error directly (never
+            // calling a `supersurf.*` method) never touches `wrap()`, so
+            // anything the script set on that error — including a forged
+            // `__ssType`/`__ssPayload` — reaches `child.ts`'s catch, and the
+            // child, intact, verbatim. Trusting `frame.type`/`frame.payload`
+            // here would let a malicious playbook fabricate an arbitrary
+            // `PlaybookErrorType` and payload for the host (and Task 6) to
+            // act on.
+            //
+            // `frame.type` is used ONLY as a boolean "did any tag survive?"
+            // signal, never as a value: a compiled child may omit `type`
+            // altogether (a stale/unbuilt `dist/child.js` predating any
+            // tagging — see `resolveChildEntry`) or send the untagged
+            // default `'ScriptAssertion'`. Both mean "no tag survived,"
+            // so both are treated the same, and either way the actual
+            // `type`/`payload` on the result come ONLY from
+            // `lastCommandFailure` — the host's own record of a failure it
+            // classified itself — never from the frame.
+            //
+            // Promote to the last classified command failure ONLY when the
+            // message is character-identical: `wrap()` in `context.ts`
+            // rethrows `new Error(String(e.message))` on the way out of the
+            // vm, verified end-to-end to reproduce the host's message
+            // byte-for-byte. An exact match is the whole point — a script
+            // that catches a miss and deliberately throws a DIFFERENT
+            // message must stay `ScriptAssertion`.
+            const untyped = frame.type == null || frame.type === 'ScriptAssertion';
+            const correlated = untyped && lastCommandFailure && String(frame.message) === lastCommandFailure.message
+              ? lastCommandFailure
+              : undefined;
+            finish(done({
+              ok: false,
+              error: String(frame.message),
+              type: correlated?.type ?? 'ScriptAssertion',
+              payload: correlated?.payload,
+              stack: frame.stack,
+            }));
+          }
         }
       });
 
@@ -365,13 +472,19 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
         opts.onLog(chunk.trimEnd());
       });
 
-      child.on('error', (e: any) => finish(done({ ok: false, error: `could not start the playbook sandbox: ${e?.message ?? e}` })));
+      child.on('error', (e: any) => finish(done({
+        ok: false,
+        error: `could not start the playbook sandbox: ${e?.message ?? e}`,
+        type: 'HarnessUnavailable', payload: { component: 'sandbox-child' },
+      })));
 
       child.on('exit', (code, signal) => {
         const how = code != null ? `exit code ${code}` : `signal ${signal}`;
+        const tail = stderr.trim() ? `: ${stderr.trim().split('\n').slice(-3).join(' | ')}` : '';
         finish(done({
           ok: false,
-          error: `playbook sandbox exited before finishing (${how})${stderr.trim() ? `: ${stderr.trim().split('\n').slice(-3).join(' | ')}` : ''}`,
+          error: `playbook sandbox exited before finishing (${how})${tail}`,
+          type: 'HarnessUnavailable', payload: { component: 'sandbox-child' },
         }));
       });
 
