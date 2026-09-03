@@ -101,17 +101,23 @@ class Matchmaker {
      * @returns The matched PooledConnection
      */
     requestMatch(profile, timeoutMs = DEFAULT_TIMEOUT) {
-        // A version-rejected extension for this slot fails now, not in 45s.
-        const rejection = this.getVersionRejection(profile);
-        if (rejection) {
-            debugLog(`Match refused for profile=${profile || 'unmanaged'} — version rejected`);
-            return Promise.reject(new Error(rejection.message));
-        }
-        // Try immediate match
+        // A usable connection outranks a remembered rejection. The rejection map is
+        // keyed by slot, not by socket, so a second browser running a stale
+        // extension records a rejection against a slot a healthy connection may
+        // already be serving — most easily the unmanaged slot, which every
+        // bring-your-own Chromium shares. Checking the pool first keeps that stale
+        // entry from locking out a browser that works.
         const immediate = this.findMatch(profile);
         if (immediate) {
             debugLog(`Immediate match for profile=${profile || 'unmanaged'}`);
             return Promise.resolve(immediate);
+        }
+        // Nothing usable in the pool. If the last extension to take this slot was
+        // version-rejected, say so now rather than after the full timeout.
+        const rejection = this.getVersionRejection(profile);
+        if (rejection) {
+            debugLog(`Match refused for profile=${profile || 'unmanaged'} — version rejected`);
+            return Promise.reject(new Error(rejection.message));
         }
         // Queue as pending match
         return new Promise((resolve, reject) => {

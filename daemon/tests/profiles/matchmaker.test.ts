@@ -352,6 +352,37 @@ describe('Matchmaker', () => {
       await expect(matchmaker.requestMatch('staging', 60000)).resolves.toBeDefined();
     });
 
+    it('does not lock out a healthy connection already serving the same slot', async () => {
+      // Two browsers share the unmanaged slot. The first is fine; the second
+      // runs a stale extension and records a rejection against that same slot.
+      // The rejection is keyed by slot, not by socket, so checking it before
+      // the pool would refuse every later match against a browser that works.
+      const ws = mockWs();
+      matchmaker.addConnection(ws, mockConn(ws, null));
+      matchmaker.recordVersionRejection({
+        profile: null,
+        version: '2.9.0',
+        message: 'Extension version 2.9.0 is not compatible',
+      });
+
+      await expect(matchmaker.requestMatch(null, 60000)).resolves.toBeDefined();
+    });
+
+    it('still fails fast once the healthy connection is gone', async () => {
+      const ws = mockWs();
+      matchmaker.addConnection(ws, mockConn(ws, null));
+      matchmaker.recordVersionRejection({
+        profile: null,
+        version: '2.9.0',
+        message: 'Extension version 2.9.0 is not compatible',
+      });
+      matchmaker.removeConnection(ws);
+
+      await expect(matchmaker.requestMatch(null, 60000)).rejects.toThrow(
+        'Extension version 2.9.0 is not compatible',
+      );
+    });
+
     it('is cleared by a healthy handshake for the same profile', async () => {
       matchmaker.recordVersionRejection({ profile: 'dev', version: '2.9.0', message: 'bad' });
       matchmaker.clearVersionRejection('dev');
