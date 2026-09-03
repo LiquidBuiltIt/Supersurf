@@ -183,6 +183,9 @@ async function onConnect(mgr, args = {}, options = {}) {
         if (extensionVersionError && !args.profile && !client.extensionConnected) {
             await client.stop().catch(() => { });
             mgr.state = 'passive';
+            // The generic catch-all records this; an early return has to do it too, or
+            // a later `status` renders a bare "Disabled" with no trace of the reason.
+            mgr.lastConnectError = extensionVersionError;
             if (options.rawResult) {
                 return {
                     success: false,
