@@ -289,7 +289,14 @@ export async function onLookup(ctx: ToolContext, args: any, options: any): Promi
  * Modes:
  * - `auto`: Tries common content selectors (article, main, .content), falls back to body
  * - `full`: Uses document.body directly
- * - `selector`: Targets a specific CSS selector
+ * - `selector`: Targets a CSS selector and returns EVERY element it matches
+ *
+ * Selector mode used to read only the first match, which silently hid N-1
+ * elements whenever the selector was a class shared by siblings (`.WorkflowJob`
+ * on a GitHub Actions run page reported `total: 1` against 22 jobs). First-match
+ * was never a documented guarantee, so this is a fix, not a flag: the caller now
+ * gets every match, separated by a `---` rule, with the count in `matches`.
+ * `auto` and `full` are unaffected — they have exactly one root by definition.
  *
  * @param args - `{ mode?: string, selector?: string, max_lines?: number, offset?: number }`
  */
@@ -299,20 +306,29 @@ export async function onExtractContent(ctx: ToolContext, args: any, options: any
   const offset = (args.offset as number) || 0;
   const selector = args.selector as string | undefined;
 
+  // `getAllSelectorExpression` is optional on ToolContext (wired by
+  // BrowserBridge). Without it, degrade to the singular expression in a
+  // one-element array rather than losing selector mode entirely.
+  const rootsExpr = mode === 'selector' && selector
+    ? (ctx.getAllSelectorExpression
+        ? ctx.getAllSelectorExpression(selector)
+        : `[${ctx.getSelectorExpression(selector)}]`)
+    : null;
+
   const content = await ctx.eval(`
     (() => {
-      function getRoot() {
-        ${mode === 'selector' && selector
-          ? `return ${ctx.getSelectorExpression(selector)};`
+      function getRoots() {
+        ${rootsExpr
+          ? `return ${rootsExpr};`
           : mode === 'full'
-          ? `return document.body;`
+          ? `return [document.body];`
           : `// Auto-detect main content
              const candidates = ['article', 'main', '[role="main"]', '.content', '.post', '#content'];
              for (const s of candidates) {
                const el = document.querySelector(s);
-               if (el && el.textContent.trim().length > 100) return el;
+               if (el && el.textContent.trim().length > 100) return [el];
              }
-             return document.body;`
+             return [document.body];`
         }
       }
 
@@ -366,23 +382,39 @@ export async function onExtractContent(ctx: ToolContext, args: any, options: any
         return lines;
       }
 
-      const root = getRoot();
-      if (!root) return { error: 'No content element found' };
-      return { lines: toMarkdown(root) };
+      // Array.from because a real querySelectorAll returns a NodeList, which
+      // has no .filter. queryAllDeep already returns an array; this handles
+      // both without caring which produced it.
+      const roots = Array.from(getRoots() || []).filter(Boolean);
+      if (roots.length === 0) return { error: 'No content element found' };
+      const lines = [];
+      roots.forEach((el, i) => {
+        if (i > 0) { lines.push(''); lines.push('---'); lines.push(''); }
+        for (const line of toMarkdown(el)) lines.push(line);
+      });
+      return { lines: lines, matches: roots.length };
     })()
   `);
 
   if (content?.error) return ctx.error(content.error, options);
 
   const allLines = content?.lines || [];
+  const matches = typeof content?.matches === 'number'
+    ? content.matches
+    : (allLines.length > 0 ? 1 : 0);
   const slice = allLines.slice(offset, offset + maxLines);
   const truncated = allLines.length > offset + maxLines;
 
   if (options.rawResult) {
-    return { lines: slice, total: allLines.length, offset, truncated };
+    return { lines: slice, total: allLines.length, offset, truncated, matches };
   }
 
   let text = slice.join('\n');
+  // Added AFTER slicing, like the truncation footer below: it is metadata about
+  // the result, not content, so it must not consume the caller's line budget.
+  if (matches > 1) {
+    text = `_${matches} elements matched \`${selector}\`_\n\n${text}`;
+  }
   if (truncated) {
     text += `\n\n_...truncated (showing ${slice.length} of ${allLines.length} lines, offset=${offset})_`;
   }

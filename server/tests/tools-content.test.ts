@@ -127,6 +127,7 @@ function createMockCtx(handleIndex?: HandleIndex): ToolContext {
     sleep: vi.fn().mockResolvedValue(undefined),
     getElementCenter: vi.fn().mockResolvedValue({ x: 0, y: 0 }),
     getSelectorExpression: vi.fn((s) => `document.querySelector("${s}")`),
+    getAllSelectorExpression: vi.fn((s) => `document.querySelectorAll("${s}")`),
     findAlternativeSelectors: vi.fn().mockResolvedValue([]),
     formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
     error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
@@ -459,6 +460,9 @@ describe('onExtractContent()', () => {
   });
 
   it('routes selector-mode root resolution through ctx.getSelectorExpression rather than a hand-rolled querySelector', async () => {
+    // No getAllSelectorExpression on this ctx: forces the singular fallback
+    // path so this test still exercises ctx.getSelectorExpression routing.
+    delete (ctx as any).getAllSelectorExpression;
     (ctx.getSelectorExpression as any).mockReturnValue('window.__SHADOW_TEST_MARKER__');
     (ctx.eval as any).mockResolvedValue({ lines: [] });
 
@@ -480,6 +484,9 @@ describe('onExtractContent()', () => {
     // Sanity check: a plain querySelector genuinely misses this element.
     expect(doc.querySelector('#shadow-article')).toBeNull();
 
+    // No getAllSelectorExpression on this ctx: forces the singular fallback
+    // path so this test still exercises ctx.getSelectorExpression routing.
+    delete (ctx as any).getAllSelectorExpression;
     ctx.getSelectorExpression = getSelectorExpression;
     ctx.eval = makeRealEval(doc);
 
@@ -504,6 +511,92 @@ describe('onExtractContent()', () => {
     const result = await onExtractContent(ctx, { mode: 'selector', selector: '.content' }, {});
     expect(result.content[0].text).toContain('Light content marker');
     expect(result.content[0].text).not.toContain('Shadow content marker');
+  });
+
+  it('concatenates every match in selector mode and reports the count', async () => {
+    const doc = new FakeDocument();
+    doc.append(
+      new FakeElement('div', { class: 'job' }).append(new FakeTextNode('build')),
+      new FakeElement('div', { class: 'job' }).append(new FakeTextNode('test')),
+      new FakeElement('div', { class: 'job' }).append(new FakeTextNode('deploy')),
+    );
+    ctx.eval = makeRealEval(doc) as any;
+
+    const result = await onExtractContent(
+      ctx, { mode: 'selector', selector: '.job' }, { rawResult: true },
+    );
+
+    expect(result.matches).toBe(3);
+    expect(result.lines).toContain('build');
+    expect(result.lines).toContain('test');
+    expect(result.lines).toContain('deploy');
+  });
+
+  it('separates matches with a rule so the boundary is visible', async () => {
+    const doc = new FakeDocument();
+    doc.append(
+      new FakeElement('div', { class: 'job' }).append(new FakeTextNode('build')),
+      new FakeElement('div', { class: 'job' }).append(new FakeTextNode('test')),
+    );
+    ctx.eval = makeRealEval(doc) as any;
+
+    const result = await onExtractContent(
+      ctx, { mode: 'selector', selector: '.job' }, { rawResult: true },
+    );
+
+    expect(result.lines).toContain('---');
+    expect(result.lines.indexOf('build')).toBeLessThan(result.lines.indexOf('---'));
+    expect(result.lines.indexOf('---')).toBeLessThan(result.lines.indexOf('test'));
+  });
+
+  it('applies max_lines across the whole multi-match result, not per match', async () => {
+    (ctx.eval as any) = vi.fn().mockResolvedValue({
+      lines: ['a', 'b', '', '---', '', 'c', 'd'], matches: 2,
+    });
+
+    const result = await onExtractContent(
+      ctx, { mode: 'selector', selector: '.job', max_lines: 3 }, { rawResult: true },
+    );
+
+    expect(result.lines).toEqual(['a', 'b', '']);
+    expect(result.total).toBe(7);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('routes selector mode through getAllSelectorExpression when the context wires it', async () => {
+    (ctx.getAllSelectorExpression as any).mockReturnValue('window.__ALL_MARKER__');
+    (ctx.eval as any) = vi.fn().mockResolvedValue({ lines: [], matches: 0 });
+
+    await onExtractContent(ctx, { mode: 'selector', selector: '.job' }, {});
+
+    expect(ctx.getAllSelectorExpression).toHaveBeenCalledWith('.job');
+    expect((ctx.eval as any).mock.calls[0][0]).toContain('window.__ALL_MARKER__');
+  });
+
+  it('falls back to the singular expression when the context does not wire the plural one', async () => {
+    delete (ctx as any).getAllSelectorExpression;
+    (ctx.getSelectorExpression as any).mockReturnValue('window.__ONE_MARKER__');
+    (ctx.eval as any) = vi.fn().mockResolvedValue({ lines: [], matches: 0 });
+
+    await onExtractContent(ctx, { mode: 'selector', selector: '.job' }, {});
+
+    expect((ctx.eval as any).mock.calls[0][0]).toContain('[window.__ONE_MARKER__]');
+  });
+
+  it('announces the match count in rendered output only when more than one matched', async () => {
+    (ctx.eval as any) = vi.fn().mockResolvedValue({ lines: ['a'], matches: 1 });
+    const one = await onExtractContent(ctx, { mode: 'selector', selector: '.job' }, {});
+    expect(one.content[0].text).not.toContain('elements matched');
+
+    (ctx.eval as any) = vi.fn().mockResolvedValue({ lines: ['a', 'b'], matches: 2 });
+    const many = await onExtractContent(ctx, { mode: 'selector', selector: '.job' }, {});
+    expect(many.content[0].text).toContain('2 elements matched');
+  });
+
+  it('still reports the no-match case as an error', async () => {
+    (ctx.eval as any) = vi.fn().mockResolvedValue({ error: 'No content element found' });
+    await onExtractContent(ctx, { mode: 'selector', selector: '.missing' }, {});
+    expect(ctx.error).toHaveBeenCalledWith('No content element found', expect.anything());
   });
 });
 

@@ -197,7 +197,9 @@ export function getToolSchemas(): ToolSchema[] {
     {
       name: 'browser_extract_content',
       description:
-        'Pull page content as clean markdown. Auto-detects the main article, or target a specific selector. Supports pagination via offset.',
+        'Pull page content as clean markdown. Auto-detects the main article, or target a specific selector. '
+        + 'Selector mode returns EVERY matching element, separated by `---`, with the count in `matches`. '
+        + 'Supports pagination via offset.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -206,7 +208,7 @@ export function getToolSchemas(): ToolSchema[] {
             enum: ['auto', 'full', 'selector'],
             description: 'Extraction mode (default: auto)',
           },
-          selector: { type: 'string', description: 'CSS selector (mode=selector only)' },
+          selector: { type: 'string', description: 'CSS selector (mode=selector only). All matches are returned, not just the first.' },
           max_lines: { type: 'number', description: 'Max lines (default: 500)' },
           offset: { type: 'number', description: 'Line offset for pagination (default: 0)' },
         },
