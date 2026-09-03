@@ -57,6 +57,39 @@ export function getSelectorExpression(selector: string): string {
 }
 
 /**
+ * The plural of `getSelectorExpression`: a JS expression resolving to an ARRAY
+ * of every matching Element, empty when nothing matches.
+ *
+ * `browser_extract_content` in selector mode used the singular form and so read
+ * only the first match — `.WorkflowJob` on a GitHub Actions run page matches
+ * many jobs and reported `total: 1`. Callers that genuinely want one element
+ * keep using `getSelectorExpression`; this is for the ones that should never
+ * have been narrowed.
+ *
+ * Same two branches, same shadow-piercing walker, same digit-leading-id
+ * rewrite — the ONLY difference is that `:has-text(...)` filters the full match
+ * set instead of returning on the first hit.
+ */
+export function getAllSelectorExpression(selector: string): string {
+  if (!selector) throw new Error('Selector is required for this action');
+  const rewritten = rewriteDigitLeadingIds(selector);
+  const m = rewritten.match(/^(.+?):has-text\(["'](.+?)["']\)(.*)$/);
+  if (m) {
+    const [, base, text] = m;
+    return `(() => {
+      ${QUERY_ALL_DEEP_SOURCE}
+      return queryAllDeep(${JSON.stringify(base)}).filter(
+        (el) => el.textContent && el.textContent.includes(${JSON.stringify(text)}),
+      );
+    })()`;
+  }
+  return `(() => {
+      ${QUERY_ALL_DEEP_SOURCE}
+      return queryAllDeep(${JSON.stringify(rewritten)});
+    })()`;
+}
+
+/**
  * Search the page for elements whose direct text content includes the
  * `:has-text(...)` substring of the failing selector. Returns up to
  * three visible candidates and two hidden, each with a guess at a
