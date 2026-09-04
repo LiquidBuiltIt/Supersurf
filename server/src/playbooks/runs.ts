@@ -18,6 +18,8 @@
 
 import * as fs from 'node:fs';
 import { runsFile } from './paths';
+import type { PlaybookErrorType, FailureAt } from './errors';
+import type { Candidate } from './candidates';
 
 /** Cap on a stored snapshot. A sidecar that outgrows its script helps nobody. */
 export const MAX_EVIDENCE_CHARS = 4000;
@@ -31,6 +33,12 @@ export interface RunRecord {
   params: Record<string, unknown>;
   ok: boolean;
   error?: string;
+  /** Which KIND of failure — see `playbooks/errors.ts`. Absent on success. */
+  type?: PlaybookErrorType;
+  /** Which command threw, and its 1-based index in the run. */
+  at?: FailureAt;
+  /** The in-child stack, persisted for every in-child throw. */
+  stack?: string;
   durationMs: number;
   profile?: string;
   caller: 'agent' | 'cli';
@@ -40,7 +48,11 @@ export interface RunRecord {
    * experiment-only regression looks identical to a broken script.
    */
   experiments: boolean;
-  evidence?: { snapshot?: string };
+  /**
+   * `SelectorMiss` only. A record written before the taxonomy carries a
+   * `snapshot` string here instead; readers must tolerate both.
+   */
+  evidence?: { url?: string; title?: string; candidates?: Candidate[]; snapshot?: string };
 }
 
 function truncate(s: string): string {

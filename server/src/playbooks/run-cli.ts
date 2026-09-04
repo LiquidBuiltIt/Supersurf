@@ -107,6 +107,9 @@ export async function runRun(
       name: normalized, ok: outcome.ok, durationMs: outcome.durationMs,
       ...(outcome.result !== undefined ? { result: outcome.result } : {}),
       ...(outcome.error ? { error: outcome.error } : {}),
+      ...(outcome.type ? { type: outcome.type } : {}),
+      ...(outcome.at ? { at: outcome.at } : {}),
+      ...(outcome.stack ? { stack: outcome.stack } : {}),
       ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
     }));
     return outcome.ok ? 0 : 1;
@@ -121,10 +124,17 @@ export async function runRun(
   }
 
   errLog(`✗ ${normalized} — ${outcome.durationMs}ms`);
-  errLog(outcome.error ?? 'unknown error');
-  if (outcome.evidence?.snapshot) {
-    errLog('Page at the point of failure (the run\'s tab is already closed):');
-    errLog(outcome.evidence.snapshot);
+  if (outcome.type) {
+    const where = outcome.at ? ` at step ${outcome.at.step} (${outcome.at.method})` : '';
+    errLog(`${outcome.type}${where}`);
   }
+  errLog(outcome.error ?? 'unknown error');
+  if (outcome.evidence?.candidates?.length) {
+    errLog(`Closest elements on the page${outcome.evidence.url ? ` — ${outcome.evidence.url}` : ''}:`);
+    for (const c of outcome.evidence.candidates) {
+      errLog(`  ${c.selector}${c.text ? ` — "${c.text}"` : ''}`);
+    }
+  }
+  if (outcome.stack) errLog(outcome.stack);
   return 1;
 }

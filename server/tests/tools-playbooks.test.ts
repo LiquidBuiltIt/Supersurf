@@ -214,10 +214,16 @@ describe('playbooks — script surface', () => {
 
   it('run surfaces the failure evidence on a failed run', async () => {
     const out = await onPlaybooks(ctx, { action: 'run', name: 'post_tweet', params: { text: 'hi' } }, {},
-      { runPlaybook: async () => ({ ok: false, error: 'tweet not visible', durationMs: 9, logs: [], evidence: { snapshot: '<page>' } }) });
+      {
+        runPlaybook: async () => ({
+          ok: false, error: 'tweet not visible', durationMs: 9, logs: [],
+          type: 'SelectorMiss', at: { step: 1, method: 'click' },
+          evidence: { url: 'https://example.com', candidates: [{ selector: '.SidebarAbout' }] },
+        }),
+      });
     expect(out.isError).toBe(true);
     expect(out.content[0].text).toContain('tweet not visible');
-    expect(out.content[0].text).toContain('<page>');
+    expect(out.content[0].text).toContain('.SidebarAbout');
   });
 
   it('run refuses an eval playbook for an agent when security.playbook_eval is false', async () => {

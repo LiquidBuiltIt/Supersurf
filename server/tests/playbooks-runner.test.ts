@@ -143,46 +143,6 @@ describe('runPlaybook', () => {
     expect(thrown).not.toBe('command failed');
   });
 
-  it('captures a snapshot as evidence when the script fails, before closing the tab', async () => {
-    const { backend, calls } = fakeBackend();
-    const out = await runPlaybook({
-      record: record(), params: { text: 'hi' }, caller: 'agent',
-      createBackend: () => backend,
-      runScript: async () => ({ ok: false, error: 'tweet not visible after post', durationMs: 9 }),
-    });
-    expect(out.ok).toBe(false);
-    expect(out.evidence?.snapshot).toBe('<page snapshot>');
-    const names = calls.map(c => c.name);
-    expect(names.indexOf('browser_snapshot')).toBeLessThan(
-      names.lastIndexOf('browser_tabs'),
-    );
-  });
-
-  // Regression lock. `browser_snapshot` with `rawResult` spreads the extension
-  // payload at the top level (`nodes`, `formFields`) — it never returns a
-  // `snapshot` or `result` wrapper. The original `res?.snapshot ?? res?.result`
-  // read therefore captured NOTHING against the live tool, and the failure
-  // record shipped with no evidence at all. Verified live against Chromium.
-  it('captures evidence from the REAL browser_snapshot rawResult shape', async () => {
-    const realShape = { nodes: [{ role: 'heading', name: 'Example Domain' }], formFields: [] };
-    const { backend } = fakeBackend({ browser_snapshot: realShape });
-    // `fakeBackend` special-cases browser_snapshot, so override it outright.
-    const raw: RunnerBackend = {
-      async callTool(name: string, a: any) {
-        if (name === 'browser_snapshot') return realShape;
-        return backend.callTool(name, a);
-      },
-    };
-    const out = await runPlaybook({
-      record: record(), params: { text: 'hi' }, caller: 'agent',
-      createBackend: () => raw,
-      runScript: async () => ({ ok: false, error: 'click failed', durationMs: 9 }),
-    });
-    expect(out.ok).toBe(false);
-    expect(out.evidence?.snapshot).toBeTruthy();
-    expect(out.evidence!.snapshot).toContain('Example Domain');
-  });
-
   it('does not capture evidence on success', async () => {
     const { backend, calls } = fakeBackend();
     const out = await runPlaybook({
@@ -375,5 +335,164 @@ describe('runPlaybook', () => {
       runScript: async (opts) => { opts.onLog('step 1'); opts.onLog('step 2'); return { ok: true, durationMs: 1 }; },
     });
     expect(out.logs).toEqual(['step 1', 'step 2']);
+  });
+});
+
+describe('typed run failures', () => {
+  it('types a validation refusal without touching the browser', async () => {
+    const { backend, calls } = fakeBackend();
+    const out = await runPlaybook({
+      record: record({ valid: false, error: 'parse error at line 3', meta: undefined }),
+      params: {}, caller: 'cli', createBackend: () => backend,
+    });
+    expect(out.ok).toBe(false);
+    expect(out.type).toBe('Refused');
+    expect(calls).toEqual([]);
+    expect(out.evidence).toBeUndefined();
+  });
+
+  it('types a bad param set as Refused', async () => {
+    const { backend } = fakeBackend();
+    const out = await runPlaybook({
+      record: record(), params: {}, caller: 'cli', createBackend: () => backend,
+    });
+    expect(out.type).toBe('Refused');
+  });
+
+  it('types a failed connect as HarnessUnavailable', async () => {
+    const backend: RunnerBackend = {
+      async callTool(n) { return n === 'connect' ? { success: false, message: 'no daemon' } : { success: true }; },
+    };
+    const out = await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+    });
+    expect(out.type).toBe('HarnessUnavailable');
+  });
+
+  it('types a failed tab open as HarnessUnavailable', async () => {
+    const backend: RunnerBackend = {
+      async callTool(n, a: any) {
+        if (n === 'connect') return { success: true };
+        if (n === 'browser_tabs' && a.action === 'new') return { success: false, error: 'no window' };
+        return { success: true };
+      },
+    };
+    const out = await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+    });
+    expect(out.type).toBe('HarnessUnavailable');
+  });
+
+  it('classifies a missing element and records which step threw', async () => {
+    const { backend } = fakeBackend({
+      browser_interact: { success: false, error: 'Element not found: .Layout-sidebar' },
+    });
+    const out = await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+      runScript: async (opts: any) => {
+        await opts.onCommand('goto', { url: 'https://example.com' });
+        try {
+          await opts.onCommand('click', { selector: '.Layout-sidebar' });
+        } catch (e: any) {
+          return { ok: false, error: e.message, type: e.playbookType, payload: e.playbookPayload, durationMs: 1 };
+        }
+        return { ok: true, result: null, durationMs: 1 };
+      },
+    });
+    expect(out.type).toBe('SelectorMiss');
+    expect(out.at).toEqual({ step: 2, method: 'click' });
+  });
+
+  it('captures candidates for a SelectorMiss and never calls browser_snapshot', async () => {
+    const calls: string[] = [];
+    const backend: RunnerBackend = {
+      async callTool(n) {
+        calls.push(n);
+        if (n === 'browser_evaluate') {
+          return { url: 'https://example.com', title: 'Ex', candidates: [{ selector: 'div.SidebarAbout' }] };
+        }
+        return { success: true };
+      },
+    };
+    const out = await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+      runScript: async () => ({
+        ok: false, error: 'Element not found: .Layout-sidebar',
+        type: 'SelectorMiss', payload: { selector: '.Layout-sidebar' }, durationMs: 1,
+      }),
+    });
+    expect(out.evidence?.candidates?.[0].selector).toContain('SidebarAbout');
+    expect(calls).not.toContain('browser_snapshot');
+  });
+
+  it('captures candidates before closing the tab, not after', async () => {
+    const { backend, calls } = fakeBackend({
+      browser_evaluate: { url: 'https://example.com', title: 'Ex', candidates: [{ selector: 'div.SidebarAbout' }] },
+    });
+    await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+      runScript: async () => ({
+        ok: false, error: 'Element not found: .Layout-sidebar',
+        type: 'SelectorMiss', payload: { selector: '.Layout-sidebar' }, durationMs: 1,
+      }),
+    });
+    const evalIndex = calls.findIndex((c) => c.name === 'browser_evaluate');
+    const closeIndex = calls.findIndex((c) => c.name === 'browser_tabs' && c.args?.action === 'close');
+    expect(evalIndex).toBeGreaterThan(-1);
+    expect(closeIndex).toBeGreaterThan(-1);
+    expect(evalIndex).toBeLessThan(closeIndex);
+  });
+
+  it('captures NO page evidence for the five non-selector types', async () => {
+    for (const type of ['Timeout', 'PageUnavailable', 'HarnessUnavailable', 'Refused', 'ScriptAssertion'] as const) {
+      const calls: string[] = [];
+      const backend: RunnerBackend = {
+        async callTool(n) { calls.push(n); return { success: true }; },
+      };
+      const out = await runPlaybook({
+        record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+        runScript: async () => ({ ok: false, error: 'x', type, durationMs: 1 }),
+      });
+      expect(out.evidence, type).toBeUndefined();
+      expect(calls, type).not.toContain('browser_snapshot');
+      expect(calls, type).not.toContain('browser_evaluate');
+    }
+  });
+
+  it('persists the stack for every in-child throw', async () => {
+    const { backend } = fakeBackend();
+    await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+      runScript: async () => ({
+        ok: false, error: 'boom', type: 'ScriptAssertion',
+        stack: 'Error: boom\n  at playbook.js:3:9', durationMs: 1,
+      }),
+    });
+    const [rec] = readRunRecords('post_tweet', 1);
+    expect(rec.stack).toContain('playbook.js:3:9');
+    expect(rec.type).toBe('ScriptAssertion');
+  });
+
+  it('keeps every stored failure record under the evidence cap', async () => {
+    const backend: RunnerBackend = {
+      async callTool(n) {
+        if (n === 'browser_evaluate') {
+          return {
+            url: 'https://example.com', title: 'T',
+            candidates: Array.from({ length: 40 }, (_, i) => ({ selector: `div.long-class-name-${i}`, text: 'y'.repeat(300) })),
+          };
+        }
+        return { success: true };
+      },
+    };
+    await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+      runScript: async () => ({
+        ok: false, error: 'Element not found: .x',
+        type: 'SelectorMiss', payload: { selector: '.x' }, durationMs: 1,
+      }),
+    });
+    const [rec] = readRunRecords('post_tweet', 1);
+    expect(JSON.stringify(rec).length).toBeLessThan(6000);
   });
 });
