@@ -92,15 +92,26 @@ const DEFAULT_TIMEOUT_MS = 300000;
  * to close, reached through different fields.
  *
  * What IS bounded here: `fail.message`, `fail.stack`, every `log.message`
- * (individually AND in aggregate across a run), and `done.result` (by
- * serialized size, replaced with a visible truncation marker over the cap —
- * never silently dropped).
+ * (individually AND in aggregate across a run), `done.result` (by serialized
+ * size, replaced with a visible truncation marker over the cap — never
+ * silently dropped), every chunk the child writes to stderr (individually,
+ * AND charged against the SAME aggregate budget `log.message` uses — stdout
+ * logs and stderr are not two separate ceilings, they are one, so a script
+ * cannot double the effective log budget by splitting output across both
+ * channels), the stderr tail folded into the exit handler's
+ * `HarnessUnavailable` message when the child dies without a `done`/`fail`
+ * frame, and `at.method` — the copy of a `cmd` frame's method name this
+ * module records against a classified command failure (see `handleCommand`
+ * below).
  *
- * What is NOT bounded here: a `cmd` frame's `method`/`params` — spec Addendum A
- * requires `onCommand` to forward those VERBATIM, so a script can still send an
- * arbitrarily large param (e.g. `type(sel, 'A'.repeat(1e7))`) on its way to an
- * MCP tool call. Bounding that is downstream tool validation's job, not this
- * pipe boundary's — this module does not claim to own it.
+ * What is NOT bounded here: a `cmd` frame's `method`/`params` AS FORWARDED TO
+ * `onCommand` — spec Addendum A requires that forward to be VERBATIM, so a
+ * script can still send an arbitrarily large param (e.g.
+ * `type(sel, 'A'.repeat(1e7))`) on its way to an MCP tool call. Bounding that
+ * is downstream tool validation's job, not this pipe boundary's — this module
+ * does not claim to own it. `at.method` above is a SEPARATE copy this module
+ * keeps for its own failure record; capping that copy does not touch the
+ * verbatim forward.
  *
  * A stack gets a few KB because the frames below the throw site are the useful
  * part. A message gets far less — it is one line in a rendered failure report.
@@ -116,6 +127,14 @@ export const MAX_LOG_LINE_CHARS = 2000;
 export const MAX_LOG_TOTAL_CHARS = 20000;
 export const MAX_RESULT_CHARS = 100000;
 export const MAX_RESULT_PREVIEW_CHARS = 2000;
+/**
+ * Bound on `at.method`, the copy of a `cmd` frame's method name this module
+ * records against a classified command failure (`handleCommand` below). An
+ * honest script can never reach this — the 52 declared `supersurf.*` methods
+ * are all short names — only a compromised child forging a `cmd` frame can.
+ * Small on purpose: it is a method name, not prose.
+ */
+export const MAX_COMMAND_METHOD_CHARS = 200;
 
 /** Cut `s` to `limit`, leaving a visible marker that something was dropped. */
 function capText(s: string, limit: number): string {
@@ -485,7 +504,10 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
           // against the `fail` frame by message. See the `fail` handler.
           const message = String(e?.message ?? e);
           if (e?.playbookType) {
-            const at: FailureAt = { step, method: frame.method };
+            // `frame.method` itself stays verbatim on its way to `onCommand`
+            // above (spec Addendum A) — only THIS copy, kept for the host's
+            // own failure record, gets capped.
+            const at: FailureAt = { step, method: capText(String(frame.method), MAX_COMMAND_METHOD_CHARS) };
             lastCommandFailure = { type: e.playbookType, payload: { ...(e.playbookPayload ?? {}), at }, message };
           }
           if (!settled) child.stdin.write(JSON.stringify({
@@ -575,8 +597,26 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
 
       child.stderr.setEncoding('utf8');
       child.stderr.on('data', (chunk: string) => {
-        stderr += chunk;
-        opts.onLog(chunk.trimEnd());
+        // stderr is a raw byte stream, not the newline-delimited NDJSON
+        // protocol stdout is — a chunk boundary here is whatever the OS pipe
+        // handed us, not a logical line. Re-splitting on '\n' to cap "lines"
+        // would need a stateful cross-chunk buffer (like the stdout NDJSON
+        // reader keeps) purely to recover a unit this channel has no protocol
+        // notion of. Capping per RECEIVED CHUNK instead still closes the
+        // 766 KB-in-one-write blowout this cap exists to stop — a large write
+        // arrives as one or a few chunks, and each is capped before it goes
+        // anywhere — and the shared total-budget check below still bounds the
+        // aggregate no matter how many chunks arrive.
+        if (logTruncated) return; // budget already spent — drop silently, same as a log frame
+        const capped = capText(chunk, MAX_LOG_LINE_CHARS);
+        if (logCharsUsed + capped.length > MAX_LOG_TOTAL_CHARS) {
+          logTruncated = true;
+          opts.onLog('[truncated: further log output dropped — run exceeded the total log budget]');
+          return;
+        }
+        logCharsUsed += capped.length;
+        stderr += capped;
+        opts.onLog(capped.trimEnd());
       });
 
       child.on('error', (e: any) => finish(done({
@@ -587,7 +627,12 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
 
       child.on('exit', (code, signal) => {
         const how = code != null ? `exit code ${code}` : `signal ${signal}`;
-        const tail = stderr.trim() ? `: ${stderr.trim().split('\n').slice(-3).join(' | ')}` : '';
+        // `stderr` is already built from capped, budgeted chunks (above), but
+        // cap the assembled tail again here too: it lands in a persisted,
+        // agent-facing error message, and this boundary owns that field the
+        // same way it owns every other one — never trust one upstream cap to
+        // be the only thing standing between a field and a blowout.
+        const tail = stderr.trim() ? `: ${capText(stderr.trim().split('\n').slice(-3).join(' | '), MAX_FAIL_MESSAGE_CHARS)}` : '';
         finish(done({
           ok: false,
           error: `playbook sandbox exited before finishing (${how})${tail}`,

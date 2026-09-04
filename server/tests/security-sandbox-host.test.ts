@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -14,13 +14,54 @@ import {
   MAX_LOG_LINE_CHARS,
   MAX_LOG_TOTAL_CHARS,
   MAX_RESULT_CHARS,
+  MAX_COMMAND_METHOD_CHARS,
 } from '../src/security/sandbox/host';
 import type { PlaybookMeta } from '../src/security/meta';
 import { PlaybookCommandError } from '../src/playbooks/errors';
 
+/**
+ * `handleCommand`'s `at.method` cap and the stderr caps are only reachable
+ * by a COMPROMISED child forging protocol frames — an honest playbook body
+ * runs inside the `node:vm` context in `context.ts`, which has no `process`
+ * (so it cannot write real stderr) and no way to emit a `cmd` frame with any
+ * `method` other than one of the 52 declared `supersurf.*` names (see the
+ * doc on `MAX_COMMAND_METHOD_CHARS` in `host.ts`). Proving those two caps
+ * still requires a REAL spawned child and a REAL pipe — the task's own
+ * constraint — so this substitutes which script gets spawned, not the pipe
+ * itself: `spawnOverride` set, `runPlaybookScript`'s own `resolveChildEntry`
+ * / permission-flag / sandboxing-check logic all still run unchanged, and
+ * only the final `spawn(...)` call's command+argv are swapped for a raw
+ * fixture script that speaks the NDJSON protocol directly. `vi.spyOn` cannot
+ * do this — `child_process`'s compiled CommonJS export is a frozen ESM
+ * namespace property vitest cannot redefine — so this uses `vi.mock`, which
+ * substitutes the whole module at resolution time instead.
+ */
+let spawnOverride: { command: string; argv: string[] } | null = null;
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    spawn: (...args: Parameters<typeof actual.spawn>) => {
+      if (spawnOverride) return actual.spawn(spawnOverride.command, spawnOverride.argv, args[2] as any);
+      return (actual.spawn as any)(...args);
+    },
+  };
+});
+
 let dir: string;
 beforeAll(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-host-')); });
 afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { spawnOverride = null; });
+
+/** Writes a raw NDJSON-protocol-speaking fixture script (NOT a playbook —
+ *  no sandboxing, no vm context) and points `spawnOverride` at it. Used only
+ *  by the "compromised child" tests below, which forge protocol frames an
+ *  honest playbook cannot reach. */
+function useFixtureChild(name: string, script: string): void {
+  const file = path.join(dir, `${name}.fixture.js`);
+  fs.writeFileSync(file, script, 'utf8');
+  spawnOverride = { command: process.execPath, argv: [file] };
+}
 
 function sha256(source: string): string {
   return crypto.createHash('sha256').update(source, 'utf8').digest('hex');
@@ -525,5 +566,186 @@ describe('log and result caps at the sandbox pipe', () => {
     const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
     expect(res.ok).toBe(true);
     expect(res.result).toEqual({ a: 1, b: 'fine' });
+  });
+});
+
+describe('stderr and forged-command-method caps (compromised child)', () => {
+  // Everything below is reachable ONLY by a child that writes real bytes to
+  // fd 2 or forges a `cmd` frame with an arbitrary `method` — an honest
+  // playbook, running inside the `node:vm` context, can do neither (no
+  // `process`, and `supersurf.*` only ever emits one of 52 declared short
+  // method names). These tests substitute the spawned SCRIPT via
+  // `useFixtureChild`, never the pipe — the child is a real OS process
+  // talking the real NDJSON protocol over real pipes the whole time.
+
+  it('caps a single oversized stderr chunk, charged against the shared log budget', async () => {
+    const { file, hash } = write('at-stderr-single', `export default async function () { return 1; }`);
+    useFixtureChild(
+      'stderr-single',
+      `process.stdin.resume();
+process.stderr.write('Z'.repeat(10000));
+// Wait past the stderr 'data' event before sending 'done' — the two are
+// separate pipes with no ordering guarantee between them, and 'done' ends
+// the run the moment the host reads it.
+setTimeout(() => {
+  process.stdout.write(JSON.stringify({ t: 'done', result: 1 }) + '\\n');
+  setTimeout(() => process.exit(0), 50);
+}, 30);`,
+    );
+    const logs: string[] = [];
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onCommand: noCommands, onLog: (m) => logs.push(m),
+    });
+    expect(res.ok).toBe(true);
+    // If the per-chunk cap were removed, this would be one 10000-char entry.
+    expect(logs.length).toBe(1);
+    expect(logs[0].length).toBeLessThanOrEqual(MAX_LOG_LINE_CHARS + 32);
+    expect(logs[0]).toContain('[truncated]');
+  });
+
+  it('shares the log budget with stdout log() calls — spending it on stdout starves stderr', async () => {
+    // 9 stdout log frames of exactly MAX_LOG_LINE_CHARS chars = 18000 chars,
+    // leaving 2000 of the 20000-char shared budget. A subsequent 5000-char
+    // stderr chunk caps to 2012 chars ("…[truncated]" included) — over what's
+    // left — so it must be dropped entirely, not partially forwarded.
+    const { file, hash } = write('at-stderr-shared-fwd', `export default async function () { return 1; }`);
+    useFixtureChild(
+      'stderr-shared-fwd',
+      `process.stdin.resume();
+function emit(f) { process.stdout.write(JSON.stringify(f) + '\\n'); }
+for (let i = 0; i < 9; i++) emit({ t: 'log', message: 'Y'.repeat(${MAX_LOG_LINE_CHARS}) });
+process.stderr.write('X'.repeat(5000));
+// Wait past the stderr 'data' event before sending 'done' — stdout and
+// stderr are separate pipes with no ordering guarantee between them.
+setTimeout(() => {
+  emit({ t: 'done', result: 1 });
+  setTimeout(() => process.exit(0), 50);
+}, 30);`,
+    );
+    const logs: string[] = [];
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onCommand: noCommands, onLog: (m) => logs.push(m),
+    });
+    expect(res.ok).toBe(true);
+    // If stderr had its OWN separate budget instead of sharing this one, the
+    // stderr chunk would still get through and this would be 10, with the
+    // 10th entry containing raw "X" content instead of a drop notice.
+    expect(logs.length).toBe(10);
+    for (let i = 0; i < 9; i++) expect(logs[i].length).toBe(MAX_LOG_LINE_CHARS);
+    expect(logs[9]).toContain('further log output dropped');
+    expect(logs.some((l) => l.includes('X'))).toBe(false);
+  });
+
+  it('shares the log budget the other way — spending it on stderr starves stdout log()', async () => {
+    // 11 separate stderr 'data' events of exactly MAX_LOG_LINE_CHARS chars
+    // each, spaced 5ms apart so the OS pipe cannot coalesce them into fewer,
+    // larger events (confirmed empirically: un-spaced synchronous writes risk
+    // merging; a few ms apart reliably yields one 'data' event per write).
+    // The first 10 exactly fill the 20000-char budget; the 11th trips it.
+    // A stdout log() call sent AFTER must then be dropped too.
+    const { file, hash } = write('at-stderr-shared-rev', `export default async function () { return 1; }`);
+    useFixtureChild(
+      'stderr-shared-rev',
+      `process.stdin.resume();
+function emit(f) { process.stdout.write(JSON.stringify(f) + '\\n'); }
+let i = 0;
+function stepErr() {
+  if (i++ >= 11) { afterErr(); return; }
+  process.stderr.write('X'.repeat(${MAX_LOG_LINE_CHARS}));
+  setTimeout(stepErr, 5);
+}
+function afterErr() {
+  emit({ t: 'log', message: 'late log after budget exhausted' });
+  emit({ t: 'done', result: 1 });
+  setTimeout(() => process.exit(0), 50);
+}
+stepErr();`,
+    );
+    const logs: string[] = [];
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onCommand: noCommands, onLog: (m) => logs.push(m),
+    });
+    expect(res.ok).toBe(true);
+    // If a stdout log() call ignored the budget stderr already spent, the
+    // late log() call would get through as a 12th entry containing its text.
+    expect(logs.length).toBe(11);
+    expect(logs[10]).toContain('further log output dropped');
+    expect(logs.some((l) => l.includes('late log'))).toBe(false);
+  });
+
+  it('caps the stderr tail folded into the exit-handler HarnessUnavailable message', async () => {
+    // 3 separate ~1500-char stderr lines (each under the per-chunk cap, so
+    // Finding 1's per-chunk cap never fires) accumulate to ~4500 chars, then
+    // the child exits without a done/fail frame. The exit handler's OWN cap
+    // on the assembled tail is what's under test here, not the per-chunk one.
+    const { file, hash } = write('at-stderr-exit-tail', `export default async function () { return 1; }`);
+    useFixtureChild(
+      'stderr-exit-tail',
+      `process.stdin.resume();
+let i = 0;
+function stepErr() {
+  if (i++ >= 3) { setTimeout(() => process.exit(7), 50); return; }
+  process.stderr.write('E'.repeat(1500) + '\\n');
+  setTimeout(stepErr, 5);
+}
+stepErr();`,
+    );
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('HarnessUnavailable');
+    // If the exit handler's own cap were removed, this would carry the full
+    // ~4500-char accumulated stderr tail verbatim into a persisted,
+    // agent-facing error message.
+    expect(res.error!.length).toBeLessThanOrEqual(MAX_FAIL_MESSAGE_CHARS + 150);
+    expect(res.error).toContain('[truncated]');
+  });
+
+  it('caps a forged oversized cmd.method recorded against a classified command failure', async () => {
+    // No honest playbook can send a `cmd` frame with a `method` other than
+    // one of the 52 declared short `supersurf.*` names — this forges one
+    // directly at the protocol level to prove `at.method` (Finding 2) is
+    // capped without touching the VERBATIM `method` forwarded to onCommand.
+    const { file, hash } = write('at-method-forged', `export default async function () { return 1; }`);
+    useFixtureChild(
+      'method-forged',
+      `let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (c) => {
+  buf += c;
+  let idx;
+  while ((idx = buf.indexOf('\\n')) >= 0) {
+    const line = buf.slice(0, idx).trim();
+    buf = buf.slice(idx + 1);
+    if (!line) continue;
+    let frame;
+    try { frame = JSON.parse(line); } catch (e) { continue; }
+    if (frame.t === 'init') {
+      process.stdout.write(JSON.stringify({ t: 'cmd', id: 1, method: 'Z'.repeat(1000000), params: {} }) + '\\n');
+    } else if (frame.t === 'res') {
+      process.stdout.write(JSON.stringify({ t: 'fail', message: frame.error }) + '\\n');
+      setTimeout(() => process.exit(0), 50);
+    }
+  }
+});`,
+    );
+    let forwardedMethodLength = -1;
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onLog: noLogs,
+      onCommand: async (method) => {
+        forwardedMethodLength = method.length;
+        throw new PlaybookCommandError('forged method test', 'SelectorMiss', { selector: 'x' });
+      },
+    });
+    // The forward to onCommand must stay VERBATIM (spec Addendum A) — only
+    // the host's OWN copy in `at.method` gets capped.
+    expect(forwardedMethodLength).toBe(1000000);
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('SelectorMiss');
+    const at = (res.payload as any)?.at;
+    expect(at).toBeTruthy();
+    // If `at.method`'s cap were removed, this would be 1000000 chars long.
+    expect(at.method.length).toBeLessThanOrEqual(MAX_COMMAND_METHOD_CHARS + 32);
+    expect(at.method).toContain('[truncated]');
+    expect(at.step).toBe(1);
   });
 });

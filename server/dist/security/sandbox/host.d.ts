@@ -80,15 +80,26 @@ export interface PlaybookRunResult {
  * to close, reached through different fields.
  *
  * What IS bounded here: `fail.message`, `fail.stack`, every `log.message`
- * (individually AND in aggregate across a run), and `done.result` (by
- * serialized size, replaced with a visible truncation marker over the cap —
- * never silently dropped).
+ * (individually AND in aggregate across a run), `done.result` (by serialized
+ * size, replaced with a visible truncation marker over the cap — never
+ * silently dropped), every chunk the child writes to stderr (individually,
+ * AND charged against the SAME aggregate budget `log.message` uses — stdout
+ * logs and stderr are not two separate ceilings, they are one, so a script
+ * cannot double the effective log budget by splitting output across both
+ * channels), the stderr tail folded into the exit handler's
+ * `HarnessUnavailable` message when the child dies without a `done`/`fail`
+ * frame, and `at.method` — the copy of a `cmd` frame's method name this
+ * module records against a classified command failure (see `handleCommand`
+ * below).
  *
- * What is NOT bounded here: a `cmd` frame's `method`/`params` — spec Addendum A
- * requires `onCommand` to forward those VERBATIM, so a script can still send an
- * arbitrarily large param (e.g. `type(sel, 'A'.repeat(1e7))`) on its way to an
- * MCP tool call. Bounding that is downstream tool validation's job, not this
- * pipe boundary's — this module does not claim to own it.
+ * What is NOT bounded here: a `cmd` frame's `method`/`params` AS FORWARDED TO
+ * `onCommand` — spec Addendum A requires that forward to be VERBATIM, so a
+ * script can still send an arbitrarily large param (e.g.
+ * `type(sel, 'A'.repeat(1e7))`) on its way to an MCP tool call. Bounding that
+ * is downstream tool validation's job, not this pipe boundary's — this module
+ * does not claim to own it. `at.method` above is a SEPARATE copy this module
+ * keeps for its own failure record; capping that copy does not touch the
+ * verbatim forward.
  *
  * A stack gets a few KB because the frames below the throw site are the useful
  * part. A message gets far less — it is one line in a rendered failure report.
@@ -104,6 +115,14 @@ export declare const MAX_LOG_LINE_CHARS = 2000;
 export declare const MAX_LOG_TOTAL_CHARS = 20000;
 export declare const MAX_RESULT_CHARS = 100000;
 export declare const MAX_RESULT_PREVIEW_CHARS = 2000;
+/**
+ * Bound on `at.method`, the copy of a `cmd` frame's method name this module
+ * records against a classified command failure (`handleCommand` below). An
+ * honest script can never reach this — the 52 declared `supersurf.*` methods
+ * are all short names — only a compromised child forging a `cmd` frame can.
+ * Small on purpose: it is a method name, not prose.
+ */
+export declare const MAX_COMMAND_METHOD_CHARS = 200;
 /**
  * Check the caller's arguments against `meta.params`.
  * @returns null when valid, otherwise a human-facing reason.
