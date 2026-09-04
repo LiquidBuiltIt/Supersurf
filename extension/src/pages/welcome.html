@@ -322,13 +322,30 @@
       <div class="step">
         <span class="step-num">1</span>
         <div class="step-content">
-          <p><span class="step-label">Register with Claude Code</span></p>
-          <span class="cmd">claude mcp add supersurf -- npx supersurf-mcp@latest</span>
+          <p><span class="step-label">Install the SuperSurf CLI</span></p>
+          <span class="cmd">curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh</span>
+          <p class="detail">One command, no sudo. It starts the daemon and detects the extension you just installed. Re-run it later to upgrade.</p>
         </div>
       </div>
 
       <div class="step">
         <span class="step-num">2</span>
+        <div class="step-content">
+          <p><span class="step-label">Register with Claude Code</span></p>
+          <span class="cmd">claude mcp add supersurf -- supersurf mcp</span>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-num">3</span>
+        <div class="step-content">
+          <p><span class="step-label">No CLI? Point your client straight at npx</span></p>
+          <span class="cmd">claude mcp add supersurf -- npx supersurf-mcp@latest</span>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step-num">4</span>
         <div class="step-content">
           <p><span class="step-label">Or add to Claude Desktop config</span></p>
           <div class="config-block">
@@ -346,10 +363,10 @@
       </div>
 
       <div class="step">
-        <span class="step-num">3</span>
+        <span class="step-num">5</span>
         <div class="step-content">
           <p><span class="step-label">Start automating</span></p>
-          <p>Your agent calls the <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:13px;color:var(--text-muted);">enable</code> tool to start a session. The extension auto-connects and 30+ browser tools become available.</p>
+          <p>Your agent calls the <code style="background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:13px;color:var(--text-muted);">connect</code> tool to start a session. The extension auto-connects and 30+ browser tools become available.</p>
         </div>
       </div>
     </div>

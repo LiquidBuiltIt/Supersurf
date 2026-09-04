@@ -38,7 +38,7 @@
     "url": "https://liquidbuiltit.github.io/Supersurf/",
     "downloadUrl": "https://www.npmjs.com/package/supersurf-mcp",
     "codeRepository": "https://github.com/liquidbuiltit/Supersurf",
-    "softwareVersion": "3.1.0",
+    "softwareVersion": "3.4.0",
     "license": "https://www.apache.org/licenses/LICENSE-2.0",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
     "author": { "@type": "Organization", "name": "The Media Masons" }
@@ -1544,11 +1544,35 @@
         <div class="sparkle lg" style="top:35%;left:4%;animation-delay:0.1s;"></div>
       </div>
       <h2 class="slide-title">Quick Start</h2>
-      <p class="slide-subtitle">Two ways to get up and running.</p>
+      <p class="slide-subtitle">One command, or bring your own setup.</p>
       <div class="quickstart-methods">
         <div class="quickstart-method">
-          <h3>Chrome Web Store</h3>
+          <h3>Install Script</h3>
           <p class="method-subtitle">Recommended for most users</p>
+          <div class="quickstart-step">
+            <span class="step-num">1</span>
+            <div class="step-content">
+              <p>Install the SuperSurf CLI</p>
+              <span class="cmd">curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh</span>
+            </div>
+          </div>
+          <div class="quickstart-step">
+            <span class="step-num">2</span>
+            <div class="step-content">
+              <p>The installer opens the Chrome Web Store and waits until the extension connects</p>
+            </div>
+          </div>
+          <div class="quickstart-step">
+            <span class="step-num">3</span>
+            <div class="step-content">
+              <p>Register it with your MCP client and start automating</p>
+              <span class="cmd">claude mcp add supersurf -- supersurf mcp</span>
+            </div>
+          </div>
+        </div>
+        <div class="quickstart-method">
+          <h3>Without the CLI</h3>
+          <p class="method-subtitle">If your client already runs npx</p>
           <div class="quickstart-step">
             <span class="step-num">1</span>
             <div class="step-content">
@@ -1558,43 +1582,14 @@
           <div class="quickstart-step">
             <span class="step-num">2</span>
             <div class="step-content">
-              <p>Install the MCP server</p>
-              <span class="cmd">npm install -g supersurf-mcp</span>
+              <p>Point your client straight at the npm package — nothing to install locally</p>
+              <span class="cmd">claude mcp add supersurf -- npx supersurf-mcp@latest</span>
             </div>
           </div>
           <div class="quickstart-step">
             <span class="step-num">3</span>
             <div class="step-content">
-              <p>Add SuperSurf to your MCP client config and start automating</p>
-            </div>
-          </div>
-        </div>
-        <div class="quickstart-method">
-          <h3>Manual / Unpacked</h3>
-          <p class="method-subtitle">For development or offline use</p>
-          <div class="quickstart-step">
-            <span class="step-num">1</span>
-            <div class="step-content">
-              <p>Download the latest release .zip from GitHub</p>
-            </div>
-          </div>
-          <div class="quickstart-step">
-            <span class="step-num">2</span>
-            <div class="step-content">
-              <p>Extract the zip and open chrome://extensions</p>
-            </div>
-          </div>
-          <div class="quickstart-step">
-            <span class="step-num">3</span>
-            <div class="step-content">
-              <p>Enable Developer mode, click Load unpacked, and select the extracted folder</p>
-            </div>
-          </div>
-          <div class="quickstart-step">
-            <span class="step-num">4</span>
-            <div class="step-content">
-              <p>Install the MCP server</p>
-              <span class="cmd">npm install -g supersurf-mcp</span>
+              <p>Any MCP-compatible client works. For Claude Desktop, use <span style="font-family:monospace">npx</span> as the command and <span style="font-family:monospace">supersurf-mcp@latest</span> as the argument.</p>
             </div>
           </div>
         </div>
@@ -1625,10 +1620,10 @@
       <div class="cta-links">
         <a href="https://github.com/liquidbuiltit/supersurf" class="cta-link primary" target="_blank" rel="noopener">View Source on GitHub</a>
         <a href="https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek" class="cta-link secondary" target="_blank" rel="noopener">Install Chrome Extension</a>
-        <a href="https://www.npmjs.com/package/supersurf-mcp" class="cta-link secondary" target="_blank" rel="noopener">npm install supersurf-mcp</a>
+        <a href="https://www.npmjs.com/package/supersurf-mcp" class="cta-link secondary" target="_blank" rel="noopener">supersurf-mcp on npm</a>
       </div>
       <div class="cta-meta">
-        <span>v1.4.3</span>
+        <span>v3.4.0</span>
         <span>Apache 2.0 + Commons Clause</span>
         <span>100% Open Source</span>
         <span>Zero telemetry</span>

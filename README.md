@@ -101,16 +101,32 @@ Content scripts in an isolated world — **invisible to page JS**. Your real bro
 
 ## Quick Start
 
-**1. [Install the Chrome extension from the Web Store](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek)**
+```bash
+curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh
+```
 
-**2. Register with your MCP client**
+That installs the `supersurf` CLI to `~/.local/bin` (no sudo), starts the daemon, and walks you through the one step it cannot do for you: installing the Chrome extension from the Web Store. Then point your client at it:
 
 ```bash
-claude mcp add supersurf -- npx supersurf-mcp@latest  # Claude Code
+claude mcp add supersurf -- supersurf mcp   # Claude Code
+```
+
+Re-run the same command to upgrade. In CI, Docker, or anywhere without a terminal, it skips every prompt on its own — pass `--yes` to force that:
+
+```bash
+curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh -s -- --yes
 ```
 
 <details>
-<summary><strong>Claude Desktop config</strong></summary>
+<summary><strong>Without the CLI — point your client straight at npx</strong></summary>
+
+The MCP server is on npm, so a client that can run `npx` needs no CLI installed. You still have to [install the extension from the Web Store](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek) yourself.
+
+```bash
+claude mcp add supersurf -- npx supersurf-mcp@latest   # Claude Code
+```
+
+Claude Desktop:
 
 ```json
 {
@@ -124,6 +140,7 @@ claude mcp add supersurf -- npx supersurf-mcp@latest  # Claude Code
 ```
 
 CLI flags can be appended to the args array:
+
 ```json
 {
   "mcpServers": {
@@ -134,6 +151,16 @@ CLI flags can be appended to the args array:
   }
 }
 ```
+
+</details>
+
+<details>
+<summary><strong>Other ways to get the extension</strong></summary>
+
+The [Chrome Web Store listing](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek) is the normal route, and the installer opens it for you. Two others exist:
+
+- **Managed profiles need no install at all.** `supersurf profiles create <name>` launches a separate Chromium with the extension already sideloaded — the daemon downloads it from GitHub releases and caches it under `~/.supersurf/extension/`.
+- **Manual unpacked load**, for development or an offline machine: download the release `.zip` from [GitHub releases](https://github.com/LiquidBuiltIt/Supersurf/releases), extract it, open `chrome://extensions`, enable Developer mode, then **Load unpacked** and select the extracted folder.
 
 </details>
 
@@ -157,7 +184,7 @@ SuperSurf ships as **two** npm packages:
 - **[`supersurf-mcp`](https://www.npmjs.com/package/supersurf-mcp)** — the MCP server. This is what you install and point your client at.
 - **[`supersurf-daemon`](https://www.npmjs.com/package/supersurf-daemon)** — the coordinator daemon. It's a dependency of `supersurf-mcp`, spawned automatically; you never install or configure it directly.
 
-> **Why two packages and not a single `supersurf`?** They were meant to merge into one `supersurf` package in v3. That name is currently squatted on npm by a stale, abandoned `0.0.1` placeholder (dead site, untouched for ~10 months), so the merge is on hold pending an ownership dispute. Until that resolves, the two ship separately under the names we own.
+> **Why two packages and not a single `supersurf`?** They were meant to merge into one `supersurf` package in v3. That name is squatted on npm by an abandoned `0.0.1` placeholder, and npm declined to review the claim — its Trust & Safety team does not arbitrate squatting, and the trademark route it offered instead is not worth pursuing for a FOSS name. The merge is cancelled: SuperSurf ships as these two packages permanently. The `supersurf` CLI installed by the script above is a compiled binary from GitHub releases, not an npm package, so the squat does not affect it.
 
 ---
 
