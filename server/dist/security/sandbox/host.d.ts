@@ -21,6 +21,7 @@
  * @module security/sandbox/host
  */
 import type { PlaybookMeta } from '../meta';
+import type { PlaybookErrorType } from '../../playbooks/errors';
 /** Everything a run needs. */
 export interface PlaybookRunOptions {
     file: string;
@@ -50,6 +51,14 @@ export interface PlaybookRunResult {
     ok: boolean;
     result?: unknown;
     error?: string;
+    /**
+     * Which KIND of failure. Absent only on success. The runner writes this onto
+     * the run record, and it is what decides whether the failure is worth reading
+     * the page for — see `playbooks/errors.ts`.
+     */
+    type?: PlaybookErrorType;
+    /** Type-specific detail: `{ selector }`, `{ requestedUrl }`, `{ reason }`. */
+    payload?: Record<string, unknown>;
     stack?: string;
     durationMs: number;
 }

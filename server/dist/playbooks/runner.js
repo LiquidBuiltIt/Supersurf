@@ -8,9 +8,10 @@
  * differ from the parent's. The parent is whichever process holds a
  * `ConnectionManager`: the MCP server or the CLI. Never the daemon.
  *
- * Because the tab dies at exit (spec §10 risk 2), a failed run captures a
- * snapshot BEFORE teardown and stores it as `evidence` on the run record.
- * Skip that and every failure reads as "it broke, no idea why".
+ * Because the tab dies at exit (spec §10 risk 2), a `SelectorMiss` failure
+ * captures a ranked candidate-selector list BEFORE teardown and stores it as
+ * `evidence` on the run record. The other five failure types have no page
+ * left to read, so they carry no evidence at all.
  *
  * @module playbooks/runner
  */
@@ -25,6 +26,8 @@ const experimental_1 = require("../experimental");
 const index_1 = require("../experimental/mouse-humanization/index");
 const runs_1 = require("./runs");
 const host_1 = require("../security/sandbox/host");
+const errors_1 = require("./errors");
+const candidates_1 = require("./candidates");
 const { version: PACKAGE_VERSION } = require('../../package.json');
 function defaultBackend() {
     return new backend_1.ConnectionManager((0, backend_config_1.backendConfigFrom)((0, backend_config_1.buildConfigService)({}), PACKAGE_VERSION));
@@ -103,32 +106,19 @@ function actionFailures(res) {
     const picked = lines.length > 0 ? lines : res.actions.map(String);
     return picked.length > 0 ? picked.join('; ') : null;
 }
-/** `rawResult` failures come back as data; the child expects a throw. */
-function unwrap(res) {
+/**
+ * `rawResult` failures come back as data; the child expects a throw. The throw
+ * is typed here and nowhere else — this is the only place that sees the MCP
+ * tool name, its arguments (hence the selector), and the failure envelope at
+ * the same moment.
+ */
+function unwrapTyped(tool, args, res, at) {
     if (res && res.success === false) {
-        throw new Error(String(res.error ?? res.message ?? actionFailures(res) ?? 'command failed'));
+        const message = String(res.error ?? res.message ?? actionFailures(res) ?? 'command failed');
+        const { type, payload } = (0, errors_1.classifyToolFailure)(tool, args, message);
+        throw new errors_1.PlaybookCommandError(message, type, { ...payload, at });
     }
     return res;
-}
-/** Best-effort page capture for the failure record. Never throws. */
-async function captureEvidence(backend) {
-    try {
-        const res = await backend.callTool('browser_snapshot', {}, { rawResult: true });
-        if (!res || res.success === false)
-            return undefined;
-        // `browser_snapshot` with `rawResult` spreads the extension payload at the
-        // TOP LEVEL — the real keys are `nodes` and `formFields`. There is no
-        // `snapshot` and no `result` wrapper, so reading those first (and stopping
-        // at `null`) meant evidence was NEVER captured against the live tool.
-        // The wrapper keys stay as a fallback for a transport that adds one.
-        const snap = res.snapshot ?? res.result ?? res;
-        if (!snap)
-            return undefined;
-        return { snapshot: typeof snap === 'string' ? snap : JSON.stringify(snap) };
-    }
-    catch {
-        return undefined;
-    }
 }
 async function runPlaybook(opts) {
     const started = Date.now();
@@ -151,6 +141,12 @@ async function runPlaybook(opts) {
         };
         if (out.error)
             rec.error = out.error;
+        if (out.type)
+            rec.type = out.type;
+        if (out.at)
+            rec.at = out.at;
+        if (out.stack)
+            rec.stack = out.stack;
         if (profile)
             rec.profile = profile;
         if (out.evidence)
@@ -162,12 +158,13 @@ async function runPlaybook(opts) {
         return finish({
             ok: false,
             error: record.error ?? `\`${record.name}\` did not validate.`,
+            type: 'Refused',
             durationMs: Date.now() - started,
         });
     }
     const paramError = validateParams(record.meta, params);
     if (paramError) {
-        return finish({ ok: false, error: paramError, durationMs: Date.now() - started });
+        return finish({ ok: false, error: paramError, type: 'Refused', durationMs: Date.now() - started });
     }
     const runScript = opts.runScript ?? host_1.runPlaybookScript;
     const backend = (opts.createBackend ?? defaultBackend)();
@@ -188,6 +185,7 @@ async function runPlaybook(opts) {
         return finish({
             ok: false,
             error: `Connect failed: ${connectRes?.message ?? connectRes?.error ?? 'unknown error'}`,
+            type: 'HarnessUnavailable',
             durationMs: Date.now() - started,
         });
     }
@@ -221,10 +219,14 @@ async function runPlaybook(opts) {
         return finish({
             ok: false,
             error: `Tab open failed: ${newTabRes?.message ?? newTabRes?.error ?? 'unknown error'}`,
+            type: 'HarnessUnavailable',
             durationMs: Date.now() - started,
         });
     }
     tabOpened = true;
+    // 1-based index over the commands this run issues. Per-run by construction,
+    // which a counter inside the stateless `mapCommand` could never be.
+    let step = 0;
     try {
         outcome = await runScript({
             file: record.file,
@@ -232,8 +234,9 @@ async function runPlaybook(opts) {
             meta: record.meta,
             hash: record.hash,
             onCommand: async (method, cmdParams) => {
-                const { tool, args } = (0, command_map_1.mapCommand)(method, cmdParams, record.name);
-                return unwrap(await backend.callTool(tool, args, { rawResult: true }));
+                const at = { step: ++step, method };
+                const { tool, args: toolArgs } = (0, command_map_1.mapCommand)(method, cmdParams, record.name);
+                return unwrapTyped(tool, toolArgs, await backend.callTool(tool, toolArgs, { rawResult: true }), at);
             },
             onLog: (msg) => {
                 logs.push(msg);
@@ -242,11 +245,26 @@ async function runPlaybook(opts) {
         });
     }
     catch (err) {
-        outcome = { ok: false, error: err?.message ?? String(err), durationMs: Date.now() - started };
+        outcome = {
+            ok: false,
+            error: err?.message ?? String(err),
+            type: err?.playbookType ?? 'HarnessUnavailable',
+            payload: err?.playbookPayload,
+            durationMs: Date.now() - started,
+        };
     }
     // Evidence BEFORE teardown — the tab is about to stop existing.
-    if (!outcome.ok && tabOpened) {
-        evidence = await captureEvidence(backend);
+    //
+    // ONLY for `SelectorMiss`. The other five types have no page to read:
+    // `Refused` and `ScriptAssertion` never reached the browser,
+    // `HarnessUnavailable` means it is gone, `PageUnavailable` means the page
+    // never loaded, and `Timeout` killed the child mid-flight. Capturing anyway
+    // is what produced a 766 KB record whose useful content was one sentence.
+    const failedSelector = outcome.type === 'SelectorMiss'
+        ? outcome.payload?.selector
+        : undefined;
+    if (tabOpened && failedSelector) {
+        evidence = await (0, candidates_1.captureCandidates)(backend, failedSelector);
     }
     if (tabOpened) {
         try {
@@ -262,6 +280,9 @@ async function runPlaybook(opts) {
         ok: outcome.ok,
         result: outcome.result,
         error: outcome.error,
+        type: outcome.type,
+        at: outcome.payload?.at,
+        stack: outcome.stack,
         durationMs: outcome.durationMs,
         evidence,
     });

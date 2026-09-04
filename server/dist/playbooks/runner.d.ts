@@ -7,15 +7,18 @@
  * differ from the parent's. The parent is whichever process holds a
  * `ConnectionManager`: the MCP server or the CLI. Never the daemon.
  *
- * Because the tab dies at exit (spec §10 risk 2), a failed run captures a
- * snapshot BEFORE teardown and stores it as `evidence` on the run record.
- * Skip that and every failure reads as "it broke, no idea why".
+ * Because the tab dies at exit (spec §10 risk 2), a `SelectorMiss` failure
+ * captures a ranked candidate-selector list BEFORE teardown and stores it as
+ * `evidence` on the run record. The other five failure types have no page
+ * left to read, so they carry no evidence at all.
  *
  * @module playbooks/runner
  */
 import { type PlaybookRunOptions, type PlaybookRunResult } from '../security/sandbox/host';
 import type { PlaybookMeta } from '../security/meta';
 import type { ValidationRecord } from '../security/validate';
+import { type PlaybookErrorType, type FailureAt } from './errors';
+import { type Candidate } from './candidates';
 /** The sandbox-host entrypoint, seam-able for unit tests. */
 type RunScript = (opts: PlaybookRunOptions) => Promise<PlaybookRunResult>;
 /** The slice of `ConnectionManager` a run needs. Narrow so tests can fake it. */
@@ -41,10 +44,23 @@ export interface RunOutcome {
     ok: boolean;
     result?: unknown;
     error?: string;
+    /** Which kind of failure. Absent on success. */
+    type?: PlaybookErrorType;
+    /** Which command threw, and its 1-based index in this run. */
+    at?: FailureAt;
+    /** The in-child stack. Names the playbook line that threw. */
+    stack?: string;
     durationMs: number;
     logs: string[];
+    /**
+     * `SelectorMiss` ONLY. There is no `snapshot` key any more: the other five
+     * types have no page worth reading, and the accessibility tree this replaces
+     * hit 766 KB on a single `github.com` failure.
+     */
     evidence?: {
-        snapshot?: string;
+        url?: string;
+        title?: string;
+        candidates?: Candidate[];
     };
 }
 /**

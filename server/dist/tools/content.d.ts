@@ -43,7 +43,14 @@ export declare function onLookup(ctx: ToolContext, args: any, options: any): Pro
  * Modes:
  * - `auto`: Tries common content selectors (article, main, .content), falls back to body
  * - `full`: Uses document.body directly
- * - `selector`: Targets a specific CSS selector
+ * - `selector`: Targets a CSS selector and returns EVERY element it matches
+ *
+ * Selector mode used to read only the first match, which silently hid N-1
+ * elements whenever the selector was a class shared by siblings (`.WorkflowJob`
+ * on a GitHub Actions run page reported `total: 1` against 22 jobs). First-match
+ * was never a documented guarantee, so this is a fix, not a flag: the caller now
+ * gets every match, separated by a `---` rule, with the count in `matches`.
+ * `auto` and `full` are unaffected — they have exactly one root by definition.
  *
  * @param args - `{ mode?: string, selector?: string, max_lines?: number, offset?: number }`
  */

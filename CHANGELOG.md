@@ -83,6 +83,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 - fix: a failed playbook run now actually carries its page snapshot in `evidence`. `captureEvidence` read `res.snapshot ?? res.result`, but `browser_snapshot` under `rawResult` spreads the extension payload at the top level (`nodes`, `formFields`) with no wrapper key — both reads were always `undefined`, so every failure record shipped with no evidence at all, which is the entire point of the record.
 - fix: a failed playbook interaction reports the real reason instead of `command failed`. `unwrap` read only `error`/`message`, but `browser_interact` — the tool every one of the 15 interaction verbs maps to — fails with ``{ success: false, actions: ['✗ click: Element not found: `#foo`'] }`` and carries no `error` and no `message`, so the one line saying what broke was discarded on every failed click, type and hover.
+- `fix`: a failed playbook run now records a typed error — `SelectorMiss`, `Timeout`, `PageUnavailable`, `HarnessUnavailable`, `Refused`, or `ScriptAssertion` — with the step and method that threw and the in-child stack. Only `SelectorMiss` reads the page, and it captures a short list of candidate selectors instead of the accessibility tree. Every failure record previously captured an uncapped `browser_snapshot`; one bad selector against `github.com` produced 766 KB of `backendDOMNodeId` noise.
 
 ## 3.4.0 — 2026-08-24
 

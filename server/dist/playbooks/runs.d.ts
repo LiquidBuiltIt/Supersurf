@@ -8,14 +8,21 @@
  *
  * `evidence` exists because the runner owns its tab and CLOSES it at exit
  * (spec §10 risk 2). A failing script destroys the page that would explain the
- * failure, so the snapshot is taken on the throw, before teardown.
+ * failure, so `SelectorMiss` alone captures a ranked candidate-selector list
+ * before the run's tab closes; the other five error types carry no evidence.
  *
  * Every write is best-effort. A bookkeeping failure must never turn a
  * successful run into a reported failure.
  *
  * @module playbooks/runs
  */
-/** Cap on a stored snapshot. A sidecar that outgrows its script helps nobody. */
+import type { PlaybookErrorType, FailureAt } from './errors';
+import type { Candidate } from './candidates';
+/**
+ * Cap on the stored `evidence` object. A sidecar that outgrows its script helps
+ * nobody — and the uncapped accessibility tree this replaces reached 766 KB for
+ * a single failed selector.
+ */
 export declare const MAX_EVIDENCE_CHARS = 4000;
 /** Spec §7.8. */
 export interface RunRecord {
@@ -23,6 +30,12 @@ export interface RunRecord {
     params: Record<string, unknown>;
     ok: boolean;
     error?: string;
+    /** Which KIND of failure — see `playbooks/errors.ts`. Absent on success. */
+    type?: PlaybookErrorType;
+    /** Which command threw, and its 1-based index in the run. */
+    at?: FailureAt;
+    /** The in-child stack, persisted for every in-child throw. */
+    stack?: string;
     durationMs: number;
     profile?: string;
     caller: 'agent' | 'cli';
@@ -32,7 +45,14 @@ export interface RunRecord {
      * experiment-only regression looks identical to a broken script.
      */
     experiments: boolean;
+    /**
+     * `SelectorMiss` only. A record written before the taxonomy carries a
+     * `snapshot` string here instead; readers must tolerate both.
+     */
     evidence?: {
+        url?: string;
+        title?: string;
+        candidates?: Candidate[];
         snapshot?: string;
     };
 }
