@@ -87,6 +87,33 @@ describe('classifyToolFailure()', () => {
     expect(out.type).toBe('Refused');
   });
 
+  // `tools/lib/dispatcher.ts` REWRITES these two shapes before the runner ever
+  // sees them, so the raw CDP wording ("Target crashed", "CDP timeout:
+  // Runtime.evaluate") never reaches this function. The rewritten text matched
+  // no pattern and fell through to the `Refused` catch-all — a dead renderer
+  // reported as "the harness declined," which tells an agent not to retry when
+  // the truth is that the tab must be closed and reopened. Strings below are
+  // verbatim from dispatcher.ts.
+  it('classifies the dispatcher-rewritten crashed-target message as PageUnavailable', () => {
+    const out = classifyToolFailure('browser_evaluate', {}, [
+      'The browser tab\'s renderer process crashed.',
+      '',
+      '**What this means:** The page hit an unrecoverable error (out-of-memory, native crash, or a heavy DOM operation on a broken page like a `chrome-error://` interstitial). The tab is no longer usable.',
+    ].join('\n'));
+    expect(out.type).toBe('PageUnavailable');
+    expect(out.payload.reason).toBe('renderer-crash');
+  });
+
+  it('classifies the dispatcher-rewritten CDP evaluate timeout as Timeout', () => {
+    const out = classifyToolFailure('browser_evaluate', {}, [
+      'JavaScript evaluation in the page timed out (50s).',
+      '',
+      '**What this usually means:** The renderer is hung or recovering from a recent crash.',
+    ].join('\n'));
+    expect(out.type).toBe('Timeout');
+    expect(out.payload.reason).toBe('cdp-evaluate-timeout');
+  });
+
   it('falls back to Refused — never SelectorMiss — for an unrecognised tool failure', () => {
     const out = classifyToolFailure('browser_pdf_save', {}, 'something odd happened');
     expect(out.type).toBe('Refused');

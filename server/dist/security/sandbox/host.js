@@ -25,6 +25,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MAX_FAIL_MESSAGE_CHARS = exports.MAX_FAIL_STACK_CHARS = void 0;
 exports.validateParams = validateParams;
 exports.permissionFlagsFor = permissionFlagsFor;
 exports.checkChildEntrySandboxing = checkChildEntrySandboxing;
@@ -37,6 +38,31 @@ const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));
 const child_process_1 = require("child_process");
 const DEFAULT_TIMEOUT_MS = 300000;
+/**
+ * Caps on the two free-text fields of a `fail` frame.
+ *
+ * EVERY field of that frame is child-controlled and untrusted. `wrap()` in
+ * `context.ts` rebuilds a thrown error as a bare vm-realm `Error` carrying only
+ * `String(e.message)`, so nothing about a frame's shape is verifiable from this
+ * side — a script can set `e.stack = 'Z'.repeat(2e6)` and the host has no way to
+ * tell that from a real V8 stack.
+ *
+ * The cap belongs HERE, at the pipe, and not at the three places the value ends
+ * up (`runner.ts` → `runs.ts`, which persists it forever in the sidecar, and
+ * `tools/playbooks.ts`, which pushes it straight into an agent-facing MCP
+ * response). One boundary owns "nothing unbounded crosses this pipe"; capping
+ * downstream instead is how the NEXT field leaks. This is the same 766 KB bug
+ * the error taxonomy exists to close, reached through a different field.
+ *
+ * A stack gets a few KB because the frames below the throw site are the useful
+ * part. A message gets far less — it is one line in a rendered failure report.
+ */
+exports.MAX_FAIL_STACK_CHARS = 4000;
+exports.MAX_FAIL_MESSAGE_CHARS = 1000;
+/** Cut `s` to `limit`, leaving a visible marker that something was dropped. */
+function capText(s, limit) {
+    return s.length > limit ? `${s.slice(0, limit)}…[truncated]` : s;
+}
 /**
  * Check the caller's arguments against `meta.params`.
  * @returns null when valid, otherwise a human-facing reason.
@@ -345,10 +371,17 @@ function runPlaybookScript(opts) {
                         child.stdin.write(JSON.stringify({ t: 'res', id: frame.id, ok: true, result }) + '\n');
                 }
                 catch (e) {
-                    // `e` is a `PlaybookCommandError` when the runner classified it. The
-                    // frame carries the type verbatim; without these two extra keys the
-                    // child sees only a string and every failure collapses back into one
-                    // undifferentiated bucket.
+                    // `e` is a `PlaybookCommandError` when the runner classified it.
+                    //
+                    // `errorType`/`errorPayload` below are INERT and deliberately kept:
+                    // `child.ts` hangs them on the error it rejects with, but that
+                    // rejection leaves a host method through `wrap()` in `context.ts`,
+                    // which rebuilds it as a bare vm-realm Error carrying only the
+                    // message. Nothing the child tags ever reaches the `fail` frame.
+                    //
+                    // `lastCommandFailure` is what actually carries the type across: the
+                    // host's OWN record of a failure it classified itself, correlated
+                    // against the `fail` frame by message. See the `fail` handler.
                     const message = String(e?.message ?? e);
                     if (e?.playbookType) {
                         const at = { step, method: frame.method };
@@ -416,15 +449,22 @@ function runPlaybookScript(opts) {
                         // that catches a miss and deliberately throws a DIFFERENT
                         // message must stay `ScriptAssertion`.
                         const untyped = frame.type == null || frame.type === 'ScriptAssertion';
-                        const correlated = untyped && lastCommandFailure && String(frame.message) === lastCommandFailure.message
+                        const rawMessage = String(frame.message);
+                        // Correlate on the RAW message: `lastCommandFailure.message` is the
+                        // host's own uncapped string, so capping before the comparison
+                        // would break the byte-for-byte match the correlation depends on.
+                        const correlated = untyped && lastCommandFailure && rawMessage === lastCommandFailure.message
                             ? lastCommandFailure
                             : undefined;
+                        // `message` and `stack` are as untrusted as `type` — see the caps'
+                        // definition. Bound them here, once, before anything downstream
+                        // persists or renders them.
                         finish(done({
                             ok: false,
-                            error: String(frame.message),
+                            error: capText(rawMessage, exports.MAX_FAIL_MESSAGE_CHARS),
                             type: correlated?.type ?? 'ScriptAssertion',
                             payload: correlated?.payload,
-                            stack: frame.stack,
+                            stack: frame.stack == null ? undefined : capText(String(frame.stack), exports.MAX_FAIL_STACK_CHARS),
                         }));
                     }
                 }

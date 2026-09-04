@@ -24,7 +24,7 @@ export type PlaybookErrorType =
 'SelectorMiss'
 /** The sandbox wall clock expired and the child was killed. */
  | 'Timeout'
-/** Navigation landed on a Chrome network-error interstitial. */
+/** No usable page: a network-error interstitial, or a crashed renderer. */
  | 'PageUnavailable'
 /** The extension, daemon, tab, or sandbox child went away. */
  | 'HarnessUnavailable'
@@ -69,7 +69,13 @@ export declare function selectorOf(args: Record<string, unknown>): string | unde
  * Every pattern below is a verbatim substring of a message this codebase
  * actually produces — `interaction/type.ts`, `interaction/wait.ts`,
  * `tools/content.ts`, `tools/navigation.ts`, `tools.ts`,
- * `tools/browser_evaluate/index.ts`, `playbooks/command-map.ts`.
+ * `tools/lib/dispatcher.ts`, `tools/browser_evaluate/index.ts`.
+ *
+ * NOT `playbooks/command-map.ts`. Its two refusals are thrown as
+ * `PlaybookCommandError`s that already carry `Refused`, and the runner calls
+ * `mapCommand` before `unwrapTyped`, so they never reach this function at all.
+ * The withheld-method patterns below stay only as a safety net for the same
+ * wording arriving from somewhere else.
  */
 export declare function classifyToolFailure(tool: string, args: Record<string, unknown>, message: string): {
     type: PlaybookErrorType;

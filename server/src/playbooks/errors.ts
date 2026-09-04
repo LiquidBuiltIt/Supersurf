@@ -25,7 +25,7 @@ export type PlaybookErrorType =
   | 'SelectorMiss'
   /** The sandbox wall clock expired and the child was killed. */
   | 'Timeout'
-  /** Navigation landed on a Chrome network-error interstitial. */
+  /** No usable page: a network-error interstitial, or a crashed renderer. */
   | 'PageUnavailable'
   /** The extension, daemon, tab, or sandbox child went away. */
   | 'HarnessUnavailable'
@@ -104,7 +104,13 @@ export function selectorOf(args: Record<string, unknown>): string | undefined {
  * Every pattern below is a verbatim substring of a message this codebase
  * actually produces — `interaction/type.ts`, `interaction/wait.ts`,
  * `tools/content.ts`, `tools/navigation.ts`, `tools.ts`,
- * `tools/browser_evaluate/index.ts`, `playbooks/command-map.ts`.
+ * `tools/lib/dispatcher.ts`, `tools/browser_evaluate/index.ts`.
+ *
+ * NOT `playbooks/command-map.ts`. Its two refusals are thrown as
+ * `PlaybookCommandError`s that already carry `Refused`, and the runner calls
+ * `mapCommand` before `unwrapTyped`, so they never reach this function at all.
+ * The withheld-method patterns below stay only as a safety net for the same
+ * wording arriving from somewhere else.
  */
 export function classifyToolFailure(
   tool: string,
@@ -121,6 +127,21 @@ export function classifyToolFailure(
   ) {
     const selector = selectorOf(args);
     return { type: 'SelectorMiss', payload: selector ? { selector } : {} };
+  }
+
+  // `tools/lib/dispatcher.ts` rewrites two CDP failures into its own recovery
+  // prose before the runner sees them, so neither "Target crashed" nor "CDP
+  // timeout: Runtime.evaluate" is ever on the wire — match the rewritten text.
+  // Both landed in the `Refused` catch-all below, which tells an agent the
+  // harness declined and it should not retry; the truth is the tab is dead and
+  // has to be reopened. Neither warrants a seventh type: a crashed renderer is
+  // a page that cannot be used, and a hung evaluate is a clock that ran out.
+  if (m.includes('renderer process crashed')) {
+    return { type: 'PageUnavailable', payload: { reason: 'renderer-crash' } };
+  }
+
+  if (m.includes('JavaScript evaluation in the page timed out')) {
+    return { type: 'Timeout', payload: { reason: 'cdp-evaluate-timeout' } };
   }
 
   if (m.includes('Chrome displayed an error interstitial')) {

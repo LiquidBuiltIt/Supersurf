@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { setPlaybooksDirForTests } from '../src/playbooks/paths';
 import { readRunRecords } from '../src/playbooks/runs';
 import { validateParams, runPlaybook, defaultEnableExperiments, type RunnerBackend } from '../src/playbooks/runner';
@@ -26,6 +27,17 @@ function record(over: Partial<ValidationRecord> = {}): ValidationRecord {
     validatedAt: Date.now(),
     ...over,
   };
+}
+
+/**
+ * A record backed by a REAL playbook file, so `runPlaybook` can use its default
+ * `runScript` and spawn an actual sandbox child. `runPlaybookScript` re-hashes
+ * the bytes before running them, so the hash has to be the file's own.
+ */
+function realRecord(source: string, over: Partial<ValidationRecord> = {}): ValidationRecord {
+  const file = path.join(dir, 'post_tweet.playbook.js');
+  fs.writeFileSync(file, source, 'utf8');
+  return record({ file, hash: crypto.createHash('sha256').update(source, 'utf8').digest('hex'), ...over });
 }
 
 /** Records every callTool the runner makes, in order. */
@@ -359,6 +371,45 @@ describe('typed run failures', () => {
     expect(out.type).toBe('Refused');
   });
 
+  // The dead-branch regression lock. `mapCommand` runs BEFORE `unwrapTyped`,
+  // so its refusal never passes through `classifyToolFailure` — with a plain
+  // Error the run reported `HarnessUnavailable` ("the browser is gone") for a
+  // command the harness simply declined, and the `Refused` branch in errors.ts
+  // could never fire in production.
+  //
+  // Driven through the `runScript` seam rather than a real playbook because a
+  // real one CANNOT reach here: permission-by-construction means a withheld
+  // method is never built onto the `supersurf` object, and `METHODS` and the
+  // command map's `MAP` have identical key sets. This boundary exists for a
+  // forged or stale child that puts an arbitrary `method` on a `cmd` frame,
+  // and the seam is the only way to present one.
+  it('types a withheld method as Refused and persists that type to the sidecar', async () => {
+    const { backend } = fakeBackend();
+    const out = await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+      runScript: async (opts: any) => {
+        await opts.onCommand('connect', {});
+        return { ok: true, durationMs: 1 };
+      },
+    });
+    expect(out.ok).toBe(false);
+    expect(out.type).toBe('Refused');
+    expect(out.error).toContain('not available to playbook scripts');
+    expect(readRunRecords('post_tweet')[0].type).toBe('Refused');
+  });
+
+  it('types an unknown method as Refused too', async () => {
+    const { backend } = fakeBackend();
+    const out = await runPlaybook({
+      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
+      runScript: async (opts: any) => {
+        await opts.onCommand('teleport', {});
+        return { ok: true, durationMs: 1 };
+      },
+    });
+    expect(out.type).toBe('Refused');
+  });
+
   it('types a failed connect as HarnessUnavailable', async () => {
     const backend: RunnerBackend = {
       async callTool(n) { return n === 'connect' ? { success: false, message: 'no daemon' } : { success: true }; },
@@ -383,21 +434,21 @@ describe('typed run failures', () => {
     expect(out.type).toBe('HarnessUnavailable');
   });
 
+  // Runs the REAL sandbox, not the `runScript` seam, because the surviving
+  // `at` is built in `host.ts` — its `handleCommand` catch spreads its own
+  // `{ step, method }` over the classified payload. A seam-driven test would
+  // assert an `at` that production overwrites.
   it('classifies a missing element and records which step threw', async () => {
     const { backend } = fakeBackend({
       browser_interact: { success: false, error: 'Element not found: .Layout-sidebar' },
     });
     const out = await runPlaybook({
-      record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
-      runScript: async (opts: any) => {
-        await opts.onCommand('goto', { url: 'https://example.com' });
-        try {
-          await opts.onCommand('click', { selector: '.Layout-sidebar' });
-        } catch (e: any) {
-          return { ok: false, error: e.message, type: e.playbookType, payload: e.playbookPayload, durationMs: 1 };
-        }
-        return { ok: true, result: null, durationMs: 1 };
-      },
+      record: realRecord(`export default async function ({ supersurf }) {
+  await supersurf.goto('https://example.com');
+  await supersurf.click('.Layout-sidebar');
+}
+`),
+      params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
     });
     expect(out.type).toBe('SelectorMiss');
     expect(out.at).toEqual({ step: 2, method: 'click' });

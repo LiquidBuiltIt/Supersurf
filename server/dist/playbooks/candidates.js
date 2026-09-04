@@ -33,6 +33,9 @@ exports.captureCandidates = captureCandidates;
 exports.MAX_CANDIDATES = 8;
 /** Per-candidate text budget, so one verbose node cannot eat the whole record. */
 const MAX_TEXT = 60;
+/** Page-level text budgets. Both are page-controlled strings. */
+const MAX_TITLE = 120;
+const MAX_URL = 200;
 /**
  * Fragments too common to discriminate. A candidate list ranked on 'div' or
  * 'data' is a list of the whole page.
@@ -118,8 +121,12 @@ function candidateExpression(tokens, limit) {
  * back as `undefined` and the record simply carries no candidates.
  */
 async function captureCandidates(backend, selector) {
-    const expression = candidateExpression(selectorTokens(selector), exports.MAX_CANDIDATES);
     try {
+        // Inside the try, not above it. `selectorTokens` calls `selector.match`,
+        // which throws on a non-string — and the runner's cast to `string` is
+        // compile-time only. A throw escaping here escapes `runPlaybook` before
+        // teardown and leaks the run's tab.
+        const expression = candidateExpression(selectorTokens(selector), exports.MAX_CANDIDATES);
         const res = await backend.callTool('browser_evaluate', { function: expression, purpose: 'playbook:failure-candidates' }, { rawResult: true });
         if (!res || res.success === false)
             return undefined;
@@ -134,11 +141,14 @@ async function captureCandidates(backend, selector) {
             return out;
         })
             .filter((c) => c.selector);
+        // Both capped: `fitEvidence` sheds only candidates, so an uncapped `url` —
+        // a long `data:` or `blob:` `location.href` — pushes the record past
+        // MAX_EVIDENCE_CHARS with nothing left to drop.
         const result = { candidates };
         if (typeof res.url === 'string')
-            result.url = res.url;
+            result.url = res.url.slice(0, MAX_URL);
         if (typeof res.title === 'string')
-            result.title = res.title.slice(0, 120);
+            result.title = res.title.slice(0, MAX_TITLE);
         return result;
     }
     catch {

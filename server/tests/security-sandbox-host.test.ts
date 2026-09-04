@@ -9,6 +9,8 @@ import {
   permissionFlagsFor,
   resolveChildEntry,
   checkChildEntrySandboxing,
+  MAX_FAIL_STACK_CHARS,
+  MAX_FAIL_MESSAGE_CHARS,
 } from '../src/security/sandbox/host';
 import type { PlaybookMeta } from '../src/security/meta';
 import { PlaybookCommandError } from '../src/playbooks/errors';
@@ -303,6 +305,29 @@ describe('failure typing across the sandbox pipe', () => {
     expect(res.type).toBe('ScriptAssertion');
     expect(res.error).toContain('confirmSend must be true');
     expect(res.stack).toBeTruthy();
+  });
+
+  it('caps an oversized stack and message at the pipe boundary', async () => {
+    // Every field of a `fail` frame is child-controlled: `wrap()` in context.ts
+    // rebuilds a thrown error as a bare vm-realm Error, so nothing about the
+    // shape below is verifiable host-side. An uncapped `stack` reopens the
+    // exact 766 KB bug this branch exists to close, through a different field —
+    // it is persisted verbatim into the run sidecar and pushed into the
+    // agent-facing MCP response.
+    const { file, hash } = write(
+      'oversized',
+      `export default async function () {
+  const e = new Error('M'.repeat(50000));
+  e.stack = 'Z'.repeat(2000000);
+  throw e;
+}`,
+    );
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(false);
+    expect(res.stack!.length).toBeLessThanOrEqual(MAX_FAIL_STACK_CHARS + 32);
+    expect(res.stack).toContain('[truncated]');
+    expect(res.error!.length).toBeLessThanOrEqual(MAX_FAIL_MESSAGE_CHARS + 32);
+    expect(res.error).toContain('[truncated]');
   });
 
   it('propagates a typed tool failure through the pipe instead of flattening it', async () => {

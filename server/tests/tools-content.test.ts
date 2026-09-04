@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { onSnapshot, onLookup, onExtractContent } from '../src/tools/content';
+import { onSnapshot, onLookup, onExtractContent, MAX_SELECTOR_MATCHES } from '../src/tools/content';
 import { getSelectorExpression } from '../src/tools/lib/element-resolver';
 import type { ToolContext } from '../src/tools/lib/types';
 import type { HandleIndex } from '../src/experimental/fingerprinting/handle-annotate';
@@ -530,6 +530,31 @@ describe('onExtractContent()', () => {
     expect(result.lines).toContain('build');
     expect(result.lines).toContain('test');
     expect(result.lines).toContain('deploy');
+  });
+
+  it('caps the rendered roots but still reports the true match count', async () => {
+    // Rendering EVERY match is unbounded by the page: `mode:'selector'` with a
+    // selector like `div` runs toMarkdown over thousands of nested roots, each
+    // ancestor duplicating its descendants' subtrees, and ships the whole
+    // string across CDP BEFORE max_lines slices it. Cap what is rendered;
+    // never lie about how many matched.
+    const doc = new FakeDocument();
+    const count = MAX_SELECTOR_MATCHES + 12;
+    for (let i = 0; i < count; i++) {
+      doc.append(new FakeElement('div', { class: 'job' }).append(new FakeTextNode(`job${i}`)));
+    }
+    ctx.eval = makeRealEval(doc) as any;
+
+    const raw = await onExtractContent(ctx, { mode: 'selector', selector: '.job' }, { rawResult: true });
+    expect(raw.matches).toBe(count);
+    expect(raw.rendered).toBe(MAX_SELECTOR_MATCHES);
+    expect(raw.lines).toContain(`job${MAX_SELECTOR_MATCHES - 1}`);
+    expect(raw.lines).not.toContain(`job${MAX_SELECTOR_MATCHES}`);
+
+    ctx.eval = makeRealEval(doc) as any;
+    const rendered = await onExtractContent(ctx, { mode: 'selector', selector: '.job' }, {});
+    expect(rendered.content[0].text).toContain(`${count} elements matched`);
+    expect(rendered.content[0].text).toContain(`first ${MAX_SELECTOR_MATCHES}`);
   });
 
   it('separates matches with a rule so the boundary is visible', async () => {

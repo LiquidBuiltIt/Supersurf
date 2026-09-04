@@ -52,10 +52,21 @@ function settle(frame) {
         entry.resolve(frame.result);
         return;
     }
-    // THE tag site. This is the only place a tool failure becomes a throw inside
-    // the child, so tagging here is what lets the catch below tell an unwrap
-    // throw from the script's own `throw new Error(...)`. Non-enumerable so a
-    // script cannot see the tag on an error it catches and re-inspects.
+    // INERT, and deliberately kept. The tag below NEVER SURVIVES: this rejection
+    // travels out through a host method, and `wrap()` in `context.ts` rebuilds
+    // every such throw as a bare vm-realm `new Error(String(e.message))`. The
+    // script — and therefore the catch below, and therefore the `fail` frame —
+    // sees a fresh error with no `__ssType` on it at all.
+    //
+    // So this does NOT tell an unwrap throw from the script's own throw, and the
+    // `errorType`/`errorPayload` keys the host writes onto a `res` frame
+    // (`host.ts`) are inert for the same reason. What actually types an uncaught
+    // tool failure is HOST-SIDE CORRELATION: `host.ts` remembers the failure it
+    // classified itself and matches it against the `fail` frame's message.
+    //
+    // Read that before touching the host's `frame.type` gate. `frame.type` is
+    // untrusted child input, and the gate is not redundant with anything here.
+    // Non-enumerable so a script cannot read the tag off an error it catches.
     const err = new Error(String(frame.error ?? 'command failed'));
     Object.defineProperty(err, '__ssType', { value: frame.errorType, enumerable: false });
     Object.defineProperty(err, '__ssPayload', { value: frame.errorPayload, enumerable: false });

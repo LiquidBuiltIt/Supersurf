@@ -42,6 +42,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.KNOWN_METHODS = void 0;
 exports.mapCommand = mapCommand;
+const errors_1 = require("./errors");
 /** `browser_interact` takes an actions array; every client verb is one action. */
 function act(type, fields) {
     const action = { type };
@@ -158,12 +159,16 @@ function flattenOpts(p) {
     return { ...opts, ...rest };
 }
 function mapCommand(method, params, playbookName = 'unnamed') {
+    // Both refusals carry their own type. The runner calls `mapCommand` BEFORE
+    // `unwrapTyped`, so a throw here never passes through `classifyToolFailure` —
+    // an untyped Error escaping this function is reported as `HarnessUnavailable`
+    // ("the browser is gone") for a command the harness merely declined.
     if (WITHHELD.has(method)) {
-        throw new Error(`\`${method}\` is not available to playbook scripts.`);
+        throw new errors_1.PlaybookCommandError(`\`${method}\` is not available to playbook scripts.`, 'Refused', { reason: 'withheld-method', method });
     }
     const fn = MAP[method];
     if (!fn) {
-        throw new Error(`Unknown playbook command: \`${method}\`.`);
+        throw new errors_1.PlaybookCommandError(`Unknown playbook command: \`${method}\`.`, 'Refused', { reason: 'unknown-method', method });
     }
     return fn(flattenOpts(params), playbookName);
 }

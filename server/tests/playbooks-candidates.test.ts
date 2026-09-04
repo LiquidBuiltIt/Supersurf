@@ -86,6 +86,30 @@ describe('captureCandidates()', () => {
     await expect(captureCandidates(backend, '.x')).resolves.toBeUndefined();
   });
 
+  // The "never throws" contract, held at the ONE input the caller does not
+  // validate. The runner casts the selector to `string` at compile time only,
+  // and a throw out of here escapes `runPlaybook` before tab teardown — the run
+  // leaks its tab.
+  it('returns undefined rather than throwing on a non-string selector', async () => {
+    const backend = { callTool: vi.fn() };
+    await expect(captureCandidates(backend, undefined as any)).resolves.toBeUndefined();
+    expect(backend.callTool).not.toHaveBeenCalled();
+  });
+
+  it('caps a page-controlled url and title so they cannot crowd out the candidates', async () => {
+    const out = await captureCandidates(
+      backendReturning({
+        url: `data:text/html,${'A'.repeat(20000)}`,
+        title: 'T'.repeat(5000),
+        candidates: [{ selector: 'div.a' }],
+      }),
+      '.thing-name',
+    );
+    expect(out!.url!.length).toBeLessThanOrEqual(200);
+    expect(out!.title!.length).toBeLessThanOrEqual(120);
+    expect(out!.candidates.length).toBe(1);
+  });
+
   it('keeps the whole payload comfortably under the 4 KB evidence cap', async () => {
     const many = Array.from({ length: 40 }, (_, i) => ({
       selector: `div.some-quite-long-class-name-number-${i}`,

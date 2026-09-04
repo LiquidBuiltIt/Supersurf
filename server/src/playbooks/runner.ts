@@ -167,11 +167,11 @@ function actionFailures(res: any): string | null {
  * tool name, its arguments (hence the selector), and the failure envelope at
  * the same moment.
  */
-function unwrapTyped(tool: string, args: Record<string, unknown>, res: any, at: FailureAt): unknown {
+function unwrapTyped(tool: string, args: Record<string, unknown>, res: any): unknown {
   if (res && res.success === false) {
     const message = String(res.error ?? res.message ?? actionFailures(res) ?? 'command failed');
     const { type, payload } = classifyToolFailure(tool, args, message);
-    throw new PlaybookCommandError(message, type, { ...payload, at });
+    throw new PlaybookCommandError(message, type, payload);
   }
   return res;
 }
@@ -283,10 +283,9 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
   }
   tabOpened = true;
 
-  // 1-based index over the commands this run issues. Per-run by construction,
-  // which a counter inside the stateless `mapCommand` could never be.
-  let step = 0;
-
+  // The run's step counter lives in `host.ts`, which owns the ONE `at` that
+  // reaches the record: its `handleCommand` catch spreads `at` over
+  // `playbookPayload`, so a second `at` built here was always overwritten.
   try {
     outcome = await runScript({
       file: record.file,
@@ -294,9 +293,8 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
       meta: record.meta,
       hash: record.hash,
       onCommand: async (method: string, cmdParams: any) => {
-        const at: FailureAt = { step: ++step, method };
         const { tool, args: toolArgs } = mapCommand(method, cmdParams, record.name);
-        return unwrapTyped(tool, toolArgs, await backend.callTool(tool, toolArgs, { rawResult: true }), at);
+        return unwrapTyped(tool, toolArgs, await backend.callTool(tool, toolArgs, { rawResult: true }));
       },
       onLog: (msg: string) => {
         logs.push(msg);

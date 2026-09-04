@@ -63,6 +63,27 @@ export interface PlaybookRunResult {
     durationMs: number;
 }
 /**
+ * Caps on the two free-text fields of a `fail` frame.
+ *
+ * EVERY field of that frame is child-controlled and untrusted. `wrap()` in
+ * `context.ts` rebuilds a thrown error as a bare vm-realm `Error` carrying only
+ * `String(e.message)`, so nothing about a frame's shape is verifiable from this
+ * side — a script can set `e.stack = 'Z'.repeat(2e6)` and the host has no way to
+ * tell that from a real V8 stack.
+ *
+ * The cap belongs HERE, at the pipe, and not at the three places the value ends
+ * up (`runner.ts` → `runs.ts`, which persists it forever in the sidecar, and
+ * `tools/playbooks.ts`, which pushes it straight into an agent-facing MCP
+ * response). One boundary owns "nothing unbounded crosses this pipe"; capping
+ * downstream instead is how the NEXT field leaks. This is the same 766 KB bug
+ * the error taxonomy exists to close, reached through a different field.
+ *
+ * A stack gets a few KB because the frames below the throw site are the useful
+ * part. A message gets far less — it is one line in a rendered failure report.
+ */
+export declare const MAX_FAIL_STACK_CHARS = 4000;
+export declare const MAX_FAIL_MESSAGE_CHARS = 1000;
+/**
  * Check the caller's arguments against `meta.params`.
  * @returns null when valid, otherwise a human-facing reason.
  */

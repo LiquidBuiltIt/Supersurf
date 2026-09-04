@@ -36,6 +36,10 @@ export const MAX_CANDIDATES = 8;
 /** Per-candidate text budget, so one verbose node cannot eat the whole record. */
 const MAX_TEXT = 60;
 
+/** Page-level text budgets. Both are page-controlled strings. */
+const MAX_TITLE = 120;
+const MAX_URL = 200;
+
 /** The narrow slice of the runner's backend this needs. */
 export interface CandidateBackend {
   callTool(name: string, args: Record<string, unknown>, options?: { rawResult?: boolean }): Promise<any>;
@@ -132,8 +136,12 @@ export async function captureCandidates(
   backend: CandidateBackend,
   selector: string,
 ): Promise<{ url?: string; title?: string; candidates: Candidate[] } | undefined> {
-  const expression = candidateExpression(selectorTokens(selector), MAX_CANDIDATES);
   try {
+    // Inside the try, not above it. `selectorTokens` calls `selector.match`,
+    // which throws on a non-string — and the runner's cast to `string` is
+    // compile-time only. A throw escaping here escapes `runPlaybook` before
+    // teardown and leaks the run's tab.
+    const expression = candidateExpression(selectorTokens(selector), MAX_CANDIDATES);
     const res: any = await backend.callTool(
       'browser_evaluate',
       { function: expression, purpose: 'playbook:failure-candidates' },
@@ -151,9 +159,12 @@ export async function captureCandidates(
       })
       .filter((c: Candidate) => c.selector);
 
+    // Both capped: `fitEvidence` sheds only candidates, so an uncapped `url` —
+    // a long `data:` or `blob:` `location.href` — pushes the record past
+    // MAX_EVIDENCE_CHARS with nothing left to drop.
     const result: { url?: string; title?: string; candidates: Candidate[] } = { candidates };
-    if (typeof res.url === 'string') result.url = res.url;
-    if (typeof res.title === 'string') result.title = res.title.slice(0, 120);
+    if (typeof res.url === 'string') result.url = res.url.slice(0, MAX_URL);
+    if (typeof res.title === 'string') result.title = res.title.slice(0, MAX_TITLE);
     return result;
   } catch {
     return undefined;

@@ -10,6 +10,7 @@
  * @module tools/content
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MAX_SELECTOR_MATCHES = void 0;
 exports.coalesceInlineTextBoxes = coalesceInlineTextBoxes;
 exports.onSnapshot = onSnapshot;
 exports.onLookup = onLookup;
@@ -288,12 +289,28 @@ async function onLookup(ctx, args, options) {
     return { content: [{ type: 'text', text: output }] };
 }
 /**
+ * Ceiling on how many matched roots selector mode RENDERS.
+ *
+ * The match count itself is unbounded by the page: `mode:'selector'` with a
+ * selector like `div` matches thousands of NESTED roots, and every ancestor
+ * re-renders its descendants' subtrees — quadratic output that crosses CDP in
+ * full before `max_lines` ever slices it. `queryAllDeep` pierces shadow roots,
+ * widening it further.
+ *
+ * The cap is on rendering only. `matches` keeps reporting the TRUE total and
+ * the rendered header says plainly when the list was cut, because this is a
+ * transparent harness: it tells the agent what is on the page and lets the
+ * agent narrow the selector, rather than quietly pretending 50 was all of it.
+ */
+exports.MAX_SELECTOR_MATCHES = 50;
+/**
  * Extract page content as clean markdown with pagination support.
  *
  * Modes:
  * - `auto`: Tries common content selectors (article, main, .content), falls back to body
  * - `full`: Uses document.body directly
- * - `selector`: Targets a CSS selector and returns EVERY element it matches
+ * - `selector`: Targets a CSS selector and returns every element it matches, up
+ *   to `MAX_SELECTOR_MATCHES`
  *
  * Selector mode used to read only the first match, which silently hid N-1
  * elements whenever the selector was a class shared by siblings (`.WorkflowJob`
@@ -388,12 +405,15 @@ async function onExtractContent(ctx, args, options) {
       // both without caring which produced it.
       const roots = Array.from(getRoots() || []).filter(Boolean);
       if (roots.length === 0) return { error: 'No content element found' };
+      // Render at most MAX_SELECTOR_MATCHES roots, but report roots.length —
+      // the count is the honest signal that the selector was too broad.
+      const shown = roots.slice(0, ${exports.MAX_SELECTOR_MATCHES});
       const lines = [];
-      roots.forEach((el, i) => {
+      shown.forEach((el, i) => {
         if (i > 0) { lines.push(''); lines.push('---'); lines.push(''); }
         for (const line of toMarkdown(el)) lines.push(line);
       });
-      return { lines: lines, matches: roots.length };
+      return { lines: lines, matches: roots.length, rendered: shown.length };
     })()
   `);
     if (content?.error)
@@ -402,16 +422,20 @@ async function onExtractContent(ctx, args, options) {
     const matches = typeof content?.matches === 'number'
         ? content.matches
         : (allLines.length > 0 ? 1 : 0);
+    // How many of those matches were actually rendered. A page expression from
+    // before the cap reports no `rendered`, so fall back to `matches`.
+    const rendered = typeof content?.rendered === 'number' ? content.rendered : matches;
     const slice = allLines.slice(offset, offset + maxLines);
     const truncated = allLines.length > offset + maxLines;
     if (options.rawResult) {
-        return { lines: slice, total: allLines.length, offset, truncated, matches };
+        return { lines: slice, total: allLines.length, offset, truncated, matches, rendered };
     }
     let text = slice.join('\n');
     // Added AFTER slicing, like the truncation footer below: it is metadata about
     // the result, not content, so it must not consume the caller's line budget.
     if (matches > 1) {
-        text = `_${matches} elements matched \`${selector}\`_\n\n${text}`;
+        const capped = rendered < matches ? ` — showing the first ${rendered}, narrow the selector for the rest` : '';
+        text = `_${matches} elements matched \`${selector}\`${capped}_\n\n${text}`;
     }
     if (truncated) {
         text += `\n\n_...truncated (showing ${slice.length} of ${allLines.length} lines, offset=${offset})_`;
