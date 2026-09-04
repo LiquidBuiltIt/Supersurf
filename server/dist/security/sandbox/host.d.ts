@@ -63,51 +63,35 @@ export interface PlaybookRunResult {
     durationMs: number;
 }
 /**
- * Caps on the child-controlled fields of `fail`, `log`, and `done` frames.
+ * Caps on the child-controlled fields crossing the sandbox pipe.
  *
- * EVERY field of every frame from the child is child-controlled and untrusted.
- * `wrap()` in `context.ts` rebuilds a thrown error as a bare vm-realm `Error`
- * carrying only `String(e.message)`, so nothing about a frame's shape is
- * verifiable from this side — a script can set `e.stack = 'Z'.repeat(2e6)`, or
- * call `log('Z'.repeat(2e6))`, or return a multi-megabyte object, and the host
- * has no way to tell any of that from a legitimate value.
+ * THE INVARIANT: every field of every frame from the child is child-controlled
+ * and untrusted, and nothing crosses this boundary unbounded. `wrap()` in
+ * `context.ts` rebuilds a thrown error as a bare vm-realm `Error` carrying only
+ * `String(e.message)`, so nothing about a frame's shape is verifiable from
+ * this side — a script can set `e.stack = 'Z'.repeat(2e6)`, or call
+ * `log('Z'.repeat(2e6))`, or return a multi-megabyte object, or hold a stdout
+ * line open with no newline for the run's whole timeout, and the host has no
+ * way to tell any of that from a legitimate value.
  *
  * The caps belong HERE, at the pipe, and not at the places the values end up
  * (`runner.ts` → `runs.ts`, which persists them forever in the sidecar, and
  * `tools/playbooks.ts`, which pushes them straight into an agent-facing MCP
- * response). One boundary owning each field is how the NEXT field is kept from
- * leaking the same way. This is the same 766 KB bug the error taxonomy exists
- * to close, reached through different fields.
+ * response). One boundary owning every field is how a field this comment does
+ * not name stays covered anyway: this inventory has been wrong once per fix
+ * round, because a per-field list is a promise to keep updating it and a
+ * comment that lists fields is a comment that goes stale. State the rule, not
+ * the roster.
  *
- * What IS bounded here: `fail.message`, `fail.stack`, every `log.message`
- * (individually AND in aggregate across a run), `done.result` (by serialized
- * size, replaced with a visible truncation marker over the cap — never
- * silently dropped), every chunk the child writes to stderr (individually,
- * AND charged against the SAME aggregate budget `log.message` uses — stdout
- * logs and stderr are not two separate ceilings, they are one, so a script
- * cannot double the effective log budget by splitting output across both
- * channels), the stderr tail folded into the exit handler's
- * `HarnessUnavailable` message when the child dies without a `done`/`fail`
- * frame, and `at.method` — the copy of a `cmd` frame's method name this
- * module records against a classified command failure (see `handleCommand`
- * below).
- *
- * What is NOT bounded here: a `cmd` frame's `method`/`params` AS FORWARDED TO
- * `onCommand` — spec Addendum A requires that forward to be VERBATIM, so a
- * script can still send an arbitrarily large param (e.g.
- * `type(sel, 'A'.repeat(1e7))`) on its way to an MCP tool call. Bounding that
- * is downstream tool validation's job, not this pipe boundary's — this module
- * does not claim to own it. `at.method` above is a SEPARATE copy this module
- * keeps for its own failure record; capping that copy does not touch the
- * verbatim forward.
- *
- * A stack gets a few KB because the frames below the throw site are the useful
- * part. A message gets far less — it is one line in a rendered failure report.
- * A log line is prose, not a stack trace, so it gets a similar per-line budget
- * to a message, plus a total-run budget so a flood of short lines cannot add up
- * to the same blowout as one long one. A result is the whole point of running a
- * playbook, so its cap is generous — well above any reasonable return value,
- * well below a context blowout.
+ * THE TWO DELIBERATE EXCEPTIONS: a `cmd` frame's `method` and `params`, AS
+ * FORWARDED TO `onCommand`. Spec Addendum A requires that forward to be
+ * VERBATIM — this module holds no ConnectionManager and does no client-method
+ * → MCP-tool translation, so a script can still send an arbitrarily large
+ * param (e.g. `type(sel, 'A'.repeat(1e7))`) on its way to an MCP tool call.
+ * Bounding that is downstream tool validation's job, not this pipe boundary's.
+ * Every OTHER copy this module keeps for its own bookkeeping — e.g. `at.method`
+ * on a classified command failure — is a separate value and stays capped; only
+ * the verbatim forward itself is exempt.
  */
 export declare const MAX_FAIL_STACK_CHARS = 4000;
 export declare const MAX_FAIL_MESSAGE_CHARS = 1000;
@@ -123,6 +107,28 @@ export declare const MAX_RESULT_PREVIEW_CHARS = 2000;
  * Small on purpose: it is a method name, not prose.
  */
 export declare const MAX_COMMAND_METHOD_CHARS = 200;
+/**
+ * Ceiling on the accumulating stdout line buffer (`buffer` in
+ * `runPlaybookScript`). Only PARSED frames escape this module, and every
+ * frame field above is capped — but the buffer itself, the raw bytes waiting
+ * for a `\n` to complete a line, is not a frame yet, and a child that writes
+ * newline-free bytes for the whole run timeout grows it without limit. Set
+ * comfortably above `MAX_RESULT_CHARS` (2x) so a legitimate maximum-size
+ * result frame, plus its JSON envelope, can never trip it — only a genuine
+ * protocol violation (a line that was never going to terminate) does.
+ */
+export declare const MAX_STDOUT_LINE_CHARS: number;
+/**
+ * Ceiling on the exit handler's stderr tail ring (see `stderrTail` in
+ * `runPlaybookScript`). Deliberately a little UNDER `MAX_FAIL_MESSAGE_CHARS`,
+ * not equal to it: the exit handler turns the ring's newlines into `' | '`
+ * before its own final `capText` call, and `capText` cuts from the FRONT,
+ * keeping the OLDEST bytes — the opposite of what the ring exists for. This
+ * margin is sized so that substitution can never push the assembled tail past
+ * `MAX_FAIL_MESSAGE_CHARS`, so that final cut never actually fires and never
+ * has the chance to discard the newest bytes the ring just fought to keep.
+ */
+export declare const MAX_STDERR_TAIL_RING_CHARS: number;
 /**
  * Check the caller's arguments against `meta.params`.
  * @returns null when valid, otherwise a human-facing reason.

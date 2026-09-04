@@ -15,6 +15,7 @@ import {
   MAX_LOG_TOTAL_CHARS,
   MAX_RESULT_CHARS,
   MAX_COMMAND_METHOD_CHARS,
+  MAX_STDOUT_LINE_CHARS,
 } from '../src/security/sandbox/host';
 import type { PlaybookMeta } from '../src/security/meta';
 import { PlaybookCommandError } from '../src/playbooks/errors';
@@ -358,11 +359,16 @@ describe('failure typing across the sandbox pipe', () => {
     // exact 766 KB bug this branch exists to close, through a different field —
     // it is persisted verbatim into the run sidecar and pushed into the
     // agent-facing MCP response.
+    // Sized well past the fail-frame caps (MAX_FAIL_STACK_CHARS 4000,
+    // MAX_FAIL_MESSAGE_CHARS 1000) but comfortably under MAX_STDOUT_LINE_CHARS
+    // (Fix 4's raw-line ceiling on the wire, 200000) — this test is about the
+    // FRAME-FIELD caps below, not Fix 4's separate protocol-violation guard on
+    // an unparsed line.
     const { file, hash } = write(
       'oversized',
       `export default async function () {
-  const e = new Error('M'.repeat(50000));
-  e.stack = 'Z'.repeat(2000000);
+  const e = new Error('M'.repeat(30000));
+  e.stack = 'Z'.repeat(100000);
   throw e;
 }`,
     );
@@ -540,21 +546,27 @@ describe('log and result caps at the sandbox pipe', () => {
   });
 
   it('caps an oversized done-frame result with a visible truncation marker', async () => {
+    // 150000 chars: comfortably past MAX_RESULT_CHARS (100000, so capResult's
+    // truncation still fires) and comfortably under MAX_STDOUT_LINE_CHARS
+    // (200000, Fix 4's raw-line ceiling on the wire), so this exercises
+    // capResult's truncation and not Fix 4's separate protocol-violation
+    // guard on the unparsed line.
+    const oversized = 150000;
     const { file, hash } = write(
       'result-oversized',
-      `export default async function () { return 'Z'.repeat(200000); }`,
+      `export default async function () { return 'Z'.repeat(${oversized}); }`,
     );
     const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
     expect(res.ok).toBe(true);
-    // If capResult were removed, res.result would be the raw 200000-char
+    // If capResult were removed, res.result would be the raw 150000-char
     // string, not an object — this shape check alone would fail.
     expect(typeof res.result).toBe('object');
     const capped = res.result as any;
     expect(capped.__truncated).toBe(true);
     expect(typeof capped.preview).toBe('string');
-    expect(capped.preview.length).toBeLessThan(200000);
+    expect(capped.preview.length).toBeLessThan(oversized);
     // The whole point: an agent must be able to tell this was cut, not assume
-    // it received the complete 200000-char string.
+    // it received the complete 150000-char string.
     expect(JSON.stringify(res.result).length).toBeLessThan(MAX_RESULT_CHARS);
   });
 
@@ -637,22 +649,42 @@ setTimeout(() => {
   });
 
   it('shares the log budget the other way — spending it on stderr starves stdout log()', async () => {
-    // 11 separate stderr 'data' events of exactly MAX_LOG_LINE_CHARS chars
-    // each, spaced 5ms apart so the OS pipe cannot coalesce them into fewer,
-    // larger events (confirmed empirically: un-spaced synchronous writes risk
-    // merging; a few ms apart reliably yields one 'data' event per write).
+    // Ack-driven, not timing-driven: this used to space 11 stderr writes 5ms
+    // apart on the claim that "a few ms apart reliably yields one 'data'
+    // event per write." That claim is FALSE under load — a REPRODUCED flake:
+    // the parent event loop blocks in ~20ms slices under load, so the writes
+    // coalesce into 3-4 'data' events instead of 11, and this test's exact
+    // `logs.length` assertions broke. The fixture below writes one stderr
+    // chunk, sends a `cmd` frame, and writes the NEXT chunk only once the
+    // matching `res` comes back — a real round trip through the host, so the
+    // writes can never coalesce regardless of how the OS schedules the
+    // parent. No timing constant governs the write cadence anywhere below.
     // The first 10 exactly fill the 20000-char budget; the 11th trips it.
     // A stdout log() call sent AFTER must then be dropped too.
     const { file, hash } = write('at-stderr-shared-rev', `export default async function () { return 1; }`);
     useFixtureChild(
       'stderr-shared-rev',
-      `process.stdin.resume();
-function emit(f) { process.stdout.write(JSON.stringify(f) + '\\n'); }
+      `function emit(f) { process.stdout.write(JSON.stringify(f) + '\\n'); }
+let buf = '';
 let i = 0;
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (c) => {
+  buf += c;
+  let idx;
+  while ((idx = buf.indexOf('\\n')) >= 0) {
+    const line = buf.slice(0, idx).trim();
+    buf = buf.slice(idx + 1);
+    if (!line) continue;
+    let frame;
+    try { frame = JSON.parse(line); } catch (e) { continue; }
+    if (frame.t === 'res') stepErr();
+  }
+});
 function stepErr() {
-  if (i++ >= 11) { afterErr(); return; }
+  if (i >= 11) { afterErr(); return; }
+  i++;
   process.stderr.write('X'.repeat(${MAX_LOG_LINE_CHARS}));
-  setTimeout(stepErr, 5);
+  emit({ t: 'cmd', id: i, method: 'sync', params: {} });
 }
 function afterErr() {
   emit({ t: 'log', message: 'late log after budget exhausted' });
@@ -663,7 +695,11 @@ stepErr();`,
     );
     const logs: string[] = [];
     const res = await runPlaybookScript({
-      file, hash, params: {}, meta: META, onCommand: noCommands, onLog: (m) => logs.push(m),
+      file, hash, params: {}, meta: META, onLog: (m) => logs.push(m),
+      onCommand: async (method) => {
+        if (method !== 'sync') throw new Error(`unexpected command: ${method}`);
+        return {};
+      },
     });
     expect(res.ok).toBe(true);
     // If a stdout log() call ignored the budget stderr already spent, the
@@ -676,8 +712,13 @@ stepErr();`,
   it('caps the stderr tail folded into the exit-handler HarnessUnavailable message', async () => {
     // 3 separate ~1500-char stderr lines (each under the per-chunk cap, so
     // Finding 1's per-chunk cap never fires) accumulate to ~4500 chars, then
-    // the child exits without a done/fail frame. The exit handler's OWN cap
-    // on the assembled tail is what's under test here, not the per-chunk one.
+    // the child exits without a done/fail frame. The tail ring (Fix 2) is
+    // itself bounded to MAX_FAIL_MESSAGE_CHARS on every append, so — unlike
+    // before Fix 2, when an unbounded accumulator relied ENTIRELY on the exit
+    // handler's own capText call to cut it down — the assembled tail here may
+    // already be within budget by the time it reaches that call. What must
+    // still hold is the OUTCOME the exit handler's cap exists to guarantee:
+    // the final message never exceeds the cap, belt-and-braces or not.
     const { file, hash } = write('at-stderr-exit-tail', `export default async function () { return 1; }`);
     useFixtureChild(
       'stderr-exit-tail',
@@ -693,11 +734,44 @@ stepErr();`,
     const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
     expect(res.ok).toBe(false);
     expect(res.type).toBe('HarnessUnavailable');
-    // If the exit handler's own cap were removed, this would carry the full
-    // ~4500-char accumulated stderr tail verbatim into a persisted,
-    // agent-facing error message.
+    // If neither the tail ring nor the exit handler's own cap bounded this,
+    // the message would carry the full ~4500-char accumulated stderr tail
+    // verbatim into a persisted, agent-facing error message.
     expect(res.error!.length).toBeLessThanOrEqual(MAX_FAIL_MESSAGE_CHARS + 150);
-    expect(res.error).toContain('[truncated]');
+    expect(res.error).toContain('E'); // the tail did carry real stderr content
+  });
+
+  it('reports the NEWEST stderr in the exit tail, not stale data frozen when the shared log budget tripped', async () => {
+    // This is Fix 2's regression lock: before it, `stderr` only grew INSIDE
+    // the budget-guarded path, so once `logTruncated` flipped, the exit
+    // handler's tail was built from a string that had stopped updating 20 KB
+    // ago — a chatty child that then died reported ancient noise instead of
+    // its fatal message. Write well past MAX_LOG_TOTAL_CHARS of filler stderr
+    // (tripping the shared budget), THEN a distinctive fatal line, then exit
+    // non-zero with no done/fail frame. The tail ring updates on every chunk
+    // regardless of the budget, so the fatal line must survive into the
+    // error message even though the forwarding budget was long since spent.
+    const { file, hash } = write('at-stderr-exit-tail-fresh', `export default async function () { return 1; }`);
+    useFixtureChild(
+      'stderr-exit-tail-fresh',
+      `process.stdin.resume();
+let i = 0;
+function stepErr() {
+  if (i++ >= 15) {
+    process.stderr.write('FATAL_MARKER_XYZ\\n');
+    setTimeout(() => process.exit(3), 50);
+    return;
+  }
+  process.stderr.write('E'.repeat(${MAX_LOG_LINE_CHARS}) + '\\n');
+  setTimeout(stepErr, 5);
+}
+stepErr();`,
+    );
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('HarnessUnavailable');
+    expect(res.error).toContain('FATAL_MARKER_XYZ');
+    expect(res.error!.length).toBeLessThanOrEqual(MAX_FAIL_MESSAGE_CHARS + 150);
   });
 
   it('caps a forged oversized cmd.method recorded against a classified command failure', async () => {
@@ -705,6 +779,12 @@ stepErr();`,
     // one of the 52 declared short `supersurf.*` names — this forges one
     // directly at the protocol level to prove `at.method` (Finding 2) is
     // capped without touching the VERBATIM `method` forwarded to onCommand.
+    // Sized well under MAX_STDOUT_LINE_CHARS (Fix 4's raw-line ceiling) so
+    // this test exercises the Addendum-A verbatim-forward exception, not Fix
+    // 4's separate protocol-violation guard on an unparsed line — a cmd
+    // frame's method/params are the ONE thing that boundary still lets
+    // through unbounded, up to the wire itself.
+    const forgedMethodLength = MAX_STDOUT_LINE_CHARS - 50000;
     const { file, hash } = write('at-method-forged', `export default async function () { return 1; }`);
     useFixtureChild(
       'method-forged',
@@ -720,7 +800,7 @@ process.stdin.on('data', (c) => {
     let frame;
     try { frame = JSON.parse(line); } catch (e) { continue; }
     if (frame.t === 'init') {
-      process.stdout.write(JSON.stringify({ t: 'cmd', id: 1, method: 'Z'.repeat(1000000), params: {} }) + '\\n');
+      process.stdout.write(JSON.stringify({ t: 'cmd', id: 1, method: 'Z'.repeat(${forgedMethodLength}), params: {} }) + '\\n');
     } else if (frame.t === 'res') {
       process.stdout.write(JSON.stringify({ t: 'fail', message: frame.error }) + '\\n');
       setTimeout(() => process.exit(0), 50);
@@ -738,14 +818,50 @@ process.stdin.on('data', (c) => {
     });
     // The forward to onCommand must stay VERBATIM (spec Addendum A) — only
     // the host's OWN copy in `at.method` gets capped.
-    expect(forwardedMethodLength).toBe(1000000);
+    expect(forwardedMethodLength).toBe(forgedMethodLength);
     expect(res.ok).toBe(false);
     expect(res.type).toBe('SelectorMiss');
     const at = (res.payload as any)?.at;
     expect(at).toBeTruthy();
-    // If `at.method`'s cap were removed, this would be 1000000 chars long.
+    // If `at.method`'s cap were removed, this would be `forgedMethodLength` chars long.
     expect(at.method.length).toBeLessThanOrEqual(MAX_COMMAND_METHOD_CHARS + 32);
     expect(at.method).toContain('[truncated]');
     expect(at.step).toBe(1);
+  });
+});
+
+describe('stdout line-buffer ceiling (compromised child)', () => {
+  // No honest playbook can hold a stdout write open with no '\n' forever —
+  // the NDJSON protocol is entirely `child.ts`'s to speak, and it always
+  // terminates a frame with a newline. Only a compromised child writing raw
+  // bytes directly to fd 1 can trigger this. `useFixtureChild` is what makes
+  // that reachable in a test — see the block comment above.
+
+  it('fails an over-long unterminated stdout line as a protocol violation', async () => {
+    const { file, hash } = write('at-stdout-overlong', `export default async function () { return 1; }`);
+    useFixtureChild(
+      'stdout-overlong',
+      `process.stdin.resume();
+process.stdout.write('Z'.repeat(${MAX_STDOUT_LINE_CHARS} + 1000));`,
+    );
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('HarnessUnavailable');
+    expect(res.error).toContain('over-long');
+  });
+
+  it('never trips on a legitimate maximum-size result frame plus its JSON envelope', async () => {
+    // A well-behaved script returning right at MAX_RESULT_CHARS produces a
+    // `done` line whose JSON envelope adds a little overhead on top of the
+    // result's own serialized length. MAX_STDOUT_LINE_CHARS is 2x
+    // MAX_RESULT_CHARS specifically so this never false-positives.
+    const { file, hash } = write(
+      'at-stdout-maxresult',
+      `export default async function () { return 'Z'.repeat(${MAX_RESULT_CHARS - 100}); }`,
+    );
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(true);
+    expect(typeof res.result).toBe('string');
+    expect((res.result as string).length).toBe(MAX_RESULT_CHARS - 100);
   });
 });
