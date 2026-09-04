@@ -29,7 +29,23 @@ export type PlaybookErrorType =
   | 'PageUnavailable'
   /** The extension, daemon, tab, or sandbox child went away. */
   | 'HarnessUnavailable'
-  /** The harness declined: hash mismatch, bad params, secure_eval, withheld method. */
+  /**
+   * The harness declined: hash mismatch, bad params, secure_eval.
+   *
+   * `withheld-method`/`unknown-method` are also modeled as `Refused` reasons in
+   * `playbooks/command-map.ts`, but that route is NOT reachable in production
+   * today: `buildClient` (`security/sandbox/client.ts`) only builds a method
+   * onto the vm's `supersurf` object when it is both declared in `METHODS`
+   * (`security/sandbox/methods.ts`) and permission-granted, so a withheld or
+   * unknown method is simply absent from the object — calling it throws a bare
+   * `supersurf.X is not a function` TypeError INSIDE the vm, which the child
+   * reports as an untagged `fail` frame and this module's `runPlaybookScript`
+   * types as `ScriptAssertion`. `mapCommand`'s `WITHHELD`/unknown-method checks
+   * never run, because `onCommand` is never invoked for a call that never
+   * leaves the vm. Verified: `METHODS` and `MAP` carry identical 52-key sets,
+   * and `WITHHELD ∩ MAP` is empty. Making the withheld-method reason reachable
+   * would need a `Proxy` in the vm client — out of scope here.
+   */
   | 'Refused'
   /** The script threw on its own — a param guard, an assertion, a TypeError. */
   | 'ScriptAssertion';

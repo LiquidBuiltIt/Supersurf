@@ -25,7 +25,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAX_FAIL_MESSAGE_CHARS = exports.MAX_FAIL_STACK_CHARS = void 0;
+exports.MAX_RESULT_PREVIEW_CHARS = exports.MAX_RESULT_CHARS = exports.MAX_LOG_TOTAL_CHARS = exports.MAX_LOG_LINE_CHARS = exports.MAX_FAIL_MESSAGE_CHARS = exports.MAX_FAIL_STACK_CHARS = void 0;
 exports.validateParams = validateParams;
 exports.permissionFlagsFor = permissionFlagsFor;
 exports.checkChildEntrySandboxing = checkChildEntrySandboxing;
@@ -39,29 +39,75 @@ const path_1 = __importDefault(require("path"));
 const child_process_1 = require("child_process");
 const DEFAULT_TIMEOUT_MS = 300000;
 /**
- * Caps on the two free-text fields of a `fail` frame.
+ * Caps on the child-controlled fields of `fail`, `log`, and `done` frames.
  *
- * EVERY field of that frame is child-controlled and untrusted. `wrap()` in
- * `context.ts` rebuilds a thrown error as a bare vm-realm `Error` carrying only
- * `String(e.message)`, so nothing about a frame's shape is verifiable from this
- * side — a script can set `e.stack = 'Z'.repeat(2e6)` and the host has no way to
- * tell that from a real V8 stack.
+ * EVERY field of every frame from the child is child-controlled and untrusted.
+ * `wrap()` in `context.ts` rebuilds a thrown error as a bare vm-realm `Error`
+ * carrying only `String(e.message)`, so nothing about a frame's shape is
+ * verifiable from this side — a script can set `e.stack = 'Z'.repeat(2e6)`, or
+ * call `log('Z'.repeat(2e6))`, or return a multi-megabyte object, and the host
+ * has no way to tell any of that from a legitimate value.
  *
- * The cap belongs HERE, at the pipe, and not at the three places the value ends
- * up (`runner.ts` → `runs.ts`, which persists it forever in the sidecar, and
- * `tools/playbooks.ts`, which pushes it straight into an agent-facing MCP
- * response). One boundary owns "nothing unbounded crosses this pipe"; capping
- * downstream instead is how the NEXT field leaks. This is the same 766 KB bug
- * the error taxonomy exists to close, reached through a different field.
+ * The caps belong HERE, at the pipe, and not at the places the values end up
+ * (`runner.ts` → `runs.ts`, which persists them forever in the sidecar, and
+ * `tools/playbooks.ts`, which pushes them straight into an agent-facing MCP
+ * response). One boundary owning each field is how the NEXT field is kept from
+ * leaking the same way. This is the same 766 KB bug the error taxonomy exists
+ * to close, reached through different fields.
+ *
+ * What IS bounded here: `fail.message`, `fail.stack`, every `log.message`
+ * (individually AND in aggregate across a run), and `done.result` (by
+ * serialized size, replaced with a visible truncation marker over the cap —
+ * never silently dropped).
+ *
+ * What is NOT bounded here: a `cmd` frame's `method`/`params` — spec Addendum A
+ * requires `onCommand` to forward those VERBATIM, so a script can still send an
+ * arbitrarily large param (e.g. `type(sel, 'A'.repeat(1e7))`) on its way to an
+ * MCP tool call. Bounding that is downstream tool validation's job, not this
+ * pipe boundary's — this module does not claim to own it.
  *
  * A stack gets a few KB because the frames below the throw site are the useful
  * part. A message gets far less — it is one line in a rendered failure report.
+ * A log line is prose, not a stack trace, so it gets a similar per-line budget
+ * to a message, plus a total-run budget so a flood of short lines cannot add up
+ * to the same blowout as one long one. A result is the whole point of running a
+ * playbook, so its cap is generous — well above any reasonable return value,
+ * well below a context blowout.
  */
 exports.MAX_FAIL_STACK_CHARS = 4000;
 exports.MAX_FAIL_MESSAGE_CHARS = 1000;
+exports.MAX_LOG_LINE_CHARS = 2000;
+exports.MAX_LOG_TOTAL_CHARS = 20000;
+exports.MAX_RESULT_CHARS = 100000;
+exports.MAX_RESULT_PREVIEW_CHARS = 2000;
 /** Cut `s` to `limit`, leaving a visible marker that something was dropped. */
 function capText(s, limit) {
     return s.length > limit ? `${s.slice(0, limit)}…[truncated]` : s;
+}
+/**
+ * Bound a `done` frame's `result` by its SERIALIZED size, not its shape — a
+ * playbook's whole purpose is to return structured data, so a deep object is
+ * normal and must not be flattened or field-pruned. When it blows the cap, the
+ * ENTIRE result is replaced with a small marker object that says so and carries
+ * a preview: an agent must never be silently handed a partial result it thinks
+ * is complete.
+ */
+function capResult(result) {
+    let serialized;
+    try {
+        serialized = JSON.stringify(result);
+    }
+    catch {
+        return result; // not plausible off a JSON.parse'd frame, but never throw here
+    }
+    if (serialized === undefined || serialized.length <= exports.MAX_RESULT_CHARS)
+        return result;
+    return {
+        __truncated: true,
+        reason: `result exceeded ${exports.MAX_RESULT_CHARS} chars serialized (was ${serialized.length}) — `
+            + 'replaced to avoid a context blowout',
+        preview: capText(serialized, exports.MAX_RESULT_PREVIEW_CHARS),
+    };
 }
 /**
  * Check the caller's arguments against `meta.params`.
@@ -342,6 +388,16 @@ function runPlaybookScript(opts) {
              * failure with the wrong type.
              */
             let lastCommandFailure;
+            /**
+             * Total chars of `log` output forwarded to `opts.onLog` so far (post-cap).
+             * `MAX_LOG_LINE_CHARS` alone does nothing against a script that emits a
+             * million short lines instead of one long one — this is the other half
+             * of the same bound, tracked across the whole run. `logTruncated` fires
+             * the drop notice exactly once, then silently drops every further line
+             * rather than repeating the notice per line.
+             */
+            let logCharsUsed = 0;
+            let logTruncated = false;
             const finish = (result) => {
                 if (settled)
                     return;
@@ -414,10 +470,21 @@ function runPlaybookScript(opts) {
                     }
                     if (frame.t === 'cmd')
                         void handleCommand(frame);
-                    else if (frame.t === 'log')
-                        opts.onLog(String(frame.message));
+                    else if (frame.t === 'log') {
+                        if (logTruncated)
+                            continue; // already notified — drop the rest silently
+                        const capped = capText(String(frame.message), exports.MAX_LOG_LINE_CHARS);
+                        if (logCharsUsed + capped.length > exports.MAX_LOG_TOTAL_CHARS) {
+                            logTruncated = true;
+                            opts.onLog('[truncated: further log output dropped — run exceeded the total log budget]');
+                        }
+                        else {
+                            logCharsUsed += capped.length;
+                            opts.onLog(capped);
+                        }
+                    }
                     else if (frame.t === 'done')
-                        finish(done({ ok: true, result: frame.result }));
+                        finish(done({ ok: true, result: capResult(frame.result) }));
                     else if (frame.t === 'fail') {
                         // `frame.type` and `frame.payload` are UNTRUSTED CHILD INPUT and
                         // are never adopted as the result's type/payload. `wrap()` in

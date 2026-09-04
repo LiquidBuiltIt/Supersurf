@@ -63,26 +63,47 @@ export interface PlaybookRunResult {
     durationMs: number;
 }
 /**
- * Caps on the two free-text fields of a `fail` frame.
+ * Caps on the child-controlled fields of `fail`, `log`, and `done` frames.
  *
- * EVERY field of that frame is child-controlled and untrusted. `wrap()` in
- * `context.ts` rebuilds a thrown error as a bare vm-realm `Error` carrying only
- * `String(e.message)`, so nothing about a frame's shape is verifiable from this
- * side — a script can set `e.stack = 'Z'.repeat(2e6)` and the host has no way to
- * tell that from a real V8 stack.
+ * EVERY field of every frame from the child is child-controlled and untrusted.
+ * `wrap()` in `context.ts` rebuilds a thrown error as a bare vm-realm `Error`
+ * carrying only `String(e.message)`, so nothing about a frame's shape is
+ * verifiable from this side — a script can set `e.stack = 'Z'.repeat(2e6)`, or
+ * call `log('Z'.repeat(2e6))`, or return a multi-megabyte object, and the host
+ * has no way to tell any of that from a legitimate value.
  *
- * The cap belongs HERE, at the pipe, and not at the three places the value ends
- * up (`runner.ts` → `runs.ts`, which persists it forever in the sidecar, and
- * `tools/playbooks.ts`, which pushes it straight into an agent-facing MCP
- * response). One boundary owns "nothing unbounded crosses this pipe"; capping
- * downstream instead is how the NEXT field leaks. This is the same 766 KB bug
- * the error taxonomy exists to close, reached through a different field.
+ * The caps belong HERE, at the pipe, and not at the places the values end up
+ * (`runner.ts` → `runs.ts`, which persists them forever in the sidecar, and
+ * `tools/playbooks.ts`, which pushes them straight into an agent-facing MCP
+ * response). One boundary owning each field is how the NEXT field is kept from
+ * leaking the same way. This is the same 766 KB bug the error taxonomy exists
+ * to close, reached through different fields.
+ *
+ * What IS bounded here: `fail.message`, `fail.stack`, every `log.message`
+ * (individually AND in aggregate across a run), and `done.result` (by
+ * serialized size, replaced with a visible truncation marker over the cap —
+ * never silently dropped).
+ *
+ * What is NOT bounded here: a `cmd` frame's `method`/`params` — spec Addendum A
+ * requires `onCommand` to forward those VERBATIM, so a script can still send an
+ * arbitrarily large param (e.g. `type(sel, 'A'.repeat(1e7))`) on its way to an
+ * MCP tool call. Bounding that is downstream tool validation's job, not this
+ * pipe boundary's — this module does not claim to own it.
  *
  * A stack gets a few KB because the frames below the throw site are the useful
  * part. A message gets far less — it is one line in a rendered failure report.
+ * A log line is prose, not a stack trace, so it gets a similar per-line budget
+ * to a message, plus a total-run budget so a flood of short lines cannot add up
+ * to the same blowout as one long one. A result is the whole point of running a
+ * playbook, so its cap is generous — well above any reasonable return value,
+ * well below a context blowout.
  */
 export declare const MAX_FAIL_STACK_CHARS = 4000;
 export declare const MAX_FAIL_MESSAGE_CHARS = 1000;
+export declare const MAX_LOG_LINE_CHARS = 2000;
+export declare const MAX_LOG_TOTAL_CHARS = 20000;
+export declare const MAX_RESULT_CHARS = 100000;
+export declare const MAX_RESULT_PREVIEW_CHARS = 2000;
 /**
  * Check the caller's arguments against `meta.params`.
  * @returns null when valid, otherwise a human-facing reason.

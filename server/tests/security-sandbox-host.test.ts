@@ -11,6 +11,9 @@ import {
   checkChildEntrySandboxing,
   MAX_FAIL_STACK_CHARS,
   MAX_FAIL_MESSAGE_CHARS,
+  MAX_LOG_LINE_CHARS,
+  MAX_LOG_TOTAL_CHARS,
+  MAX_RESULT_CHARS,
 } from '../src/security/sandbox/host';
 import type { PlaybookMeta } from '../src/security/meta';
 import { PlaybookCommandError } from '../src/playbooks/errors';
@@ -444,5 +447,83 @@ describe('failure typing across the sandbox pipe', () => {
     expect(res.ok).toBe(false);
     expect(res.type).toBe('ScriptAssertion');
     expect(res.payload).toBeUndefined();
+  });
+});
+
+describe('log and result caps at the sandbox pipe', () => {
+  // Same threat model as the fail-frame caps above: `log()` and a script's
+  // return value are just as child-controlled as `stack`/`message`, and land
+  // in the same two sinks (`runs.ts`'s sidecar, `tools/playbooks.ts`'s
+  // agent-facing MCP response) if left uncapped.
+
+  it('caps a single oversized log line', async () => {
+    const { file, hash } = write(
+      'log-oversized',
+      `export default async function ({ log }) { log('Z'.repeat(50000)); return 1; }`,
+    );
+    const logs: string[] = [];
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onCommand: noCommands, onLog: (m) => logs.push(m),
+    });
+    expect(res.ok).toBe(true);
+    expect(logs.length).toBe(1);
+    // If the per-line cap were removed, this line would be exactly 50000 chars
+    // — well over the cap plus the "…[truncated]" marker's own length.
+    expect(logs[0].length).toBeLessThanOrEqual(MAX_LOG_LINE_CHARS + 32);
+    expect(logs[0]).toContain('[truncated]');
+  });
+
+  it('caps the total log budget across many small lines, with a visible drop notice', async () => {
+    // 1000 lines of 50 chars each = 50000 chars total, well under the 2000-char
+    // per-line cap individually but over MAX_LOG_TOTAL_CHARS (20000) in
+    // aggregate — the exact "million short lines" shape the per-line cap alone
+    // cannot stop.
+    const { file, hash } = write(
+      'log-flood',
+      `export default async function ({ log }) {
+  for (let i = 0; i < 1000; i++) log('x'.repeat(50));
+  return 'done';
+}`,
+    );
+    const logs: string[] = [];
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onCommand: noCommands, onLog: (m) => logs.push(m),
+    });
+    expect(res.ok).toBe(true);
+    // If the total-budget check were removed, all 1000 calls would pass
+    // through (each is well under the per-line cap) and this would be 1000.
+    expect(logs.length).toBeLessThan(1000);
+    expect(logs[logs.length - 1]).toContain('further log output dropped');
+    const totalRealLogChars = logs.slice(0, -1).reduce((sum, l) => sum + l.length, 0);
+    expect(totalRealLogChars).toBeLessThanOrEqual(MAX_LOG_TOTAL_CHARS + 50);
+  });
+
+  it('caps an oversized done-frame result with a visible truncation marker', async () => {
+    const { file, hash } = write(
+      'result-oversized',
+      `export default async function () { return 'Z'.repeat(200000); }`,
+    );
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(true);
+    // If capResult were removed, res.result would be the raw 200000-char
+    // string, not an object — this shape check alone would fail.
+    expect(typeof res.result).toBe('object');
+    const capped = res.result as any;
+    expect(capped.__truncated).toBe(true);
+    expect(typeof capped.preview).toBe('string');
+    expect(capped.preview.length).toBeLessThan(200000);
+    // The whole point: an agent must be able to tell this was cut, not assume
+    // it received the complete 200000-char string.
+    expect(JSON.stringify(res.result).length).toBeLessThan(MAX_RESULT_CHARS);
+  });
+
+  it('leaves an ordinary, well-under-cap result untouched', async () => {
+    const { file, hash } = write(
+      'result-normal',
+      `export default async function () { return { a: 1, b: 'fine' }; }`,
+    );
+    const res = await runPlaybookScript({ file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs });
+    expect(res.ok).toBe(true);
+    expect(res.result).toEqual({ a: 1, b: 'fine' });
   });
 });
