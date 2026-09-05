@@ -86,12 +86,15 @@ export interface PlaybookRunResult {
  * THE TWO DELIBERATE EXCEPTIONS: a `cmd` frame's `method` and `params`, AS
  * FORWARDED TO `onCommand`. Spec Addendum A requires that forward to be
  * VERBATIM — this module holds no ConnectionManager and does no client-method
- * → MCP-tool translation, so a script can still send an arbitrarily large
- * param (e.g. `type(sel, 'A'.repeat(1e7))`) on its way to an MCP tool call.
- * Bounding that is downstream tool validation's job, not this pipe boundary's.
- * Every OTHER copy this module keeps for its own bookkeeping — e.g. `at.method`
- * on a classified command failure — is a separate value and stays capped; only
- * the verbatim forward itself is exempt.
+ * → MCP-tool translation, so this pipe boundary itself imposes no per-field
+ * cap on `method`/`params` before the forward. They are NOT unbounded,
+ * though: the whole frame still has to survive as one line within
+ * `MAX_STDOUT_LINE_CHARS` to reach this module at all, so the real ceiling on
+ * a verbatim forward is that line cap, enforced below, not a per-field one.
+ * Bounding the field itself is downstream tool validation's job, not this
+ * pipe boundary's. Every OTHER copy this module keeps for its own bookkeeping
+ * — e.g. `at.method` on a classified command failure — is a separate value
+ * and stays capped; only the verbatim forward itself is exempt.
  */
 export declare const MAX_FAIL_STACK_CHARS = 4000;
 export declare const MAX_FAIL_MESSAGE_CHARS = 1000;
@@ -116,6 +119,11 @@ export declare const MAX_COMMAND_METHOD_CHARS = 200;
  * comfortably above `MAX_RESULT_CHARS` (2x) so a legitimate maximum-size
  * result frame, plus its JSON envelope, can never trip it — only a genuine
  * protocol violation (a line that was never going to terminate) does.
+ *
+ * The check against this constant runs AFTER each stdout chunk is appended
+ * to `buffer`, not mid-chunk, so the actual ceiling is approximate: this
+ * value plus at most one pipe chunk's worth of bytes can accumulate before
+ * the check fires. Bounded, not exact — do not treat it as a precise limit.
  */
 export declare const MAX_STDOUT_LINE_CHARS: number;
 /**

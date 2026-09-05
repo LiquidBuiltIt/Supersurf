@@ -865,3 +865,42 @@ process.stdout.write('Z'.repeat(${MAX_STDOUT_LINE_CHARS} + 1000));`,
     expect((res.result as string).length).toBe(MAX_RESULT_CHARS - 100);
   });
 });
+
+describe('exit/close lifecycle race (round-5 Fix A)', () => {
+  // `'close'` waits for stdio to fully drain before firing — right when the
+  // child itself holds the pipes, but wrong when a DESCENDANT process
+  // inherits the child's stdout/stderr and keeps them open after the child
+  // itself exits: `'close'` then never fires at all. Before this fix the run
+  // stalled until the full run timeout and reported `Timeout` — the WRONG
+  // cause. This spawns a real detached grandchild that inherits the fixture
+  // child's stdio (exactly that scenario) and proves the run now resolves
+  // promptly via the `STDIO_DRAIN_GRACE_MS` fallback with the correct
+  // `HarnessUnavailable` / exit-code result instead.
+  it('resolves promptly with HarnessUnavailable, not Timeout, when a descendant holds stdio open past child exit', async () => {
+    const { file, hash } = write('exit-close-race', `export default async function () { return 1; }`);
+    useFixtureChild(
+      'exit-close-race',
+      `const { spawn } = require('child_process');
+// The grandchild inherits this process's own stdout/stderr fds (which are
+// themselves the pipes the host reads from) and is detached+unref'd so it
+// outlives this process. It holds those fds open for 2s — long past this
+// fixture's own exit and well past the fix's 250ms grace window, but short
+// enough to clean itself up before the test process exits.
+const grandchild = spawn(process.execPath, ['-e', 'setTimeout(function () {}, 2000)'], { stdio: 'inherit', detached: true });
+grandchild.unref();
+setTimeout(() => process.exit(9), 50);`,
+    );
+    const startedAt = Date.now();
+    const res = await runPlaybookScript({
+      file, hash, params: {}, meta: META, onCommand: noCommands, onLog: noLogs, timeoutMs: 3000,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    expect(res.ok).toBe(false);
+    expect(res.type).toBe('HarnessUnavailable');
+    expect(res.error).toContain('exit code 9');
+    // The grace window is 250ms; generous headroom for CI jitter while
+    // staying far below the 3000ms run timeout and the grandchild's own 2000ms
+    // hold — proving this resolved via the grace fallback, not the run timeout.
+    expect(elapsedMs).toBeLessThan(1500);
+  });
+});

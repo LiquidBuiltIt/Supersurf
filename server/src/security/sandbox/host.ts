@@ -73,6 +73,18 @@ export interface PlaybookRunResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 300000;
+/**
+ * Grace window after `'exit'` fires before this module assembles the exit
+ * result from `'exit'` alone rather than waiting for `'close'`. `'close'`
+ * waits for stdio to fully drain, which is right when the child itself holds
+ * the pipes — but wrong when a DESCENDANT process inherited the child's
+ * stdout/stderr and keeps them open after the child exits: `'close'` then
+ * never fires, and without this grace the run stalls until the full run
+ * timeout and reports `Timeout` instead of the real cause. Short on purpose —
+ * this is a fallback for an abandoned pipe, not a real drain wait; `'close'`
+ * still wins whenever it arrives first.
+ */
+const STDIO_DRAIN_GRACE_MS = 250;
 
 /**
  * Caps on the child-controlled fields crossing the sandbox pipe.
@@ -98,12 +110,15 @@ const DEFAULT_TIMEOUT_MS = 300000;
  * THE TWO DELIBERATE EXCEPTIONS: a `cmd` frame's `method` and `params`, AS
  * FORWARDED TO `onCommand`. Spec Addendum A requires that forward to be
  * VERBATIM — this module holds no ConnectionManager and does no client-method
- * → MCP-tool translation, so a script can still send an arbitrarily large
- * param (e.g. `type(sel, 'A'.repeat(1e7))`) on its way to an MCP tool call.
- * Bounding that is downstream tool validation's job, not this pipe boundary's.
- * Every OTHER copy this module keeps for its own bookkeeping — e.g. `at.method`
- * on a classified command failure — is a separate value and stays capped; only
- * the verbatim forward itself is exempt.
+ * → MCP-tool translation, so this pipe boundary itself imposes no per-field
+ * cap on `method`/`params` before the forward. They are NOT unbounded,
+ * though: the whole frame still has to survive as one line within
+ * `MAX_STDOUT_LINE_CHARS` to reach this module at all, so the real ceiling on
+ * a verbatim forward is that line cap, enforced below, not a per-field one.
+ * Bounding the field itself is downstream tool validation's job, not this
+ * pipe boundary's. Every OTHER copy this module keeps for its own bookkeeping
+ * — e.g. `at.method` on a classified command failure — is a separate value
+ * and stays capped; only the verbatim forward itself is exempt.
  */
 export const MAX_FAIL_STACK_CHARS = 4000;
 export const MAX_FAIL_MESSAGE_CHARS = 1000;
@@ -128,6 +143,11 @@ export const MAX_COMMAND_METHOD_CHARS = 200;
  * comfortably above `MAX_RESULT_CHARS` (2x) so a legitimate maximum-size
  * result frame, plus its JSON envelope, can never trip it — only a genuine
  * protocol violation (a line that was never going to terminate) does.
+ *
+ * The check against this constant runs AFTER each stdout chunk is appended
+ * to `buffer`, not mid-chunk, so the actual ceiling is approximate: this
+ * value plus at most one pipe chunk's worth of bytes can accumulate before
+ * the check fires. Bounded, not exact — do not treat it as a precise limit.
  */
 export const MAX_STDOUT_LINE_CHARS = MAX_RESULT_CHARS * 2;
 /**
@@ -482,10 +502,21 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
       let logCharsUsed = 0;
       let logTruncated = false;
 
+      /**
+       * Set by the `'exit'` handler while waiting out `STDIO_DRAIN_GRACE_MS`
+       * for `'close'` to arrive first. Cleared here in `finish` — the single
+       * exit point for every terminal path (normal completion, the run
+       * timeout, a spawn error, `'close'`, or the grace timer itself) — so the
+       * timer can never fire, or hold the process alive, past a run that has
+       * already settled.
+       */
+      let exitGraceTimer: NodeJS.Timeout | undefined;
+
       const finish = (result: PlaybookRunResult) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (exitGraceTimer) clearTimeout(exitGraceTimer);
         try { child.kill('SIGKILL'); } catch { /* already gone */ }
         resolve(result);
       };
@@ -669,7 +700,19 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
       // have been read — exactly the field the tail ring above exists to get
       // right. See the Fix 3 lifecycle proofs in the round-4 report before
       // touching this again.
-      child.on('close', (code, signal) => {
+      //
+      // But 'close' has its own failure mode: if a DESCENDANT process
+      // inherited the child's stdout/stderr, those pipes stay open after the
+      // child itself exits, and 'close' never fires at all — the run would
+      // otherwise stall until the full run timeout and report `Timeout`
+      // instead of the real cause. So both events are handled: 'close' wins
+      // whenever it arrives (assemble and finish immediately, using whatever
+      // stderr made it into the tail ring), and 'exit' only starts a short
+      // `STDIO_DRAIN_GRACE_MS` timer — if 'close' beats the timer, `finish`'s
+      // idempotency guard makes the timer's own call a no-op; if the timer
+      // elapses first, it assembles the result itself from the 'exit' event's
+      // code/signal and whatever stderr has arrived so far.
+      const finishFromExit = (code: number | null, signal: NodeJS.Signals | null) => {
         const how = code != null ? `exit code ${code}` : `signal ${signal}`;
         // `stderrTail` is already bounded to `MAX_FAIL_MESSAGE_CHARS` on every
         // append (above), but cap the assembled tail again here too: it lands
@@ -683,6 +726,12 @@ export function runPlaybookScript(opts: PlaybookRunOptions): Promise<PlaybookRun
           error: `playbook sandbox exited before finishing (${how})${tail}`,
           type: 'HarnessUnavailable', payload: { component: 'sandbox-child' },
         }));
+      };
+
+      child.on('close', (code, signal) => finishFromExit(code, signal));
+
+      child.on('exit', (code, signal) => {
+        exitGraceTimer = setTimeout(() => finishFromExit(code, signal), STDIO_DRAIN_GRACE_MS);
       });
 
       child.stdin.write(JSON.stringify({
