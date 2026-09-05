@@ -2,7 +2,11 @@
 
 > SuperSurf is an MCP (Model Context Protocol) server that gives any AI agent control of a real Chrome browser through a Chrome extension — real profile, cookies, and logins, no CDP. Works with any MCP client (Claude, GPT, or anything that speaks MCP).
 
-SuperSurf ships as two npm packages: `supersurf-mcp` (the MCP server you install via `npx supersurf-mcp@latest`) and `supersurf-daemon` (a coordinator auto-spawned by the server; never installed directly). The Chrome extension is the interaction layer.
+Install with one command: `curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh`. That puts the `supersurf` CLI in `~/.local/bin` without sudo, starts the daemon, and walks the user through installing the Chrome extension from the Web Store. Register it with `claude mcp add supersurf -- supersurf mcp`. Re-running the installer is the upgrade path, and `--yes` makes it non-interactive for CI, Docker, or an agent.
+
+Without the CLI, a client that can run `npx` needs nothing installed: point it at `npx supersurf-mcp@latest` and install the extension from the Web Store by hand.
+
+SuperSurf ships as two npm packages: `supersurf-mcp` (the MCP server) and `supersurf-daemon` (a coordinator auto-spawned by the server; never installed directly). The `supersurf` CLI is a separate compiled binary distributed through GitHub releases, not npm. The Chrome extension is the interaction layer.
 
 Key facts:
 - Drives a **real** Chrome browser via a Chrome extension and content scripts, not raw CDP. Content scripts run in an isolated world the page's own JavaScript cannot read.

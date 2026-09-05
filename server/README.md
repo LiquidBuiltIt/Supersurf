@@ -6,11 +6,21 @@ Works with any LLM that supports the [Model Context Protocol](https://modelconte
 
 ## Quick Start
 
-**1. Install the Chrome extension**
+```bash
+curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh
+```
 
-Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek).
+The installer puts the `supersurf` CLI in `~/.local/bin` (no sudo), starts the daemon, and walks you through installing the Chrome extension. Then register the server:
 
-**2. Register the MCP server**
+```bash
+claude mcp add supersurf -- supersurf mcp
+```
+
+Re-run the installer to upgrade. Add `--yes` for CI, Docker, or an agent, where it never prompts.
+
+### Without the CLI
+
+This package works on its own — any client that can run `npx` needs nothing installed. You install the extension yourself, from the [Chrome Web Store](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek).
 
 Claude Code:
 ```bash
@@ -29,7 +39,7 @@ Claude Desktop — add to your MCP config:
 }
 ```
 
-**3. Use it**
+### Then use it
 
 Your agent calls `connect` to start the session, a daemon auto-starts, the extension connects, and 28 browser tools become available.
 
