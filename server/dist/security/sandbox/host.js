@@ -690,6 +690,12 @@ function runPlaybookScript(opts) {
             };
             child.on('close', (code, signal) => finishFromExit(code, signal));
             child.on('exit', (code, signal) => {
+                // A run that already settled (normal completion, timeout, spawn error)
+                // kills the child itself, so 'exit' fires afterwards on every single
+                // run. Without this guard each of those arms a 250 ms timer whose only
+                // effect is to hold the event loop open past a finished run.
+                if (settled)
+                    return;
                 exitGraceTimer = setTimeout(() => finishFromExit(code, signal), STDIO_DRAIN_GRACE_MS);
             });
             child.stdin.write(JSON.stringify({
