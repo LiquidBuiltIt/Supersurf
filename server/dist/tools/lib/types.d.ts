@@ -99,6 +99,13 @@ export interface ToolContext {
     getHandleIndex?(): import('../../experimental/fingerprinting/handle-annotate').HandleIndex;
     /** Convert a selector string (including `:has-text()`) to a JS querySelector expression. */
     getSelectorExpression(selector: string): string;
+    /**
+     * Plural form: a JS expression resolving to an ARRAY of every matching
+     * element. Optional — wired by BrowserBridge, mirroring `resolveSelector`
+     * and `getHandleIndex`. A caller without it must fall back to wrapping the
+     * singular expression in a one-element array.
+     */
+    getAllSelectorExpression?(selector: string): string;
     /** Search the page for elements matching partial text when a selector fails. */
     findAlternativeSelectors(selector: string): Promise<any[]>;
     /** Wrap a handler result into MCP content blocks with status header. */

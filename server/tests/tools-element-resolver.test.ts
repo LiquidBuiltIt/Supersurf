@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getSelectorExpression } from '../src/tools/lib/element-resolver';
+import { getSelectorExpression, getAllSelectorExpression } from '../src/tools/lib/element-resolver';
 
 describe('getSelectorExpression()', () => {
   it('throws on empty selector', () => {
@@ -73,5 +73,29 @@ describe('getSelectorExpression()', () => {
     expect(out).toContain('function queryDeep(selector)');
     expect(out).not.toContain('require(');
     expect(out).not.toMatch(/^\s*import /m);
+  });
+});
+
+describe('getAllSelectorExpression()', () => {
+  it('builds a queryAllDeep expression carrying its own walker', () => {
+    const expr = getAllSelectorExpression('.WorkflowJob');
+    expect(expr).toContain('function queryAllDeep');
+    expect(expr).toContain('queryAllDeep(".WorkflowJob")');
+  });
+
+  it('rewrites digit-leading ids the same way the singular form does', () => {
+    expect(getAllSelectorExpression('#883a76')).toContain('[id=');
+    expect(getAllSelectorExpression('#883a76')).toContain('883a76');
+  });
+
+  it('filters by text for the :has-text() form instead of returning the first hit', () => {
+    const expr = getAllSelectorExpression('li:has-text("Ship it")');
+    expect(expr).toContain('queryAllDeep("li")');
+    expect(expr).toContain('.filter(');
+    expect(expr).toContain('Ship it');
+  });
+
+  it('rejects an empty selector', () => {
+    expect(() => getAllSelectorExpression('')).toThrow('Selector is required');
   });
 });

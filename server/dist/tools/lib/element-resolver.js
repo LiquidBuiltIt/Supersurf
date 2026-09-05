@@ -6,6 +6,7 @@
 // IExtensionTransport so callers can inject a pre-bound evaluator.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getSelectorExpression = getSelectorExpression;
+exports.getAllSelectorExpression = getAllSelectorExpression;
 exports.findAlternativeSelectors = findAlternativeSelectors;
 exports.getElementCenter = getElementCenter;
 const shared_1 = require("../../shared");
@@ -50,6 +51,39 @@ function getSelectorExpression(selector) {
     return `(() => {
       ${shared_1.QUERY_DEEP_SOURCE}
       return queryDeep(${JSON.stringify(rewritten)});
+    })()`;
+}
+/**
+ * The plural of `getSelectorExpression`: a JS expression resolving to an ARRAY
+ * of every matching Element, empty when nothing matches.
+ *
+ * `browser_extract_content` in selector mode used the singular form and so read
+ * only the first match — `.WorkflowJob` on a GitHub Actions run page matches
+ * many jobs and reported `total: 1`. Callers that genuinely want one element
+ * keep using `getSelectorExpression`; this is for the ones that should never
+ * have been narrowed.
+ *
+ * Same two branches, same shadow-piercing walker, same digit-leading-id
+ * rewrite — the ONLY difference is that `:has-text(...)` filters the full match
+ * set instead of returning on the first hit.
+ */
+function getAllSelectorExpression(selector) {
+    if (!selector)
+        throw new Error('Selector is required for this action');
+    const rewritten = rewriteDigitLeadingIds(selector);
+    const m = rewritten.match(/^(.+?):has-text\(["'](.+?)["']\)(.*)$/);
+    if (m) {
+        const [, base, text] = m;
+        return `(() => {
+      ${shared_1.QUERY_ALL_DEEP_SOURCE}
+      return queryAllDeep(${JSON.stringify(base)}).filter(
+        (el) => el.textContent && el.textContent.includes(${JSON.stringify(text)}),
+      );
+    })()`;
+    }
+    return `(() => {
+      ${shared_1.QUERY_ALL_DEEP_SOURCE}
+      return queryAllDeep(${JSON.stringify(rewritten)});
     })()`;
 }
 /**

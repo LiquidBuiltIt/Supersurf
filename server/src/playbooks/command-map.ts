@@ -39,6 +39,8 @@
  * @module playbooks/command-map
  */
 
+import { PlaybookCommandError } from './errors';
+
 export interface MappedCommand {
   tool: string;
   args: Record<string, unknown>;
@@ -170,12 +172,24 @@ function flattenOpts(p: any): any {
 }
 
 export function mapCommand(method: string, params: any, playbookName = 'unnamed'): MappedCommand {
+  // Both refusals carry their own type. The runner calls `mapCommand` BEFORE
+  // `unwrapTyped`, so a throw here never passes through `classifyToolFailure` —
+  // an untyped Error escaping this function is reported as `HarnessUnavailable`
+  // ("the browser is gone") for a command the harness merely declined.
   if (WITHHELD.has(method)) {
-    throw new Error(`\`${method}\` is not available to playbook scripts.`);
+    throw new PlaybookCommandError(
+      `\`${method}\` is not available to playbook scripts.`,
+      'Refused',
+      { reason: 'withheld-method', method },
+    );
   }
   const fn = MAP[method];
   if (!fn) {
-    throw new Error(`Unknown playbook command: \`${method}\`.`);
+    throw new PlaybookCommandError(
+      `Unknown playbook command: \`${method}\`.`,
+      'Refused',
+      { reason: 'unknown-method', method },
+    );
   }
   return fn(flattenOpts(params), playbookName);
 }

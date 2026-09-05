@@ -24,6 +24,7 @@ import { cdp as cdpFn, evalExpr as evalFn } from './tools/lib/cdp';
 import {
   getElementCenter,
   getSelectorExpression,
+  getAllSelectorExpression,
   findAlternativeSelectors,
 } from './tools/lib/element-resolver';
 import { formatResult, formatError } from './tools/lib/result-formatter';
@@ -178,6 +179,7 @@ export class BrowserBridge {
       resolveSelector: resolveSelectorSync,
       getHandleIndex: () => buildHandleIndex(this.connectionManager?.getAttachedTab()?.url),
       getSelectorExpression: (selector: string) => getSelectorExpression(resolveSelectorSync(selector)),
+      getAllSelectorExpression: (selector: string) => getAllSelectorExpression(resolveSelectorSync(selector)),
       findAlternativeSelectors: (selector: string) => findAlternativeSelectors(evalFnBound, selector),
       formatResult: (name, result, options) =>
         formatResult(name, result, options, this.connectionManager),

@@ -141,6 +141,7 @@ class BrowserBridge {
             resolveSelector: resolveSelectorSync,
             getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.connectionManager?.getAttachedTab()?.url),
             getSelectorExpression: (selector) => (0, element_resolver_1.getSelectorExpression)(resolveSelectorSync(selector)),
+            getAllSelectorExpression: (selector) => (0, element_resolver_1.getAllSelectorExpression)(resolveSelectorSync(selector)),
             findAlternativeSelectors: (selector) => (0, element_resolver_1.findAlternativeSelectors)(evalFnBound, selector),
             formatResult: (name, result, options) => (0, result_formatter_1.formatResult)(name, result, options, this.connectionManager),
             error: (message, options) => (0, result_formatter_1.formatError)(message, options),

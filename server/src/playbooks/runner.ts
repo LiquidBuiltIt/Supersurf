@@ -7,9 +7,10 @@
  * differ from the parent's. The parent is whichever process holds a
  * `ConnectionManager`: the MCP server or the CLI. Never the daemon.
  *
- * Because the tab dies at exit (spec §10 risk 2), a failed run captures a
- * snapshot BEFORE teardown and stores it as `evidence` on the run record.
- * Skip that and every failure reads as "it broke, no idea why".
+ * Because the tab dies at exit (spec §10 risk 2), a `SelectorMiss` failure
+ * captures a ranked candidate-selector list BEFORE teardown and stores it as
+ * `evidence` on the run record. The other five failure types have no page
+ * left to read, so they carry no evidence at all.
  *
  * @module playbooks/runner
  */
@@ -27,6 +28,13 @@ import {
 } from '../security/sandbox/host';
 import type { PlaybookMeta } from '../security/meta';
 import type { ValidationRecord } from '../security/validate';
+import {
+  classifyToolFailure,
+  PlaybookCommandError,
+  type PlaybookErrorType,
+  type FailureAt,
+} from './errors';
+import { captureCandidates, type Candidate } from './candidates';
 
 const { version: PACKAGE_VERSION } = require('../../package.json');
 
@@ -56,9 +64,20 @@ export interface RunOutcome {
   ok: boolean;
   result?: unknown;
   error?: string;
+  /** Which kind of failure. Absent on success. */
+  type?: PlaybookErrorType;
+  /** Which command threw, and its 1-based index in this run. */
+  at?: FailureAt;
+  /** The in-child stack. Names the playbook line that threw. */
+  stack?: string;
   durationMs: number;
   logs: string[];
-  evidence?: { snapshot?: string };
+  /**
+   * `SelectorMiss` ONLY. There is no `snapshot` key any more: the other five
+   * types have no page worth reading, and the accessibility tree this replaces
+   * hit 766 KB on a single `github.com` failure.
+   */
+  evidence?: { url?: string; title?: string; candidates?: Candidate[] };
 }
 
 function defaultBackend(): RunnerBackend {
@@ -142,30 +161,19 @@ function actionFailures(res: any): string | null {
   return picked.length > 0 ? picked.join('; ') : null;
 }
 
-/** `rawResult` failures come back as data; the child expects a throw. */
-function unwrap(res: any): unknown {
+/**
+ * `rawResult` failures come back as data; the child expects a throw. The throw
+ * is typed here and nowhere else — this is the only place that sees the MCP
+ * tool name, its arguments (hence the selector), and the failure envelope at
+ * the same moment.
+ */
+function unwrapTyped(tool: string, args: Record<string, unknown>, res: any): unknown {
   if (res && res.success === false) {
-    throw new Error(String(res.error ?? res.message ?? actionFailures(res) ?? 'command failed'));
+    const message = String(res.error ?? res.message ?? actionFailures(res) ?? 'command failed');
+    const { type, payload } = classifyToolFailure(tool, args, message);
+    throw new PlaybookCommandError(message, type, payload);
   }
   return res;
-}
-
-/** Best-effort page capture for the failure record. Never throws. */
-async function captureEvidence(backend: RunnerBackend): Promise<{ snapshot?: string } | undefined> {
-  try {
-    const res: any = await backend.callTool('browser_snapshot', {}, { rawResult: true });
-    if (!res || res.success === false) return undefined;
-    // `browser_snapshot` with `rawResult` spreads the extension payload at the
-    // TOP LEVEL — the real keys are `nodes` and `formFields`. There is no
-    // `snapshot` and no `result` wrapper, so reading those first (and stopping
-    // at `null`) meant evidence was NEVER captured against the live tool.
-    // The wrapper keys stay as a fallback for a transport that adds one.
-    const snap = res.snapshot ?? res.result ?? res;
-    if (!snap) return undefined;
-    return { snapshot: typeof snap === 'string' ? snap : JSON.stringify(snap) };
-  } catch {
-    return undefined;
-  }
 }
 
 export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome> {
@@ -191,6 +199,9 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
       experiments: wantsExperiments,
     };
     if (out.error) rec.error = out.error;
+    if (out.type) rec.type = out.type;
+    if (out.at) rec.at = out.at;
+    if (out.stack) rec.stack = out.stack;
     if (profile) rec.profile = profile;
     if (out.evidence) rec.evidence = out.evidence;
     appendRunRecord(record.name, rec);
@@ -201,13 +212,14 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
     return finish({
       ok: false,
       error: record.error ?? `\`${record.name}\` did not validate.`,
+      type: 'Refused',
       durationMs: Date.now() - started,
     });
   }
 
   const paramError = validateParams(record.meta, params);
   if (paramError) {
-    return finish({ ok: false, error: paramError, durationMs: Date.now() - started });
+    return finish({ ok: false, error: paramError, type: 'Refused', durationMs: Date.now() - started });
   }
 
   const runScript: RunScript = opts.runScript ?? runPlaybookScript;
@@ -232,12 +244,13 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
     return finish({
       ok: false,
       error: `Connect failed: ${connectRes?.message ?? connectRes?.error ?? 'unknown error'}`,
+      type: 'HarnessUnavailable',
       durationMs: Date.now() - started,
     });
   }
 
   let tabOpened = false;
-  let evidence: { snapshot?: string } | undefined;
+  let evidence: { url?: string; title?: string; candidates?: Candidate[] } | undefined;
   let outcome: PlaybookRunResult;
 
   // Own tab. `meta.startingPoint` is a discovery hint, not a URL to load —
@@ -264,11 +277,15 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
     return finish({
       ok: false,
       error: `Tab open failed: ${newTabRes?.message ?? newTabRes?.error ?? 'unknown error'}`,
+      type: 'HarnessUnavailable',
       durationMs: Date.now() - started,
     });
   }
   tabOpened = true;
 
+  // The run's step counter lives in `host.ts`, which owns the ONE `at` that
+  // reaches the record: its `handleCommand` catch spreads `at` over
+  // `playbookPayload`, so a second `at` built here was always overwritten.
   try {
     outcome = await runScript({
       file: record.file,
@@ -276,8 +293,8 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
       meta: record.meta,
       hash: record.hash,
       onCommand: async (method: string, cmdParams: any) => {
-        const { tool, args } = mapCommand(method, cmdParams, record.name);
-        return unwrap(await backend.callTool(tool, args, { rawResult: true }));
+        const { tool, args: toolArgs } = mapCommand(method, cmdParams, record.name);
+        return unwrapTyped(tool, toolArgs, await backend.callTool(tool, toolArgs, { rawResult: true }));
       },
       onLog: (msg: string) => {
         logs.push(msg);
@@ -285,12 +302,27 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
       },
     });
   } catch (err: any) {
-    outcome = { ok: false, error: err?.message ?? String(err), durationMs: Date.now() - started };
+    outcome = {
+      ok: false,
+      error: err?.message ?? String(err),
+      type: err?.playbookType ?? 'HarnessUnavailable',
+      payload: err?.playbookPayload,
+      durationMs: Date.now() - started,
+    };
   }
 
   // Evidence BEFORE teardown — the tab is about to stop existing.
-  if (!outcome.ok && tabOpened) {
-    evidence = await captureEvidence(backend);
+  //
+  // ONLY for `SelectorMiss`. The other five types have no page to read:
+  // `Refused` and `ScriptAssertion` never reached the browser,
+  // `HarnessUnavailable` means it is gone, `PageUnavailable` means the page
+  // never loaded, and `Timeout` killed the child mid-flight. Capturing anyway
+  // is what produced a 766 KB record whose useful content was one sentence.
+  const failedSelector = outcome.type === 'SelectorMiss'
+    ? (outcome.payload?.selector as string | undefined)
+    : undefined;
+  if (tabOpened && failedSelector) {
+    evidence = await captureCandidates(backend, failedSelector);
   }
 
   if (tabOpened) {
@@ -302,6 +334,9 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
     ok: outcome.ok,
     result: outcome.result,
     error: outcome.error,
+    type: outcome.type,
+    at: outcome.payload?.at as FailureAt | undefined,
+    stack: outcome.stack,
     durationMs: outcome.durationMs,
     evidence,
   });

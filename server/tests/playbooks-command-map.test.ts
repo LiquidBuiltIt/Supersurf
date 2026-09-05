@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mapCommand, KNOWN_METHODS } from '../src/playbooks/command-map';
+import { PlaybookCommandError } from '../src/playbooks/errors';
 
 describe('mapCommand — navigation', () => {
   it('maps goto/back/forward/reload onto browser_navigate', () => {
@@ -112,6 +113,20 @@ describe('mapCommand — refusals', () => {
   it('refuses the deliberately absent methods by name', () => {
     for (const m of ['connect', 'disconnect', 'profile_create', 'playbook']) {
       expect(() => mapCommand(m, {})).toThrow(/not available to playbook scripts/);
+    }
+  });
+
+  // `mapCommand` runs BEFORE `unwrapTyped` in the runner's `onCommand`, so a
+  // plain Error here never reaches `classifyToolFailure` — it just escapes as
+  // an untyped throw and the taxonomy reports the wrong thing. The refusal has
+  // to carry its own type.
+  it('refuses with a Refused-typed PlaybookCommandError, not a plain Error', () => {
+    for (const [method, reason] of [['connect', 'withheld-method'], ['teleport', 'unknown-method']]) {
+      let caught: any;
+      try { mapCommand(method, {}); } catch (e) { caught = e; }
+      expect(caught).toBeInstanceOf(PlaybookCommandError);
+      expect(caught.playbookType).toBe('Refused');
+      expect(caught.playbookPayload).toMatchObject({ reason, method });
     }
   });
 

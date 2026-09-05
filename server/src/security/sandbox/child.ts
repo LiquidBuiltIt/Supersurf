@@ -52,8 +52,26 @@ function settle(frame: any): void {
   const entry = pending.get(frame.id);
   if (!entry) return;
   pending.delete(frame.id);
-  if (frame.ok) entry.resolve(frame.result);
-  else entry.reject(new Error(String(frame.error ?? 'command failed')));
+  if (frame.ok) { entry.resolve(frame.result); return; }
+  // INERT, and deliberately kept. The tag below NEVER SURVIVES: this rejection
+  // travels out through a host method, and `wrap()` in `context.ts` rebuilds
+  // every such throw as a bare vm-realm `new Error(String(e.message))`. The
+  // script — and therefore the catch below, and therefore the `fail` frame —
+  // sees a fresh error with no `__ssType` on it at all.
+  //
+  // So this does NOT tell an unwrap throw from the script's own throw, and the
+  // `errorType`/`errorPayload` keys the host writes onto a `res` frame
+  // (`host.ts`) are inert for the same reason. What actually types an uncaught
+  // tool failure is HOST-SIDE CORRELATION: `host.ts` remembers the failure it
+  // classified itself and matches it against the `fail` frame's message.
+  //
+  // Read that before touching the host's `frame.type` gate. `frame.type` is
+  // untrusted child input, and the gate is not redundant with anything here.
+  // Non-enumerable so a script cannot read the tag off an error it catches.
+  const err = new Error(String(frame.error ?? 'command failed'));
+  Object.defineProperty(err, '__ssType', { value: frame.errorType, enumerable: false });
+  Object.defineProperty(err, '__ssPayload', { value: frame.errorPayload, enumerable: false });
+  entry.reject(err);
 }
 
 // ── Run ─────────────────────────────────────────────────────
@@ -91,7 +109,15 @@ async function start(init: any): Promise<void> {
     const result = await entry({ supersurf: ctx.supersurf, params: ctx.params, log: ctx.log });
     emitAndExit({ t: 'done', result: result === undefined ? null : result });
   } catch (e: any) {
-    emitAndExit({ t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? '') });
+    emitAndExit({
+      t: 'fail',
+      message: String(e?.message ?? e),
+      stack: String(e?.stack ?? ''),
+      // Untagged means the script threw on its own. The host defaults an absent
+      // type to `ScriptAssertion`; sending it explicitly keeps the frame honest.
+      type: e?.__ssType ?? 'ScriptAssertion',
+      payload: e?.__ssPayload,
+    });
   }
 }
 
@@ -121,8 +147,14 @@ process.stdin.on('data', (chunk: string) => {
 process.stdin.on('end', () => process.exit(0));
 
 process.on('uncaughtException', (e: any) => {
-  emitAndExit({ t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? '') });
+  emitAndExit({
+    t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? ''),
+    type: e?.__ssType ?? 'ScriptAssertion', payload: e?.__ssPayload,
+  });
 });
 process.on('unhandledRejection', (e: any) => {
-  emitAndExit({ t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? '') });
+  emitAndExit({
+    t: 'fail', message: String(e?.message ?? e), stack: String(e?.stack ?? ''),
+    type: e?.__ssType ?? 'ScriptAssertion', payload: e?.__ssPayload,
+  });
 });

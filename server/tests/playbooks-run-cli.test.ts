@@ -269,27 +269,27 @@ describe('runRun — the terminal run path', () => {
       expect(s.out[1]).toBe(JSON.stringify({ id: 7 }, null, 2));
     });
 
-    // The run's tab is closed by the time this prints, so the snapshot the
-    // runner captured before teardown is the only view of the failing page.
-    it('dumps evidence.snapshot to stderr on failure and returns 1', async () => {
+    // The run's tab is closed by the time this prints, so the candidate list
+    // the runner captured before teardown is the only view of the failing page.
+    it('dumps evidence.candidates to stderr on failure and returns 1', async () => {
       seed();
       const s = sink();
       const code = await runRun('post_tweet', { param: [] }, {
         ...s,
         runPlaybook: async () => outcome({
           ok: false, error: 'boom', durationMs: 900,
-          evidence: { snapshot: '<the failing page>' },
+          evidence: { url: 'https://example.com', candidates: [{ selector: '.SidebarAbout' }] },
         }),
       });
       expect(code).toBe(1);
       expect(s.err[0]).toBe('✗ post_tweet — 900ms');
       expect(s.err[1]).toBe('boom');
-      expect(s.err[2]).toContain('the run\'s tab is already closed');
-      expect(s.err[3]).toBe('<the failing page>');
+      expect(s.err[2]).toContain('Closest elements on the page');
+      expect(s.err[3]).toContain('.SidebarAbout');
       expect(s.out).toEqual([]);
     });
 
-    it('omits the snapshot block when the runner captured no evidence', async () => {
+    it('omits the candidates block when the runner captured no evidence', async () => {
       seed();
       const s = sink();
       const code = await runRun('post_tweet', { param: [] }, {
@@ -298,7 +298,7 @@ describe('runRun — the terminal run path', () => {
       });
       expect(code).toBe(1);
       expect(s.err).toHaveLength(2);
-      expect(s.err.join('\n')).not.toContain('already closed');
+      expect(s.err.join('\n')).not.toContain('Closest elements');
     });
 
     it('falls back to `unknown error` when a failed run reports no message', async () => {

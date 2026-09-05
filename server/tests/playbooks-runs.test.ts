@@ -87,3 +87,50 @@ describe('formatRunSummary', () => {
     expect(out).toContain('last: ✗ selector gone');
   });
 });
+
+describe('typed run records', () => {
+  it('round-trips type, at, and stack', () => {
+    appendRunRecord('demo', {
+      ts: 1, params: {}, ok: false, durationMs: 5, caller: 'agent', experiments: false,
+      error: 'Element not found: .x', type: 'SelectorMiss',
+      at: { step: 3, method: 'click' }, stack: 'Error: x\n  at demo.playbook.js:9:3',
+    });
+    const [rec] = readRunRecords('demo', 1);
+    expect(rec.type).toBe('SelectorMiss');
+    expect(rec.at).toEqual({ step: 3, method: 'click' });
+    expect(rec.stack).toContain('demo.playbook.js:9:3');
+  });
+
+  it('trims candidates from the tail until evidence fits the cap', () => {
+    appendRunRecord('demo', {
+      ts: 1, params: {}, ok: false, durationMs: 5, caller: 'agent', experiments: false,
+      type: 'SelectorMiss',
+      evidence: {
+        url: 'https://example.com', title: 'T',
+        candidates: Array.from({ length: 60 }, (_, i) => ({ selector: `div.c${i}`, text: 'z'.repeat(300) })),
+      },
+    });
+    const [rec] = readRunRecords('demo', 1);
+    expect(JSON.stringify(rec.evidence).length).toBeLessThanOrEqual(MAX_EVIDENCE_CHARS);
+    expect(rec.evidence!.candidates!.length).toBeGreaterThan(0);
+    expect(rec.evidence!.url).toBe('https://example.com');
+  });
+
+  it('reads an old record that still carries a snapshot without crashing', () => {
+    appendRunRecord('demo', {
+      ts: 1, params: {}, ok: false, durationMs: 5, caller: 'agent', experiments: false,
+      evidence: { snapshot: 'legacy blob' },
+    });
+    expect(() => readRunRecords('demo', 1)).not.toThrow();
+  });
+
+  it('names the failure type in the one-line summary', () => {
+    const line = formatRunSummary([
+      {
+        ts: 1, params: {}, ok: false, durationMs: 5, caller: 'agent', experiments: false,
+        error: 'Element not found: .x', type: 'SelectorMiss',
+      },
+    ]);
+    expect(line).toContain('SelectorMiss');
+  });
+});

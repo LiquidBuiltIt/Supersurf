@@ -139,11 +139,24 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
   }
 
   lines.push(`✗ ${name} — ${outcome.durationMs}ms`);
+  if (outcome.type) {
+    const where = outcome.at ? ` at step ${outcome.at.step} (\`${outcome.at.method}\`)` : '';
+    lines.push(`${outcome.type}${where}`);
+  }
   lines.push(outcome.error ?? 'unknown error');
-  if (outcome.evidence?.snapshot) {
+  if (outcome.evidence?.candidates?.length) {
     lines.push('');
-    lines.push('Page at the point of failure (the run\'s tab is already closed):');
-    lines.push(outcome.evidence.snapshot);
+    lines.push(
+      `Closest elements on the page (the run's tab is already closed)`
+      + `${outcome.evidence.url ? ` — ${outcome.evidence.url}` : ''}:`,
+    );
+    for (const c of outcome.evidence.candidates) {
+      lines.push(`  \`${c.selector}\`${c.text ? ` — "${c.text}"` : ''}`);
+    }
+  }
+  if (outcome.stack) {
+    lines.push('');
+    lines.push(outcome.stack);
   }
   return text(lines.join('\n'), true);
 }

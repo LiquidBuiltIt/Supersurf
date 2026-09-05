@@ -21,6 +21,7 @@
  * @module security/sandbox/host
  */
 import type { PlaybookMeta } from '../meta';
+import type { PlaybookErrorType } from '../../playbooks/errors';
 /** Everything a run needs. */
 export interface PlaybookRunOptions {
     file: string;
@@ -50,9 +51,92 @@ export interface PlaybookRunResult {
     ok: boolean;
     result?: unknown;
     error?: string;
+    /**
+     * Which KIND of failure. Absent only on success. The runner writes this onto
+     * the run record, and it is what decides whether the failure is worth reading
+     * the page for — see `playbooks/errors.ts`.
+     */
+    type?: PlaybookErrorType;
+    /** Type-specific detail: `{ selector }`, `{ requestedUrl }`, `{ reason }`. */
+    payload?: Record<string, unknown>;
     stack?: string;
     durationMs: number;
 }
+/**
+ * Caps on the child-controlled fields crossing the sandbox pipe.
+ *
+ * THE INVARIANT: every field of every frame from the child is child-controlled
+ * and untrusted, and nothing crosses this boundary unbounded. `wrap()` in
+ * `context.ts` rebuilds a thrown error as a bare vm-realm `Error` carrying only
+ * `String(e.message)`, so nothing about a frame's shape is verifiable from
+ * this side — a script can set `e.stack = 'Z'.repeat(2e6)`, or call
+ * `log('Z'.repeat(2e6))`, or return a multi-megabyte object, or hold a stdout
+ * line open with no newline for the run's whole timeout, and the host has no
+ * way to tell any of that from a legitimate value.
+ *
+ * The caps belong HERE, at the pipe, and not at the places the values end up
+ * (`runner.ts` → `runs.ts`, which persists them forever in the sidecar, and
+ * `tools/playbooks.ts`, which pushes them straight into an agent-facing MCP
+ * response). One boundary owning every field is how a field this comment does
+ * not name stays covered anyway: this inventory has been wrong once per fix
+ * round, because a per-field list is a promise to keep updating it and a
+ * comment that lists fields is a comment that goes stale. State the rule, not
+ * the roster.
+ *
+ * THE TWO DELIBERATE EXCEPTIONS: a `cmd` frame's `method` and `params`, AS
+ * FORWARDED TO `onCommand`. Spec Addendum A requires that forward to be
+ * VERBATIM — this module holds no ConnectionManager and does no client-method
+ * → MCP-tool translation, so this pipe boundary itself imposes no per-field
+ * cap on `method`/`params` before the forward. They are NOT unbounded,
+ * though: the whole frame still has to survive as one line within
+ * `MAX_STDOUT_LINE_CHARS` to reach this module at all, so the real ceiling on
+ * a verbatim forward is that line cap, enforced below, not a per-field one.
+ * Bounding the field itself is downstream tool validation's job, not this
+ * pipe boundary's. Every OTHER copy this module keeps for its own bookkeeping
+ * — e.g. `at.method` on a classified command failure — is a separate value
+ * and stays capped; only the verbatim forward itself is exempt.
+ */
+export declare const MAX_FAIL_STACK_CHARS = 4000;
+export declare const MAX_FAIL_MESSAGE_CHARS = 1000;
+export declare const MAX_LOG_LINE_CHARS = 2000;
+export declare const MAX_LOG_TOTAL_CHARS = 20000;
+export declare const MAX_RESULT_CHARS = 100000;
+export declare const MAX_RESULT_PREVIEW_CHARS = 2000;
+/**
+ * Bound on `at.method`, the copy of a `cmd` frame's method name this module
+ * records against a classified command failure (`handleCommand` below). An
+ * honest script can never reach this — the 52 declared `supersurf.*` methods
+ * are all short names — only a compromised child forging a `cmd` frame can.
+ * Small on purpose: it is a method name, not prose.
+ */
+export declare const MAX_COMMAND_METHOD_CHARS = 200;
+/**
+ * Ceiling on the accumulating stdout line buffer (`buffer` in
+ * `runPlaybookScript`). Only PARSED frames escape this module, and every
+ * frame field above is capped — but the buffer itself, the raw bytes waiting
+ * for a `\n` to complete a line, is not a frame yet, and a child that writes
+ * newline-free bytes for the whole run timeout grows it without limit. Set
+ * comfortably above `MAX_RESULT_CHARS` (2x) so a legitimate maximum-size
+ * result frame, plus its JSON envelope, can never trip it — only a genuine
+ * protocol violation (a line that was never going to terminate) does.
+ *
+ * The check against this constant runs AFTER each stdout chunk is appended
+ * to `buffer`, not mid-chunk, so the actual ceiling is approximate: this
+ * value plus at most one pipe chunk's worth of bytes can accumulate before
+ * the check fires. Bounded, not exact — do not treat it as a precise limit.
+ */
+export declare const MAX_STDOUT_LINE_CHARS: number;
+/**
+ * Ceiling on the exit handler's stderr tail ring (see `stderrTail` in
+ * `runPlaybookScript`). Deliberately a little UNDER `MAX_FAIL_MESSAGE_CHARS`,
+ * not equal to it: the exit handler turns the ring's newlines into `' | '`
+ * before its own final `capText` call, and `capText` cuts from the FRONT,
+ * keeping the OLDEST bytes — the opposite of what the ring exists for. This
+ * margin is sized so that substitution can never push the assembled tail past
+ * `MAX_FAIL_MESSAGE_CHARS`, so that final cut never actually fires and never
+ * has the chance to discard the newest bytes the ring just fought to keep.
+ */
+export declare const MAX_STDERR_TAIL_RING_CHARS: number;
 /**
  * Check the caller's arguments against `meta.params`.
  * @returns null when valid, otherwise a human-facing reason.
