@@ -21,6 +21,7 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
 const child_process_1 = require("child_process");
+const shared_1 = require("../shared");
 const SUPERSURF_DIR = path_1.default.join(os_1.default.homedir(), '.supersurf');
 const PID_LOG_FILE = path_1.default.join(SUPERSURF_DIR, 'daemon', 'managed-pids.jsonl');
 const debugLog = (...args) => {
@@ -155,7 +156,7 @@ function spawnChromium(profileName, extensionDir, port, openRegistration, startu
         throw new Error(`Extension not found at ${extensionDir}/manifest.json. ` +
             `Daemon failed to download the extension from GitHub on startup. ` +
             `Check ~/.supersurf/logs/daemon.log for the original error, ` +
-            `then restart the daemon: supersurf-daemon restart`);
+            `then restart the daemon: ${(0, shared_1.daemonCommand)('restart')}`);
     }
     const userDataDir = path_1.default.join(SUPERSURF_DIR, 'profiles', profileName, 'chrome-data');
     fs_1.default.mkdirSync(userDataDir, { recursive: true });

@@ -195,7 +195,7 @@ describe('spawnChromium extension dir validation', () => {
       expect(() => spawnChromium('test-profile', '/nonexistent/extension', 5555, false))
         .toThrow(/Extension not found.*manifest\.json/);
       expect(() => spawnChromium('test-profile', '/nonexistent/extension', 5555, false))
-        .toThrow(/supersurf-daemon restart/);
+        .toThrow(/npx supersurf-daemon@latest restart/);
     } finally {
       existsSpy.mockRestore();
       realpathSpy.mockRestore();

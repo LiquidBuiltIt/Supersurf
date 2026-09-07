@@ -5,11 +5,11 @@
  * Manages a single Chrome extension connection (WebSocket) and multiplexes
  * tool calls from multiple MCP servers (Unix domain socket).
  *
- * Usage:
- *   supersurf-daemon [start] [--port <n>] [--debug]
- *   supersurf-daemon stop
- *   supersurf-daemon restart [--port <n>] [--debug]
- *   supersurf-daemon status
+ * Usage (the daemon is not on PATH — see `daemonCommand` in shared/commands):
+ *   npx supersurf-daemon@latest [start] [--port <n>] [--debug]
+ *   npx supersurf-daemon@latest stop
+ *   npx supersurf-daemon@latest restart [--port <n>] [--debug]
+ *   npx supersurf-daemon@latest status
  *
  * Files:
  *   ~/.supersurf/daemon.pid   — PID file for process detection

@@ -9,6 +9,7 @@ import path from 'path';
 import os from 'os';
 import { execSync, spawn, type ChildProcess } from 'child_process';
 import type { FileLogger } from 'shared';
+import { daemonCommand } from 'shared';
 import type { PidLogEntry } from './types';
 
 const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
@@ -165,7 +166,7 @@ export function spawnChromium(
       `Extension not found at ${extensionDir}/manifest.json. ` +
       `Daemon failed to download the extension from GitHub on startup. ` +
       `Check ~/.supersurf/logs/daemon.log for the original error, ` +
-      `then restart the daemon: supersurf-daemon restart`,
+      `then restart the daemon: ${daemonCommand('restart')}`,
     );
   }
 
