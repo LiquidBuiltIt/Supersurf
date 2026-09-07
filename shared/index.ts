@@ -21,6 +21,8 @@ export type {
 
 export { QUERY_DEEP_SOURCE, QUERY_ALL_DEEP_SOURCE } from './dom/shadow-walker';
 
+export { daemonCommand } from './commands/index';
+
 export {
   shouldShowUpgradeNotice,
   checkAndTouchVersionState,
