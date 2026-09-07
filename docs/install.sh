@@ -211,7 +211,15 @@ That usually means the wrong architecture was downloaded. Please report it at
 https://github.com/$REPO/issues with the output of: uname -sm"
   fi
 
-  ok "supersurf -> $BIN"
+  # Report which version landed. `--version` arrived in 3.5.0, so an older
+  # binary answers nothing here — that is not an install failure, since the
+  # --help gate above already proved this binary runs on this machine.
+  installed_version=$("$BIN" --version 2>/dev/null) || installed_version=""
+  if [ -n "$installed_version" ]; then
+    ok "supersurf $installed_version -> $BIN"
+  else
+    ok "supersurf -> $BIN"
+  fi
 }
 
 # ------------------------------------------------------------------ PATH ----

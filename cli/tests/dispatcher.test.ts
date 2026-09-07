@@ -189,3 +189,68 @@ describe('dispatch — shells out for the mcp and daemon targets', () => {
     expect(daemonTarget).not.toContain('@latest');
   });
 });
+
+/**
+ * BACKLOG #39. `--version` used to fall through `pickTarget` to the
+ * unrecognized-command branch: usage on stderr, exit 1. The version string was
+ * already imported in the same file for the npx pin.
+ *
+ * The output contract is the point of these tests. `install.sh` reports the
+ * version it just installed with a bare `V=$(supersurf --version)`, so stdout
+ * must carry the version and nothing else — no `supersurf ` prefix, and no
+ * upgrade notice sharing the stream.
+ */
+describe('pickTarget — version flags', () => {
+  it('routes --version to the version target instead of the usage-error branch', () => {
+    expect(pickTarget(['node', 'supersurf', '--version']).target).toBe('version');
+  });
+
+  it('routes the -v short flag the same way', () => {
+    expect(pickTarget(['node', 'supersurf', '-v']).target).toBe('version');
+  });
+
+  it('documents the flags in the help text', () => {
+    expect(HELP_TEXT).toContain('--version');
+  });
+});
+
+describe('dispatch — the version target', () => {
+  let logged: string[];
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let exited: number | undefined;
+
+  beforeEach(() => {
+    logged = [];
+    logSpy = vi.spyOn(console, 'log').mockImplementation((...a: any[]) => {
+      logged.push(a.join(' '));
+    });
+    errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    exited = undefined;
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exited = code;
+      return undefined as never;
+    }) as any);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('prints the bare version on stdout and does not exit non-zero', async () => {
+    await dispatch(['node', 'supersurf', '--version']);
+    expect(logged).toEqual([VERSION]);
+    expect(errSpy).not.toHaveBeenCalled();
+    expect(exited).toBeUndefined();
+  });
+
+  it('prints nothing but the version — no name prefix, nothing a script must strip', async () => {
+    await dispatch(['node', 'supersurf', '-v']);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toBe(VERSION);
+    expect(logged[0]).not.toContain('supersurf');
+  });
+});

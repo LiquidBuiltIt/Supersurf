@@ -2,7 +2,15 @@ import { checkAndTouchVersionState, UPGRADE_NOTICE_MESSAGE } from 'shared';
 import { shellOut } from './shell-out';
 import { VERSION } from './version';
 
-export type Target = 'mcp' | 'daemon' | 'profiles' | 'export' | 'playbook' | 'creds' | 'help';
+export type Target =
+  | 'mcp'
+  | 'daemon'
+  | 'profiles'
+  | 'export'
+  | 'playbook'
+  | 'creds'
+  | 'version'
+  | 'help';
 
 export interface DispatchPlan {
   target: Target;
@@ -20,15 +28,27 @@ Commands:
   export    Bundle usage-metrics logs into a .zip in the current directory
   playbook  Playbook scripts: ls | inspect <name> | validate [name] | run <name> [--param k=v] | migrate
 
+Options:
+  --version, -v   Print the version and exit
+  --help, -h      Print this help and exit
+
 Examples:
   supersurf mcp
   supersurf daemon status
   supersurf profiles open dev
   supersurf export
-  supersurf playbook ls`;
+  supersurf playbook ls
+  supersurf --version`;
 
 export function pickTarget(argv: string[]): DispatchPlan {
   const subcommand = argv[2];
+  // Version flags are checked before the subcommand list: they are the one
+  // input that must never reach the unrecognized-command branch, which writes
+  // usage to stderr and exits 1. Anyone asking a binary what it is deserves an
+  // answer on stdout, not a usage error.
+  if (subcommand === '--version' || subcommand === '-v') {
+    return { target: 'version', remainingArgv: argv };
+  }
   if (
     subcommand === 'mcp' ||
     subcommand === 'daemon' ||
@@ -55,11 +75,21 @@ export async function dispatch(argv: string[]): Promise<void> {
   // owns its own stderr-only/human notice check inside its own package. Every
   // other subcommand here — profiles, export, help/usage errors — is plain
   // human-facing stdio, so the notice is safe on stdout.
-  if (target !== 'mcp' && target !== 'daemon') {
+  // `version` joins mcp/daemon in skipping the upgrade notice, for a different
+  // reason: its stdout is a parsed value. `V=$(supersurf --version)` must yield
+  // the version and nothing else, so no advisory line may share that stream.
+  if (target !== 'mcp' && target !== 'daemon' && target !== 'version') {
     const versionCheck = checkAndTouchVersionState(VERSION);
     if (versionCheck.shouldNotify) {
       console.log(UPGRADE_NOTICE_MESSAGE);
     }
+  }
+
+  if (target === 'version') {
+    // Bare, no `supersurf ` prefix — this is read by scripts (install.sh
+    // reports the version it just installed) more often than by people.
+    console.log(VERSION);
+    return;
   }
 
   if (target === 'help') {
