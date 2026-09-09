@@ -31,7 +31,10 @@ async function executeAction(ctx, action) {
     const startedAt = Date.now();
     try {
         if (VISIBILITY_GATED_ACTIONS.has(action.type)) {
-            const visibility = await ctx.eval('document.visibilityState');
+            // Fail open on an unreadable page (dead tab, mid-navigation): only a
+            // definite "hidden" blocks. A guard that turns an eval hiccup into a
+            // refused action would break interactions that worked before it existed.
+            const visibility = await ctx.eval('document.visibilityState').catch(() => null);
             if (visibility === 'hidden') {
                 throw new Error(`Cannot ${action.type}: the attached tab is not the foreground tab of its Chromium window ` +
                     `(document.visibilityState is "hidden"). CDP input events silently no-op on background tabs — ` +

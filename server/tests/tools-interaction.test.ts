@@ -553,6 +553,21 @@ describe('onInteract()', () => {
     expect(result.content[0].text).toContain('Scrolled window to');
   });
 
+  it('falls through when the visibility read itself fails', async () => {
+    // A dead tab or a mid-navigation page can reject the eval. Unknown is not
+    // hidden — turning an eval hiccup into a refused action would break clicks
+    // that worked before this guard existed.
+    (ctx.eval as any).mockImplementation(async (expr: string) => {
+      if (expr === 'document.visibilityState') throw new Error('Cannot access contents of the page');
+      return { focused: true, verified: true, found: true };
+    });
+
+    const result = await onInteract(ctx, { actions: [{ type: 'click', selector: '#btn' }] }, {});
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('Clicked');
+  });
+
   it('click on a visible tab is unaffected by the guard', async () => {
     const result = await onInteract(ctx, {
       actions: [{ type: 'click', selector: '#btn' }],
