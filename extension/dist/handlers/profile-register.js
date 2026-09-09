@@ -7,6 +7,39 @@ export async function applyProfileRegister(profile, _tabId, storage, _tabs) {
     // Do not auto-close the registration tab (default). Closing the last tab
     // would quit Chromium and drop the extension WebSocket mid-connect.
 }
+/** Fallback when `mcpPort` was never written to storage. Mirrors websocket.ts. */
+const DEFAULT_PORT = '5555';
+/**
+ * Is this the daemon's own registration page?
+ *
+ * The daemon serves `/register/:name` on loopback at the configured port and
+ * spawns Chromium straight at that URL (`daemon/src/profiles/chrome.ts`), so
+ * that one origin is the only legitimate source of a binding request.
+ *
+ * Origin is the check because the transport cannot be one: the content script
+ * relays a `window.postMessage`, and its `event.source !== window` guard passes
+ * for any page posting to itself — that is, every page on the web. Before this
+ * check, visiting a hostile site was enough to rebind the managed profile.
+ * `sender.origin` comes from Chrome, not from the page, so it cannot be forged.
+ */
+export function isDaemonOrigin(origin, port) {
+    return !!origin && origin === `http://127.0.0.1:${port}`;
+}
+/**
+ * The sender's origin. `origin` is Chrome 80+; `url` is the long-standing
+ * fallback so an older or non-Chrome runtime degrades to the same answer
+ * instead of refusing every registration.
+ */
+function senderOrigin(sender) {
+    if (sender?.origin)
+        return sender.origin;
+    try {
+        return sender?.url ? new URL(sender.url).origin : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
 /**
  * `chrome.runtime.onMessage` handler for the `profileRegister` message.
  *
@@ -21,9 +54,18 @@ export async function applyProfileRegister(profile, _tabId, storage, _tabs) {
 export function handleProfileRegisterMessage(message, sender, sendResponse, deps) {
     if (message?.type !== 'profileRegister' || !message.profile)
         return undefined;
-    applyProfileRegister(message.profile, sender?.tab?.id, deps.storage, deps.tabs)
-        .then(() => sendResponse?.({ ok: true }))
-        .catch((e) => {
+    const origin = senderOrigin(sender);
+    const profile = message.profile;
+    (async () => {
+        const port = String((await deps.storage.local.get('mcpPort'))?.mcpPort || DEFAULT_PORT);
+        if (!isDaemonOrigin(origin, port)) {
+            deps.log?.('[Background] Profile register refused —', origin ?? '(unknown origin)', 'is not the daemon registration page');
+            sendResponse?.({ ok: false });
+            return;
+        }
+        await applyProfileRegister(profile, sender?.tab?.id, deps.storage, deps.tabs);
+        sendResponse?.({ ok: true });
+    })().catch((e) => {
         deps.log?.('[Background] Profile register failed:', e);
         sendResponse?.({ ok: false });
     });
