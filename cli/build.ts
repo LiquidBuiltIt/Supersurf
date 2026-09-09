@@ -20,8 +20,17 @@ const TARGETS = [
   'bun-darwin-arm64',
 ] as const;
 
-const version: string = pkg.version;
+// SUPERSURF_CLI_VERSION compiles a binary at a version the repo has not been
+// bumped to yet. The version is not decoration: it is the npx pin, so
+// `supersurf mcp` runs `supersurf-mcp@<this string>`. Overriding it produces a
+// binary whose pin does not resolve until that version is published — fine for
+// a draft release built ahead of the bump, wrong for anything a user can reach.
+const version: string = process.env.SUPERSURF_CLI_VERSION || pkg.version;
 const only = process.argv[2];
+
+if (version !== pkg.version) {
+  console.log(`  ! version overridden: ${pkg.version} -> ${version} (SUPERSURF_CLI_VERSION)`);
+}
 
 for (const target of TARGETS) {
   if (only && target !== only) continue;
