@@ -90,6 +90,13 @@ export class IconManager {
     async setGlobalIcon(state, title) {
         this.logger.log(`[IconManager] setGlobalIcon: ${state} \u2014 ${title}`);
         await this.actionAPI.setTitle({ title: `SuperSurf \u2014 ${title}` });
+        if (state === 'version-error') {
+            await this.actionAPI.setBadgeText({ text: '!' });
+            await this.actionAPI.setBadgeBackgroundColor({ color: '#c0392b' });
+        }
+        else {
+            await this.actionAPI.setBadgeText({ text: '' });
+        }
     }
     async updateConnectingBadge() {
         await this.setGlobalIcon('connecting', 'Connecting...');

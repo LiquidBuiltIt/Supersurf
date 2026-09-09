@@ -677,6 +677,48 @@ describe('WebSocketConnection', () => {
     });
   });
 
+  describe('_handleClose()', () => {
+    it('schedules the normal 5s reconnect on a plain close', () => {
+      (ws as any)._handleClose({ code: 1006, reason: '' });
+
+      expect(mockChrome.alarms.create).toHaveBeenCalledWith(
+        'ws-reconnect',
+        expect.objectContaining({ when: expect.any(Number) })
+      );
+      const when = mockChrome.alarms.create.mock.calls[0][1].when;
+      expect(when - Date.now()).toBeLessThanOrEqual(5000);
+      expect(when - Date.now()).toBeGreaterThan(4000);
+      expect(ws.versionError).toBeNull();
+    });
+
+    it('does NOT schedule an immediate 5s reconnect on a 4001 version-mismatch close', () => {
+      (ws as any)._handleClose({ code: 4001, reason: 'extension version mismatch' });
+
+      const when = mockChrome.alarms.create.mock.calls[0][1].when;
+      expect(when - Date.now()).toBeGreaterThan(60000);
+      expect(ws.versionError).toContain('does not match');
+      expect(mockIconManager.setGlobalIcon).toHaveBeenCalledWith('version-error', ws.versionError);
+    });
+
+    it('resets the reconnect delay back to 5s on the next successful connection', async () => {
+      (ws as any)._handleClose({ code: 4001, reason: 'extension version mismatch' });
+      expect(ws.versionError).not.toBeNull();
+
+      ws.socket = { readyState: 1, send: vi.fn(), close: vi.fn() } as any;
+      await (ws as any)._handleOpen();
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(ws.versionError).toBeNull();
+
+      // A real reconnect alarm fire clears this flag before calling connect();
+      // simulate that so _scheduleReconnect isn't deduped by the pending-alarm guard.
+      (ws as any).reconnectTimeout = null;
+      (ws as any)._handleClose({ code: 1006, reason: '' });
+      const when = mockChrome.alarms.create.mock.calls.at(-1)[1].when;
+      expect(when - Date.now()).toBeLessThanOrEqual(5000);
+    });
+  });
+
   describe('constructor', () => {
     it('stores the buildTimestamp', () => {
       const conn = new WebSocketConnection(

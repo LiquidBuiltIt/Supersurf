@@ -27,6 +27,19 @@ const DIALOG_INTERRUPT = Symbol('dialog-interrupt');
 /** Methods allowed to run while a native dialog is held open. */
 const DIALOG_SAFE_METHODS = new Set(['dialog', 'getTabs']);
 
+/** Daemon close code sent when the extension's version doesn't match the daemon's (see extension-version.ts). */
+const VERSION_MISMATCH_CLOSE_CODE = 4001;
+
+/** Normal reconnect backoff. Restored on every successful connection. */
+const NORMAL_RECONNECT_DELAY = 5000;
+
+/**
+ * Backoff used after a version-mismatch close. A 5s retry loop against a
+ * rejection that won't resolve itself just spams daemon.log; a slow retry
+ * still self-heals once a CWS auto-update or npm bump lands, without the noise.
+ */
+const VERSION_MISMATCH_RECONNECT_DELAY = 5 * 60 * 1000;
+
 /**
  * Manages the WebSocket lifecycle and JSON-RPC message routing between the
  * extension and the local MCP server.
@@ -44,7 +57,9 @@ export class WebSocketConnection {
   connectionUrl: string | null = null;
   /** Reconnect guard -- set to a truthy value while a reconnect alarm is pending. */
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-  private reconnectDelay: number = 5000;
+  private reconnectDelay: number = NORMAL_RECONNECT_DELAY;
+  /** Set when the last close was a version-mismatch rejection (code 4001); null otherwise. Cleared on the next successful connection. */
+  versionError: string | null = null;
 
   /** Registered handlers for JSON-RPC commands (requests with an `id`). */
   commandHandlers: Map<string, (params: any, message?: any) => Promise<any>> = new Map();
@@ -241,6 +256,8 @@ export class WebSocketConnection {
   private _handleOpen(): void {
     this.logger.logAlways(`Connected to ${this.connectionUrl}`);
     this.isConnected = true;
+    this.versionError = null;
+    this.reconnectDelay = NORMAL_RECONNECT_DELAY;
 
     if (this.iconManager) {
       this.iconManager.setConnected(true);
@@ -438,9 +455,23 @@ export class WebSocketConnection {
     this.logger.logAlways(`Disconnected — Code: ${event?.code}, Reason: ${event?.reason || 'none'}`);
     this.isConnected = false;
 
+    const isVersionMismatch = event?.code === VERSION_MISMATCH_CLOSE_CODE;
+    const versionErrorMessage =
+      'Extension version does not match the installed SuperSurf. Update the extension ' +
+      'at chrome://extensions (or wait for the Chrome Web Store auto-update), or update ' +
+      'the SuperSurf package.';
+    if (isVersionMismatch) {
+      this.versionError = versionErrorMessage;
+      this.reconnectDelay = VERSION_MISMATCH_RECONNECT_DELAY;
+    }
+
     if (this.iconManager) {
       this.iconManager.setConnected(false);
-      this.iconManager.setGlobalIcon('normal', 'Disconnected');
+      if (isVersionMismatch) {
+        this.iconManager.setGlobalIcon('version-error', versionErrorMessage);
+      } else {
+        this.iconManager.setGlobalIcon('normal', 'Disconnected');
+      }
     }
 
     try { this.browser.runtime.sendMessage({ type: 'statusChanged' }); } catch {}

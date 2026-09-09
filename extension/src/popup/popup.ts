@@ -31,6 +31,7 @@ const state: PopupState = {
   domainWhitelistEnabled: false,
   keepBrowserOnSessionEnd: false,
   profileName: null,
+  versionError: null,
 };
 
 /** Hydrate state from chrome.storage.local and the extension manifest. */
@@ -58,6 +59,7 @@ async function updateStatus(): Promise<void> {
       state.currentTabConnected = response.currentTabConnected || false;
       state.stealthMode = response.stealthMode ?? null;
       state.projectName = response.projectName || null;
+      state.versionError = response.versionError || null;
     }
   } catch {
     // Background may not be ready

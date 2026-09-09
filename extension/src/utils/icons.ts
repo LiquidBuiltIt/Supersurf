@@ -15,7 +15,7 @@ import { Logger } from './logger.js';
 import type { SessionContext } from '../session-context.js';
 
 /** Logical icon states used by {@link setGlobalIcon}. */
-type IconState = 'normal' | 'connecting' | 'connected' | 'attached' | 'attached-stealth';
+type IconState = 'normal' | 'connecting' | 'connected' | 'attached' | 'attached-stealth' | 'version-error';
 
 /**
  * Controls the extension toolbar badge (text, color) and title per tab.
@@ -102,6 +102,12 @@ export class IconManager {
   async setGlobalIcon(state: IconState, title: string): Promise<void> {
     this.logger.log(`[IconManager] setGlobalIcon: ${state} \u2014 ${title}`);
     await this.actionAPI.setTitle({ title: `SuperSurf \u2014 ${title}` });
+    if (state === 'version-error') {
+      await this.actionAPI.setBadgeText({ text: '!' });
+      await this.actionAPI.setBadgeBackgroundColor({ color: '#c0392b' });
+    } else {
+      await this.actionAPI.setBadgeText({ text: '' });
+    }
   }
 
   async updateConnectingBadge(): Promise<void> {
