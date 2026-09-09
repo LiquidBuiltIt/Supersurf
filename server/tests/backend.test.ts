@@ -411,6 +411,9 @@ describe('ConnectionManager', () => {
       expect(result.message).toContain('1 other session');
       expect(result.message).toContain('supersurf-daemon@latest restart');
       expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
+      // Without this a later `status` renders a bare "Disabled" and the refusal
+      // leaves no trace of why it happened.
+      expect(backend.lastConnectError).toContain(`version mismatch causes instability`);
     });
 
     it('restarts as today when the mismatched daemon reports only this session', async () => {

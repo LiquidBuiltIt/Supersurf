@@ -45,6 +45,7 @@ async function getBrowserBridge(): Promise<any> {
  * sentence differs between them.
  */
 function versionMismatchFailure(
+  mgr: ConnectionManagerAPI,
   daemonVersion: string | null,
   serverVersion: string,
   reason: string,
@@ -55,6 +56,9 @@ function versionMismatchFailure(
     `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ${reason} ` +
     'Restarting the daemon (or the server) so both match is strongly recommended: ' +
     '`npx supersurf-daemon@latest restart`';
+  // An early return has to record the reason, or a later `status` renders a
+  // bare "Disabled" with no trace of why the connect was refused.
+  mgr.lastConnectError = hint;
   if (options.rawResult) {
     return { success: false, error: 'version_mismatch', message: hint };
   }
@@ -165,6 +169,7 @@ export async function onConnect(
         mgr.state = 'passive';
         const otherSessions = sessionCount - 1;
         return versionMismatchFailure(
+          mgr,
           daemonVersion,
           serverVersion,
           `The daemon was NOT restarted because ${otherSessions} other session` +
@@ -186,6 +191,7 @@ export async function onConnect(
       await client.stop().catch(() => {});
       mgr.state = 'passive';
       return versionMismatchFailure(
+        mgr,
         daemonVersion,
         serverVersion,
         'Something outside this server keeps respawning it.',

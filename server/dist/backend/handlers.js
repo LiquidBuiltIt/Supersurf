@@ -79,11 +79,14 @@ async function getBrowserBridge() {
  * daemon) and the still-mismatched-after-restart path — only the reason
  * sentence differs between them.
  */
-function versionMismatchFailure(daemonVersion, serverVersion, reason, options) {
+function versionMismatchFailure(mgr, daemonVersion, serverVersion, reason, options) {
     const hint = `A daemon/server version mismatch causes instability and errors ` +
         `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ${reason} ` +
         'Restarting the daemon (or the server) so both match is strongly recommended: ' +
         '`npx supersurf-daemon@latest restart`';
+    // An early return has to record the reason, or a later `status` renders a
+    // bare "Disabled" with no trace of why the connect was refused.
+    mgr.lastConnectError = hint;
     if (options.rawResult) {
         return { success: false, error: 'version_mismatch', message: hint };
     }
@@ -176,7 +179,7 @@ async function onConnect(mgr, args = {}, options = {}) {
                 await client.stop().catch(() => { });
                 mgr.state = 'passive';
                 const otherSessions = sessionCount - 1;
-                return versionMismatchFailure(daemonVersion, serverVersion, `The daemon was NOT restarted because ${otherSessions} other session` +
+                return versionMismatchFailure(mgr, daemonVersion, serverVersion, `The daemon was NOT restarted because ${otherSessions} other session` +
                     `${otherSessions === 1 ? '' : 's'} ${otherSessions === 1 ? 'is' : 'are'} ` +
                     'currently active on it, and a restart would disconnect them.', options);
             }
@@ -191,7 +194,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         if (daemonVersion !== serverVersion) {
             await client.stop().catch(() => { });
             mgr.state = 'passive';
-            return versionMismatchFailure(daemonVersion, serverVersion, 'Something outside this server keeps respawning it.', options);
+            return versionMismatchFailure(mgr, daemonVersion, serverVersion, 'Something outside this server keeps respawning it.', options);
         }
         // A version-rejected extension. Without this the session proceeds, the
         // matchmaker refuses every slot, and the agent discovers the problem as a
