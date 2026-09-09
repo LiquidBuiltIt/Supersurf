@@ -25,6 +25,7 @@ export declare class DaemonClient implements IExtensionTransport {
     private _version;
     private _extensionConnected;
     private _extensionVersionError;
+    private _activeSessionCount;
     private dialogEventBuffer;
     onReconnect: (() => void) | null;
     onTabInfoUpdate: ((tabInfo: any) => void) | null;
@@ -39,6 +40,11 @@ export declare class DaemonClient implements IExtensionTransport {
     get extensionConnected(): boolean;
     /** The daemon's reported extension version rejection, or null. */
     get extensionVersionError(): string | null;
+    /** Active session count reported by the daemon on session_ack (includes this
+     *  session). Null for a pre-upgrade daemon that omits the field — callers
+     *  must treat null as "unknown", not "1", since the field's whole purpose
+     *  is telling an old daemon apart from a lonely one. */
+    get activeSessionCount(): number | null;
     /** True when the daemon has detected a config file change since its startup. */
     isConfigDrifted(): boolean;
     /** Drain and return buffered native-dialog events captured from prior responses. */

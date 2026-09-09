@@ -205,6 +205,35 @@ describe('IPCServer', () => {
     client.end();
   });
 
+  it('reports activeSessionCount=1 on session_ack for the only session', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+
+    writeLine(client, { type: 'session_register', sessionId: 'solo-session' });
+    const response = await readLine(client);
+
+    expect(response.type).toBe('session_ack');
+    expect(response.activeSessionCount).toBe(1);
+
+    client.end();
+  });
+
+  it('reports activeSessionCount including the caller when other sessions are already connected', async () => {
+    await ipc.start();
+    const client1 = await connectToSocket(sockPath);
+    writeLine(client1, { type: 'session_register', sessionId: 'first-session' });
+    await readLine(client1);
+
+    const client2 = await connectToSocket(sockPath);
+    writeLine(client2, { type: 'session_register', sessionId: 'second-session' });
+    const response2 = await readLine(client2);
+
+    expect(response2.activeSessionCount).toBe(2);
+
+    client1.end();
+    client2.end();
+  });
+
   it('rejects duplicate session IDs', async () => {
     await ipc.start();
 
