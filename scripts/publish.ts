@@ -17,13 +17,15 @@
  *   3. Create git tag (idempotent — skipped if tag already on HEAD)
  *   4. git push && git push --tags (deletes local tag if push fails)
  *   5. npm publish daemon + server
- *   6. Build extension zip + upload + publish to CWS
+ *   6. Compile the four supersurf binaries, create the GitHub release, upload
+ *      them as assets (docs/install.sh downloads these)
+ *   7. Build extension zip + upload + publish to CWS
  *
  * Tags are created here, not by version.bump, so they only exist for versions
  * that were actually shipped.
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync, createReadStream } from 'fs';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
 
@@ -49,7 +51,29 @@ const extDir = resolve(root, 'extension');
 const tokenPath = resolve(root, '.cws-token');
 const zipPath = resolve(extDir, 'supersurf-extension.zip');
 
+// GITHUB_API_TOKEN lives in the gitignored repo-root .env, not the shell
+// environment: an exported var is inherited by every process the user starts,
+// including every npm lifecycle script in node_modules. Read here so the token
+// is in scope only for a release. A real shell env var still wins.
+if (!process.env.GITHUB_API_TOKEN && existsSync(resolve(root, '.env'))) {
+  const line = readFileSync(resolve(root, '.env'), 'utf8')
+    .split('\n')
+    .find((l) => /^\s*GITHUB_API_TOKEN\s*=/.test(l));
+  if (line) {
+    process.env.GITHUB_API_TOKEN = line
+      .slice(line.indexOf('=') + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, '');
+  }
+}
+
 const EXTENSION_ID = 'falcdhojcinkkbffgnipppcdoaehgpek';
+const REPO = 'LiquidBuiltIt/Supersurf';
+const cliBuildDir = resolve(root, 'cli', 'build');
+// Asset names are a contract with docs/install.sh, which builds the filename
+// from `uname` output as `supersurf-<os>-<arch>`. Renaming one side breaks
+// every install command already published.
+const BINARY_TARGETS = ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'];
 const isDry = process.argv.includes('--dry');
 const noGithub = process.argv.includes('--no-github');
 
@@ -58,9 +82,10 @@ const run = (cmd: string) => execSync(cmd, { cwd: root, stdio: 'inherit' });
 
 // ── Result tracking ──────────────────────────────────────────
 
-type Step = 'github' | 'npm:supersurf' | 'cws';
+type Step = 'github' | 'github:release' | 'npm:supersurf' | 'cws';
 const results: Record<Step, 'pending' | 'success' | 'failed' | 'skipped'> = {
   'github': 'pending',
+  'github:release': 'pending',
   'npm:supersurf': 'pending',
   'cws': 'pending',
 };
@@ -232,15 +257,66 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
   const version = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version;
   const serverVersion = JSON.parse(readFileSync(resolve(root, 'server/package.json'), 'utf8')).version;
   const extVersion = JSON.parse(readFileSync(resolve(extDir, 'manifest.json'), 'utf8')).version;
+  // The CLI's version is not cosmetic: it is compiled into the binary and used
+  // as the npx pin, so `supersurf mcp` launches `supersurf-mcp@<this number>`.
+  // A CLI lagging the rest of the release ships a binary that fetches the
+  // previous server.
+  const cliVersion = JSON.parse(readFileSync(resolve(root, 'cli/package.json'), 'utf8')).version;
 
-  if (serverVersion !== version || extVersion !== version) {
+  if (serverVersion !== version || extVersion !== version || cliVersion !== version) {
     console.error(`\n${red}Version mismatch across packages:${reset}`);
     console.error(`  Root:      ${version}`);
     console.error(`  Server:    ${serverVersion}`);
-    console.error(`  Extension: ${extVersion}\n`);
+    console.error(`  Extension: ${extVersion}`);
+    console.error(`  CLI:       ${cliVersion}\n`);
     process.exit(1);
   }
   ok(`All packages at v${version}`);
+
+  // 5. The version must not already be on npm.
+  //
+  // This lives here rather than in cli/build.ts on purpose. Between releases
+  // the repo version IS the published version, so a build-time refusal would
+  // break every routine dev compile, and a build-time warning would fire on
+  // every one of them and train people to ignore it. Only the release path can
+  // tell the difference.
+  //
+  // The stake is the npx pin: a binary compiled at an already-published version
+  // shells out to that published package, which is the one this release exists
+  // to replace.
+  try {
+    execSync(`npm view supersurf-mcp@${version} version`, { stdio: ['ignore', 'pipe', 'pipe'] });
+    console.error(`\n${red}supersurf-mcp@${version} is already published.${reset}`);
+    console.error(`  A binary compiled at this version pins its npx calls to the`);
+    console.error(`  package already on the registry, so it would launch the very`);
+    console.error(`  release you are replacing.`);
+    console.error(`  Run ${cyan}npm run version.bump <patch|minor|major> "message"${reset} first.\n`);
+    process.exit(1);
+  } catch (err: any) {
+    // Only a genuine 404 clears this gate. Any other non-zero exit — no
+    // network, registry down, auth error — must not be read as "not
+    // published", or the one check standing between a broken pin and a
+    // release fails open exactly when the registry is unreachable.
+    const stderr = String(err?.stderr ?? '') + String(err?.stdout ?? '');
+    if (/E404|No match found for version/.test(stderr)) {
+      ok(`v${version} is not on npm yet`);
+    } else {
+      console.error(`\n${red}Could not determine whether v${version} is published.${reset}`);
+      console.error(`  ${dim}${stderr.trim().split('\n').slice(-3).join('\n  ')}${reset}`);
+      console.error(`  Refusing to release on an unverified version.\n`);
+      process.exit(1);
+    }
+  }
+
+  // 6. GitHub token — the release assets are what `install.sh` downloads, so a
+  // release without them is a published install command that 404s.
+  if (!noGithub && !process.env.GITHUB_API_TOKEN) {
+    console.error(`\n${red}GITHUB_API_TOKEN is not set.${reset} The release assets cannot be uploaded without it.`);
+    console.error(`  Create a token with ${cyan}contents: write${reset} on ${REPO}, then add it to ${cyan}.env${reset} at the repo root:`);
+    console.error(`  ${cyan}GITHUB_API_TOKEN=...${reset}\n`);
+    process.exit(1);
+  }
+  if (!noGithub) ok('GITHUB_API_TOKEN present');
 
   return { version, cwsToken: refresh_token, clientId, clientSecret };
 }
@@ -285,6 +361,76 @@ function pushToGitHub(version: string) {
       } catch { /* best effort */ }
     }
     recordFailure('github', err);
+  }
+}
+
+/**
+ * Compile the four `supersurf` binaries and attach them to the GitHub release
+ * for this tag.
+ *
+ * This runs AFTER `npm publish`, not before. Each binary pins its npx calls to
+ * its own version, so a downloadable binary whose `supersurf-mcp@<version>` is
+ * not on the registry yet is a binary that fails on first run. Publishing npm
+ * first makes that window zero.
+ *
+ * `docs/install.sh` resolves an asset by `supersurf-<os>-<arch>`, built from
+ * `uname` output, and it reads `releases/latest/download/`. That is the whole
+ * contract: the names below and the release not being a draft.
+ */
+async function publishGitHubRelease(version: string) {
+  const step: Step = 'github:release';
+  const tag = `v${version}`;
+  const token = process.env.GITHUB_API_TOKEN;
+  const api = async (url: string, init: RequestInit) => {
+    const res = await fetch(url, {
+      ...init,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        ...(init.headers ?? {}),
+      },
+    });
+    if (!res.ok) throw new Error(`${init.method ?? 'GET'} ${url} -> ${res.status} ${await res.text()}`);
+    return res.json() as any;
+  };
+
+  try {
+    info('Compiling supersurf binaries...');
+    run('npm run build.cli');
+
+    for (const target of BINARY_TARGETS) {
+      const path = resolve(cliBuildDir, `supersurf-${target}`);
+      if (!existsSync(path)) throw new Error(`missing binary: ${path}`);
+    }
+    ok(`Compiled ${BINARY_TARGETS.length} binaries`);
+
+    info(`Creating GitHub release ${tag}...`);
+    const release = await api(`https://api.github.com/repos/${REPO}/releases`, {
+      method: 'POST',
+      body: JSON.stringify({ tag_name: tag, name: tag, generate_release_notes: true }),
+    });
+    ok(`Release ${tag} created`);
+
+    for (const target of BINARY_TARGETS) {
+      const name = `supersurf-${target}`;
+      const path = resolve(cliBuildDir, name);
+      const size = statSync(path).size;
+      info(`Uploading ${name} (${Math.round(size / 1024 / 1024)} MB)...`);
+      // The upload host is uploads.github.com, not api.github.com, and it
+      // wants the raw bytes with an explicit length — it does not accept
+      // chunked transfer encoding.
+      await api(`https://uploads.github.com/repos/${REPO}/releases/${release.id}/assets?name=${name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(size) },
+        body: createReadStream(path) as any,
+        duplex: 'half',
+      } as RequestInit);
+      ok(`${name} uploaded`);
+    }
+
+    results[step] = 'success';
+  } catch (err) {
+    recordFailure(step, err);
   }
 }
 
@@ -358,6 +504,11 @@ function printSummary(version: string) {
         console.log(`    ${dim}Fix: resolve the issue and run:${reset}`);
         console.log(`    ${cyan}git push && git push --tags${reset}\n`);
         break;
+      case 'github:release':
+        console.log(`    ${dim}Fix: resolve the issue and re-run publish, or attach${reset}`);
+        console.log(`    ${dim}cli/build/supersurf-* to the release by hand:${reset}`);
+        console.log(`    ${cyan}https://github.com/${REPO}/releases/tag/v${version}${reset}\n`);
+        break;
       case 'npm:supersurf':
         console.log(`    ${dim}Fix: resolve the issue and run:${reset}`);
         console.log(`    ${cyan}cd server && npm publish${reset}\n`);
@@ -408,7 +559,14 @@ async function main() {
   // Step 2: npm — single package now
   publishNpm();
 
-  // Step 3: Chrome Web Store
+  // Step 3: GitHub release assets. After npm on purpose — see the function.
+  if (noGithub) {
+    results['github:release'] = 'skipped';
+  } else {
+    await publishGitHubRelease(version);
+  }
+
+  // Step 4: Chrome Web Store
   await publishCWS(clientId, clientSecret, cwsToken);
 
   // Summary
