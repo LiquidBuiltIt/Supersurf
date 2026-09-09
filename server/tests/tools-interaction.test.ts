@@ -338,6 +338,7 @@ describe('onInteract()', () => {
   it('handles select_custom by clicking trigger, waiting, then clicking option', async () => {
     // Mock eval to return the detected option text
     (ctx.eval as any)
+      .mockResolvedValueOnce('visible') // hidden-tab guard
       .mockResolvedValueOnce({ found: true, triggerSelector: '.my-select', triggerText: 'Choose...' }) // detect
       .mockResolvedValueOnce([]) // before-snapshot (no pre-existing options)
       .mockResolvedValueOnce(undefined) // click trigger (DOM click)
@@ -356,6 +357,7 @@ describe('onInteract()', () => {
   describe('select_custom post-action validation', () => {
     it('returns ✓ when trigger text changes to reflect the selection', async () => {
       (ctx.eval as any)
+        .mockResolvedValueOnce('visible') // hidden-tab guard
         .mockResolvedValueOnce({ found: true, triggerSelector: '.sel', triggerText: 'Choose...' }) // detect
         .mockResolvedValueOnce([]) // before-snapshot
         .mockResolvedValueOnce(undefined) // click trigger DOM fallback
@@ -372,6 +374,7 @@ describe('onInteract()', () => {
 
     it('returns ⚠ when trigger text is unchanged after option click', async () => {
       (ctx.eval as any)
+        .mockResolvedValueOnce('visible') // hidden-tab guard
         .mockResolvedValueOnce({ found: true, triggerSelector: '.sel', triggerText: 'Choose...' })
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce(undefined)
@@ -388,7 +391,9 @@ describe('onInteract()', () => {
   });
 
   it('select_custom fails when no dropdown trigger found', async () => {
-    (ctx.eval as any).mockResolvedValueOnce({ found: false });
+    (ctx.eval as any)
+      .mockResolvedValueOnce('visible') // hidden-tab guard
+      .mockResolvedValueOnce({ found: false });
 
     const result = await onInteract(ctx, {
       actions: [{ type: 'select_custom', selector: '.nonexistent', value: 'Foo' }],
@@ -469,6 +474,7 @@ describe('onInteract()', () => {
 
   it('select_custom fails when option not found in listbox', async () => {
     (ctx.eval as any)
+      .mockResolvedValueOnce('visible') // hidden-tab guard
       .mockResolvedValueOnce({ found: true, triggerSelector: '.my-select', triggerText: 'Choose...' })
       .mockResolvedValueOnce([]) // before-snapshot
       .mockResolvedValueOnce(undefined) // click trigger (DOM click)
@@ -491,6 +497,85 @@ describe('onInteract()', () => {
     }, {});
     expect(result.content[0].text).toContain('✗');
     expect(result.content[0].text).toContain('Unknown action type');
+  });
+
+  // ── Hidden-tab guard (BACKLOG #41) ──
+  // A tab that isn't the foreground tab of its Chromium window reports
+  // document.visibilityState === "hidden", and Chrome silently no-ops CDP
+  // input-dispatch events on it. Input-dispatching actions must fail loudly
+  // instead of reporting a click/type/etc. that never landed. DOM-only
+  // actions (scroll, clear, select_option, ...) don't touch CDP input
+  // dispatch and must keep working on a hidden tab.
+
+  function mockHiddenVisibility(): void {
+    (ctx.eval as any).mockImplementation(async (expr: string) => {
+      if (expr === 'document.visibilityState') return 'hidden';
+      return { focused: true, scrolled: true, cleared: true, selected: true, optionText: 'ok', verified: true, found: true };
+    });
+  }
+
+  it.each([
+    { type: 'click', selector: '#btn' },
+    { type: 'mouse_click', x: 10, y: 10 },
+    { type: 'mouse_move', x: 10, y: 20 },
+    { type: 'hover', selector: '.menu' },
+    { type: 'type', text: 'hi' },
+    { type: 'press_key', key: 'Enter' },
+  ])('$type errors instead of no-opping when the tab is hidden', async (action) => {
+    mockHiddenVisibility();
+    const result = await onInteract(ctx, { actions: [action] }, {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('visibilityState is "hidden"');
+    expect(result.content[0].text).toContain('activate: true');
+    expect(ctx.cdp).not.toHaveBeenCalledWith('Input.dispatchMouseEvent', expect.anything());
+    expect(ctx.cdp).not.toHaveBeenCalledWith('Input.dispatchKeyEvent', expect.anything());
+  });
+
+  it('select_custom errors instead of no-opping when the tab is hidden', async () => {
+    mockHiddenVisibility();
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'select_custom', selector: '#combo', value: 'Foo' }],
+    }, {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('visibilityState is "hidden"');
+    expect(ctx.cdp).not.toHaveBeenCalledWith('Input.dispatchMouseEvent', expect.anything());
+  });
+
+  it('leaves DOM-only actions unaffected when the tab is hidden', async () => {
+    mockHiddenVisibility();
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'scroll_to', x: 0, y: 500 }],
+    }, {});
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('Scrolled window to');
+  });
+
+  it('falls through when the visibility read itself fails', async () => {
+    // A dead tab or a mid-navigation page can reject the eval. Unknown is not
+    // hidden — turning an eval hiccup into a refused action would break clicks
+    // that worked before this guard existed.
+    (ctx.eval as any).mockImplementation(async (expr: string) => {
+      if (expr === 'document.visibilityState') throw new Error('Cannot access contents of the page');
+      return { focused: true, verified: true, found: true };
+    });
+
+    const result = await onInteract(ctx, { actions: [{ type: 'click', selector: '#btn' }] }, {});
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('Clicked');
+  });
+
+  it('click on a visible tab is unaffected by the guard', async () => {
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'click', selector: '#btn' }],
+    }, {});
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('Clicked');
+    expect(ctx.eval).toHaveBeenCalledWith('document.visibilityState');
   });
 
   // ── Multiple actions ──

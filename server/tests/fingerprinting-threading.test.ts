@@ -25,6 +25,7 @@ describe('click action passes action.name/purpose', () => {
     const ctx: any = {
       getSelectorExpression: (s: string) => `q(${s})`,
       cdp: vi.fn().mockResolvedValue({}),
+      eval: vi.fn().mockResolvedValue('visible'), // hidden-tab guard checks document.visibilityState first
       sleep: () => Promise.resolve(),
       ext: { sendCmd: vi.fn().mockResolvedValue({}) },
     };
