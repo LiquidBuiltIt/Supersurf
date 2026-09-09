@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   applyProfileRegister,
   handleProfileRegisterMessage,
+  isDaemonOrigin,
 } from '../../src/handlers/profile-register';
 
 describe('applyProfileRegister', () => {
@@ -9,7 +10,7 @@ describe('applyProfileRegister', () => {
     const set = vi.fn().mockResolvedValue(undefined);
     const remove = vi.fn().mockResolvedValue(undefined);
 
-    await applyProfileRegister('684f7687', 42, { local: { set } }, { remove });
+    await applyProfileRegister('684f7687', 42, { local: { get: vi.fn(), set } }, { remove });
 
     expect(set).toHaveBeenCalledWith({ supersurf_profile: '684f7687' });
     expect(remove).not.toHaveBeenCalled();
@@ -27,14 +28,16 @@ function deferred<T = void>() {
   return { promise, resolve, reject };
 }
 
-function makeDeps(set: (items: Record<string, unknown>) => any) {
+function makeDeps(set: (items: Record<string, unknown>) => any, port?: string) {
   const remove = vi.fn().mockResolvedValue(undefined);
   const log = vi.fn();
-  return { deps: { storage: { local: { set } }, tabs: { remove }, log }, remove, log };
+  const get = vi.fn().mockResolvedValue(port === undefined ? {} : { mcpPort: port });
+  return { deps: { storage: { local: { get, set } }, tabs: { remove }, log }, remove, log, get };
 }
 
 const REGISTER = { type: 'profileRegister', profile: '684f7687' };
-const SENDER = { tab: { id: 42 } };
+/** The daemon's own registration page on the default port — the only allowed source. */
+const SENDER = { tab: { id: 42 }, origin: 'http://127.0.0.1:5555' };
 
 /** Let queued microtasks (the handler's .then/.catch chain) run. */
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -156,9 +159,108 @@ describe('handleProfileRegisterMessage', () => {
     const set = vi.fn().mockResolvedValue(undefined);
     const { deps } = makeDeps(set);
 
-    expect(handleProfileRegisterMessage(REGISTER, {}, undefined, deps)).toBe(true);
+    expect(
+      handleProfileRegisterMessage(REGISTER, { origin: 'http://127.0.0.1:5555' }, undefined, deps),
+    ).toBe(true);
     await flush();
 
     expect(set).toHaveBeenCalledWith({ supersurf_profile: '684f7687' });
+  });
+
+  it('refuses a sender with no tab and no origin', async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const { deps } = makeDeps(set);
+
+    expect(handleProfileRegisterMessage(REGISTER, {}, undefined, deps)).toBe(true);
+    await flush();
+
+    expect(set).not.toHaveBeenCalled();
+  });
+});
+
+describe('isDaemonOrigin', () => {
+  it('accepts only the daemon registration page on the configured port', () => {
+    expect(isDaemonOrigin('http://127.0.0.1:5555', '5555')).toBe(true);
+    expect(isDaemonOrigin('http://127.0.0.1:7000', '7000')).toBe(true);
+
+    // A different loopback port is a different process — not our daemon.
+    expect(isDaemonOrigin('http://127.0.0.1:7000', '5555')).toBe(false);
+    // `localhost` and `[::1]` are separate origins; the daemon never serves them.
+    expect(isDaemonOrigin('http://localhost:5555', '5555')).toBe(false);
+    expect(isDaemonOrigin('http://[::1]:5555', '5555')).toBe(false);
+    // https on loopback is not what the daemon serves either.
+    expect(isDaemonOrigin('https://127.0.0.1:5555', '5555')).toBe(false);
+    // The bug: any page on the web reached this handler.
+    expect(isDaemonOrigin('https://evil.example', '5555')).toBe(false);
+    expect(isDaemonOrigin('null', '5555')).toBe(false);
+    expect(isDaemonOrigin(undefined, '5555')).toBe(false);
+  });
+});
+
+describe('handleProfileRegisterMessage — origin guard', () => {
+  it('refuses a page that is not the daemon registration page', async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const { deps, log } = makeDeps(set);
+    const sendResponse = vi.fn();
+
+    handleProfileRegisterMessage(
+      REGISTER,
+      { tab: { id: 42 }, origin: 'https://evil.example' },
+      sendResponse,
+      deps,
+    );
+    await flush();
+
+    // The binding must not land, and the page must hear a refusal rather than
+    // sit on its 15 s timeout with no explanation.
+    expect(set).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: false });
+    expect(log).toHaveBeenCalled();
+  });
+
+  it('honours a non-default daemon port from storage', async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const { deps } = makeDeps(set, '7100');
+    const sendResponse = vi.fn();
+
+    handleProfileRegisterMessage(
+      REGISTER,
+      { tab: { id: 42 }, origin: 'http://127.0.0.1:7100' },
+      sendResponse,
+      deps,
+    );
+    await flush();
+
+    expect(set).toHaveBeenCalledWith({ supersurf_profile: '684f7687' });
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('refuses the default port when the daemon runs on another one', async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const { deps } = makeDeps(set, '7100');
+    const sendResponse = vi.fn();
+
+    handleProfileRegisterMessage(REGISTER, SENDER, sendResponse, deps);
+    await flush();
+
+    expect(set).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: false });
+  });
+
+  it('falls back to sender.url when the runtime reports no origin', async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const { deps } = makeDeps(set);
+    const sendResponse = vi.fn();
+
+    handleProfileRegisterMessage(
+      REGISTER,
+      { tab: { id: 42 }, url: 'http://127.0.0.1:5555/register/684f7687' },
+      sendResponse,
+      deps,
+    );
+    await flush();
+
+    expect(set).toHaveBeenCalledWith({ supersurf_profile: '684f7687' });
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
   });
 });

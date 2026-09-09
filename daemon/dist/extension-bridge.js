@@ -95,6 +95,11 @@ class ExtensionBridge {
                         res.writeHead(200, {
                             'Content-Type': 'text/html',
                             'Set-Cookie': `supersurf_profile=${profileName}; Path=/; SameSite=Lax`,
+                            // The extension binds a profile only for this page's origin, so a
+                            // hostile site's remaining move is to embed this page in a frame
+                            // and let it register a name of the attacker's choosing. Refuse
+                            // to be framed; nothing legitimate embeds the registration page.
+                            'Content-Security-Policy': "frame-ancestors 'none'",
                         });
                         res.end((0, registration_page_1.registrationHtml)(profileName));
                         return;
