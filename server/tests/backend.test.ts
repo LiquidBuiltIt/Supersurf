@@ -40,6 +40,7 @@ const mockDaemonClientInstance = {
   version: '0.1.0' as string | null,
   extensionConnected: false,
   extensionVersionError: null as string | null,
+  activeSessionCount: null as number | null,
   onReconnect: null as (() => void) | null,
   onTabInfoUpdate: null as ((tabInfo: any) => void) | null,
   isConfigDrifted: vi.fn(() => false),
@@ -141,6 +142,7 @@ describe('ConnectionManager', () => {
     mockDaemonClientInstance.version = '0.1.0';
     mockDaemonClientInstance.extensionConnected = false;
     mockDaemonClientInstance.extensionVersionError = null;
+    mockDaemonClientInstance.activeSessionCount = null;
     mockDaemonClientInstance.onReconnect = null;
     mockDaemonClientInstance.onTabInfoUpdate = null;
     mockMetricsWrite.mockClear();
@@ -394,6 +396,51 @@ describe('ConnectionManager', () => {
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Daemon Version Mismatch');
       expect(result.content[0].text).toContain('npx supersurf-daemon@latest restart');
+    });
+
+    it('skips the restart and fails connect when other sessions are active on the mismatched daemon', async () => {
+      mockDaemonClientInstance.version = '0.0.1-stale';
+      mockDaemonClientInstance.activeSessionCount = 2; // this session + 1 other
+
+      await backend.initialize(makeMockServer(), {});
+      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+
+      expect(stopDaemon).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('version_mismatch');
+      expect(result.message).toContain('1 other session');
+      expect(result.message).toContain('supersurf-daemon@latest restart');
+      expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
+    });
+
+    it('restarts as today when the mismatched daemon reports only this session', async () => {
+      mockDaemonClientInstance.version = '0.0.1-stale';
+      mockDaemonClientInstance.activeSessionCount = 1; // only this session
+      (stopDaemon as any).mockImplementationOnce(async () => {
+        mockDaemonClientInstance.version = '0.1.0';
+      });
+
+      await backend.initialize(makeMockServer(), {});
+      const result = await backend.callTool('connect', { client_id: 'test' });
+
+      expect(stopDaemon).toHaveBeenCalledTimes(1);
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Connected to Service');
+    });
+
+    it('restarts as today when the daemon omits activeSessionCount (pre-upgrade daemon)', async () => {
+      mockDaemonClientInstance.version = '0.0.1-stale';
+      mockDaemonClientInstance.activeSessionCount = null; // old daemon build, field absent
+      (stopDaemon as any).mockImplementationOnce(async () => {
+        mockDaemonClientInstance.version = '0.1.0';
+      });
+
+      await backend.initialize(makeMockServer(), {});
+      const result = await backend.callTool('connect', { client_id: 'test' });
+
+      expect(stopDaemon).toHaveBeenCalledTimes(1);
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Connected to Service');
     });
   });
 

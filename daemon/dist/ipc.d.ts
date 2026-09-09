@@ -5,7 +5,7 @@
  * Protocol:
  *   1. MCP server sends: { type: "session_register", sessionId: "..." }\n
  *   2. Daemon responds: { type: "session_ack", browser: "...", buildTimestamp: "...",
- *                          extensionVersionError: string | null }\n
+ *                          extensionVersionError: string | null, activeSessionCount: number }\n
  *      or { type: "session_reject", reason: "..." }\n
  *      `extensionVersionError` is null whenever no extension has been rejected for a
  *      version mismatch, which is the normal case. It is only a string while the

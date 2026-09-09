@@ -5,7 +5,7 @@
  * Protocol:
  *   1. MCP server sends: { type: "session_register", sessionId: "..." }\n
  *   2. Daemon responds: { type: "session_ack", browser: "...", buildTimestamp: "...",
- *                          extensionVersionError: string | null }\n
+ *                          extensionVersionError: string | null, activeSessionCount: number }\n
  *      or { type: "session_reject", reason: "..." }\n
  *      `extensionVersionError` is null whenever no extension has been rejected for a
  *      version mismatch, which is the normal case. It is only a string while the
@@ -177,6 +177,11 @@ export class IPCServer {
                 // profiles.connect rejection; an unmanaged session has no such
                 // round trip, so the ack is the only place to tell it.
                 extensionVersionError: this.bridge.extensionVersionError ?? null,
+                // Count AFTER this.sessions.add() above, so it includes the
+                // caller itself. Lets a version-mismatch handler on the server
+                // tell "just me" (count 1, safe to restart) from "someone
+                // else is mid-workflow on this daemon" (count > 1, don't kill it).
+                activeSessionCount: this.sessions.count,
               });
 
               handshakeComplete = true;

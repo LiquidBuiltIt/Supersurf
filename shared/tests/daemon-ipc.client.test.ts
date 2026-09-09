@@ -445,4 +445,41 @@ describe('DaemonClient', () => {
       await client.stop();
     });
   });
+
+  describe('activeSessionCount', () => {
+    it('parses activeSessionCount from session_ack', async () => {
+      mockDaemon = createMockDaemon(sockPath, {
+        ackResponse: {
+          type: 'session_ack',
+          browser: 'chrome',
+          version: '3.4.0',
+          activeSessionCount: 2,
+        },
+      });
+      await new Promise(r => mockDaemon!.on('listening', r));
+
+      const client = new DaemonClient(sockPath, 'test');
+      await client.start();
+      expect(client.activeSessionCount).toBe(2);
+
+      await client.stop();
+    });
+
+    it('defaults activeSessionCount to null when absent (pre-upgrade daemon)', async () => {
+      mockDaemon = createMockDaemon(sockPath, {
+        ackResponse: {
+          type: 'session_ack',
+          browser: 'chrome',
+          version: '3.4.0',
+        },
+      });
+      await new Promise(r => mockDaemon!.on('listening', r));
+
+      const client = new DaemonClient(sockPath, 'test');
+      await client.start();
+      expect(client.activeSessionCount).toBeNull();
+
+      await client.stop();
+    });
+  });
 });

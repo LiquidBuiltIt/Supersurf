@@ -38,6 +38,7 @@ export class DaemonClient implements IExtensionTransport {
   private _version: string | null = null;
   private _extensionConnected: boolean = false;
   private _extensionVersionError: string | null = null;
+  private _activeSessionCount: number | null = null;
   private dialogEventBuffer: DialogEvent[] = [];
 
   onReconnect: (() => void) | null = null;
@@ -74,6 +75,14 @@ export class DaemonClient implements IExtensionTransport {
   /** The daemon's reported extension version rejection, or null. */
   get extensionVersionError(): string | null {
     return this._extensionVersionError;
+  }
+
+  /** Active session count reported by the daemon on session_ack (includes this
+   *  session). Null for a pre-upgrade daemon that omits the field — callers
+   *  must treat null as "unknown", not "1", since the field's whole purpose
+   *  is telling an old daemon apart from a lonely one. */
+  get activeSessionCount(): number | null {
+    return this._activeSessionCount;
   }
 
   /** True when the daemon has detected a config file change since its startup. */
@@ -137,6 +146,8 @@ export class DaemonClient implements IExtensionTransport {
               this._extensionConnected = msg.extensionConnected === true;
               this._extensionVersionError =
                 typeof msg.extensionVersionError === 'string' ? msg.extensionVersionError : null;
+              this._activeSessionCount =
+                typeof msg.activeSessionCount === 'number' ? msg.activeSessionCount : null;
               log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
               resolve();
               continue;

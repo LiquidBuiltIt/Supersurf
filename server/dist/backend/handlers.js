@@ -73,6 +73,25 @@ async function getBrowserBridge() {
     }
     return BrowserBridge;
 }
+/**
+ * Build the "connect refused, daemon/server versions differ" failure response.
+ * Shared by the restart-skipped path (other sessions are live on the stale
+ * daemon) and the still-mismatched-after-restart path — only the reason
+ * sentence differs between them.
+ */
+function versionMismatchFailure(daemonVersion, serverVersion, reason, options) {
+    const hint = `A daemon/server version mismatch causes instability and errors ` +
+        `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ${reason} ` +
+        'Restarting the daemon (or the server) so both match is strongly recommended: ' +
+        '`npx supersurf-daemon@latest restart`';
+    if (options.rawResult) {
+        return { success: false, error: 'version_mismatch', message: hint };
+    }
+    return {
+        content: [{ type: 'text', text: `### Daemon Version Mismatch\n\n${hint}` }],
+        isError: true,
+    };
+}
 // ─── Connect ──────────────────────────────────────────────────
 /**
  * Connect to the SuperSurf daemon: validate client_id, spawn daemon if needed,
@@ -144,6 +163,23 @@ async function onConnect(mgr, args = {}, options = {}) {
         let daemonVersion = client.version;
         const serverVersion = mgr.config.server.version;
         if (daemonVersion !== serverVersion) {
+            // Don't SIGTERM a daemon another session is mid-workflow on.
+            // `activeSessionCount` includes this session's own ack, so >1 means
+            // someone else is genuinely live on it.
+            //
+            // The daemon we're inspecting here is, by definition, an OLD build —
+            // it may predate this field entirely and send nothing. Absent/undefined
+            // must fall back to today's restart behaviour, not to refusing, or this
+            // guard bricks the very upgrade path it's meant to protect.
+            const sessionCount = client.activeSessionCount;
+            if (sessionCount !== null && sessionCount > 1) {
+                await client.stop().catch(() => { });
+                mgr.state = 'passive';
+                const otherSessions = sessionCount - 1;
+                return versionMismatchFailure(daemonVersion, serverVersion, `The daemon was NOT restarted because ${otherSessions} other session` +
+                    `${otherSessions === 1 ? '' : 's'} ${otherSessions === 1 ? 'is' : 'are'} ` +
+                    'currently active on it, and a restart would disconnect them.', options);
+            }
             log(`Daemon version mismatch (daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}) — restarting daemon`);
             await client.stop().catch(() => { });
             await (0, daemon_spawn_1.stopDaemon)();
@@ -155,17 +191,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         if (daemonVersion !== serverVersion) {
             await client.stop().catch(() => { });
             mgr.state = 'passive';
-            const hint = `A different daemon version is still running after an automatic restart ` +
-                `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ` +
-                'Something outside this server keeps respawning it. Restart it manually: ' +
-                '`npx supersurf-daemon@latest restart`';
-            if (options.rawResult) {
-                return { success: false, error: 'version_mismatch', message: hint };
-            }
-            return {
-                content: [{ type: 'text', text: `### Daemon Version Mismatch\n\n${hint}` }],
-                isError: true,
-            };
+            return versionMismatchFailure(daemonVersion, serverVersion, 'Something outside this server keeps respawning it.', options);
         }
         // A version-rejected extension. Without this the session proceeds, the
         // matchmaker refuses every slot, and the agent discovers the problem as a

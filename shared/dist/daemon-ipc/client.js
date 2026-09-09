@@ -34,6 +34,7 @@ class DaemonClient {
     _version = null;
     _extensionConnected = false;
     _extensionVersionError = null;
+    _activeSessionCount = null;
     dialogEventBuffer = [];
     onReconnect = null;
     onTabInfoUpdate = null;
@@ -62,6 +63,13 @@ class DaemonClient {
     /** The daemon's reported extension version rejection, or null. */
     get extensionVersionError() {
         return this._extensionVersionError;
+    }
+    /** Active session count reported by the daemon on session_ack (includes this
+     *  session). Null for a pre-upgrade daemon that omits the field — callers
+     *  must treat null as "unknown", not "1", since the field's whole purpose
+     *  is telling an old daemon apart from a lonely one. */
+    get activeSessionCount() {
+        return this._activeSessionCount;
     }
     /** True when the daemon has detected a config file change since its startup. */
     isConfigDrifted() {
@@ -117,6 +125,8 @@ class DaemonClient {
                             this._extensionConnected = msg.extensionConnected === true;
                             this._extensionVersionError =
                                 typeof msg.extensionVersionError === 'string' ? msg.extensionVersionError : null;
+                            this._activeSessionCount =
+                                typeof msg.activeSessionCount === 'number' ? msg.activeSessionCount : null;
                             log(`Session registered: "${this.sessionId}", browser: ${this._browser}`);
                             resolve();
                             continue;
