@@ -36,6 +36,12 @@ export function renderMain(state) {
           </div>
         </div>
 
+        ${state.versionError ? `
+          <div class="status-row">
+            <span class="status-text" style="color: #c0392b">${state.versionError}</span>
+          </div>
+        ` : ''}
+
         <div class="status-row">
           <span class="status-label">This tab:</span>
           <span class="status-text">${state.currentTabConnected ? '✓ Automated' : 'Not automated'}</span>

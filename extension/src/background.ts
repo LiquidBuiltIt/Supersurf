@@ -700,6 +700,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         currentTabConnected: attachedTabId !== null,
         stealthMode: null,
         projectName: wsConnection.projectName,
+        versionError: wsConnection.versionError,
       });
       return true;
     }

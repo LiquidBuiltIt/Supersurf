@@ -26,6 +26,7 @@ export interface PopupState {
   domainWhitelistEnabled: boolean;
   keepBrowserOnSessionEnd: boolean;
   profileName: string | null;
+  versionError: string | null;
 }
 
 /** Render the main popup view: status indicator, tab info, and enable/disable toggle. */
@@ -54,6 +55,12 @@ export function renderMain(state: PopupState): string {
             <span class="status-text">${statusText}</span>
           </div>
         </div>
+
+        ${state.versionError ? `
+          <div class="status-row">
+            <span class="status-text" style="color: #c0392b">${state.versionError}</span>
+          </div>
+        ` : ''}
 
         <div class="status-row">
           <span class="status-label">This tab:</span>
