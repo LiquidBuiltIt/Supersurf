@@ -28,10 +28,10 @@ function deferred<T = void>() {
   return { promise, resolve, reject };
 }
 
-function makeDeps(set: (items: Record<string, unknown>) => any, port?: string) {
+function makeDeps(set: (items: Record<string, unknown>) => any) {
   const remove = vi.fn().mockResolvedValue(undefined);
   const log = vi.fn();
-  const get = vi.fn().mockResolvedValue(port === undefined ? {} : { mcpPort: port });
+  const get = vi.fn().mockResolvedValue({});
   return { deps: { storage: { local: { get, set } }, tabs: { remove }, log }, remove, log, get };
 }
 
@@ -179,21 +179,19 @@ describe('handleProfileRegisterMessage', () => {
 });
 
 describe('isDaemonOrigin', () => {
-  it('accepts only the daemon registration page on the configured port', () => {
-    expect(isDaemonOrigin('http://127.0.0.1:5555', '5555')).toBe(true);
-    expect(isDaemonOrigin('http://127.0.0.1:7000', '7000')).toBe(true);
+  it('accepts any loopback origin over http, regardless of port', () => {
+    expect(isDaemonOrigin('http://127.0.0.1:5555')).toBe(true);
+    // A non-default port is exactly what a daemon on SUPERSURF_PORT/--port uses.
+    expect(isDaemonOrigin('http://127.0.0.1:7000')).toBe(true);
+    expect(isDaemonOrigin('http://localhost:5555')).toBe(true);
+    expect(isDaemonOrigin('http://[::1]:5555')).toBe(true);
 
-    // A different loopback port is a different process — not our daemon.
-    expect(isDaemonOrigin('http://127.0.0.1:7000', '5555')).toBe(false);
-    // `localhost` and `[::1]` are separate origins; the daemon never serves them.
-    expect(isDaemonOrigin('http://localhost:5555', '5555')).toBe(false);
-    expect(isDaemonOrigin('http://[::1]:5555', '5555')).toBe(false);
-    // https on loopback is not what the daemon serves either.
-    expect(isDaemonOrigin('https://127.0.0.1:5555', '5555')).toBe(false);
-    // The bug: any page on the web reached this handler.
-    expect(isDaemonOrigin('https://evil.example', '5555')).toBe(false);
-    expect(isDaemonOrigin('null', '5555')).toBe(false);
-    expect(isDaemonOrigin(undefined, '5555')).toBe(false);
+    // https on loopback is not what the daemon serves.
+    expect(isDaemonOrigin('https://127.0.0.1:5555')).toBe(false);
+    // The bug this guards against: any page on the web reaching this handler.
+    expect(isDaemonOrigin('https://evil.example')).toBe(false);
+    expect(isDaemonOrigin('null')).toBe(false);
+    expect(isDaemonOrigin(undefined)).toBe(false);
   });
 });
 
@@ -218,9 +216,9 @@ describe('handleProfileRegisterMessage — origin guard', () => {
     expect(log).toHaveBeenCalled();
   });
 
-  it('honours a non-default daemon port from storage', async () => {
+  it('accepts a non-default daemon port', async () => {
     const set = vi.fn().mockResolvedValue(undefined);
-    const { deps } = makeDeps(set, '7100');
+    const { deps } = makeDeps(set);
     const sendResponse = vi.fn();
 
     handleProfileRegisterMessage(
@@ -235,16 +233,31 @@ describe('handleProfileRegisterMessage — origin guard', () => {
     expect(sendResponse).toHaveBeenCalledWith({ ok: true });
   });
 
-  it('refuses the default port when the daemon runs on another one', async () => {
+  it('accepts localhost and [::1] loopback origins', async () => {
     const set = vi.fn().mockResolvedValue(undefined);
-    const { deps } = makeDeps(set, '7100');
+    const { deps } = makeDeps(set);
     const sendResponse = vi.fn();
 
-    handleProfileRegisterMessage(REGISTER, SENDER, sendResponse, deps);
+    handleProfileRegisterMessage(
+      REGISTER,
+      { tab: { id: 42 }, origin: 'http://localhost:5555' },
+      sendResponse,
+      deps,
+    );
     await flush();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
 
-    expect(set).not.toHaveBeenCalled();
-    expect(sendResponse).toHaveBeenCalledWith({ ok: false });
+    const set2 = vi.fn().mockResolvedValue(undefined);
+    const { deps: deps2 } = makeDeps(set2);
+    const sendResponse2 = vi.fn();
+    handleProfileRegisterMessage(
+      REGISTER,
+      { tab: { id: 42 }, origin: 'http://[::1]:5555' },
+      sendResponse2,
+      deps2,
+    );
+    await flush();
+    expect(sendResponse2).toHaveBeenCalledWith({ ok: true });
   });
 
   it('falls back to sender.url when the runtime reports no origin', async () => {
