@@ -28,6 +28,7 @@ VERSION="latest"
 ASSUME_YES=0
 CLIENT=""
 CLIENT_EXPLICIT=0
+REGISTERED=0
 
 # How long interactive mode waits for the extension to connect. Installing from
 # the Web Store is a multi-step human action; a short timeout would fire while
@@ -366,11 +367,12 @@ register_claude() {
 
   if out=$(claude mcp add --scope user supersurf -- supersurf mcp 2>&1); then
     ok "Registered supersurf with the claude CLI"
+    REGISTERED=1
     return 0
   fi
 
   case "$out" in
-    *[Aa]lready*) ok "supersurf is already registered with the claude CLI" ;;
+    *[Aa]lready*) ok "supersurf is already registered with the claude CLI"; REGISTERED=1 ;;
     *)            warn "Could not register with the claude CLI: $out" ;;
   esac
 }
@@ -402,9 +404,10 @@ ensure_on_path
 if [ "$ASSUME_YES" -eq 1 ] || ! { [ -r /dev/tty ] && [ -c /dev/tty ]; }; then
   print_extension_step
   say ""
-  if [ -n "$CLIENT" ]; then
-    register_client
-  else
+  [ -n "$CLIENT" ] && register_client
+  # Printed whenever registration did not happen — including when it was
+  # attempted and failed, so a warn is never the last word on what to do next.
+  if [ "$REGISTERED" -eq 0 ]; then
     say "Point your MCP client at SuperSurf:"
     say "  ${BOLD}claude mcp add supersurf -- supersurf mcp${RESET}"
   fi
@@ -444,6 +447,10 @@ elif command -v claude >/dev/null 2>&1; then
 fi
 
 say ""
-say "${BOLD}Done.${RESET} Point your MCP client at SuperSurf:"
-say "  ${BOLD}claude mcp add supersurf -- supersurf mcp${RESET}"
+if [ "$REGISTERED" -eq 1 ]; then
+  say "${BOLD}Done.${RESET} SuperSurf is registered and ready."
+else
+  say "${BOLD}Done.${RESET} Point your MCP client at SuperSurf:"
+  say "  ${BOLD}claude mcp add supersurf -- supersurf mcp${RESET}"
+fi
 say ""
