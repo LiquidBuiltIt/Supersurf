@@ -7,23 +7,30 @@ export async function applyProfileRegister(profile, _tabId, storage, _tabs) {
     // Do not auto-close the registration tab (default). Closing the last tab
     // would quit Chromium and drop the extension WebSocket mid-connect.
 }
-/** Fallback when `mcpPort` was never written to storage. Mirrors websocket.ts. */
-const DEFAULT_PORT = '5555';
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
 /**
  * Is this the daemon's own registration page?
  *
- * The daemon serves `/register/:name` on loopback at the configured port and
- * spawns Chromium straight at that URL (`daemon/src/profiles/chrome.ts`), so
- * that one origin is the only legitimate source of a binding request.
- *
- * Origin is the check because the transport cannot be one: the content script
- * relays a `window.postMessage`, and its `event.source !== window` guard passes
- * for any page posting to itself — that is, every page on the web. Before this
- * check, visiting a hostile site was enough to rebind the managed profile.
- * `sender.origin` comes from Chrome, not from the page, so it cannot be forged.
+ * The daemon serves `/register/:name` on loopback (`daemon/src/profiles/chrome.ts`
+ * spawns Chromium straight at that URL), so any loopback origin over http is
+ * accepted regardless of port. No web page can ever hold a loopback origin, so
+ * pinning a specific port did not keep out anything an attacker could reach;
+ * and anyone able to bind a port on this machine already has local code
+ * execution. The port check was never the load-bearing part of this guard —
+ * `sender.origin` is supplied by Chrome, not the page, so it cannot be
+ * forged, and that is what actually keeps a hostile web page out.
  */
-export function isDaemonOrigin(origin, port) {
-    return !!origin && origin === `http://127.0.0.1:${port}`;
+export function isDaemonOrigin(origin) {
+    if (!origin)
+        return false;
+    let url;
+    try {
+        url = new URL(origin);
+    }
+    catch {
+        return false;
+    }
+    return url.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(url.hostname);
 }
 /**
  * The sender's origin. `origin` is Chrome 80+; `url` is the long-standing
@@ -57,8 +64,7 @@ export function handleProfileRegisterMessage(message, sender, sendResponse, deps
     const origin = senderOrigin(sender);
     const profile = message.profile;
     (async () => {
-        const port = String((await deps.storage.local.get('mcpPort'))?.mcpPort || DEFAULT_PORT);
-        if (!isDaemonOrigin(origin, port)) {
+        if (!isDaemonOrigin(origin)) {
             deps.log?.('[Background] Profile register refused —', origin ?? '(unknown origin)', 'is not the daemon registration page');
             sendResponse?.({ ok: false });
             return;
