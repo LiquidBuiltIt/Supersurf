@@ -365,16 +365,27 @@ register_claude() {
     return 0
   fi
 
-  if out=$(claude mcp add --scope user supersurf -- supersurf mcp 2>&1); then
+  out=$(claude mcp add --scope user supersurf -- supersurf mcp 2>&1) && rc=0 || rc=$?
+
+  # `claude mcp add` for a name that already exists prints "already exists" and
+  # exits 0 (verified against 2.1.267) — it declines rather than overwriting.
+  # Matched on the message, not the exit code, so re-running the installer does
+  # not report "Registered" for a call that registered nothing. Kept outside the
+  # exit-code branches so a future release that reports this as an error lands
+  # in the same arm.
+  case "$out" in
+    *[Aa]lready*) ok "supersurf is already registered with the claude CLI"
+                  REGISTERED=1
+                  return 0 ;;
+  esac
+
+  if [ "$rc" -eq 0 ]; then
     ok "Registered supersurf with the claude CLI"
     REGISTERED=1
     return 0
   fi
 
-  case "$out" in
-    *[Aa]lready*) ok "supersurf is already registered with the claude CLI"; REGISTERED=1 ;;
-    *)            warn "Could not register with the claude CLI: $out" ;;
-  esac
+  warn "Could not register with the claude CLI: $out"
 }
 
 # One-line change to add a second client later: a new case arm here.
