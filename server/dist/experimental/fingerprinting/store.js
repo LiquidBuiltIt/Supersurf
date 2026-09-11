@@ -37,6 +37,7 @@ exports.setBaseDirForTests = setBaseDirForTests;
 exports.loadDomain = loadDomain;
 exports.saveDomain = saveDomain;
 exports.getRecord = getRecord;
+exports.loadAllDomains = loadAllDomains;
 exports.putRecord = putRecord;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
@@ -104,6 +105,39 @@ function getRecord(domain, route, selector) {
     const store = loadDomain(domain);
     const byRoute = store.routes[route];
     return byRoute ? byRoute[selector] : undefined;
+}
+/**
+ * Read every domain store on disk. Uncached, unlike `loadDomain`: this exists
+ * for `security/element-targets.ts`'s handle-existence scan, which is a
+ * validate-time, on-disk check that runs far less often than the per-request
+ * `loadDomain` path this file otherwise optimizes for, so a fresh directory
+ * listing + parse on every call is the simpler correct choice over teaching
+ * the mtime+size memo about a "read everything" mode.
+ *
+ * A corrupt or unparseable domain file is skipped rather than thrown — one
+ * bad file must not fail validation of every other domain's handles.
+ */
+function loadAllDomains() {
+    let entries;
+    try {
+        entries = fs.readdirSync(baseDir);
+    }
+    catch {
+        return [];
+    }
+    const stores = [];
+    for (const entry of entries) {
+        if (!entry.endsWith('.json'))
+            continue;
+        try {
+            const data = JSON.parse(fs.readFileSync(path.join(baseDir, entry), 'utf8'));
+            stores.push(data);
+        }
+        catch {
+            // Corrupt/unparseable file — skip it, don't fail the whole scan.
+        }
+    }
+    return stores;
 }
 function putRecord(domain, route, selector, rec) {
     const store = loadDomain(domain);
