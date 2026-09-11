@@ -15,7 +15,7 @@ vi.mock('node:fs', async (importOriginal) => {
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { loadDomain, putRecord, setBaseDirForTests } from '../src/experimental/fingerprinting/store';
+import { loadDomain, loadAllDomains, putRecord, setBaseDirForTests } from '../src/experimental/fingerprinting/store';
 import type { FingerprintRecord } from '../src/experimental/fingerprinting/types';
 
 const TMP = path.join(process.cwd(), '.tmp-fp-store-cache');
@@ -101,5 +101,36 @@ describe('loadDomain memoization', () => {
     fs.rmSync(TMP, { recursive: true, force: true });
     setBaseDirForTests(TMP);
     expect(loadDomain('z.com')).toEqual({ domain: 'z.com', routes: {} });
+  });
+});
+
+describe('loadAllDomains', () => {
+  // RED-MAKER for every test below: delete `loadAllDomains` (or have it always
+  // `return []`) — that is exactly the load-all-domains read this task added.
+
+  it('returns an empty array when the directory does not exist', () => {
+    expect(loadAllDomains()).toEqual([]);
+  });
+
+  it('reads every domain file in the directory', () => {
+    putRecord('a.com', '/', '#x', rec('#x'));
+    putRecord('b.com', '/', '#y', rec('#y'));
+    const domains = loadAllDomains().map(s => s.domain).sort();
+    expect(domains).toEqual(['a.com', 'b.com']);
+  });
+
+  it('skips a corrupt/unparseable domain file rather than throwing', () => {
+    putRecord('good.com', '/', '#x', rec('#x'));
+    fs.mkdirSync(TMP, { recursive: true });
+    fs.writeFileSync(path.join(TMP, 'bad.com.json'), '{ not valid json');
+    const domains = loadAllDomains().map(s => s.domain);
+    expect(domains).toEqual(['good.com']);
+  });
+
+  it('ignores non-.json files in the directory', () => {
+    putRecord('good.com', '/', '#x', rec('#x'));
+    fs.writeFileSync(path.join(TMP, 'notes.txt'), 'hello');
+    const domains = loadAllDomains().map(s => s.domain);
+    expect(domains).toEqual(['good.com']);
   });
 });

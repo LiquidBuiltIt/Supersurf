@@ -48,7 +48,7 @@ exports.parseMeta = parseMeta;
 const acorn = __importStar(require("acorn"));
 /** Keys that are never legal anywhere inside the meta literal. */
 const FORBIDDEN_KEYS = ['__proto__', 'constructor', 'prototype'];
-const TOP_LEVEL_KEYS = ['description', 'params', 'profile', 'permissions', 'startingPoint', 'experiments'];
+const TOP_LEVEL_KEYS = ['description', 'params', 'profile', 'permissions', 'startingPoint', 'experiments', 'useRawSelectors'];
 const PARAM_KEYS = ['type', 'required', 'description'];
 const PARAM_TYPES = ['string', 'number', 'boolean'];
 /** Thrown internally and converted to `{ error }` at the boundary. */
@@ -136,6 +136,12 @@ function toMeta(raw) {
             throw new MetaError('meta: experiments must be a boolean (true enables all experiments for this run)');
         }
         meta.experiments = raw.experiments;
+    }
+    if (raw.useRawSelectors !== undefined) {
+        if (typeof raw.useRawSelectors !== 'boolean') {
+            throw new MetaError('meta: useRawSelectors must be a boolean (true additionally permits raw CSS selectors — handles are always allowed)');
+        }
+        meta.useRawSelectors = raw.useRawSelectors;
     }
     if (raw.permissions !== undefined) {
         if (!Array.isArray(raw.permissions) || raw.permissions.some(p => typeof p !== 'string')) {

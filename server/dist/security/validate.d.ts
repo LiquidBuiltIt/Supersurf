@@ -1,11 +1,14 @@
 /**
  * Playbook file validation — read, hash, parse meta, static-analyze.
  *
- * All three gates must pass for `valid: true`:
+ * All four gates must pass for `valid: true`:
  *   1. `parseMeta` — the meta literal is present, pure, and well-shaped
  *   2. `analyzeWithRules(source, nodeRules)` — no blocked Node constructs
  *   3. the declared-vs-used permission check — a file that calls
  *      `supersurf.evaluate` must declare `permissions: ['eval']`
+ *   4. `validateElementTargets` — every element-target argument is a legal
+ *      form, every `@handle` it names is recorded, and a raw CSS selector is
+ *      only used when `meta.useRawSelectors` permits it
  *
  * A record is returned for every outcome. `file`, `name`, `hash` and
  * `signature` are always populated so a caller can list a broken playbook

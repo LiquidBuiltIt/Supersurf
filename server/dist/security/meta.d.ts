@@ -30,6 +30,15 @@ export interface PlaybookMeta {
      *  Plan 2 only parses and type-checks it. ACTIVATION is Plan 3's — that is
      *  where the ConnectionManager lives. Do not build it here. */
     experiments?: boolean;
+    /** PERMISSION GATE, not an exemption. Default (absent/false) is STRICT: every
+     *  element target must be a handle (`@name`) and a raw CSS selector is
+     *  rejected by `security/element-targets.ts`. `true` ADDITIONALLY permits raw
+     *  CSS selectors — handles stay legal either way, so a flagged script may
+     *  freely mix `@name` and `#css` targets. It does NOT turn the check off: the
+     *  handle-existence lookup still runs on every `@handle` regardless of this
+     *  flag, and the two-legal-forms check still runs on every target regardless
+     *  of this flag. See `element-targets.ts` for the check itself. */
+    useRawSelectors?: boolean;
 }
 /** Parse `export const meta = {...}` from source WITHOUT executing it.
  *  Rejects computed keys, methods, spread, template interpolation, and the

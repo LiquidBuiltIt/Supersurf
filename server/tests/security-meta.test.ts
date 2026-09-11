@@ -168,4 +168,27 @@ describe('parseMeta — rejections', () => {
   it('rejects an unknown top-level key', () => {
     rejects(wrap(`{ description: 'x', retries: 3 }`), 'unknown key');
   });
+
+  // ── meta.useRawSelectors — permission gate, mirrors the meta.experiments branch ──
+  it('accepts useRawSelectors: true', () => {
+    expect(parseMeta(wrap(`{ description: 'x', useRawSelectors: true }`)).meta)
+      .toEqual({ description: 'x', useRawSelectors: true });
+  });
+
+  it('accepts useRawSelectors: false', () => {
+    expect(parseMeta(wrap(`{ description: 'x', useRawSelectors: false }`)).meta)
+      .toEqual({ description: 'x', useRawSelectors: false });
+  });
+
+  it('leaves useRawSelectors absent when the key is not present', () => {
+    expect(parseMeta(wrap(`{ description: 'x' }`)).meta).not.toHaveProperty('useRawSelectors');
+  });
+
+  it('rejects a non-boolean useRawSelectors with a clear message', () => {
+    // RED-MAKER: delete the `raw.useRawSelectors !== undefined` branch in meta.ts's
+    // toMeta() and this would accept the string instead of rejecting it.
+    const r = parseMeta(wrap(`{ description: 'x', useRawSelectors: 'yes' }`));
+    expect(r.meta).toBeUndefined();
+    expect(r.error).toContain('useRawSelectors must be a boolean');
+  });
 });

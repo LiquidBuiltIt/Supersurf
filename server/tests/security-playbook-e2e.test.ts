@@ -26,6 +26,7 @@ const GOOD = `export const meta = {
     text: { type: 'string', required: true, description: 'The tweet body' },
     pin: { type: 'boolean', description: 'Pin it afterwards' },
   },
+  useRawSelectors: true,
 };
 
 export default async function ({ supersurf, params, log }) {
