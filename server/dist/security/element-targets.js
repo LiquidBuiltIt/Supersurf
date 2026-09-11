@@ -3,10 +3,22 @@
  * Static validation of playbook element-target arguments.
  *
  * A verb (`supersurf.click`, `supersurf.hover`, …) takes an element target as
- * its first argument. This module enforces three things about that argument,
+ * one of its arguments. This module enforces four things about that argument,
  * entirely from the source text — it opens no browser and reads no page:
  *
- *   1. The argument's FORM must be one of exactly two legal shapes: a plain
+ *   1. The CALL FORM must be `supersurf.<method>(...)` — a direct, non-computed
+ *      member call on the `supersurf` identifier. This is a validation GATE:
+ *      any call form this analyzer cannot positively verify is REJECTED, never
+ *      silently skipped. Destructuring `supersurf` (`const { click } =
+ *      supersurf`), assigning one of its members to a variable (`const c =
+ *      supersurf.click`), and computed member access (`supersurf['click']`)
+ *      all escape a naive `callee.object.name === 'supersurf'` check — each is
+ *      rejected outright, by name, rather than treated as "not a target call"
+ *      and let through. An allowlist-and-skip walker is backwards for a
+ *      security gate: the default for anything unrecognized must be reject,
+ *      not pass.
+ *
+ *   2. The argument's FORM must be one of exactly two legal shapes: a plain
  *      string literal, or an identifier `const`-bound to one in the same
  *      module. Concatenation, template interpolation, member expressions,
  *      loop variables and function parameters are all rejected — on FORM,
@@ -14,7 +26,20 @@
  *      rule one sentence long and the error message self-explanatory,
  *      matching `parseMeta`'s "meta must be a pure literal" posture.
  *
- *   2. A `@`-prefixed target (a handle reference, per `isHandleRef` in
+ *      A `const`-bound identifier is resolved only when its name is bound to
+ *      a string literal EXACTLY ONCE anywhere in the module. A name bound
+ *      more than once (e.g. two different `const h = '...'` in two different
+ *      functions) is REJECTED, not resolved first-wins: first-wins is an
+ *      exploitable false pass in one direction (an unrelated `const h =
+ *      '@recorded'` masks a real unrecorded binding elsewhere) and a false
+ *      reject in the other (an unrelated `const h = '#raw'` masks a legal
+ *      recorded handle elsewhere). Proper scope tracking would close this too,
+ *      but is more machinery than this check needs — rejecting the ambiguity
+ *      outright is one sentence and closes both directions at once. This is a
+ *      real, exploitable gap the ambiguity check closes, not a stylistic
+ *      simplification.
+ *
+ *   3. A `@`-prefixed target (a handle reference, per `isHandleRef` in
  *      `handle-resolve.ts`) must already be RECORDED — a `FingerprintRecord`
  *      somewhere in `~/.supersurf/fingerprints/` must carry that name in its
  *      `handleName` field. This is a REJECTION, not a warning: the store is a
@@ -27,11 +52,28 @@
  *      if the SAME name is used to look it up on every run that follows the
  *      run that captured it. Positional names have no such stability.
  *
- *   3. A NON-`@` target (a raw CSS selector) is rejected unless
+ *   4. A NON-`@` target (a raw CSS selector) is rejected unless
  *      `meta.useRawSelectors` is `true`. This is a PERMISSION GATE, not an
  *      exemption: the default is strict (every target must be a handle), and
  *      the flag ADDITIONALLY permits raw selectors alongside handles — it
- *      never turns off checks 1 or 2. See `meta.ts` for the flag itself.
+ *      never turns off checks 1-3. See `meta.ts` for the flag itself.
+ *
+ * `wait` and `drag` are element-target-bearing verbs too, and are checked
+ * with the same rules above, NOT excluded:
+ *
+ *   - `wait(msOrSelector)` is a union (`command-map.ts`): a NUMERIC literal is
+ *     a delay and is not checked at all; a STRING literal or `const`-bound
+ *     string is a wait-for-element selector and gets the full check (form,
+ *     handle-existence, raw-selector gate). Anything else (template literal,
+ *     concatenation, member expression, an identifier that isn't a
+ *     `const`-bound string) is an illegal form under check 2 — the analyzer
+ *     does not need to know it is a delay-or-selector union to reject those;
+ *     it only needs to skip the one shape (a bare numeric literal) that is
+ *     unambiguously never a target.
+ *   - `drag(from, to)` (`command-map.ts`) takes TWO element targets, both
+ *     checked independently under the same rules. That the sandbox's param
+ *     names are `from`/`to` rather than `selector` is a naming detail of
+ *     `sandbox/methods.ts`, not a reason to exempt either argument.
  *
  * @module security/element-targets
  */
@@ -78,16 +120,18 @@ const naming_1 = require("../experimental/fingerprinting/naming");
 const store_1 = require("../experimental/fingerprinting/store");
 /**
  * `supersurf.<method>` calls whose first positional argument is an element
- * target — derived from `METHODS` itself (single source of truth) rather than
- * a hand-maintained duplicate list, so a future verb whose first param is
- * named `selector` is picked up automatically. Namespaced passthroughs
- * (`tabs.list`, …) never have a `selector` first param, so the `.` filter
- * only excludes paths that could never match anyway.
+ * target and which take exactly one target — derived from `METHODS` itself
+ * (single source of truth) rather than a hand-maintained duplicate list, so a
+ * future verb whose first param is named `selector` is picked up
+ * automatically. Namespaced passthroughs (`tabs.list`, …) never have a
+ * `selector` first param, so the `.` filter only excludes paths that could
+ * never match anyway.
  *
- * `wait(msOrSelector)` and `drag(from, to)` are deliberately NOT included:
- * `msOrSelector` is a union (number delay vs. string selector) that cannot be
- * told apart from syntax alone, and `drag`'s two target params aren't named
- * `selector`. Both are a known gap, not an oversight — see the task report.
+ * `wait` and `drag` are deliberately NOT in this set — both take an element
+ * target, but neither fits the "single `selector`-named first param" shape
+ * this set captures (`wait`'s sole param is the delay-or-selector union
+ * `msOrSelector`; `drag` takes two params, `from` and `to`). Both are handled
+ * by dedicated branches in the walker below, not skipped.
  */
 const TARGET_METHODS = new Set(Object.entries(methods_1.METHODS)
     .filter(([path, spec]) => !path.includes('.') && spec.params[0] === 'selector')
@@ -96,15 +140,24 @@ const TARGET_METHODS = new Set(Object.entries(methods_1.METHODS)
  * Resolve a call argument to its element-target string, or reject its FORM.
  * The only resolution performed is constant-folding a `const`-bound
  * identifier to the string literal it was declared with — nothing else is
- * ever evaluated, matching `meta.ts`'s "parsed, never executed" posture.
+ * ever evaluated, matching `meta.ts`'s "parsed, never executed" posture. A
+ * name bound to a string literal more than once in the module is treated as
+ * unresolvable (see the module doc comment, point 2) rather than resolved to
+ * whichever binding was seen first.
  */
-function resolveTarget(node, constStrings) {
+function resolveTarget(node, constStrings, ambiguousConstNames) {
     switch (node.type) {
         case 'Literal':
             if (typeof node.value === 'string')
                 return { value: node.value };
             return { formError: `is a ${typeof node.value} literal — an element target must be a string` };
         case 'Identifier': {
+            if (ambiguousConstNames.has(node.name)) {
+                return {
+                    formError: `is the identifier \`${node.name}\`, which is \`const\`-bound to a string literal more than ` +
+                        `once in this module — the analyzer will not guess which binding is live`,
+                };
+            }
             const bound = constStrings.get(node.name);
             if (bound !== undefined)
                 return { value: bound };
@@ -180,62 +233,145 @@ function validateElementTargets(source, meta) {
     catch {
         return {};
     }
-    // Collect every `const <id> = '<literal>'` binding in the module — the
-    // ONLY resolution step this check performs (constant-folding). Not
-    // scope-aware: a name that is const-bound to a string literal ANYWHERE in
-    // the module resolves, first declaration wins on a rare same-name shadow.
-    const constStrings = new Map();
+    let error = null;
+    // Pass 1: collect every `const <id> = '<literal>'` binding in the module
+    // (the only resolution step check 2 performs — constant-folding), AND
+    // reject the two illegal `supersurf`-binding forms outright, wherever in
+    // the module they appear, independent of whether the resulting binding is
+    // ever called. This is a structural reject, not a data-flow trace: it is
+    // simpler than tracking an alias through to its call site, and it closes
+    // the same hole either way.
+    const rawConstStrings = new Map();
     walk.simple(ast, {
         VariableDeclaration(node) {
             if (node.kind !== 'const')
                 return;
             for (const d of node.declarations) {
                 if (d.id?.type === 'Identifier' && d.init?.type === 'Literal' && typeof d.init.value === 'string') {
-                    if (!constStrings.has(d.id.name))
-                        constStrings.set(d.id.name, d.init.value);
+                    const arr = rawConstStrings.get(d.id.name) ?? [];
+                    arr.push(d.init.value);
+                    rawConstStrings.set(d.id.name, arr);
                 }
             }
         },
+        VariableDeclarator(node) {
+            if (error)
+                return;
+            // `const { click } = supersurf` / `let { click } = supersurf` — any
+            // destructuring of the supersurf client object.
+            if (node.init?.type === 'Identifier' && node.init.name === 'supersurf' && node.id?.type === 'ObjectPattern') {
+                error =
+                    'playbook destructures the `supersurf` client object (`const { ... } = supersurf`) — call verbs ' +
+                        'directly as `supersurf.click(...)`, not through a destructured binding';
+                return;
+            }
+            // `const c = supersurf.click` — assigning any supersurf member to a
+            // variable, then calling the variable instead of `supersurf.<method>`.
+            if (node.init?.type === 'MemberExpression' &&
+                node.init.object?.type === 'Identifier' &&
+                node.init.object.name === 'supersurf') {
+                error =
+                    'playbook assigns a `supersurf` member to a variable (`const c = supersurf.click`) — call verbs ' +
+                        'directly as `supersurf.click(...)`, not through an aliased binding';
+                return;
+            }
+        },
     });
-    let error = null;
+    if (error)
+        return { error };
+    const constStrings = new Map();
+    const ambiguousConstNames = new Set();
+    for (const [name, values] of rawConstStrings) {
+        if (values.length > 1)
+            ambiguousConstNames.add(name);
+        else
+            constStrings.set(name, values[0]);
+    }
+    /** Checks 2-4 for one element-target argument. Returns an error message, or null. */
+    function checkTarget(method, argNode) {
+        const resolved = resolveTarget(argNode, constStrings, ambiguousConstNames);
+        if (resolved.formError) {
+            return `supersurf.${method}(...): element target ${resolved.formError}`;
+        }
+        const raw = resolved.value;
+        if ((0, handle_resolve_1.isHandleRef)(raw)) {
+            const normalized = (0, naming_1.normalizeName)(raw.slice(1));
+            if (!handleIsRecorded(normalized, meta.startingPoint)) {
+                return (`supersurf.${method}('${raw}'): no recorded handle named "${normalized}" in ` +
+                    `~/.supersurf/fingerprints/ — drive the task live first so the element is captured ` +
+                    `under this name, or check the spelling`);
+            }
+            return null;
+        }
+        if (!meta.useRawSelectors) {
+            return (`supersurf.${method}('${raw}'): raw CSS selectors are not allowed — element targets must ` +
+                `be handles (\`@name\`) unless meta.useRawSelectors is true (a permission gate that ` +
+                `ADDITIONALLY allows raw selectors; it does not turn off the handle check)`);
+        }
+        return null;
+    }
+    // Pass 2: walk every call, allowlisting exactly one legal call form
+    // (`supersurf.<method>(...)`, non-computed) and rejecting everything else
+    // that touches `supersurf` by member access, rather than silently skipping
+    // a shape this analyzer does not recognize.
     walk.simple(ast, {
         CallExpression(node) {
             if (error)
                 return;
             const callee = node.callee;
-            if (callee?.type !== 'MemberExpression' || callee.computed)
+            // A bare-identifier callee (`click(...)`, `helper(...)`) is not a
+            // `supersurf.*` member call. It is not silently trusted, either: if it
+            // resulted from destructuring or aliasing `supersurf`, Pass 1 already
+            // rejected the module outright, unconditionally, before this walk runs.
+            if (callee?.type !== 'MemberExpression')
                 return;
             if (callee.object?.type !== 'Identifier' || callee.object.name !== 'supersurf')
                 return;
+            if (callee.computed) {
+                error =
+                    "supersurf[...](...): computed member access on the `supersurf` client object is not allowed — " +
+                        'call verbs directly as `supersurf.click(...)`, never via bracket notation';
+                return;
+            }
             if (callee.property?.type !== 'Identifier')
                 return;
             const method = callee.property.name;
+            if (method === 'wait') {
+                const arg = node.arguments[0];
+                if (!arg)
+                    return;
+                if (arg.type === 'Literal' && typeof arg.value === 'number')
+                    return; // a numeric wait is a delay, not a target
+                const msg = checkTarget('wait', arg);
+                if (msg)
+                    error = msg;
+                return;
+            }
+            if (method === 'drag') {
+                const from = node.arguments[0];
+                const to = node.arguments[1];
+                if (from) {
+                    const msg = checkTarget('drag', from);
+                    if (msg) {
+                        error = msg;
+                        return;
+                    }
+                }
+                if (to) {
+                    const msg = checkTarget('drag', to);
+                    if (msg)
+                        error = msg;
+                }
+                return;
+            }
             if (!TARGET_METHODS.has(method))
                 return;
             const arg = node.arguments[0];
             if (!arg)
                 return; // a missing argument is a different failure, not this check's job
-            const resolved = resolveTarget(arg, constStrings);
-            if (resolved.formError) {
-                error = `supersurf.${method}(...): element target ${resolved.formError}`;
-                return;
-            }
-            const raw = resolved.value;
-            if ((0, handle_resolve_1.isHandleRef)(raw)) {
-                const normalized = (0, naming_1.normalizeName)(raw.slice(1));
-                if (!handleIsRecorded(normalized, meta.startingPoint)) {
-                    error =
-                        `supersurf.${method}('${raw}'): no recorded handle named "${normalized}" in ` +
-                            `~/.supersurf/fingerprints/ — drive the task live first so the element is captured ` +
-                            `under this name, or check the spelling`;
-                }
-            }
-            else if (!meta.useRawSelectors) {
-                error =
-                    `supersurf.${method}('${raw}'): raw CSS selectors are not allowed — element targets must ` +
-                        `be handles (\`@name\`) unless meta.useRawSelectors is true (a permission gate that ` +
-                        `ADDITIONALLY allows raw selectors; it does not turn off the handle check)`;
-            }
+            const msg = checkTarget(method, arg);
+            if (msg)
+                error = msg;
         },
     });
     return error ? { error } : {};
