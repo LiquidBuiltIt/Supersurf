@@ -39,18 +39,32 @@ function text(body: string, isError = false): any {
 }
 
 /**
- * Playbooks still require the `fingerprinting` experiment for `run`: a script's
- * selectors are as fragile as a recording's, and healing is what keeps a run
- * alive across a CSS change. `history`, `list`, `inspect` and `validate` are
- * pure reports and are never gated.
+ * `run` stays behind the `fingerprinting` experiment. `history`, `list`, `inspect`
+ * and `validate` are pure reports and are never gated.
+ *
+ * The original rationale was healing — a script's selectors are as fragile as a
+ * recording's. On its own that does not hold up: a run executes fine with the
+ * experiment off, it just never captures or heals.
+ *
+ * The load-bearing reason is `@` handle translation. `resolveSelectorOrHandle`
+ * (`experimental/fingerprinting/handle-resolve.ts`) reads the SAME flag, and reads
+ * it with no `sessionId`, which unions across every bound session. A caller has to
+ * enable `fingerprinting` to get past this gate — and that is precisely what puts a
+ * `true` into the union that lets `click('@submit_review')` resolve inside a run.
+ *
+ * So the coupling is real but accidental. Drop this gate as-is and handles break
+ * silently: `@submit_review` degrades to a CSS lookup for a tag named
+ * `@submit_review`, no error, no match. Whoever removes the gate must first give
+ * the run session its own `fingerprinting` activation (`runner.ts` already does
+ * this for `meta.experiments`). Tracked as BACKLOG #21.
  */
 function gate(): string | null {
   if (experimentRegistry.isEnabled('fingerprinting')) return null;
   return 'Playbook runs need the `fingerprinting` experiment, which is off.\n\n' +
     'Enable it in `~/.supersurf/config.json` under `experiments`, then restart the daemon:\n' +
     '  npx supersurf-daemon@latest restart\n\n' +
-    'Without it, a script\'s selectors cannot heal when the page changes, so a run ' +
-    'would break on the first CSS change.';
+    'It gates two things a run leans on: `@handle` targets resolve through the ' +
+    'fingerprint store, and selectors heal when the page changes.';
 }
 
 export async function onPlaybooks(
