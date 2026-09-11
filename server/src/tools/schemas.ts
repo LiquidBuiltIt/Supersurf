@@ -98,13 +98,13 @@ export function getToolSchemas(): ToolSchema[] {
                   description:
                     'CSS selector for the target element. Supports :has-text("...") for text matching, ' +
                     'e.g. button:has-text("Submit"). For wait: element to poll for existence. ' +
-                    'You may also pass a handle you named earlier — a bare multi-word snake_case name ' +
-                    'such as "tweet_button" (no dots, hashes, brackets or spaces) — and the server ' +
-                    'resolves it to the element that name was recorded against on this exact domain + ' +
-                    'URL path (no cross-route matching), healing it if the page changed. Only works ' +
-                    'when the `fingerprinting` experiment is enabled (off by default) — otherwise the ' +
-                    'handle is not recognized and falls through to the CSS path. Single words are ' +
-                    'always read as CSS tag selectors, never handles.',
+                    'You may also target a handle you named earlier by prefixing it with `@` — e.g. ' +
+                    '"@tweet_button" — and the server resolves it to the element that multi-word ' +
+                    'snake_case name was recorded against on this exact domain + URL path (no ' +
+                    'cross-route matching), healing it if the page changed. Only works when the ' +
+                    '`fingerprinting` experiment is enabled (off by default) — otherwise the `@` prefix ' +
+                    'is not recognized and falls through to the CSS path. A selector with no `@` prefix ' +
+                    'is always read as plain CSS, never a handle.',
                 },
                 text: { type: 'string', description: 'Text to type (for type action)' },
                 key: { type: 'string', description: 'Key to press (for press_key action)' },
@@ -127,7 +127,9 @@ export function getToolSchemas(): ToolSchema[] {
                     '(e.g. "first_name_input", "submit_application"). REQUIRED for element-targeting actions ' +
                     '(click/type/clear/hover/select_option/select_custom/file_upload). Must be at least two ' +
                     'lowercase words joined by underscores (e.g. "first_name_input") — a name not in that shape ' +
-                    'is not recorded. Reuse the same name for the same logical element across pages. Normalized ' +
+                    'is not recorded. Bare here — do NOT prefix with `@`; that marker is only for targeting ' +
+                    'this handle later in the selector field (e.g. "@first_name_input"), not for naming it. ' +
+                    'Reuse the same name for the same logical element across pages. Normalized ' +
                     'server-side. The first name an element is given sticks — a later, differing name is ' +
                     'ignored, not recorded as a rename.',
                 },
