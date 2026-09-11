@@ -8,12 +8,17 @@ exports.doValidate = doValidate;
  *
  * Deliberately dependency-light. This module exists so the compiled `supersurf`
  * binary can run `playbook ls|inspect|validate` without pulling `tools/playbooks.ts`,
- * whose top-level imports of `../playbooks/runner` and `../experimental/index` drag
- * in the ConnectionManager stack and, through the screenshot tool, the `sharp`
- * native addon. Nothing in this file's import closure reaches a native addon.
+ * whose top-level imports of `../playbooks/runner` drag in the ConnectionManager
+ * stack and, through the screenshot tool, the `sharp` native addon. Nothing in
+ * this file's import closure reaches a native addon.
  *
- * Its import closure is exactly: node builtins, ./paths, ./registry, ./runs,
- * ../security/validate (type-only) -> analyzer/meta/rules -> acorn + acorn-walk.
+ * Its import closure is: node builtins, ./paths, ./registry, ./runs, and (via
+ * ./registry's real import of) ../security/validate -> analyzer/meta/rules
+ * (acorn + acorn-walk) plus ./element-targets, which adds
+ * experimental/fingerprinting/{store,naming,url,handle-resolve,types} (fs/path/os
+ * only) and experimental/index — that last one for `experimentRegistry`, but its
+ * own top-level imports are type-only except `./page-diffing`, which itself has
+ * ZERO imports. Still no `tools/`, no `runner`, no `sharp`.
  *
  * @module playbooks/report
  */

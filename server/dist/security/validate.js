@@ -2,11 +2,14 @@
 /**
  * Playbook file validation — read, hash, parse meta, static-analyze.
  *
- * All three gates must pass for `valid: true`:
+ * All four gates must pass for `valid: true`:
  *   1. `parseMeta` — the meta literal is present, pure, and well-shaped
  *   2. `analyzeWithRules(source, nodeRules)` — no blocked Node constructs
  *   3. the declared-vs-used permission check — a file that calls
  *      `supersurf.evaluate` must declare `permissions: ['eval']`
+ *   4. `validateElementTargets` — every element-target argument is a legal
+ *      form, every `@handle` it names is recorded, and a raw CSS selector is
+ *      only used when `meta.useRawSelectors` permits it
  *
  * A record is returned for every outcome. `file`, `name`, `hash` and
  * `signature` are always populated so a caller can list a broken playbook
@@ -27,6 +30,7 @@ const crypto_1 = __importDefault(require("crypto"));
 const analyzer_1 = require("./analyzer");
 const node_1 = require("./rules/node");
 const meta_1 = require("./meta");
+const element_targets_1 = require("./element-targets");
 /** Strip the `.playbook.js` suffix from a path to get the playbook's name. */
 function playbookName(filePath) {
     return path_1.default.basename(filePath).replace(/\.playbook\.js$/, '');
@@ -67,6 +71,10 @@ async function validateFile(filePath) {
         if (!evalUse.safe) {
             return { ...base, hash, valid: false, error: `blocked: ${evalUse.reason}` };
         }
+    }
+    const targets = (0, element_targets_1.validateElementTargets)(source, meta);
+    if (targets.error) {
+        return { ...base, hash, valid: false, error: targets.error };
     }
     return { ...base, hash, valid: true, meta, signature: buildSignature(name, meta) };
 }

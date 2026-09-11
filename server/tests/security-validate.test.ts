@@ -19,6 +19,7 @@ const GOOD = `export const meta = {
   params: { text: { type: 'string', required: true }, pin: { type: 'boolean' } },
   profile: 'developer',
   startingPoint: 'x.com',
+  useRawSelectors: true,
 };
 
 export default async function ({ supersurf, params }) {
