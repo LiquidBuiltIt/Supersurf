@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const registry_1 = require("./registry");
 const frames_1 = require("../lib/frames");
+const handle_resolve_1 = require("../../experimental/fingerprinting/handle-resolve");
 const helpers_1 = require("./helpers");
 const option_matcher_1 = require("./option-matcher");
 (0, registry_1.registerAction)({
@@ -17,7 +18,7 @@ const option_matcher_1 = require("./option-matcher");
         const meta = { name: action.name, purpose: action.purpose };
         const triggerMatch = await (0, frames_1.resolveInFrames)(ctx, expr, triggerSelector, meta);
         if (!triggerMatch)
-            throw new Error(`No custom dropdown trigger found at ${triggerSelector}.`);
+            throw new Error(`No custom dropdown trigger found at ${triggerSelector}.${(0, handle_resolve_1.handleMissHint)(triggerSelector)}`);
         const frameContextId = triggerMatch.contextId;
         const detection = await (0, frames_1.evalInFrameOrTop)(ctx, `
       (() => {
@@ -44,7 +45,7 @@ const option_matcher_1 = require("./option-matcher");
       })()
     `, frameContextId);
         if (!detection?.found) {
-            throw new Error(`No custom dropdown trigger found at ${triggerSelector}. Use select_option for native <select> elements.`);
+            throw new Error(`No custom dropdown trigger found at ${triggerSelector}. Use select_option for native <select> elements.${(0, handle_resolve_1.handleMissHint)(triggerSelector)}`);
         }
         const beforeSnapshot = await (0, frames_1.evalInFrameOrTop)(ctx, `
       (() => {

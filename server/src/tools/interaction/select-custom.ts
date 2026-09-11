@@ -1,5 +1,6 @@
 import { registerAction } from './registry';
 import { resolveInFrames, evalInFrameOrTop, getCenterInFrame } from '../lib/frames';
+import { handleMissHint } from '../../experimental/fingerprinting/handle-resolve';
 import { moveCursorTo } from './helpers';
 import { OPTION_MATCHER_JS } from './option-matcher';
 
@@ -14,7 +15,7 @@ registerAction({
     const expr = ctx.getSelectorExpression(triggerSelector);
     const meta = { name: action.name, purpose: action.purpose };
     const triggerMatch = await resolveInFrames(ctx, expr, triggerSelector, meta);
-    if (!triggerMatch) throw new Error(`No custom dropdown trigger found at ${triggerSelector}.`);
+    if (!triggerMatch) throw new Error(`No custom dropdown trigger found at ${triggerSelector}.${handleMissHint(triggerSelector)}`);
     const frameContextId = triggerMatch.contextId;
 
     const detection = await evalInFrameOrTop(ctx, `
@@ -43,7 +44,7 @@ registerAction({
     `, frameContextId);
 
     if (!detection?.found) {
-      throw new Error(`No custom dropdown trigger found at ${triggerSelector}. Use select_option for native <select> elements.`);
+      throw new Error(`No custom dropdown trigger found at ${triggerSelector}. Use select_option for native <select> elements.${handleMissHint(triggerSelector)}`);
     }
 
     const beforeSnapshot = await evalInFrameOrTop(ctx, `
