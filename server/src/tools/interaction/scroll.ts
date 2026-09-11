@@ -1,5 +1,5 @@
 import { registerAction } from './registry';
-import { resolveInFrames, evalInFrameOrTop } from '../lib/frames';
+import { resolveInFrames, evalInFrameOrTop, elementNotFoundError } from '../lib/frames';
 
 registerAction({
   name: 'scroll_to',
@@ -8,7 +8,7 @@ registerAction({
       const selectorExpr = ctx.getSelectorExpression(action.selector);
       const meta = { name: action.name, purpose: action.purpose };
       const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
-      if (!match) throw new Error(`Element not found: ${action.selector}`);
+      if (!match) throw elementNotFoundError(action.selector);
       const expr = `
         (() => {
           const el = ${match.resolvedExpr};
@@ -33,7 +33,7 @@ registerAction({
       const selectorExpr = ctx.getSelectorExpression(action.selector);
       const meta = { name: action.name, purpose: action.purpose };
       const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
-      if (!match) throw new Error(`Element not found: ${action.selector}`);
+      if (!match) throw elementNotFoundError(action.selector);
       const expr = `
         (() => {
           const el = ${match.resolvedExpr};
@@ -57,7 +57,7 @@ registerAction({
     const selectorExpr = ctx.getSelectorExpression(action.selector);
     const meta = { name: action.name, purpose: action.purpose };
     const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
-    if (!match) throw new Error(`Element not found: ${action.selector}`);
+    if (!match) throw elementNotFoundError(action.selector);
     const expr = `
       (() => {
         const el = ${match.resolvedExpr};

@@ -144,6 +144,22 @@ describe('onInteract()', () => {
     expect(result.content[0].text).toContain('Clicked');
   });
 
+  // ── Clear ──
+
+  it('appends the `@` handle hint when clear misses on a bare handle-shaped selector', async () => {
+    // Force a total resolveInFrames() miss: no top-frame match, no frames to walk.
+    (ctx.cdp as any).mockImplementation(async (method: string) => {
+      if (method === 'Runtime.evaluate') return { result: {} };
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'root' }, childFrames: [] } };
+      return {};
+    });
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'clear', selector: 'submit_review' }],
+    }, {});
+    expect(result.content[0].text).toContain('Element not found: submit_review');
+    expect(result.content[0].text).toContain('If you meant the handle, target it with `@submit_review`');
+  });
+
   // ── Type ──
 
   it('handles type action', async () => {
@@ -400,6 +416,24 @@ describe('onInteract()', () => {
     }, {});
 
     expect(result.content[0].text).toContain('✗ select_custom');
+  });
+
+  it('appends the `@` handle hint when select_custom finds no trigger element in any frame', async () => {
+    // Force a total resolveInFrames() miss for the trigger: no top-frame
+    // match, no frames to walk — the branch this action throws from before
+    // it ever gets to the "found: false" detection check above.
+    (ctx.cdp as any).mockImplementation(async (method: string) => {
+      if (method === 'Runtime.evaluate') return { result: {} };
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'root' }, childFrames: [] } };
+      return {};
+    });
+
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'select_custom', selector: 'submit_review', value: 'Foo' }],
+    }, {});
+
+    expect(result.content[0].text).toContain('No custom dropdown trigger found at submit_review');
+    expect(result.content[0].text).toContain('If you meant the handle, target it with `@submit_review`');
   });
 
   describe('select_custom OPTION_MATCHER_JS (fuzzy match)', () => {

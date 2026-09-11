@@ -1,5 +1,6 @@
 import { registerAction } from './registry';
 import { resolveInFrames } from '../lib/frames';
+import { handleMissHint } from '../../experimental/fingerprinting/handle-resolve';
 
 registerAction({
   name: 'wait',
@@ -13,7 +14,7 @@ registerAction({
         if (match) return `Element appeared: ${action.selector}`;
         await ctx.sleep(100);
       }
-      throw new Error(`Timeout waiting for element: ${action.selector}`);
+      throw new Error(`Timeout waiting for element: ${action.selector}${handleMissHint(action.selector)}`);
     }
     await ctx.sleep(timeout);
     return `Waited ${timeout}ms`;

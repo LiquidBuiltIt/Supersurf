@@ -1,5 +1,16 @@
 import type { ToolContext } from './types';
 /**
+ * Standard "Element not found" error for a `resolveInFrames()` total miss
+ * (selector matched neither the top frame, any child frame, nor a
+ * fingerprint heal). Every selector-targeting action that throws immediately
+ * on a `resolveInFrames()` miss should build its error through this helper
+ * rather than reimplementing it, so the handle-marker diagnostic
+ * (`handleMissHint`) is attached once, not per call site. `resolveInFrames`
+ * itself stays non-throwing — `wait` polls on a `null` return rather than
+ * failing immediately, so the throw decision has to stay with the caller.
+ */
+export declare function elementNotFoundError(selector: string): Error;
+/**
  * Create an isolated world in every child frame and return their execution
  * context ids. Used by heal/score passes that must evaluate in each frame
  * regardless of whether a selector matches there. Skips frames whose isolated

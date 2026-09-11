@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const registry_1 = require("./registry");
 const frames_1 = require("../lib/frames");
+const handle_resolve_1 = require("../../experimental/fingerprinting/handle-resolve");
 (0, registry_1.registerAction)({
     name: 'wait',
     async run(ctx, action) {
@@ -15,7 +16,7 @@ const frames_1 = require("../lib/frames");
                     return `Element appeared: ${action.selector}`;
                 await ctx.sleep(100);
             }
-            throw new Error(`Timeout waiting for element: ${action.selector}`);
+            throw new Error(`Timeout waiting for element: ${action.selector}${(0, handle_resolve_1.handleMissHint)(action.selector)}`);
         }
         await ctx.sleep(timeout);
         return `Waited ${timeout}ms`;

@@ -9,7 +9,7 @@ const frames_1 = require("../lib/frames");
         const meta = { name: action.name, purpose: action.purpose };
         const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr, action.selector, meta);
         if (!match)
-            throw new Error(`Element not found: ${action.selector}`);
+            throw (0, frames_1.elementNotFoundError)(action.selector);
         const clearExpr = `
       (() => {
         const el = ${match.resolvedExpr};

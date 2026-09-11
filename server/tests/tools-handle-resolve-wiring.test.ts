@@ -42,9 +42,14 @@ function ctxAt(url: string): any {
 describe('ToolContext handle translation', () => {
   const url = 'https://x.com/home';
 
-  it('resolveSelector translates a known handle', () => {
+  it('resolveSelector translates a known `@`-marked handle', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
-    expect(ctxAt(url).resolveSelector('tweet_button')).toBe('#post');
+    expect(ctxAt(url).resolveSelector('@tweet_button')).toBe('#post');
+  });
+
+  it('resolveSelector never translates a bare snake_case string — the `@` marker is required', () => {
+    putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
+    expect(ctxAt(url).resolveSelector('tweet_button')).toBe('tweet_button');
   });
 
   it('resolveSelector passes a plain selector through', () => {
@@ -53,13 +58,13 @@ describe('ToolContext handle translation', () => {
     expect(ctx.resolveSelector('button:has-text("Post")')).toBe('button:has-text("Post")');
   });
 
-  it('resolveSelector returns an unknown handle unchanged', () => {
-    expect(ctxAt(url).resolveSelector('tweet_button')).toBe('tweet_button');
+  it('resolveSelector returns an unknown `@`-marked handle with the marker stripped', () => {
+    expect(ctxAt(url).resolveSelector('@tweet_button')).toBe('tweet_button');
   });
 
   it('getSelectorExpression embeds the translated selector, not the handle', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
-    const expr = ctxAt(url).getSelectorExpression('tweet_button');
+    const expr = ctxAt(url).getSelectorExpression('@tweet_button');
     expect(expr).toContain('"#post"');
     expect(expr).not.toContain('tweet_button');
   });
@@ -68,10 +73,10 @@ describe('ToolContext handle translation', () => {
     expect(ctxAt(url).getSelectorExpression('button:has-text("Post")')).toContain('textContent');
   });
 
-  it('does not translate when the experiment is off', () => {
+  it('does not translate an `@`-marked handle when the experiment is off (marker still stripped)', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     mockEnabled.mockReturnValue(false);
-    expect(ctxAt(url).resolveSelector('tweet_button')).toBe('tweet_button');
+    expect(ctxAt(url).resolveSelector('@tweet_button')).toBe('tweet_button');
   });
 });
 

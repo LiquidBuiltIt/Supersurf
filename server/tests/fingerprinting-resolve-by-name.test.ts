@@ -57,15 +57,23 @@ describe('resolveSelectorOrHandle', () => {
     expect(out.attempted).toBe(false);
   });
 
-  it('translates a known handle to its stored selector', () => {
+  it('a bare snake_case string is never treated as a handle reference (hard switch — no shape guessing)', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const out = resolveSelectorOrHandle('https://x.com/home', 'tweet_button');
+    expect(out.selector).toBe('tweet_button');
+    expect(out.handle).toBeNull();
+    expect(out.attempted).toBe(false);
+  });
+
+  it('translates a `@`-marked handle to its stored selector', () => {
+    putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
+    const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button');
     expect(out.selector).toBe('#post');
     expect(out.attempted).toBe(true);
   });
 
-  it('leaves an unknown handle untouched but reports the attempt', () => {
-    const out = resolveSelectorOrHandle('https://x.com/home', 'tweet_button');
+  it('leaves an unknown `@`-marked handle untouched (marker stripped) but reports the attempt', () => {
+    const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button');
     expect(out.selector).toBe('tweet_button');
     expect(out.handle).toBeNull();
     expect(out.attempted).toBe(true);
@@ -73,20 +81,21 @@ describe('resolveSelectorOrHandle', () => {
 
   it('is idempotent — translating a translated selector is a no-op', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
-    const once = resolveSelectorOrHandle('https://x.com/home', 'tweet_button').selector;
+    const once = resolveSelectorOrHandle('https://x.com/home', '@tweet_button').selector;
+    expect(once).toBe('#post');
     expect(resolveSelectorOrHandle('https://x.com/home', once).selector).toBe('#post');
   });
 
-  it('does nothing when the experiment is off', () => {
+  it('strips the `@` marker even when the experiment is off, but does not resolve', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     mockEnabled.mockReturnValue(false);
-    const out = resolveSelectorOrHandle('https://x.com/home', 'tweet_button');
+    const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button');
     expect(out.selector).toBe('tweet_button');
     expect(out.attempted).toBe(false);
   });
 
-  it('does nothing for the unknown domain bucket (nothing is ever stored there)', () => {
-    const out = resolveSelectorOrHandle(undefined, 'tweet_button');
+  it('strips the `@` marker for the unknown domain bucket (nothing is ever stored there)', () => {
+    const out = resolveSelectorOrHandle(undefined, '@tweet_button');
     expect(out.selector).toBe('tweet_button');
     expect(out.attempted).toBe(false);
   });
@@ -98,7 +107,7 @@ describe('resolveWithHealing with a handle name', () => {
   it('queries the translated selector, not the handle name', async () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const { fn, seen } = fakeEval({ '#post': { x: 42, y: 43 } });
-    const center = await resolveWithHealing(fn, 'tweet_button', () => url);
+    const center = await resolveWithHealing(fn, '@tweet_button', () => url);
     expect(center).toEqual({ x: 42, y: 43 });
     expect(seen.some(e => e.includes('"#post"'))).toBe(true);
     expect(seen.some(e => e.includes('"tweet_button"'))).toBe(false);
@@ -108,10 +117,10 @@ describe('resolveWithHealing with a handle name', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const events: AnyHandleEvent[] = [];
     const { fn } = fakeEval({ '#post': { x: 1, y: 2 } });
-    await resolveWithHealing(fn, 'tweet_button', () => url, undefined, undefined, e => events.push(e));
+    await resolveWithHealing(fn, '@tweet_button', () => url, undefined, undefined, e => events.push(e));
     const ev = events.find(e => e.event === 'handle.resolved');
     expect(ev).toMatchObject({
-      event: 'handle.resolved', name: 'tweet_button', match: 'canonical',
+      event: 'handle.resolved', name: '@tweet_button', match: 'canonical',
       candidateCount: 1, selector: '#post', domain: 'x.com', route: '/home',
     });
   });
@@ -120,17 +129,36 @@ describe('resolveWithHealing with a handle name', () => {
     const events: AnyHandleEvent[] = [];
     const { fn } = fakeEval({});
     await expect(
-      resolveWithHealing(fn, 'tweet_button', () => url, undefined, undefined, e => events.push(e)),
+      resolveWithHealing(fn, '@tweet_button', () => url, undefined, undefined, e => events.push(e)),
     ).rejects.toThrow(/tweet_button/);
     expect(events.find(e => e.event === 'handle.resolved')).toMatchObject({
       match: 'miss', candidateCount: 0, selector: '',
     });
   });
 
-  it('appends a handle hint to the error when an unresolved handle fails as a selector', async () => {
+  it('appends a handle hint to the error when an unresolved `@`-marked handle fails as a selector', async () => {
+    const { fn } = fakeEval({});
+    await expect(resolveWithHealing(fn, '@tweet_button', () => url))
+      .rejects.toThrow(/no recorded handle named `tweet_button`/);
+  });
+
+  it('a bare snake_case selector is never treated as a handle — it just misses as CSS', async () => {
+    putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const { fn } = fakeEval({});
     await expect(resolveWithHealing(fn, 'tweet_button', () => url))
-      .rejects.toThrow(/no recorded handle named `tweet_button`/);
+      .rejects.not.toThrow(/no recorded handle named/);
+  });
+
+  it('appends the `@` hint when a bare snake_case selector misses and looks handle-shaped', async () => {
+    const { fn } = fakeEval({});
+    await expect(resolveWithHealing(fn, 'tweet_button', () => url))
+      .rejects.toThrow(/If you meant the handle, target it with `@tweet_button`/);
+  });
+
+  it('does not append the `@` hint for a miss that is not handle-shaped', async () => {
+    const { fn } = fakeEval({});
+    await expect(resolveWithHealing(fn, '#post', () => url))
+      .rejects.not.toThrow(/If you meant the handle/);
   });
 
   it('leaves plain-selector behaviour completely unchanged', async () => {
@@ -140,11 +168,20 @@ describe('resolveWithHealing with a handle name', () => {
     expect(seen.some(e => e.includes('"#post"'))).toBe(true);
   });
 
-  it('falls through to the CSS path for a handle when the experiment is off', async () => {
+  it('falls through to the CSS path for a `@`-marked handle when the experiment is off, marker stripped', async () => {
     mockEnabled.mockReturnValue(false);
     const { fn, seen } = fakeEval({ tweet_button: { x: 3, y: 4 } });
-    const center = await resolveWithHealing(fn, 'tweet_button', () => url);
+    const center = await resolveWithHealing(fn, '@tweet_button', () => url);
     expect(center).toEqual({ x: 3, y: 4 });
     expect(seen.some(e => e.includes('"tweet_button"'))).toBe(true);
+  });
+
+  it('reports "no handle recorded" — not the `@` hint — when a marker-bearing selector misses with the experiment off', async () => {
+    mockEnabled.mockReturnValue(false);
+    const { fn } = fakeEval({});
+    await expect(resolveWithHealing(fn, '@tweet_button', () => url))
+      .rejects.toThrow(/No handle named `tweet_button` is recorded for this page/);
+    await expect(resolveWithHealing(fn, '@tweet_button', () => url))
+      .rejects.not.toThrow(/If you meant the handle/);
   });
 });
