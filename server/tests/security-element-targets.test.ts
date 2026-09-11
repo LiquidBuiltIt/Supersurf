@@ -280,6 +280,18 @@ export default async function ({ supersurf }) {
     const { error } = validateElementTargets(src, meta({ startingPoint: 'x.com' }));
     expect(error).toContain('const`-bound to a string literal more than once');
   });
+
+  it('rejects aliasing the whole supersurf client object itself to another variable (fix round 2)', () => {
+    // RED-MAKER: remove the `VariableDeclarator` visitor's object-alias branch
+    // (the `node.init?.type === 'Identifier' && node.init.name === 'supersurf'`
+    // check) in element-targets.ts — `s2.click('@ghost_via_reassign')` has a
+    // callee object named `s2`, not `supersurf`, so the CallExpression walk's
+    // `callee.object.name !== 'supersurf'` guard would silently skip it.
+    const src = `let s2 = supersurf;
+export default async function () { await s2.click('@ghost_via_reassign'); }`;
+    const { error } = validateElementTargets(src, meta());
+    expect(error).toContain('aliases the `supersurf` client object itself');
+  });
 });
 
 describe('validateElementTargets — non-target arguments and calls are ignored', () => {

@@ -10,12 +10,29 @@
  *      any call form this analyzer cannot positively verify is REJECTED, never
  *      silently skipped. Destructuring `supersurf` (`const { click } =
  *      supersurf`), assigning one of its members to a variable (`const c =
- *      supersurf.click`), and computed member access (`supersurf['click']`)
- *      all escape a naive `callee.object.name === 'supersurf'` check — each is
- *      rejected outright, by name, rather than treated as "not a target call"
- *      and let through. An allowlist-and-skip walker is backwards for a
+ *      supersurf.click`), computed member access (`supersurf['click']`), and
+ *      aliasing the whole client object itself to another name (`let s2 =
+ *      supersurf`, or the bare assignment `s2 = supersurf`) all escape a naive
+ *      `callee.object.name === 'supersurf'` check — each is rejected outright,
+ *      by name, rather than treated as "not a target call" and let through.
+ *      The object-alias case matters most of the four: it is a normal
+ *      brevity idiom, not an attack shape, so an honest author who writes
+ *      `let s2 = supersurf` for convenience silently loses every check in the
+ *      file with no error and no signal — exactly the failure mode this gate
+ *      exists to catch. An allowlist-and-skip walker is backwards for a
  *      security gate: the default for anything unrecognized must be reject,
  *      not pass.
+ *
+ *      KNOWN, ACCEPTED GAP — not fixed: aggregating `supersurf` into a
+ *      structure before calling through it, e.g. `const arr = [supersurf];
+ *      arr[0].click(...)`, is not detected. Closing it needs binding-level
+ *      taint tracking of the `supersurf` identifier through arbitrary
+ *      structures — the scope analysis this module deliberately does not
+ *      build (see point 2). Accepted because the sandbox (`security/sandbox/`)
+ *      and `meta.permissions` are the actual runtime enforcement boundary;
+ *      this module is a pre-flight correctness gate that catches the honest
+ *      mistakes and the cheap-to-detect bypasses, not a substitute for the
+ *      sandbox.
  *
  *   2. The argument's FORM must be one of exactly two legal shapes: a plain
  *      string literal, or an identifier `const`-bound to one in the same
@@ -265,6 +282,35 @@ export function validateElementTargets(source: string, meta: PlaybookMeta): { er
           'playbook assigns a `supersurf` member to a variable (`const c = supersurf.click`) — call verbs ' +
           'directly as `supersurf.click(...)`, not through an aliased binding';
         return;
+      }
+
+      // `let s2 = supersurf` — aliasing the whole client object itself, not
+      // one of its members, to another name. An honest author reaching for
+      // brevity loses every check in this file with no error and no signal,
+      // which is exactly the failure mode this gate exists to catch — so it
+      // is rejected by name alongside member-aliasing and destructuring,
+      // even though nothing downstream calls through `s2` in this example.
+      if (node.id?.type === 'Identifier' && node.init?.type === 'Identifier' && node.init.name === 'supersurf') {
+        error =
+          'playbook aliases the `supersurf` client object itself to a variable (`let s2 = supersurf`) — call ' +
+          'verbs directly as `supersurf.click(...)`, not through an aliased binding';
+        return;
+      }
+    },
+    AssignmentExpression(node: any) {
+      if (error) return;
+
+      // `s2 = supersurf` — the same object-alias bypass, written as a bare
+      // assignment instead of a declaration.
+      if (
+        node.operator === '=' &&
+        node.left?.type === 'Identifier' &&
+        node.right?.type === 'Identifier' &&
+        node.right.name === 'supersurf'
+      ) {
+        error =
+          'playbook aliases the `supersurf` client object itself to a variable (`s2 = supersurf`) — call verbs ' +
+          'directly as `supersurf.click(...)`, not through an aliased binding';
       }
     },
   });
