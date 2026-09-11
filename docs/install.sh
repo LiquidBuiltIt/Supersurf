@@ -10,6 +10,10 @@
 # controlling terminal (CI, Docker, an agent), and it installs the binary and
 # prints the extension URL without prompting.
 #
+# Pass --client=claude to also register SuperSurf with the claude CLI
+# (`claude mcp add`). Left unset, interactive mode offers to do this once the
+# extension is connected; non-interactive mode just prints the command.
+#
 # Re-running the script is the upgrade path.
 #
 # POSIX sh on purpose. The documented command pipes into `sh`, which is dash on
@@ -22,6 +26,9 @@ CWS_URL="https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgp
 INSTALL_DIR="${SUPERSURF_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="latest"
 ASSUME_YES=0
+CLIENT=""
+CLIENT_EXPLICIT=0
+REGISTERED=0
 
 # How long interactive mode waits for the extension to connect. Installing from
 # the Web Store is a multi-step human action; a short timeout would fire while
@@ -54,6 +61,7 @@ Usage:
 
 Options:
   --yes              Never prompt. Install the binary, print the extension URL, exit.
+  --client <name>    Register SuperSurf with an MCP client. Supported: claude.
   --version <ver>    Install a specific release (e.g. 3.5.0) instead of the latest.
   --dir <path>       Install into <path> instead of ~/.local/bin.
   -h, --help         Show this message.
@@ -68,16 +76,27 @@ EOF
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --yes|-y)   ASSUME_YES=1 ;;
-    --version)  [ $# -ge 2 ] || die "--version needs a value, e.g. --version 3.5.0"
-                VERSION="$2"; shift ;;
-    --dir)      [ $# -ge 2 ] || die "--dir needs a path"
-                INSTALL_DIR="$2"; shift ;;
-    -h|--help)  usage; exit 0 ;;
-    *)          die "Unknown option: $1. Run with --help for usage." ;;
+    --yes|-y)     ASSUME_YES=1 ;;
+    --client=*)   CLIENT="${1#--client=}"; CLIENT_EXPLICIT=1 ;;
+    --client)     [ $# -ge 2 ] || die "--client needs a value, e.g. --client claude"
+                  CLIENT="$2"; CLIENT_EXPLICIT=1; shift ;;
+    --version)    [ $# -ge 2 ] || die "--version needs a value, e.g. --version 3.5.0"
+                  VERSION="$2"; shift ;;
+    --dir)        [ $# -ge 2 ] || die "--dir needs a path"
+                  INSTALL_DIR="$2"; shift ;;
+    -h|--help)    usage; exit 0 ;;
+    *)            die "Unknown option: $1. Run with --help for usage." ;;
   esac
   shift
 done
+
+# Validated once, up front, so a bad value fails before any network work
+# rather than after the extension handshake. The case is the one place to
+# extend when a second client (cursor, codex, ...) is supported.
+case "$CLIENT" in
+  ""|claude) ;;
+  *) die "Unsupported --client value: '$CLIENT'. Supported values: claude" ;;
+esac
 
 # ------------------------------------------------------------- platform ----
 
@@ -334,6 +353,49 @@ wait_for_extension() {
   say  "    ${BOLD}supersurf daemon status${RESET}"
 }
 
+# --------------------------------------------------------------- clients ----
+
+# `claude mcp add` failing must never fail the install: the binary is already
+# in place, so a registration hiccup is a `warn`, never a `die`. Re-running
+# the installer is the documented upgrade path, so a second `add` for a name
+# that already exists is the expected idempotent case, not an error.
+register_claude() {
+  if ! command -v claude >/dev/null 2>&1; then
+    warn "claude CLI not found on PATH; skipping registration"
+    return 0
+  fi
+
+  out=$(claude mcp add --scope user supersurf -- supersurf mcp 2>&1) && rc=0 || rc=$?
+
+  # `claude mcp add` for a name that already exists prints "already exists" and
+  # exits 0 (verified against 2.1.267) — it declines rather than overwriting.
+  # Matched on the message, not the exit code, so re-running the installer does
+  # not report "Registered" for a call that registered nothing. Kept outside the
+  # exit-code branches so a future release that reports this as an error lands
+  # in the same arm.
+  case "$out" in
+    *[Aa]lready*) ok "supersurf is already registered with the claude CLI"
+                  REGISTERED=1
+                  return 0 ;;
+  esac
+
+  if [ "$rc" -eq 0 ]; then
+    ok "Registered supersurf with the claude CLI"
+    REGISTERED=1
+    return 0
+  fi
+
+  warn "Could not register with the claude CLI: $out"
+}
+
+# One-line change to add a second client later: a new case arm here.
+register_client() {
+  step "Registering with your MCP client"
+  case "$CLIENT" in
+    claude) register_claude ;;
+  esac
+}
+
 # ------------------------------------------------------------------ main ----
 
 DOWNLOADER=$(detect_downloader)
@@ -353,8 +415,13 @@ ensure_on_path
 if [ "$ASSUME_YES" -eq 1 ] || ! { [ -r /dev/tty ] && [ -c /dev/tty ]; }; then
   print_extension_step
   say ""
-  say "Point your MCP client at SuperSurf:"
-  say "  ${BOLD}claude mcp add supersurf -- supersurf mcp${RESET}"
+  [ -n "$CLIENT" ] && register_client
+  # Printed whenever registration did not happen — including when it was
+  # attempted and failed, so a warn is never the last word on what to do next.
+  if [ "$REGISTERED" -eq 0 ]; then
+    say "Point your MCP client at SuperSurf:"
+    say "  ${BOLD}claude mcp add supersurf -- supersurf mcp${RESET}"
+  fi
   say ""
   exit 0
 fi
@@ -377,7 +444,24 @@ fi
 say ""
 wait_for_extension
 
+if [ "$CLIENT_EXPLICIT" -eq 1 ]; then
+  say ""
+  register_client
+elif command -v claude >/dev/null 2>&1; then
+  say ""
+  step "Register with your MCP client"
+  printf '  Found the claude CLI. Register SuperSurf now? [Y/n] '
+  read -r answer < /dev/tty || answer=""
+  case "$answer" in
+    ''|[Yy]*) CLIENT=claude; register_client ;;
+  esac
+fi
+
 say ""
-say "${BOLD}Done.${RESET} Point your MCP client at SuperSurf:"
-say "  ${BOLD}claude mcp add supersurf -- supersurf mcp${RESET}"
+if [ "$REGISTERED" -eq 1 ]; then
+  say "${BOLD}Done.${RESET} SuperSurf is registered and ready."
+else
+  say "${BOLD}Done.${RESET} Point your MCP client at SuperSurf:"
+  say "  ${BOLD}claude mcp add supersurf -- supersurf mcp${RESET}"
+fi
 say ""

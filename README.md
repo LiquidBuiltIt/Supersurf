@@ -117,6 +117,12 @@ Re-run the same command to upgrade. In CI, Docker, or anywhere without a termina
 curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh -s -- --yes
 ```
 
+Pass `--client=claude` to skip the manual `claude mcp add` step above — the installer runs it for you once the extension is connected:
+
+```bash
+curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh -s -- --client=claude
+```
+
 <details>
 <summary><strong>Without the CLI — point your client straight at npx</strong></summary>
 
