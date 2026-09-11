@@ -144,6 +144,22 @@ describe('onInteract()', () => {
     expect(result.content[0].text).toContain('Clicked');
   });
 
+  // ── Clear ──
+
+  it('appends the `@` handle hint when clear misses on a bare handle-shaped selector', async () => {
+    // Force a total resolveInFrames() miss: no top-frame match, no frames to walk.
+    (ctx.cdp as any).mockImplementation(async (method: string) => {
+      if (method === 'Runtime.evaluate') return { result: {} };
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'root' }, childFrames: [] } };
+      return {};
+    });
+    const result = await onInteract(ctx, {
+      actions: [{ type: 'clear', selector: 'submit_review' }],
+    }, {});
+    expect(result.content[0].text).toContain('Element not found: submit_review');
+    expect(result.content[0].text).toContain('If you meant the handle, target it with `@submit_review`');
+  });
+
   // ── Type ──
 
   it('handles type action', async () => {

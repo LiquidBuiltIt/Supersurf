@@ -175,4 +175,13 @@ describe('resolveWithHealing with a handle name', () => {
     expect(center).toEqual({ x: 3, y: 4 });
     expect(seen.some(e => e.includes('"tweet_button"'))).toBe(true);
   });
+
+  it('reports "no handle recorded" — not the `@` hint — when a marker-bearing selector misses with the experiment off', async () => {
+    mockEnabled.mockReturnValue(false);
+    const { fn } = fakeEval({});
+    await expect(resolveWithHealing(fn, '@tweet_button', () => url))
+      .rejects.toThrow(/No handle named `tweet_button` is recorded for this page/);
+    await expect(resolveWithHealing(fn, '@tweet_button', () => url))
+      .rejects.not.toThrow(/If you meant the handle/);
+  });
 });

@@ -10,12 +10,21 @@ export declare function looksLikeHandle(s: string): boolean;
  */
 export declare function isHandleRef(s: string): boolean;
 /**
- * Failure-path advisory for a selector that missed AND is shaped exactly like a
- * normalized handle name — the old resolution regex, demoted to a diagnostic only.
- * Returns '' when the shape gives no reason to suspect a forgotten `@` marker, so
- * callers can unconditionally splice the result into a "not found" message.
+ * Failure-path advisory for a selector-slot string that missed. Takes the RAW
+ * string the agent supplied (marker or not) and picks the diagnostic that
+ * actually fits — these are two different situations, not one:
+ *
+ * - Marker present (`@submit_review`) and the lookup missed: the agent already
+ *   did it right — there is simply no handle recorded under that name for this
+ *   page. Suggesting `@name` again would be nonsense.
+ * - No marker, but the shape is exactly what a normalized handle name looks
+ *   like (the old resolution regex, demoted to a diagnostic only): the agent
+ *   may have forgotten the marker.
+ *
+ * Returns '' when neither applies, so callers can unconditionally splice the
+ * result into a "not found" message.
  */
-export declare function handleMissHint(selector: string): string;
+export declare function handleMissHint(raw: string): string;
 /** A handle name matched to a stored record. */
 export interface HandleResolution {
     /** The stored selector to actually query with. */

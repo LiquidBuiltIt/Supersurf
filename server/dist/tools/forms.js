@@ -40,7 +40,7 @@ async function onFillForm(ctx, args, options) {
         // fingerprint heal across every frame.
         const match = await (0, frames_1.resolveInFrames)(ctx, expr, field.selector);
         if (!match)
-            throw new Error('Element not found: ' + field.selector);
+            throw (0, frames_1.elementNotFoundError)(field.selector);
         const fillExpr = `
       (async () => {
         const el = ${match.resolvedExpr};

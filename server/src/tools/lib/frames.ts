@@ -1,4 +1,19 @@
 import type { ToolContext } from './types';
+import { handleMissHint } from '../../experimental/fingerprinting/handle-resolve';
+
+/**
+ * Standard "Element not found" error for a `resolveInFrames()` total miss
+ * (selector matched neither the top frame, any child frame, nor a
+ * fingerprint heal). Every selector-targeting action that throws immediately
+ * on a `resolveInFrames()` miss should build its error through this helper
+ * rather than reimplementing it, so the handle-marker diagnostic
+ * (`handleMissHint`) is attached once, not per call site. `resolveInFrames`
+ * itself stays non-throwing — `wait` polls on a `null` return rather than
+ * failing immediately, so the throw decision has to stay with the caller.
+ */
+export function elementNotFoundError(selector: string): Error {
+  return new Error(`Element not found: ${selector}${handleMissHint(selector)}`);
+}
 
 /** DFS-collect every child frame's id from a `Page.getFrameTree` root (top frame excluded). */
 function collectChildFrameIds(root: any): string[] {

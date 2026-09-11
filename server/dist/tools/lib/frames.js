@@ -1,11 +1,26 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.elementNotFoundError = elementNotFoundError;
 exports.getChildFrameContexts = getChildFrameContexts;
 exports.findElementInFrames = findElementInFrames;
 exports.healSelectorAcrossFrames = healSelectorAcrossFrames;
 exports.resolveInFrames = resolveInFrames;
 exports.evalInFrameOrTop = evalInFrameOrTop;
 exports.getCenterInFrame = getCenterInFrame;
+const handle_resolve_1 = require("../../experimental/fingerprinting/handle-resolve");
+/**
+ * Standard "Element not found" error for a `resolveInFrames()` total miss
+ * (selector matched neither the top frame, any child frame, nor a
+ * fingerprint heal). Every selector-targeting action that throws immediately
+ * on a `resolveInFrames()` miss should build its error through this helper
+ * rather than reimplementing it, so the handle-marker diagnostic
+ * (`handleMissHint`) is attached once, not per call site. `resolveInFrames`
+ * itself stays non-throwing — `wait` polls on a `null` return rather than
+ * failing immediately, so the throw decision has to stay with the caller.
+ */
+function elementNotFoundError(selector) {
+    return new Error(`Element not found: ${selector}${(0, handle_resolve_1.handleMissHint)(selector)}`);
+}
 /** DFS-collect every child frame's id from a `Page.getFrameTree` root (top frame excluded). */
 function collectChildFrameIds(root) {
     const frameIds = [];

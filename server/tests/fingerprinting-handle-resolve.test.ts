@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { putRecord, setBaseDirForTests } from '../src/experimental/fingerprinting/store';
 import type { FingerprintRecord } from '../src/experimental/fingerprinting/types';
-import { looksLikeHandle, resolveHandleName } from '../src/experimental/fingerprinting/handle-resolve';
+import { looksLikeHandle, resolveHandleName, handleMissHint } from '../src/experimental/fingerprinting/handle-resolve';
 
 const TMP = path.join(process.cwd(), '.tmp-fp-handle-resolve');
 setBaseDirForTests(TMP);
@@ -18,6 +18,24 @@ function rec(over: Partial<FingerprintRecord> & { selector: string }): Fingerpri
     ...over,
   };
 }
+
+describe('handleMissHint', () => {
+  it('suggests the `@` marker for a bare selector shaped like a handle name', () => {
+    expect(handleMissHint('submit_review')).toBe(
+      '\n\nIf you meant the handle, target it with `@submit_review`.',
+    );
+  });
+
+  it('reports "no handle recorded" for a marker-bearing selector that missed — never a "did you mean @" hint', () => {
+    const hint = handleMissHint('@submit_review');
+    expect(hint).toBe('\n\nNo handle named `submit_review` is recorded for this page.');
+    expect(hint).not.toMatch(/If you meant the handle/);
+  });
+
+  it('returns nothing for a miss that is neither marker-bearing nor handle-shaped', () => {
+    expect(handleMissHint('#post')).toBe('');
+  });
+});
 
 describe('looksLikeHandle', () => {
   it('accepts multi-word snake_case', () => {

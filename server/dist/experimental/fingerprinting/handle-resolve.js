@@ -46,15 +46,28 @@ function isHandleRef(s) {
     return typeof s === 'string' && s.startsWith(HANDLE_MARKER) && s.length > HANDLE_MARKER.length;
 }
 /**
- * Failure-path advisory for a selector that missed AND is shaped exactly like a
- * normalized handle name — the old resolution regex, demoted to a diagnostic only.
- * Returns '' when the shape gives no reason to suspect a forgotten `@` marker, so
- * callers can unconditionally splice the result into a "not found" message.
+ * Failure-path advisory for a selector-slot string that missed. Takes the RAW
+ * string the agent supplied (marker or not) and picks the diagnostic that
+ * actually fits — these are two different situations, not one:
+ *
+ * - Marker present (`@submit_review`) and the lookup missed: the agent already
+ *   did it right — there is simply no handle recorded under that name for this
+ *   page. Suggesting `@name` again would be nonsense.
+ * - No marker, but the shape is exactly what a normalized handle name looks
+ *   like (the old resolution regex, demoted to a diagnostic only): the agent
+ *   may have forgotten the marker.
+ *
+ * Returns '' when neither applies, so callers can unconditionally splice the
+ * result into a "not found" message.
  */
-function handleMissHint(selector) {
-    if (!looksLikeHandle(selector))
+function handleMissHint(raw) {
+    if (isHandleRef(raw)) {
+        const name = raw.slice(HANDLE_MARKER.length);
+        return `\n\nNo handle named \`${name}\` is recorded for this page.`;
+    }
+    if (!looksLikeHandle(raw))
         return '';
-    return `\n\nIf you meant the handle, target it with \`@${selector}\`.`;
+    return `\n\nIf you meant the handle, target it with \`@${raw}\`.`;
 }
 /** hits desc, then lastSeenAt desc — the record that has actually been working wins. */
 function bestFirst(a, b) {
