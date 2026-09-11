@@ -16,6 +16,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onGetElementStyles = onGetElementStyles;
+const handle_resolve_1 = require("../experimental/fingerprinting/handle-resolve");
 /** Strip content hashes from CSS filenames: `frontend-abc123.css` → `frontend.css` */
 function cleanCSSFilename(href) {
     const parts = href.split('/');
@@ -53,7 +54,7 @@ async function onGetElementStyles(ctx, args, options) {
         selector,
     });
     if (!queryResult.nodeId)
-        throw new Error(`Element not found: ${rawSelector}`);
+        throw new Error(`Element not found: ${rawSelector}${(0, handle_resolve_1.handleMissHint)(rawSelector)}`);
     // Force pseudo states if requested
     if (pseudoState.length > 0) {
         await ctx.cdp('CSS.forcePseudoState', {

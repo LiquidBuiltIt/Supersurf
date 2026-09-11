@@ -16,6 +16,10 @@ describe('normalizeName', () => {
   it('preserves already-canonical names', () => {
     expect(normalizeName('first_name')).toBe('first_name');
   });
+  it('strips a stray `@` mistakenly supplied at capture time — the marker is a selector-slot-only convention', () => {
+    expect(normalizeName('@submit_review')).toBe('submit_review');
+    expect(normalizeName('@submit_review')).toBe(normalizeName('submit_review'));
+  });
   it('returns empty string for nullish/empty input', () => {
     expect(normalizeName(undefined)).toBe('');
     expect(normalizeName(null)).toBe('');

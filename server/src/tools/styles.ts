@@ -15,6 +15,7 @@
  */
 
 import type { ToolContext } from './lib/types';
+import { handleMissHint } from '../experimental/fingerprinting/handle-resolve';
 
 /** Strip content hashes from CSS filenames: `frontend-abc123.css` → `frontend.css` */
 function cleanCSSFilename(href: string): string {
@@ -49,7 +50,7 @@ export async function onGetElementStyles(ctx: ToolContext, args: any, options: a
     nodeId: doc.root.nodeId,
     selector,
   });
-  if (!queryResult.nodeId) throw new Error(`Element not found: ${rawSelector}`);
+  if (!queryResult.nodeId) throw new Error(`Element not found: ${rawSelector}${handleMissHint(rawSelector)}`);
 
   // Force pseudo states if requested
   if (pseudoState.length > 0) {

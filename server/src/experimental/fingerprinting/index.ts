@@ -6,7 +6,7 @@ import { captureExpr, scoreExpr } from './page-scripts';
 import type { Fingerprint, FingerprintRecord, ScoreHit } from './types';
 import { mergeHandleMeta } from './handle-meta';
 import type { HandleMeta } from './handle-meta';
-import { resolveSelectorOrHandle } from './handle-resolve';
+import { resolveSelectorOrHandle, handleMissHint } from './handle-resolve';
 
 export const THRESHOLD = 0.6;
 export const MARGIN = 0.10;
@@ -202,17 +202,29 @@ export async function resolveWithHealing(
   meta?: HandleMeta,
   emitHandle?: HandleEmit,
 ): Promise<{ x: number; y: number }> {
-  if (!experimentRegistry.isEnabled('fingerprinting')) {
-    return getElementCenter(evalFn, selector);
-  }
   const url = getUrl();
   const domain = domainOf(url), route = routeOf(url);
 
-  // Translate a handle name to the selector it was captured against. Must happen
-  // before anything else: `query` is used as the page query, the capture key AND
-  // the heal key below, and a handle name would miss on all three.
+  // Translate a handle reference to the selector it was captured against. Must
+  // happen before anything else — including the experiment-gate check below:
+  // `query` is used as the page query, the capture key AND the heal key, and a
+  // stray `@` marker left in place would be a syntactically invalid CSS selector
+  // on all three, gate on or off.
   const translated = resolveSelectorOrHandle(url, selector);
   const query = translated.selector;
+
+  if (!experimentRegistry.isEnabled('fingerprinting')) {
+    try {
+      return await getElementCenter(evalFn, query);
+    } catch (missErr) {
+      // The feature is off, but the shape/marker still tells the agent something
+      // useful: either they used `@name` (translation just doesn't run while the
+      // experiment is disabled) or the shape alone suggests they meant to.
+      if (missErr instanceof Error) missErr.message += handleMissHint(selector);
+      throw missErr;
+    }
+  }
+
   if (translated.attempted) {
     try {
       emitHandle?.({
@@ -256,12 +268,19 @@ export async function resolveWithHealing(
     } catch {
       fire('escalated', null, null, false);
     }
-    // An unresolved handle that also failed as a CSS selector: say so, so the agent
-    // stops retrying the name and looks the element up for itself.
-    if (translated.attempted && !translated.handle && missErr instanceof Error) {
-      missErr.message +=
-        `\n\nThere is no recorded handle named \`${selector}\` on ${domain}${route}. ` +
-        'Handles resolve only against elements previously interacted with by that name on this route.';
+    if (missErr instanceof Error) {
+      if (translated.attempted && !translated.handle) {
+        // An unresolved handle that also failed as a CSS selector: say so, so the agent
+        // stops retrying the name and looks the element up for itself.
+        missErr.message +=
+          `\n\nThere is no recorded handle named \`${query}\` on ${domain}${route}. ` +
+          'Handles resolve only against elements previously interacted with by that name on this route.';
+      } else if (!translated.attempted) {
+        // No `@` marker was used, so translation never ran — but the selector's shape is
+        // exactly what a normalized handle name looks like, so the agent may have simply
+        // forgotten the marker. Demoted diagnostic only; see `looksLikeHandle`.
+        missErr.message += handleMissHint(selector);
+      }
     }
     throw missErr; // escalate = original "Element not found" error
   }

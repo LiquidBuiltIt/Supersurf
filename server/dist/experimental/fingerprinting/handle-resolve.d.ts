@@ -1,6 +1,21 @@
 import type { FingerprintRecord } from './types';
-/** True when `s` is shaped like a handle name rather than a CSS selector. */
+/** True when `s` is shaped like a handle name. Resolution-time callers must use
+ *  `isHandleRef` instead; this is for name-shape validation and diagnostics only. */
 export declare function looksLikeHandle(s: string): boolean;
+/**
+ * True when a selector-slot string explicitly declares itself a handle reference
+ * via the leading `@` marker — the ONLY test `resolveSelectorOrHandle` uses to
+ * decide whether to attempt translation. No shape inspection, no ambiguity: a bare
+ * `submit_review` is always a CSS selector; `@submit_review` is always a handle.
+ */
+export declare function isHandleRef(s: string): boolean;
+/**
+ * Failure-path advisory for a selector that missed AND is shaped exactly like a
+ * normalized handle name — the old resolution regex, demoted to a diagnostic only.
+ * Returns '' when the shape gives no reason to suspect a forgotten `@` marker, so
+ * callers can unconditionally splice the result into a "not found" message.
+ */
+export declare function handleMissHint(selector: string): string;
 /** A handle name matched to a stored record. */
 export interface HandleResolution {
     /** The stored selector to actually query with. */
@@ -34,14 +49,20 @@ export interface SelectorOrHandle {
     attempted: boolean;
 }
 /**
- * The single gated entry point for handle translation. Idempotent: a real CSS
- * selector (or an already-translated one) costs one regex test and comes back
- * unchanged, so every existing call path is untouched.
+ * The single entry point for handle translation. Idempotent: a plain CSS
+ * selector (or an already-translated one, which never carries the `@` marker)
+ * costs one `startsWith` check and comes back unchanged, so every existing call
+ * path is untouched.
  *
- * A miss deliberately returns the input rather than throwing — the caller then
- * runs the normal CSS path, which either finds a real element with that name
- * (correct, it WAS a selector) or produces the normal not-found error. There is
- * no path on which a handle can resolve to the wrong element.
+ * A miss deliberately returns the (marker-stripped) input rather than throwing —
+ * the caller then runs the normal CSS path, which either finds a real element
+ * with that name (unlikely, but harmless) or produces the normal not-found
+ * error. There is no path on which a handle can resolve to the wrong element.
+ *
+ * The `@` marker is recognized — and stripped — before the experiment gate below,
+ * not after: leaving it in place on a disabled/unknown-domain fallthrough would
+ * hand the CSS path a syntactically invalid selector (`@foo`) instead of a clean
+ * (if pointless) query for `foo`.
  */
 export declare function resolveSelectorOrHandle(url: string | undefined, selector: string): SelectorOrHandle;
 //# sourceMappingURL=handle-resolve.d.ts.map

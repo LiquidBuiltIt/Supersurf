@@ -1,5 +1,6 @@
 import { registerAction } from './registry';
 import { findElementInFrames } from '../lib/frames';
+import { handleMissHint } from '../../experimental/fingerprinting/handle-resolve';
 
 registerAction({
   name: 'force_pseudo_state',
@@ -16,11 +17,11 @@ registerAction({
     if (!nodeId) {
       const selectorExpr = ctx.getSelectorExpression(selector);
       const match = await findElementInFrames(ctx, selectorExpr);
-      if (!match) throw new Error(`Element not found: ${action.selector}`);
+      if (!match) throw new Error(`Element not found: ${action.selector}${handleMissHint(action.selector)}`);
       const req = await ctx.cdp('DOM.requestNode', { objectId: match.objectId });
       nodeId = req.nodeId;
     }
-    if (!nodeId) throw new Error(`Element not found: ${action.selector}`);
+    if (!nodeId) throw new Error(`Element not found: ${action.selector}${handleMissHint(action.selector)}`);
 
     await ctx.cdp('CSS.forcePseudoState', {
       nodeId,

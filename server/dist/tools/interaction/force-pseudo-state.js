@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const registry_1 = require("./registry");
 const frames_1 = require("../lib/frames");
+const handle_resolve_1 = require("../../experimental/fingerprinting/handle-resolve");
 (0, registry_1.registerAction)({
     name: 'force_pseudo_state',
     async run(ctx, action) {
@@ -18,12 +19,12 @@ const frames_1 = require("../lib/frames");
             const selectorExpr = ctx.getSelectorExpression(selector);
             const match = await (0, frames_1.findElementInFrames)(ctx, selectorExpr);
             if (!match)
-                throw new Error(`Element not found: ${action.selector}`);
+                throw new Error(`Element not found: ${action.selector}${(0, handle_resolve_1.handleMissHint)(action.selector)}`);
             const req = await ctx.cdp('DOM.requestNode', { objectId: match.objectId });
             nodeId = req.nodeId;
         }
         if (!nodeId)
-            throw new Error(`Element not found: ${action.selector}`);
+            throw new Error(`Element not found: ${action.selector}${(0, handle_resolve_1.handleMissHint)(action.selector)}`);
         await ctx.cdp('CSS.forcePseudoState', {
             nodeId,
             forcedPseudoClasses: pseudoStates,
