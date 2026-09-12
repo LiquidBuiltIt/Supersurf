@@ -5,12 +5,12 @@
 **MCP-native browser automation. Any agent. Any model. Real Chrome, via extension — not CDP.**
 
 [![npm version](https://img.shields.io/npm/v/supersurf-mcp?style=flat-square&color=cb3837&label=npm)](https://www.npmjs.com/package/supersurf-mcp)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0_with_Commons_Clause-blue?style=flat-square)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek)
-[![Tools](https://img.shields.io/badge/28-browser%20tools-FF6F00?style=flat-square)](https://github.com/liquidbuiltit/Supersurf#tools)
+[![Tools](https://img.shields.io/badge/30-browser%20tools-FF6F00?style=flat-square)](https://github.com/liquidbuiltit/Supersurf#tools)
 
 <br />
 
@@ -201,7 +201,7 @@ SuperSurf ships as **two** npm packages:
 | **Isolated-world DOM interaction** | All page interaction runs through Chrome's content script context — an isolated world the page's own JavaScript can't read. No CDP fingerprints, no VM script artifacts. (Not tested against commercial anti-bot vendors.) |
 | **Real browser profile** | Your agent browses with your actual cookies, history, localStorage, and extensions. No sterile headless environment. |
 | **Secure credential handling** | `secure_fill` injects passwords from environment variables directly in the extension. The agent sends an env var *name*, never the value. |
-| **28 browser tools** | Full coverage: navigation, interaction, screenshots, network monitoring, console access, form filling, CSS inspection, PDF export, performance metrics, file downloads. |
+| **30 browser tools** | Full coverage: navigation, interaction, screenshots, network monitoring, console access, form filling, CSS inspection, PDF export, performance metrics, file downloads. |
 | **Session multiplexing** | Multiple MCP clients share one browser through a daemon process with tab ownership tracking and round-robin scheduling. The daemon is automatically spawned by the MCP server — no setup required. |
 | **Framework detection** | Content script identifies 40+ frontend frameworks and libraries on any page. |
 | **CI-ready** | Sideload the extension with `--load-extension` and a throwaway profile. No manual setup needed. |

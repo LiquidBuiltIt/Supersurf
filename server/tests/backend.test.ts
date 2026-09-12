@@ -258,7 +258,7 @@ describe('ConnectionManager', () => {
     });
 
     it('refuses to connect when the daemon version mismatches', async () => {
-      mockDaemonClientInstance.version = '2.1.0'; // stale daemon still running
+      mockDaemonClientInstance.version = '0.0.1'; // stale daemon still running, older than the mocked server's 0.1.0
 
       const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
 
@@ -444,6 +444,22 @@ describe('ConnectionManager', () => {
       expect(stopDaemon).toHaveBeenCalledTimes(1);
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Connected to Service');
+    });
+
+    it('names restarting the client, not the daemon, when the SERVER is the stale side', async () => {
+      // BACKLOG #46: an MCP client (Claude Code, Cursor) spawns the server once
+      // and holds it for the life of the session, so after a daemon upgrade the
+      // SERVER is usually the stale half. `npx supersurf-daemon@latest restart`
+      // fixes nothing there — the message must say so instead of repeating it.
+      mockDaemonClientInstance.version = '5.0.0'; // newer than the mocked server's 0.1.0
+
+      await backend.initialize(makeMockServer(), {});
+      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('version_mismatch');
+      expect(result.message).not.toContain('npx supersurf-daemon@latest restart');
+      expect(result.message).toContain('Restart your MCP client');
     });
   });
 

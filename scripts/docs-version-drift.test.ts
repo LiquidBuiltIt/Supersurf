@@ -42,3 +42,32 @@ describe('docs/index.html carries no hand-maintained version string', () => {
     expect(html).toContain('Commons Clause');
   });
 });
+
+/**
+ * BACKLOG #49. `README.md` states the tool count by hand in more than one
+ * place — the `## Tools` badge and the Features table both drifted to 28 while
+ * the tool tables listed 30. Deriving either would need README.md to consume
+ * `tools/schemas.ts` at build time, which is a bigger change than this bug
+ * warrants — so this test asserts *every* written count agrees with the rows,
+ * not just the badge. Scoping it to the badge alone is how the second copy
+ * survived the first fix.
+ */
+describe('README.md tool counts match its own tool tables', () => {
+  const readme = readFileSync(resolve(__dirname, '..', 'README.md'), 'utf8');
+
+  it('every hand-written count equals the number of tool rows', () => {
+    const toolsSection = readme.split(/^## Tools$/m)[1]?.split(/^## /m)[0] ?? '';
+    const toolRows = toolsSection.match(/^\| `[a-zA-Z_]+` \|/gm) ?? [];
+    expect(toolRows.length).toBeGreaterThan(0);
+
+    // Matches both the shields.io badge (`30-browser%20tools`) and prose
+    // (`30 browser tools`).
+    const written = [...readme.matchAll(/(\d+)[-\s]browser(?:%20|\s)tools/g)].map((m) => ({
+      count: Number(m[1]),
+      text: m[0],
+    }));
+    expect(written.length).toBeGreaterThan(1);
+
+    expect(written.filter((w) => w.count !== toolRows.length)).toEqual([]);
+  });
+});

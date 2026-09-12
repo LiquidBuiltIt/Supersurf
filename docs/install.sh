@@ -155,11 +155,21 @@ preflight_node() {
     die "SuperSurf needs $missing on your PATH.
 
 The \`supersurf\` binary is self-contained, but the MCP server and the daemon
-are Node packages it launches with npx. Install Node.js 20 or newer
+are Node packages it launches with npx. Install Node.js 18 or newer
 (https://nodejs.org, or your package manager) and run this script again."
   fi
 
   node_version=$(node --version 2>/dev/null || printf 'unknown')
+  node_major=$(printf '%s' "$node_version" | sed -n 's/^v\{0,1\}\([0-9]*\).*/\1/p')
+
+  if [ -z "$node_major" ] || [ "$node_major" -lt 18 ]; then
+    die "SuperSurf needs Node.js 18 or newer, found $node_version.
+
+The MCP server and the daemon are Node packages the \`supersurf\` binary
+launches with npx. Upgrade Node (https://nodejs.org, or your package
+manager) and run this script again."
+  fi
+
   ok "node $node_version"
 
   if ! command -v chromium >/dev/null 2>&1 \

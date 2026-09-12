@@ -74,16 +74,43 @@ async function getBrowserBridge() {
     return BrowserBridge;
 }
 /**
+ * Compare two dot-separated version strings numerically, part by part.
+ * Negative when `a` < `b`, positive when `a` > `b`, zero when equal.
+ */
+function compareVersions(a, b) {
+    const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
+    const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+        if (diff !== 0)
+            return diff;
+    }
+    return 0;
+}
+/**
  * Build the "connect refused, daemon/server versions differ" failure response.
  * Shared by the restart-skipped path (other sessions are live on the stale
  * daemon) and the still-mismatched-after-restart path — only the reason
  * sentence differs between them.
+ *
+ * BACKLOG #46: the two sides go stale in different ways and need different
+ * fixes. The daemon is short-lived and respawns on demand, so `npx
+ * supersurf-daemon@latest restart` actually does something when the DAEMON is
+ * the old side. But an MCP client (Claude Code, Cursor) spawns the server once
+ * and holds that process for the life of the session — after an upgrade the
+ * server is usually the stale half, and restarting the daemon changes nothing
+ * because the server can't restart itself. A `null` daemonVersion means a
+ * pre-3.0 daemon that predates the version field entirely, which is always
+ * the stale side.
  */
 function versionMismatchFailure(mgr, daemonVersion, serverVersion, reason, options) {
+    const daemonIsStale = daemonVersion === null || compareVersions(daemonVersion, serverVersion) < 0;
+    const action = daemonIsStale
+        ? 'Restarting the daemon so both match is strongly recommended: `npx supersurf-daemon@latest restart`'
+        : 'The **server** is the stale side here, and it cannot restart itself — restarting the daemon changes nothing. ' +
+            'Restart your MCP client (or whatever process spawned this server) so it picks up the current `supersurf-mcp` version.';
     const hint = `A daemon/server version mismatch causes instability and errors ` +
-        `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ${reason} ` +
-        'Restarting the daemon (or the server) so both match is strongly recommended: ' +
-        '`npx supersurf-daemon@latest restart`';
+        `(daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}). ${reason} ${action}`;
     // An early return has to record the reason, or a later `status` renders a
     // bare "Disabled" with no trace of why the connect was refused.
     mgr.lastConnectError = hint;
