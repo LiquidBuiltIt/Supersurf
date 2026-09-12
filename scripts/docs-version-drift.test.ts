@@ -42,3 +42,26 @@ describe('docs/index.html carries no hand-maintained version string', () => {
     expect(html).toContain('Commons Clause');
   });
 });
+
+/**
+ * BACKLOG #49. The `## Tools` badge in `README.md` is a hand-written count that
+ * drifted from the actual tool tables (28 vs. the true 30). Deriving the badge
+ * would need README.md to consume `tools/schemas.ts` at build time, which is a
+ * bigger change than this bug warrants — so this test just fails loudly the
+ * next time someone adds a tool row and forgets the badge.
+ */
+describe('README.md tool-count badge matches its own tool tables', () => {
+  const readme = readFileSync(resolve(__dirname, '..', 'README.md'), 'utf8');
+
+  it('badge count equals the number of tool rows in the Tools section', () => {
+    const badgeMatch = readme.match(/badge\/(\d+)-browser%20tools/);
+    expect(badgeMatch).not.toBeNull();
+    const badgeCount = Number(badgeMatch![1]);
+
+    const toolsSection = readme.split(/^## Tools$/m)[1]?.split(/^## /m)[0] ?? '';
+    const toolRows = toolsSection.match(/^\| `[a-zA-Z_]+` \|/gm) ?? [];
+
+    expect(toolRows.length).toBeGreaterThan(0);
+    expect(badgeCount).toBe(toolRows.length);
+  });
+});

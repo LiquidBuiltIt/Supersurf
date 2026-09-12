@@ -10,7 +10,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek)
-[![Tools](https://img.shields.io/badge/28-browser%20tools-FF6F00?style=flat-square)](https://github.com/liquidbuiltit/Supersurf#tools)
+[![Tools](https://img.shields.io/badge/30-browser%20tools-FF6F00?style=flat-square)](https://github.com/liquidbuiltit/Supersurf#tools)
 
 <br />
 
