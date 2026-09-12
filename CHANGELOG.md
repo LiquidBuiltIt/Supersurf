@@ -41,6 +41,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- fix: **the daemon/server version-mismatch message now names the actual fix for the stale side, not always the daemon.** `versionMismatchFailure` used to always print `npx supersurf-daemon@latest restart`, even though an MCP client (Claude Code, Cursor) spawns the server once and holds it for the session — so after a daemon upgrade the SERVER is usually the stale half, and restarting the daemon changes nothing. The message now compares the two versions and tells the caller to restart the daemon only when the daemon is actually the older side; otherwise it says the server is stale and can't restart itself, and to restart the MCP client (or whatever process spawned the server) instead. `statusHeader`'s `lastConnectError` replay and the `status` tool inherit the fix automatically, since both just echo the same stored message.
 - fix: **the published `license` metadata now matches `LICENSE`.** The root, `server`, `daemon`
   and `cli` `package.json` files declared plain `Apache-2.0`, which grants the right to sell the
   software — the actual licence (Apache-2.0 with a Commons Clause) forbids that. All four now
