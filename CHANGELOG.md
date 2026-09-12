@@ -41,6 +41,12 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- fix: **the published `license` metadata now matches `LICENSE`.** The root, `server`, `daemon`
+  and `cli` `package.json` files declared plain `Apache-2.0`, which grants the right to sell the
+  software — the actual licence (Apache-2.0 with a Commons Clause) forbids that. All four now
+  declare `SEE LICENSE IN LICENSE`, npm's documented form for a non-SPDX licence, and the README
+  badge names Commons Clause instead of implying plain Apache-2.0.
+
 ## 4.0.0 — 2026-09-12
 
 *A major release, so read this one. JSON playbooks no longer load — they are JavaScript files now, and `supersurf playbook migrate` converts them. Four `playbook` subcommands are gone, and `npm i -g supersurf-mcp` no longer puts `supersurf` on your PATH; the new one-command installer does. In exchange: 53 changes, a much harder sandbox, and one command to install the whole thing.*

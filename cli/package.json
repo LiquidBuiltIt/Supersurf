@@ -3,7 +3,7 @@
   "version": "4.0.0",
   "private": true,
   "description": "The `supersurf` command-line entrypoint — compiled to a standalone binary by Bun, never published to npm",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "build": "bun run build.ts",
     "typecheck": "tsc --noEmit",
