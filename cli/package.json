@@ -1,6 +1,6 @@
 {
   "name": "supersurf-cli",
-  "version": "3.4.0",
+  "version": "4.0.0",
   "private": true,
   "description": "The `supersurf` command-line entrypoint — compiled to a standalone binary by Bun, never published to npm",
   "license": "Apache-2.0",
