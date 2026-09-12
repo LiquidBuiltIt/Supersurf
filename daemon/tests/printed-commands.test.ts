@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'fs';
-import { join, resolve, relative } from 'path';
+import { readFileSync } from 'fs';
+import { execSync } from 'child_process';
+import { join, resolve } from 'path';
 import { daemonCommand } from 'shared';
 
 /**
@@ -18,7 +19,7 @@ import { daemonCommand } from 'shared';
 
 const ROOT = resolve(__dirname, '..', '..');
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.worktrees', 'coverage']);
+const SKIP_DIRS = new Set(['dist']);
 const SCAN_EXT = ['.ts', '.js', '.mjs', '.md', '.html', '.txt', '.sh'];
 
 // Two files legitimately contain the banned shape: this one (it is quoted in
@@ -26,16 +27,22 @@ const SCAN_EXT = ['.ts', '.js', '.mjs', '.md', '.html', '.txt', '.sh'];
 // that must keep quoting the string the entry is about.
 const EXEMPT = new Set(['daemon/tests/printed-commands.test.ts', 'CHANGELOG.md']);
 
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((entry) => {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
-      if (SKIP_DIRS.has(entry) || entry.endsWith('.old')) return [];
-      return sourceFiles(full);
-    }
-    if (entry.endsWith('.old.ts')) return [];
-    return SCAN_EXT.some((ext) => entry.endsWith(ext)) ? [full] : [];
-  });
+// Enumerated from the git index, not from a directory walk. A walk sees
+// whatever happens to sit on this disk — gitignored internal docs, another
+// branch's checkout under a worktree dir — and fails on strings no reader can
+// ever receive. The index is exactly the set that ships, which is the set this
+// guard is about. It also stays correct without a skip list that has to learn
+// each new untracked directory by failing a release first.
+function sourceFiles(): string[] {
+  return execSync('git ls-files -z', { cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+    .split('\0')
+    .filter(Boolean)
+    .filter((rel) => {
+      const parts = rel.split('/');
+      // `dist/` is tracked here, so the index alone does not exclude it.
+      if (parts.some((p) => SKIP_DIRS.has(p) || p.endsWith('.old'))) return false;
+      return SCAN_EXT.some((ext) => rel.endsWith(ext)) && !rel.endsWith('.old.ts');
+    });
 }
 
 // A package name in a comparison (`pkg.name === 'supersurf-daemon'`) is fine.
@@ -44,9 +51,7 @@ function sourceFiles(dir: string): string[] {
 const BARE_INVOCATION = /(?<!npx )supersurf-daemon\s+(start|stop|restart|status|observe)/;
 
 describe('no file in this repo prints a daemon command that assumes a global install', () => {
-  const files = sourceFiles(ROOT)
-    .map((f) => relative(ROOT, f))
-    .filter((rel) => !EXEMPT.has(rel));
+  const files = sourceFiles().filter((rel) => !EXEMPT.has(rel));
 
   it('scans the whole repo, not one package (guards against a silently narrow sweep)', () => {
     expect(files.length).toBeGreaterThan(100);
