@@ -201,7 +201,7 @@ SuperSurf ships as **two** npm packages:
 | **Isolated-world DOM interaction** | All page interaction runs through Chrome's content script context — an isolated world the page's own JavaScript can't read. No CDP fingerprints, no VM script artifacts. (Not tested against commercial anti-bot vendors.) |
 | **Real browser profile** | Your agent browses with your actual cookies, history, localStorage, and extensions. No sterile headless environment. |
 | **Secure credential handling** | `secure_fill` injects passwords from environment variables directly in the extension. The agent sends an env var *name*, never the value. |
-| **28 browser tools** | Full coverage: navigation, interaction, screenshots, network monitoring, console access, form filling, CSS inspection, PDF export, performance metrics, file downloads. |
+| **30 browser tools** | Full coverage: navigation, interaction, screenshots, network monitoring, console access, form filling, CSS inspection, PDF export, performance metrics, file downloads. |
 | **Session multiplexing** | Multiple MCP clients share one browser through a daemon process with tab ownership tracking and round-robin scheduling. The daemon is automatically spawned by the MCP server — no setup required. |
 | **Framework detection** | Content script identifies 40+ frontend frameworks and libraries on any page. |
 | **CI-ready** | Sideload the extension with `--load-extension` and a throwaway profile. No manual setup needed. |
