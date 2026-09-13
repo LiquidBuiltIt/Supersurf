@@ -1,0 +1,242 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>What&#39;s New In SuperSurf: Playbooks Are JavaScript — SuperSurf</title><meta name="description" content="Playbooks are officially JavaScript — one script, any inputs, and failures that tell you what actually went wrong. Plus a brand new one-command installer that proves your browser is connected before it says it worked. 53 changes, four of them breaking."><link rel="icon" href="/Supersurf/logo.png"><style>:root{--bg:#1a1a1e;--bg-surface:#222228;--bg-elevated:#2a2a30;--border:#2a2a30;--text-primary:#f0f0f0;--text-secondary:silver;--text-muted:#888;--accent-bright:#fff;--mono:"SF Mono", "Fira Code", "Cascadia Code", monospace}*{box-sizing:border-box}body{background:var(--bg);color:var(--text-secondary);-webkit-font-smoothing:antialiased;margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;line-height:1.7}.wrap{max-width:760px;margin:0 auto;padding:0 24px}.site-header{border-bottom:1px solid var(--border);margin-bottom:56px;padding:20px 0}.site-header .wrap{align-items:baseline;gap:20px;display:flex}.site-header a{color:var(--text-muted);font-size:14px;text-decoration:none}.site-header a:hover{color:var(--accent-bright)}.site-header .brand{color:var(--text-primary);font-size:16px;font-weight:600}h1,h2,h3{color:var(--text-primary);line-height:1.3}h1{margin:0 0 8px;font-size:34px}h2{margin:44px 0 12px;font-size:22px}h3{margin:32px 0 8px;font-size:17px}a{color:var(--accent-bright)}.meta{color:var(--text-muted);font-size:14px;font-family:var(--mono)}code{font-family:var(--mono);background:var(--bg-elevated);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:.9em}pre{background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;padding:16px;overflow-x:auto}pre code{background:0 0;border:0;padding:0;font-size:13px}table{border-collapse:collapse;width:100%;margin:20px 0;font-size:15px}th,td{border:1px solid var(--border);text-align:left;vertical-align:top;padding:8px 12px}th{background:var(--bg-surface);color:var(--text-primary)}blockquote{background:var(--bg-surface);border-left:3px solid var(--text-muted);color:var(--text-secondary);border-radius:0 8px 8px 0;margin:24px 0;padding:14px 18px}blockquote p{margin:0}blockquote strong{color:var(--text-primary)}hr{border:0;border-top:1px solid var(--border);margin:48px 0}.post-list{padding:0;list-style:none}.post-list li{border-bottom:1px solid var(--border);padding:22px 0}.post-list h2{margin:0 0 4px;font-size:20px}.post-list h2 a{text-decoration:none}.post-list h2 a:hover{text-decoration:underline}.post-list p{margin:6px 0 0}.site-footer{border-top:1px solid var(--border);color:var(--text-muted);margin-top:72px;padding:28px 0 48px;font-size:14px}
+</style></head><body><header class="site-header"><div class="wrap"><a class="brand" href="/Supersurf/blog/">SuperSurf</a><a href="/Supersurf/blog/">Releases</a><a href="/Supersurf/">Home</a><a href="https://github.com/LiquidBuiltIt/Supersurf">GitHub</a></div></header><main class="wrap"><article><h1>What&#39;s New In SuperSurf: Playbooks Are JavaScript</h1><p class="meta">v4.0.0 · <time datetime="2026-09-12">2026-09-12</time></p><p>SuperSurf 4.0.0 is here. Playbooks are officially JavaScript files, we have a brand new one-command installer, and element targeting no longer guesses at what you meant. There are also seven security fixes.</p>
+<table>
+<thead>
+<tr>
+<th>What changed</th>
+<th>What you get</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Playbooks are JavaScript</strong></td>
+<td>One script covers every tag and every repo — pass the difference in as a parameter</td>
+</tr>
+<tr>
+<td><strong>Typed failures</strong></td>
+<td>You know <em>why</em> a run failed before you open the file</td>
+</tr>
+<tr>
+<td><strong>Brand new installer</strong></td>
+<td>One command from nothing to a connected browser, and it proves it</td>
+</tr>
+<tr>
+<td><strong><code>@</code> on element handles</strong></td>
+<td>You can read a playbook and know what every line will click</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Four things break in this release.</strong> We put them first, and there is a converter for the one that costs you work.</p>
+</blockquote>
+<hr/>
+<h2 id="breaking-changes">Breaking changes</h2>
+<table>
+<thead>
+<tr>
+<th>Was</th>
+<th>Now</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>~/.supersurf/playbooks/&lt;name&gt;.json</code>, a recorded step list</td>
+<td><code>&lt;name&gt;.playbook.js</code>, a script you write. Run <code>supersurf playbook migrate</code> to convert</td>
+</tr>
+<tr>
+<td><code>playbooks</code> tool actions included <code>create</code></td>
+<td><code>list | inspect | validate | run | history</code>. <code>create</code> is removed with no replacement</td>
+</tr>
+<tr>
+<td><code>supersurf playbook</code> included <code>edit</code>, <code>rm</code>, <code>export</code>, <code>import</code>, <code>show</code></td>
+<td><code>ls | inspect | validate | run | migrate</code>. <code>show</code> is renamed to <code>inspect</code> with no alias</td>
+</tr>
+<tr>
+<td><code>npm i -g supersurf-mcp</code> put <code>supersurf</code>, <code>supersurf-mcp</code> and <code>supersurf-daemon</code> on <code>PATH</code></td>
+<td>it installs <code>supersurf-mcp</code> only. <code>npx supersurf-mcp@&lt;version&gt;</code> is unchanged</td>
+</tr>
+</tbody>
+</table>
+<p>If a <code>supersurf ...</code> command stopped resolving after you upgraded, that last row is why. Grab the binary from the new installer below.</p>
+<hr/>
+<h2 id="playbooks-are-officially-javascript">Playbooks are officially JavaScript</h2>
+<p>If you recorded a playbook and used it more than once, you already know the failure. A week later the site moved a button, the replay clicked whatever was sitting in that spot, and the run reported success. You found out from the result, not from the run.</p>
+<p>You could not reuse one either. A recording had no inputs, so drafting a release for <code>v4.0.0</code> and drafting the same release for <code>v4.0.1</code> were two separate playbooks that differed by one string.</p>
+<p>Playbooks shipped nineteen days ago, in 3.4.0, as that recorder. We have replaced the format outright. A playbook is now a module with two exports: a <code>meta</code> object declaring what the script needs, and a function that does the work.</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="js"><code><span class="line"><span style="color:#F97583">export</span><span style="color:#F97583"> const</span><span style="color:#79B8FF"> meta</span><span style="color:#F97583"> =</span><span style="color:#E1E4E8"> {</span></span>
+<span class="line"><span style="color:#E1E4E8">  description: </span><span style="color:#9ECBFF">&#39;Draft a GitHub release through the web UI.&#39;</span><span style="color:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#E1E4E8">  startingPoint: </span><span style="color:#9ECBFF">&#39;github.com&#39;</span><span style="color:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#E1E4E8">  profile: </span><span style="color:#9ECBFF">&#39;developer&#39;</span><span style="color:#E1E4E8">,</span></span>
+<span class="line"><span style="color:#E1E4E8">  params: {</span></span>
+<span class="line"><span style="color:#E1E4E8">    tag: { type: </span><span style="color:#9ECBFF">&#39;string&#39;</span><span style="color:#E1E4E8">, required: </span><span style="color:#79B8FF">true</span><span style="color:#E1E4E8">, description: </span><span style="color:#9ECBFF">&#39;e.g. v4.0.0&#39;</span><span style="color:#E1E4E8"> },</span></span>
+<span class="line"><span style="color:#E1E4E8">  },</span></span>
+<span class="line"><span style="color:#E1E4E8">};</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#F97583">export</span><span style="color:#F97583"> default</span><span style="color:#F97583"> async</span><span style="color:#F97583"> function</span><span style="color:#E1E4E8"> ({ </span><span style="color:#FFAB70">supersurf</span><span style="color:#E1E4E8">, </span><span style="color:#FFAB70">params</span><span style="color:#E1E4E8"> }) {</span></span>
+<span class="line"><span style="color:#F97583">  await</span><span style="color:#E1E4E8"> supersurf.</span><span style="color:#B392F0">goto</span><span style="color:#E1E4E8">(</span><span style="color:#9ECBFF">&#39;https://github.com/LiquidBuiltIt/Supersurf/releases/new&#39;</span><span style="color:#E1E4E8">);</span></span>
+<span class="line"><span style="color:#F97583">  await</span><span style="color:#E1E4E8"> supersurf.</span><span style="color:#B392F0">type</span><span style="color:#E1E4E8">(</span><span style="color:#9ECBFF">&#39;@release_title&#39;</span><span style="color:#E1E4E8">, params.tag);</span></span>
+<span class="line"><span style="color:#F97583">  await</span><span style="color:#E1E4E8"> supersurf.</span><span style="color:#B392F0">click</span><span style="color:#E1E4E8">(</span><span style="color:#9ECBFF">&#39;@save_draft&#39;</span><span style="color:#E1E4E8">);</span></span>
+<span class="line"><span style="color:#F97583">  return</span><span style="color:#E1E4E8"> { tag: params.tag };</span></span>
+<span class="line"><span style="color:#E1E4E8">}</span></span></code></pre>
+<p>That is the whole value of the change. One script now covers every tag and every repo — you pass the difference in as a parameter instead of recording the task again. It can check what it found and stop instead of ploughing ahead. And it hands data back, so a playbook is something you build on top of rather than a button you press.</p>
+<h3 id="failures-that-say-what-went-wrong">Failures that say what went wrong</h3>
+<p>Every failed run used to report <code>command failed</code>, which does not tell you whether the site was down, the page had changed, or your script was wrong. A run now records one of six kinds:</p>
+<table>
+<thead>
+<tr>
+<th>Failure</th>
+<th>What actually happened</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SelectorMiss</code></td>
+<td>The thing you targeted was not on the page</td>
+</tr>
+<tr>
+<td><code>Timeout</code></td>
+<td>It was still waiting when the clock ran out</td>
+</tr>
+<tr>
+<td><code>PageUnavailable</code></td>
+<td>The page never loaded, or the tab went away underneath it</td>
+</tr>
+<tr>
+<td><code>HarnessUnavailable</code></td>
+<td>No browser was connected to run against</td>
+</tr>
+<tr>
+<td><code>Refused</code></td>
+<td>The sandbox blocked something the script tried to do</td>
+</tr>
+<tr>
+<td><code>ScriptAssertion</code></td>
+<td>Your own script threw — the automation worked, the check did not pass</td>
+</tr>
+</tbody>
+</table>
+<p>And when a selector misses, we hand you a short list of the things on the page that probably were what you meant. Previously you got the page’s entire accessibility tree — around 766 KB on a real site, which nobody reads. Now the fix is usually one line, found in about a minute.</p>
+<blockquote>
+<p><strong>The <code>playbooks</code> tool no longer has a <code>create</code> action.</strong> SuperSurf does not write playbook files.</p>
+</blockquote>
+<hr/>
+<h2 id="migrating-from-json-playbooks">Migrating from JSON playbooks</h2>
+<p>Your existing recordings will not load. We wrote you a converter:</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#B392F0">supersurf</span><span style="color:#9ECBFF"> playbook</span><span style="color:#9ECBFF"> migrate</span></span></code></pre>
+<table>
+<thead>
+<tr>
+<th>Old field</th>
+<th>Becomes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>purpose</code></td>
+<td><code>meta.description</code></td>
+</tr>
+<tr>
+<td><code>profile</code></td>
+<td><code>meta.profile</code></td>
+</tr>
+<tr>
+<td>first navigate step’s host</td>
+<td><code>meta.startingPoint</code></td>
+</tr>
+<tr>
+<td>a step that does not translate</td>
+<td>a <code>// TODO</code> comment with the original step beside it</td>
+</tr>
+</tbody>
+</table>
+<p>Nothing is silently dropped, so you can see exactly what needs a human. Migrated scripts have no <code>params</code>, because recordings never had any — adding one is how you turn the recording you already made into the reusable version.</p>
+<hr/>
+<h2 id="a-brand-new-installer">A brand new installer</h2>
+<p>The old install had a step where you told SuperSurf that you had installed the extension. If that was not true — it did not install, or it installed and never connected — nothing said so. You found out later, when a tool call came back with no browser attached and no explanation.</p>
+<p>For seven months that was the install: <code>npx supersurf-mcp@latest</code>, a <code>claude mcp add</code> line you copied out of the README and ran yourself, and a Chrome Web Store tab you opened by hand. We finally built the installer.</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#B392F0">curl</span><span style="color:#79B8FF"> -fsSL</span><span style="color:#9ECBFF"> https://liquidbuiltit.github.io/Supersurf/install.sh</span><span style="color:#F97583"> |</span><span style="color:#B392F0"> sh</span></span></code></pre>
+<p>One command takes you from nothing to a connected browser. It downloads the compiled binary for your OS and architecture, installs it to <code>~/.local/bin</code>, starts the daemon and opens the Chrome Web Store listing. Then it waits for the extension to connect, and only reports success once that has actually happened — so <strong>“installed” means working</strong>, not “probably fine”.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--client=claude</code></td>
+<td>Registers SuperSurf with the <code>claude</code> CLI so you never touch a config file</td>
+</tr>
+<tr>
+<td><code>--yes</code></td>
+<td>Skips every prompt. CI, Docker and anything else without a terminal take this path automatically</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2 id="element-handles-require-an-">Element handles require an <code>@</code></h2>
+<p>This one produced wrong actions that looked like successes, which is the most expensive kind of bug to own.</p>
+<p>Handle resolution arrived five weeks ago in 3.3.0, and it worked out what was a handle by looking at the shape of the string: lowercase words joined by underscores went to the handle store, everything else was treated as CSS. But <code>button</code>, <code>input</code> and <code>summary</code> are valid CSS tag selectors and valid handle names at the same time. A plain selector could be quietly translated into some other element you had named earlier, and the response looked like any other success.</p>
+<table>
+<thead>
+<tr>
+<th>Call</th>
+<th>Targets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>click(&#39;@submit_review&#39;)</code></td>
+<td>The handle you named <code>submit_review</code></td>
+</tr>
+<tr>
+<td><code>click(&#39;submit_review&#39;)</code></td>
+<td>A CSS selector, and nothing else</td>
+</tr>
+</tbody>
+</table>
+<p>You can read a playbook and know what every line will click. The marker is stripped before the store is consulted, so nothing you have saved needs migrating, and naming an element is unchanged — the <code>@</code> marks a target, not a definition.</p>
+<p>We did not add a deprecation window, because a grace period would have kept the ambiguity alive. Misses explain themselves instead: an unmarked miss that looks like a handle suggests the <code>@</code>, and a marked miss tells you that handle is not recorded for this page.</p>
+<hr/>
+<h2 id="playbook-sandbox">Playbook sandbox</h2>
+<p>When your agent writes a playbook and you run it, that is code you did not read, running against a browser you are logged into. We would like you to be able to do that anyway.</p>
+<p>The validator used to skip anything it could not recognise. Assigning the client to a variable first was enough to hide every element target in the file from every check, and validation still passed. It now refuses those forms outright:</p>
+<ul>
+<li><strong>Destructuring or aliasing the client</strong> — <code>const { click } = supersurf</code>, <code>const s = supersurf</code></li>
+<li><strong>Reaching into it with a computed key</strong> — <code>supersurf[&#39;cli&#39; + &#39;ck&#39;]</code></li>
+<li><strong>Any target that is not a plain string</strong> — no built-up selectors</li>
+<li><strong>Any <code>@handle</code> that was never recorded</strong></li>
+</ul>
+<p>What clears validation is what you can read. We closed two runtime holes with it: a script could be edited in the gap between being checked and being run, as long as the replacement was the same size — scripts are now re-checked immediately before they execute. And a playbook could reach outside its own sandbox in one line:</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="js"><code><span class="line"><span style="color:#E1E4E8">supersurf.click.</span><span style="color:#B392F0">constructor</span><span style="color:#E1E4E8">(</span><span style="color:#9ECBFF">&#39;return this&#39;</span><span style="color:#E1E4E8">)()</span></span></code></pre>
+<blockquote>
+<p><strong>None of this makes it safe to run a playbook you have not read.</strong> Playbooks use your real browser profile and your live logins, and that is exactly why they are useful.</p>
+</blockquote>
+<hr/>
+<h2 id="everything-else">Everything else</h2>
+<p>53 entries landed in this release, seven of them security fixes. Three worth calling out:</p>
+<table>
+<thead>
+<tr>
+<th>Change</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>browser_storage</code> graduated out of experiments</td>
+<td>Reading page storage no longer needs a config flag — it is on for everyone</td>
+</tr>
+<tr>
+<td>Daemon version check at handshake</td>
+<td>An extension too old for the daemon gets told why it was refused, instead of retrying forever</td>
+</tr>
+<tr>
+<td>Managed-profile rebind fix</td>
+<td>Only the daemon’s own registration page can bind a managed Chromium profile now</td>
+</tr>
+</tbody>
+</table>
+<p>The remaining security work is in the sandbox, above: the validator rejects the forms that used to slip past it, a script is re-checked against its own bytes immediately before it runs, and the one-line escape out of the playbook realm is closed.</p>
+<p>The complete list is in <a href="https://github.com/LiquidBuiltIt/Supersurf/blob/main/CHANGELOG.md"><code>CHANGELOG.md</code></a>.</p></article></main><footer class="site-footer"><div class="wrap">SuperSurf — MCP browser automation. Apache 2.0.</div></footer></body></html>

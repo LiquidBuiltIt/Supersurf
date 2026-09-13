@@ -52,6 +52,24 @@ describe('docs/index.html carries no hand-maintained version string', () => {
  * not just the badge. Scoping it to the badge alone is how the second copy
  * survived the first fix.
  */
+/**
+ * The Astro blog builds into `docs/blog/` (`npm run build.blog`) and the
+ * landing page teaser is JSON-fed rather than hardcoded (see the "no
+ * hand-maintained version string" describe block above for why). A link to
+ * the blog is therefore the only thing tying the two together in source —
+ * lose it and the blog becomes unreachable from the homepage with nothing
+ * failing to say so.
+ */
+describe('docs/index.html links to the blog, and the blog build exists', () => {
+  it('docs/index.html contains a link to blog/', () => {
+    expect(html).toMatch(/href=["']blog\//);
+  });
+
+  it('docs/blog/index.html exists', () => {
+    expect(() => readFileSync(resolve(__dirname, '..', 'docs', 'blog', 'index.html'), 'utf8')).not.toThrow();
+  });
+});
+
 describe('README.md tool counts match its own tool tables', () => {
   const readme = readFileSync(resolve(__dirname, '..', 'README.md'), 'utf8');
 

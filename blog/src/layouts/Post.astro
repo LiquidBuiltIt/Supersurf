@@ -1,0 +1,19 @@
+---
+import Base from './Base.astro';
+
+interface Props {
+  title: string;
+  date: Date;
+  version: string;
+  summary: string;
+}
+const { title, date, version, summary } = Astro.props;
+const stamp = date.toISOString().slice(0, 10);
+---
+<Base title={`${title} — SuperSurf`} description={summary}>
+  <article>
+    <h1>{title}</h1>
+    <p class="meta">v{version} · <time datetime={stamp}>{stamp}</time></p>
+    <slot />
+  </article>
+</Base>

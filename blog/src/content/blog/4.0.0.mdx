@@ -1,0 +1,170 @@
+---
+title: "What's New In SuperSurf: Playbooks Are JavaScript"
+date: 2026-09-12
+version: "4.0.0"
+summary: "Playbooks are officially JavaScript — one script, any inputs, and failures that tell you what actually went wrong. Plus a brand new one-command installer that proves your browser is connected before it says it worked. 53 changes, four of them breaking."
+draft: false
+---
+
+SuperSurf 4.0.0 is here. Playbooks are officially JavaScript files, we have a brand new one-command installer, and element targeting no longer guesses at what you meant. There are also seven security fixes.
+
+| What changed | What you get |
+| --- | --- |
+| **Playbooks are JavaScript** | One script covers every tag and every repo — pass the difference in as a parameter |
+| **Typed failures** | You know *why* a run failed before you open the file |
+| **Brand new installer** | One command from nothing to a connected browser, and it proves it |
+| **`@` on element handles** | You can read a playbook and know what every line will click |
+
+> **Four things break in this release.** We put them first, and there is a converter for the one that costs you work.
+
+---
+
+## Breaking changes
+
+| Was | Now |
+| --- | --- |
+| `~/.supersurf/playbooks/<name>.json`, a recorded step list | `<name>.playbook.js`, a script you write. Run `supersurf playbook migrate` to convert |
+| `playbooks` tool actions included `create` | `list \| inspect \| validate \| run \| history`. `create` is removed with no replacement |
+| `supersurf playbook` included `edit`, `rm`, `export`, `import`, `show` | `ls \| inspect \| validate \| run \| migrate`. `show` is renamed to `inspect` with no alias |
+| `npm i -g supersurf-mcp` put `supersurf`, `supersurf-mcp` and `supersurf-daemon` on `PATH` | it installs `supersurf-mcp` only. `npx supersurf-mcp@<version>` is unchanged |
+
+If a `supersurf ...` command stopped resolving after you upgraded, that last row is why. Grab the binary from the new installer below.
+
+---
+
+## Playbooks are officially JavaScript
+
+If you recorded a playbook and used it more than once, you already know the failure. A week later the site moved a button, the replay clicked whatever was sitting in that spot, and the run reported success. You found out from the result, not from the run.
+
+You could not reuse one either. A recording had no inputs, so drafting a release for `v4.0.0` and drafting the same release for `v4.0.1` were two separate playbooks that differed by one string.
+
+Playbooks shipped nineteen days ago, in 3.4.0, as that recorder. We have replaced the format outright. A playbook is now a module with two exports: a `meta` object declaring what the script needs, and a function that does the work.
+
+```js
+export const meta = {
+  description: 'Draft a GitHub release through the web UI.',
+  startingPoint: 'github.com',
+  profile: 'developer',
+  params: {
+    tag: { type: 'string', required: true, description: 'e.g. v4.0.0' },
+  },
+};
+
+export default async function ({ supersurf, params }) {
+  await supersurf.goto('https://github.com/LiquidBuiltIt/Supersurf/releases/new');
+  await supersurf.type('@release_title', params.tag);
+  await supersurf.click('@save_draft');
+  return { tag: params.tag };
+}
+```
+
+That is the whole value of the change. One script now covers every tag and every repo — you pass the difference in as a parameter instead of recording the task again. It can check what it found and stop instead of ploughing ahead. And it hands data back, so a playbook is something you build on top of rather than a button you press.
+
+### Failures that say what went wrong
+
+Every failed run used to report `command failed`, which does not tell you whether the site was down, the page had changed, or your script was wrong. A run now records one of six kinds:
+
+| Failure | What actually happened |
+| --- | --- |
+| `SelectorMiss` | The thing you targeted was not on the page |
+| `Timeout` | It was still waiting when the clock ran out |
+| `PageUnavailable` | The page never loaded, or the tab went away underneath it |
+| `HarnessUnavailable` | No browser was connected to run against |
+| `Refused` | The sandbox blocked something the script tried to do |
+| `ScriptAssertion` | Your own script threw — the automation worked, the check did not pass |
+
+And when a selector misses, we hand you a short list of the things on the page that probably were what you meant. Previously you got the page's entire accessibility tree — around 766 KB on a real site, which nobody reads. Now the fix is usually one line, found in about a minute.
+
+> **The `playbooks` tool no longer has a `create` action.** SuperSurf does not write playbook files.
+
+---
+
+## Migrating from JSON playbooks
+
+Your existing recordings will not load. We wrote you a converter:
+
+```sh
+supersurf playbook migrate
+```
+
+| Old field | Becomes |
+| --- | --- |
+| `purpose` | `meta.description` |
+| `profile` | `meta.profile` |
+| first navigate step's host | `meta.startingPoint` |
+| a step that does not translate | a `// TODO` comment with the original step beside it |
+
+Nothing is silently dropped, so you can see exactly what needs a human. Migrated scripts have no `params`, because recordings never had any — adding one is how you turn the recording you already made into the reusable version.
+
+---
+
+## A brand new installer
+
+The old install had a step where you told SuperSurf that you had installed the extension. If that was not true — it did not install, or it installed and never connected — nothing said so. You found out later, when a tool call came back with no browser attached and no explanation.
+
+For seven months that was the install: `npx supersurf-mcp@latest`, a `claude mcp add` line you copied out of the README and ran yourself, and a Chrome Web Store tab you opened by hand. We finally built the installer.
+
+```sh
+curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh
+```
+
+One command takes you from nothing to a connected browser. It downloads the compiled binary for your OS and architecture, installs it to `~/.local/bin`, starts the daemon and opens the Chrome Web Store listing. Then it waits for the extension to connect, and only reports success once that has actually happened — so **"installed" means working**, not "probably fine".
+
+| Flag | What it does |
+| --- | --- |
+| `--client=claude` | Registers SuperSurf with the `claude` CLI so you never touch a config file |
+| `--yes` | Skips every prompt. CI, Docker and anything else without a terminal take this path automatically |
+
+---
+
+## Element handles require an `@`
+
+This one produced wrong actions that looked like successes, which is the most expensive kind of bug to own.
+
+Handle resolution arrived five weeks ago in 3.3.0, and it worked out what was a handle by looking at the shape of the string: lowercase words joined by underscores went to the handle store, everything else was treated as CSS. But `button`, `input` and `summary` are valid CSS tag selectors and valid handle names at the same time. A plain selector could be quietly translated into some other element you had named earlier, and the response looked like any other success.
+
+| Call | Targets |
+| --- | --- |
+| `click('@submit_review')` | The handle you named `submit_review` |
+| `click('submit_review')` | A CSS selector, and nothing else |
+
+You can read a playbook and know what every line will click. The marker is stripped before the store is consulted, so nothing you have saved needs migrating, and naming an element is unchanged — the `@` marks a target, not a definition.
+
+We did not add a deprecation window, because a grace period would have kept the ambiguity alive. Misses explain themselves instead: an unmarked miss that looks like a handle suggests the `@`, and a marked miss tells you that handle is not recorded for this page.
+
+---
+
+## Playbook sandbox
+
+When your agent writes a playbook and you run it, that is code you did not read, running against a browser you are logged into. We would like you to be able to do that anyway.
+
+The validator used to skip anything it could not recognise. Assigning the client to a variable first was enough to hide every element target in the file from every check, and validation still passed. It now refuses those forms outright:
+
+- **Destructuring or aliasing the client** — `const { click } = supersurf`, `const s = supersurf`
+- **Reaching into it with a computed key** — `supersurf['cli' + 'ck']`
+- **Any target that is not a plain string** — no built-up selectors
+- **Any `@handle` that was never recorded**
+
+What clears validation is what you can read. We closed two runtime holes with it: a script could be edited in the gap between being checked and being run, as long as the replacement was the same size — scripts are now re-checked immediately before they execute. And a playbook could reach outside its own sandbox in one line:
+
+```js
+supersurf.click.constructor('return this')()
+```
+
+> **None of this makes it safe to run a playbook you have not read.** Playbooks use your real browser profile and your live logins, and that is exactly why they are useful.
+
+---
+
+## Everything else
+
+53 entries landed in this release, seven of them security fixes. Three worth calling out:
+
+| Change | What it means |
+| --- | --- |
+| `browser_storage` graduated out of experiments | Reading page storage no longer needs a config flag — it is on for everyone |
+| Daemon version check at handshake | An extension too old for the daemon gets told why it was refused, instead of retrying forever |
+| Managed-profile rebind fix | Only the daemon's own registration page can bind a managed Chromium profile now |
+
+The remaining security work is in the sandbox, above: the validator rejects the forms that used to slip past it, a script is re-checked against its own bytes immediately before it runs, and the one-line escape out of the playbook realm is closed.
+
+The complete list is in [`CHANGELOG.md`](https://github.com/LiquidBuiltIt/Supersurf/blob/main/CHANGELOG.md).

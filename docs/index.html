@@ -781,6 +781,46 @@
       line-height: 1.3;
     }
 
+    /* ── RELEASE TEASER (filled client-side from blog/index.json) ── */
+    .release-teaser {
+      display: block;
+      margin-top: 28px;
+      width: 100%;
+      max-width: 800px;
+      box-sizing: border-box;
+      padding: 10px 16px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      text-decoration: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .release-teaser:hover {
+      border-color: #444;
+    }
+
+    .release-teaser-label {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-right: 8px;
+    }
+
+    .release-teaser-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-right: 8px;
+    }
+
+    .release-teaser-date {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
     /* ── ARCHITECTURE ── */
     .arch-slide {
       max-width: 900px;
@@ -1167,6 +1207,11 @@
           Teach Your Agent
         </div>
       </div>
+      <a class="release-teaser" id="releaseTeaser" href="blog/" style="display:none;">
+        <span class="release-teaser-label">Latest Release</span>
+        <span class="release-teaser-title" id="releaseTeaserTitle"></span>
+        <span class="release-teaser-date" id="releaseTeaserDate"></span>
+      </a>
       <div class="toc-grid">
         <div class="toc-item featured" onclick="goTo(1)">
           <div class="toc-num">01</div>
@@ -1620,6 +1665,7 @@
         <a href="https://github.com/liquidbuiltit/supersurf" class="cta-link primary" target="_blank" rel="noopener">View Source on GitHub</a>
         <a href="https://chromewebstore.google.com/detail/falcdhojcinkkbffgnipppcdoaehgpek" class="cta-link secondary" target="_blank" rel="noopener">Install Chrome Extension</a>
         <a href="https://www.npmjs.com/package/supersurf-mcp" class="cta-link secondary" target="_blank" rel="noopener">supersurf-mcp on npm</a>
+        <a href="blog/" class="cta-link secondary">Release Notes</a>
       </div>
       <!-- No version here, deliberately. `scripts/version.bump.ts` rewrites the
            version field of seven package.json/manifest files and does not touch
@@ -1735,6 +1781,22 @@
     });
 
     dockNav.addEventListener('mouseleave', resetMagnification);
+
+    // ── Latest release teaser (Home slide) ──
+    // Fed from the Astro blog's build-time JSON, never hardcoded here — see
+    // scripts/docs-version-drift.test.ts for why this page carries no version.
+    fetch('blog/index.json')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((posts) => {
+        if (!Array.isArray(posts) || posts.length === 0) return;
+        const latest = posts[0];
+        const teaser = document.getElementById('releaseTeaser');
+        teaser.href = latest.url;
+        document.getElementById('releaseTeaserTitle').textContent = latest.title;
+        document.getElementById('releaseTeaserDate').textContent = latest.date;
+        teaser.style.display = 'block';
+      })
+      .catch(() => {});
   </script>
 
 </body>
