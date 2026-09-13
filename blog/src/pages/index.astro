@@ -1,0 +1,22 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const posts = (await getCollection('blog', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+const base = import.meta.env.BASE_URL;
+---
+<Base title="SuperSurf releases" description="Release notes for SuperSurf, the MCP browser automation harness.">
+  <h1>Releases</h1>
+  <p>What changed in each version, and why.</p>
+  {posts.length === 0 && <p class="meta">No posts yet.</p>}
+  <ul class="post-list">
+    {posts.map((post) => (
+      <li>
+        <h2><a href={`${base}/${post.id}/`.replace(/\/+/g, '/')}>{post.data.title}</a></h2>
+        <p class="meta">v{post.data.version} · {post.data.date.toISOString().slice(0, 10)}</p>
+        <p>{post.data.summary}</p>
+      </li>
+    ))}
+  </ul>
+</Base>

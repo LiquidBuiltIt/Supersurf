@@ -17,6 +17,7 @@
     "build.shared": "cd shared && npx tsc",
     "build.daemon": "cd daemon && npm run build",
     "build.cli": "npm run build.shared && cd cli && npm run build",
+    "build.blog": "npm --prefix blog run build",
     "build": "npm run build.shared && npm run build.daemon && npm run build.server && npm run build.extension",
     "dev.server": "cd server && npx tsx src/cli.ts --debug",
     "test.server": "cd server && npm test",

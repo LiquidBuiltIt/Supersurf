@@ -26,6 +26,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { resolve, join } from 'path';
 import { execSync } from 'child_process';
 import { cutUnreleased } from './changelog-cut';
+import { scaffoldPost } from './blog.scaffold';
 
 // ANSI colors
 const yellow = '\x1b[33m';
@@ -138,6 +139,22 @@ try {
 
 if (changelogContent !== null) {
   writeFileSync(CHANGELOG_PATH, changelogContent);
+}
+
+// Blog scaffold — best-effort only. A broken scaffold must never fail a
+// version bump, so any failure here is a warning, not an abort.
+try {
+  const result = scaffoldPost(next, {
+    date: changelogDate,
+    changelogText: changelogContent ?? readFileSync(CHANGELOG_PATH, 'utf8'),
+    outDir: join(root, 'blog', 'src', 'content', 'blog'),
+    bumpType,
+  });
+  if (result.written) {
+    console.log(`  blog: scaffolded ${result.path}`);
+  }
+} catch (err) {
+  console.warn(`${yellow}⚠ Blog scaffold failed (non-fatal): ${(err as Error).message}${reset}`);
 }
 
 for (const rel of targets) {
