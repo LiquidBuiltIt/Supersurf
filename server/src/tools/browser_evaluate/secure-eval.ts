@@ -15,6 +15,12 @@
  *    in a `with(proxy)` IIFE that intercepts blocked API access at runtime.
  *    Uses sloppy-mode outer for `with` statement, strict-mode inner for user code.
  *
+ *    NOT a security boundary. This code executes in the page's own JS context
+ *    and calls the page's `Proxy`, `Reflect`, `Set` and `WeakMap`, any of which
+ *    a hostile page can redefine beforehand. It also hands back raw DOM nodes,
+ *    so any object it does not explicitly wrap is untrapped from then on. Treat
+ *    it as a speed bump; Layer 1 is the layer a page cannot reach.
+ *
  * Graduated from experiment in v1.11.0; opt out via `SUPERSURF_DISABLE_SECURE_EVAL=1`
  * or the `--disable-secure-eval` server CLI flag.
  *
