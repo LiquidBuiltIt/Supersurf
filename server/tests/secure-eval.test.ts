@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { analyzeCode, wrapWithPageProxy } from '../src/tools/browser_evaluate/secure-eval';
 import { experimentRegistry } from '../src/experimental/index';
 import { BrowserBridge } from '../src/tools';
+import { getToolSchemas } from '../src/tools/schemas';
 import { ConfigService } from 'shared';
 
 function makeConfigWithSecureEval(enabled: boolean) {
@@ -816,6 +817,14 @@ describe('blocked-code messages do not advertise the off-switch', () => {
       expression: "fetch('/api')",
     });
     expect(result.content[0].text).toContain('browser_navigate');
+  });
+
+  it('the browser_evaluate tool description names no disable flag', () => {
+    const schema = getToolSchemas().find((s) => s.name === 'browser_evaluate');
+    expect(schema).toBeDefined();
+    expect(schema!.description).toContain('secure_eval');
+    expect(schema!.description).not.toContain('SUPERSURF_DISABLE_SECURE_EVAL');
+    expect(schema!.description).not.toContain('secure_eval: false');
   });
 });
 
