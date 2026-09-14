@@ -245,6 +245,30 @@ const BLOCKED_PATTERNS: BlockedPattern[] = [
     reason: 'Window alias via document.defaultView',
   },
 
+  // Window/document escape from ANY object.
+  //
+  // The `document.defaultView` rule above only matches the literal identifier
+  // `document`. Every DOM node reaches the same globals through
+  // `.ownerDocument`, and every iframe element through `.contentWindow` /
+  // `.contentDocument` — so `document.body.ownerDocument.defaultView.fetch()`
+  // walked straight past it. Layer 3 cannot cover this: it hands back raw DOM
+  // nodes, and its own Proxy/Reflect come from the page. The receiver is
+  // deliberately not inspected here.
+  {
+    nodeType: 'MemberExpression',
+    matcher: (node) => {
+      const ESCAPES = ['ownerDocument', 'defaultView', 'contentWindow', 'contentDocument'];
+      if (!node.computed && node.property?.type === 'Identifier') {
+        return ESCAPES.includes(node.property.name);
+      }
+      if (node.computed && node.property?.type === 'Literal') {
+        return ESCAPES.includes(node.property.value);
+      }
+      return false;
+    },
+    reason: 'Window/document escape via a DOM node (ownerDocument, defaultView, contentWindow, contentDocument)',
+  },
+
   // Block API references on global objects (catches aliasing: const f = window.fetch)
   {
     nodeType: 'MemberExpression',

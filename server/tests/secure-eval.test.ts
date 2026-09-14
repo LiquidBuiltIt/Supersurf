@@ -443,6 +443,68 @@ describe('analyzeCode', () => {
     });
   });
 
+  describe('window/document escape via any receiver', () => {
+    it('blocks ownerDocument on a DOM node', () => {
+      const result = analyzeCode('document.body.ownerDocument');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks the full escape chain to fetch', () => {
+      const result = analyzeCode("document.body.ownerDocument.defaultView.fetch('/x')");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks the cookie leak through ownerDocument', () => {
+      const result = analyzeCode('document.body.ownerDocument.cookie');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks contentWindow on an iframe element', () => {
+      const result = analyzeCode("document.querySelector('iframe').contentWindow");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks contentDocument on an iframe element', () => {
+      const result = analyzeCode("document.querySelector('iframe').contentDocument");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks bracket notation with a string literal key', () => {
+      const result = analyzeCode("document.body['ownerDocument']");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks a no-interpolation template literal key', () => {
+      const result = analyzeCode('document.body[`ownerDocument`]');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks the name reached by destructuring', () => {
+      const result = analyzeCode('const { ownerDocument } = document.body;');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('still reports the original reason for bare document.defaultView', () => {
+      const result = analyzeCode('document.defaultView');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toBe('Window alias via document.defaultView');
+    });
+
+    it('leaves ordinary DOM reads alone', () => {
+      expect(analyzeCode("document.querySelector('h1').textContent").safe).toBe(true);
+      expect(analyzeCode("document.body.getAttribute('class')").safe).toBe(true);
+      expect(analyzeCode('document.title').safe).toBe(true);
+    });
+  });
+
   describe('v2: Object.getOwnPropertyDescriptor', () => {
     it('blocks Object.getOwnPropertyDescriptor()', () => {
       const result = analyzeCode("Object.getOwnPropertyDescriptor(window, 'fetch')");
