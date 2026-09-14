@@ -782,6 +782,43 @@ describe('browser_evaluate with secure_eval (default-on, opt-out via env)', () =
   });
 });
 
+describe('blocked-code messages do not advertise the off-switch', () => {
+  let bridge: BrowserBridge;
+  let mockExt: ReturnType<typeof createMockExt>;
+  let mockCM: ReturnType<typeof createMockConnectionManager>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    experimentRegistry.reset();
+    delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
+    mockExt = createMockExt();
+    mockCM = createMockConnectionManager();
+    bridge = new BrowserBridge({}, mockExt);
+    bridge.initialize({}, {}, mockCM);
+  });
+
+  it('names no disable flag when the AST layer blocks', async () => {
+    const result = await bridge.callTool('browser_evaluate', {
+      purpose: 'test',
+      expression: "fetch('/api')",
+    });
+    const text = result.content[0].text;
+    expect(result.isError).toBe(true);
+    expect(text).toContain('secure_eval');
+    expect(text).not.toContain('secure_eval: false');
+    expect(text).not.toContain('SUPERSURF_DISABLE_SECURE_EVAL');
+    expect(text).not.toContain('--disable-secure-eval');
+  });
+
+  it('still names the dedicated tools to use instead', async () => {
+    const result = await bridge.callTool('browser_evaluate', {
+      purpose: 'test',
+      expression: "fetch('/api')",
+    });
+    expect(result.content[0].text).toContain('browser_navigate');
+  });
+});
+
 // ── wrapWithPageProxy unit tests ─────────────────────────────
 
 describe('wrapWithPageProxy', () => {
