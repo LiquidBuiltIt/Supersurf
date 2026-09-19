@@ -300,7 +300,7 @@ export async function resolveWithHealing(
       // action. (The gate-OFF branch above never reaches `healOnMiss` at all,
       // so it needs no equivalent — checked, not assumed.)
       //
-      // Telemetry: still exactly one terminal event per gate-on resolve, and
+      // Telemetry: this path still ends in exactly one terminal event, and
       // 'escalated' is already that event — the resolve ended with no
       // coordinates and the error went back to the agent. score/margin are null
       // and hadRecord false because nothing was scored and the store was never
