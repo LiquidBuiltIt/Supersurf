@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onSnapshot, onLookup, onExtractContent, MAX_SELECTOR_MATCHES } from '../src/tools/content';
 import { getSelectorExpression } from '../src/tools/lib/element-resolver';
+import { QUALIFY_SOURCE } from '../src/tools/lib/selector-qualify';
 import type { ToolContext } from '../src/tools/lib/types';
 import type { HandleIndex } from '../src/experimental/fingerprinting/handle-annotate';
 
@@ -755,5 +756,44 @@ describe('handle substitution in reader output', () => {
 
     const result = await onLookup(ctx, { text: 'Post' }, {});
     expect(result.content[0].text).toContain('**button#post**');
+  });
+});
+
+// ── onLookup emits a qualified selector ──────────────────────────────────
+// browser_lookup prints selectors an agent pastes straight back into
+// browser_interact. The build used to stop at tag/#id/.class, so a class-less
+// match printed a bare tag that resolves to a DIFFERENT element on reuse.
+// Nothing is bound here, but a suggestion that resolves elsewhere is still a
+// lie — so each match now runs through the same ladder the element-miss hint
+// uses, and gains the `[role=…]` rung it never had.
+describe('onLookup() — emitted page code', () => {
+  async function capture(): Promise<string> {
+    let seen = '';
+    const ctx: any = {
+      eval: async (expression: string) => {
+        seen = expression;
+        return [];
+      },
+      ext: { sendCmd: async () => ({}) },
+    };
+    await onLookup(ctx, { text: 'Sign in' }, {});
+    return seen;
+  }
+
+  it('splices in the shared qualification ladder', async () => {
+    const code = await capture();
+    expect(code).toContain(QUALIFY_SOURCE);
+    expect(code).toContain('qualify(el,');
+  });
+
+  it('keeps a role fallback before degrading to a bare tag', async () => {
+    const code = await capture();
+    expect(code).toContain(`[role="`);
+  });
+
+  // Regression lock, not a proof of this change: the escaping predates it.
+  it('still escapes id and class tokens', async () => {
+    const code = await capture();
+    expect(code).toContain('CSS.escape');
   });
 });

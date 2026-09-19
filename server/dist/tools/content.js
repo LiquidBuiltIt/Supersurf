@@ -16,6 +16,7 @@ exports.onSnapshot = onSnapshot;
 exports.onLookup = onLookup;
 exports.onExtractContent = onExtractContent;
 const handle_annotate_1 = require("../experimental/fingerprinting/handle-annotate");
+const selector_qualify_1 = require("./lib/selector-qualify");
 /**
  * Coalesce adjacent `InlineTextBox` siblings under the same parent into a single
  * text node. Chrome's AX tree splits long text runs into one `InlineTextBox` per
@@ -192,6 +193,7 @@ async function onLookup(ctx, args, options) {
     const limit = args.limit || 10;
     const data = await ctx.eval(`
     (() => {
+      ${selector_qualify_1.QUALIFY_SOURCE}
       const searchText = ${JSON.stringify(searchText)};
       const searchLower = searchText.trim().toLowerCase();
       const matches = [];
@@ -211,10 +213,17 @@ async function onLookup(ctx, args, options) {
         const esc = (s) => CSS.escape(String(s));
         let sel = el.tagName.toLowerCase();
         if (el.id) sel += '#' + esc(el.id);
-        else if (el.className && typeof el.className === 'string') {
+        else if (el.className && typeof el.className === 'string' && el.className.trim()) {
           const cls = el.className.trim().split(/\\s+/).filter(c => c).slice(0, 2);
           if (cls.length) sel += '.' + cls.map(esc).join('.');
+        } else if (el.getAttribute('role')) {
+          sel += '[role="' + el.getAttribute('role') + '"]';
         }
+        // A readable selector is not an identifying one. Without this, a
+        // class-less page hands back a bare tag that matches a different element
+        // the moment the agent pastes it. Nothing is bound here — no handle, no
+        // wrong click — but a suggestion that resolves elsewhere is still a lie.
+        sel = qualify(el, sel).selector;
 
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);

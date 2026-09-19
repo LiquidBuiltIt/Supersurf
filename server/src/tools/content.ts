@@ -11,6 +11,7 @@
 
 import type { ToolContext } from './lib/types';
 import { annotateSelector } from '../experimental/fingerprinting/handle-annotate';
+import { QUALIFY_SOURCE } from './lib/selector-qualify';
 
 /**
  * Coalesce adjacent `InlineTextBox` siblings under the same parent into a single
@@ -189,6 +190,7 @@ export async function onLookup(ctx: ToolContext, args: any, options: any): Promi
 
   const data = await ctx.eval(`
     (() => {
+      ${QUALIFY_SOURCE}
       const searchText = ${JSON.stringify(searchText)};
       const searchLower = searchText.trim().toLowerCase();
       const matches = [];
@@ -208,10 +210,17 @@ export async function onLookup(ctx: ToolContext, args: any, options: any): Promi
         const esc = (s) => CSS.escape(String(s));
         let sel = el.tagName.toLowerCase();
         if (el.id) sel += '#' + esc(el.id);
-        else if (el.className && typeof el.className === 'string') {
+        else if (el.className && typeof el.className === 'string' && el.className.trim()) {
           const cls = el.className.trim().split(/\\s+/).filter(c => c).slice(0, 2);
           if (cls.length) sel += '.' + cls.map(esc).join('.');
+        } else if (el.getAttribute('role')) {
+          sel += '[role="' + el.getAttribute('role') + '"]';
         }
+        // A readable selector is not an identifying one. Without this, a
+        // class-less page hands back a bare tag that matches a different element
+        // the moment the agent pastes it. Nothing is bound here — no handle, no
+        // wrong click — but a suggestion that resolves elsewhere is still a lie.
+        sel = qualify(el, sel).selector;
 
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
