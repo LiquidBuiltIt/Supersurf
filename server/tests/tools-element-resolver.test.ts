@@ -66,6 +66,22 @@ describe('getSelectorExpression()', () => {
     expect(out).toContain('"Apply"');
   });
 
+  it('never rewrites a `#digit` sequence that lives inside a :has-text() literal', () => {
+    // The digit-leading-id rewrite used to run on the WHOLE selector string before
+    // :has-text extraction, so issue-tracker text like "Fix crash #1234" came out as
+    // `Fix crash [id="1234"]` and matched nothing. The literal is text, not CSS.
+    const out = getSelectorExpression('a:has-text("Fix crash #1234")');
+    expect(out).toContain('"Fix crash #1234"');
+    expect(out).not.toContain('[id=');
+    expect(out).toContain('queryAllDeep("a")');
+  });
+
+  it('still rewrites a digit-leading id in the base while the text literal is left alone', () => {
+    const out = getSelectorExpression('div#123abc:has-text("see #42")');
+    expect(out).toContain('queryAllDeep("div[id=\\"123abc\\"]")');
+    expect(out).toContain('"see #42"');
+  });
+
   // ── self-containment / shape ──
 
   it('returns a single expression (an IIFE), not a bare statement', () => {
@@ -99,6 +115,12 @@ describe('getAllSelectorExpression()', () => {
     expect(expr).toContain('queryAllDeep("li")');
     expect(expr).toContain('.filter(');
     expect(expr).toContain('Ship it');
+  });
+
+  it('leaves a `#digit` sequence inside a :has-text() literal alone, like the singular form', () => {
+    const out = getAllSelectorExpression('a:has-text("Fix crash #1234")');
+    expect(out).toContain('"Fix crash #1234"');
+    expect(out).not.toContain('[id=');
   });
 
   it('rejects an empty selector', () => {

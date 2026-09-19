@@ -22,9 +22,24 @@ const selector_qualify_1 = require("./selector-qualify");
  * `document.querySelector('#883a76')` throws `SyntaxError: not a valid selector`
  * — but Ashby (and other apps that use UUID-style element IDs) emit them anyway.
  * The attribute-selector form is always valid, so we transparently rewrite.
+ *
+ * MUST only ever see a CSS selector — never a `:has-text("…")` literal. The
+ * pattern `\s#\d` occurs in ordinary prose (`a:has-text("Fix crash #1234")`),
+ * and rewriting it there turns the sought text into `Fix crash [id="1234"]`,
+ * which matches nothing. Both expression builders below therefore split
+ * `:has-text` off FIRST and rewrite only the base selector.
  */
 function rewriteDigitLeadingIds(selector) {
     return selector.replace(/(^|[\s>+~,])([a-zA-Z][\w-]*)?#(\d[\w-]*)/g, (_, lead, tag, id) => `${lead}${tag || ''}[id="${id}"]`);
+}
+/** The `:has-text("…")` split, shared by both expression builders. Returns the
+ *  base selector already rewritten, plus the text literal EXACTLY as written. */
+const HAS_TEXT_RE = /^(.+?):has-text\(["'](.+?)["']\)(.*)$/;
+function splitHasText(selector) {
+    const m = selector.match(HAS_TEXT_RE);
+    if (!m)
+        return null;
+    return { base: rewriteDigitLeadingIds(m[1]), text: m[2] };
 }
 /**
  * Convert a CSS selector (with optional `:has-text("...")`) into a JS
@@ -42,10 +57,9 @@ function rewriteDigitLeadingIds(selector) {
 function getSelectorExpression(selector) {
     if (!selector)
         throw new Error('Selector is required for this action');
-    const rewritten = rewriteDigitLeadingIds(selector);
-    const m = rewritten.match(/^(.+?):has-text\(["'](.+?)["']\)(.*)$/);
-    if (m) {
-        const [, base, text] = m;
+    const split = splitHasText(selector);
+    if (split) {
+        const { base, text } = split;
         return `(() => {
       ${shared_1.QUERY_ALL_DEEP_SOURCE}
       for (const el of queryAllDeep(${JSON.stringify(base)})) {
@@ -56,7 +70,7 @@ function getSelectorExpression(selector) {
     }
     return `(() => {
       ${shared_1.QUERY_DEEP_SOURCE}
-      return queryDeep(${JSON.stringify(rewritten)});
+      return queryDeep(${JSON.stringify(rewriteDigitLeadingIds(selector))});
     })()`;
 }
 /**
@@ -76,10 +90,9 @@ function getSelectorExpression(selector) {
 function getAllSelectorExpression(selector) {
     if (!selector)
         throw new Error('Selector is required for this action');
-    const rewritten = rewriteDigitLeadingIds(selector);
-    const m = rewritten.match(/^(.+?):has-text\(["'](.+?)["']\)(.*)$/);
-    if (m) {
-        const [, base, text] = m;
+    const split = splitHasText(selector);
+    if (split) {
+        const { base, text } = split;
         return `(() => {
       ${shared_1.QUERY_ALL_DEEP_SOURCE}
       return queryAllDeep(${JSON.stringify(base)}).filter(
@@ -89,7 +102,7 @@ function getAllSelectorExpression(selector) {
     }
     return `(() => {
       ${shared_1.QUERY_ALL_DEEP_SOURCE}
-      return queryAllDeep(${JSON.stringify(rewritten)});
+      return queryAllDeep(${JSON.stringify(rewriteDigitLeadingIds(selector))});
     })()`;
 }
 /** How many raw candidates the page is allowed to return before ranking. */
