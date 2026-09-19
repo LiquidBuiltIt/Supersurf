@@ -64,11 +64,25 @@ function ok(message: string): void {
  *   - two look-alike <div> cards             -> distinguishable only at depth 2
  *   - two byte-identical <li> siblings       -> distinguishable only positionally
  *   - one detached <div>                     -> distinguishable not at all
+ *   - one <span> whose text carries `#1234`  -> mint/runtime divergence bait
+ *
+ * That last one is not decoration. The ladder mints `:has-text("Fix crash
+ * #1234")` from ordinary issue-tracker prose, and the production resolver runs
+ * `rewriteDigitLeadingIds` over the selector — a rewrite the mint-time ladder
+ * has no equivalent for. Before 831c15d it ran over the WHOLE string and turned
+ * the sought text into `Fix crash [id="1234"]`, so the handle verified at mint
+ * time and matched nothing at resolve time. A `#digit` inside quoted text is
+ * the cheapest live specimen of the bug class this whole script exists to
+ * catch, so the fixture carries one permanently.
+ *
+ * A <span> deliberately, not a fourth <a>: Property 2 asserts the fixture holds
+ * exactly three class-less anchors.
  */
 const FIXTURE = `<!doctype html><meta charset="utf-8"><title>hints</title><body>
 <span><a href="/news">Hacker News</a><a href="/newest">new</a><a href="/newcomments">comments</a></span>
 <div><div><span>First card body</span></div></div>
 <div><div><span>Second card body</span></div></div>
+<span>Fix crash #1234</span>
 <ul><li></li><li></li></ul>
 <script>
   // Tag every element a candidate sweep can reach, so identity can be asserted
@@ -194,9 +208,21 @@ async function main(): Promise<void> {
     fail('server/dist is missing the page sources — run `npm run build.server` first.');
   }
   const { QUALIFY_SOURCE } = require_(qualifyPath) as { QUALIFY_SOURCE?: string };
-  const { DESCRIBE_SOURCE } = require_(describePath) as { DESCRIBE_SOURCE?: string };
-  if (!QUALIFY_SOURCE || !DESCRIBE_SOURCE) {
-    fail('server/dist no longer exports QUALIFY_SOURCE / DESCRIBE_SOURCE — rebuild, or the exports were renamed.');
+  // `getSelectorExpression` is THE production resolution path: every
+  // selector-driven tool reaches the page through it (`getElementCenter`,
+  // `resolveInFrames`, `findElementInFrames`). Loading it from `dist` — rather
+  // than re-querying with the page-side `ssResolve` that `qualify` itself uses
+  // — is what makes this script able to see a mint/runtime divergence at all.
+  // See the header: our matcher agreeing with our matcher proves nothing.
+  const { DESCRIBE_SOURCE, getSelectorExpression } = require_(describePath) as {
+    DESCRIBE_SOURCE?: string;
+    getSelectorExpression?: (selector: string) => string;
+  };
+  if (!QUALIFY_SOURCE || !DESCRIBE_SOURCE || typeof getSelectorExpression !== 'function') {
+    fail(
+      'server/dist no longer exports QUALIFY_SOURCE / DESCRIBE_SOURCE / getSelectorExpression — ' +
+        'rebuild, or the exports were renamed.',
+    );
   }
 
   const { findChromiumBinary } = require_(
@@ -287,24 +313,35 @@ async function main(): Promise<void> {
   }
   ok(`described ${described.length} candidates`);
 
-  // Re-resolve each selector with the SAME semantics the runtime uses, and
-  // compare probe attributes — identity, not similarity.
-  const roundTrip = `
-    (() => {
-      ${QUALIFY_SOURCE}
-      const input = ${JSON.stringify(described)};
-      return input.map((c) => {
-        const hit = ssResolve(c.selector);
-        return {
-          probe: c.probe,
-          selector: c.selector,
-          qualified: c.qualified,
-          landed: hit ? hit.getAttribute('data-ss-probe') : null,
-        };
-      });
-    })()
-  `;
-  const results = await page.evaluate<RoundTripped[]>(roundTrip);
+  // Re-resolve each selector through the PRODUCTION path and compare probe
+  // attributes — identity, not similarity.
+  //
+  // The expression is built HERE, in Node, by the same `getSelectorExpression`
+  // the server calls on every `click`/`type`/`hover`, and only the finished
+  // expression is evaluated in the page. That asymmetry is the whole point:
+  // mint-time `qualify` runs `ssResolve` in-page, resolve time runs this, and
+  // the two are allowed to drift. Calling `ssResolve` on both ends — as this
+  // script did until now — can only ever prove `qualify` agrees with itself.
+  const probes = described.map((c) => {
+    let expr: string;
+    try {
+      // Empty/rejected selectors (`getSelectorExpression` throws on '') still
+      // get a row, so the drift report below names them rather than dying here.
+      expr = getSelectorExpression!(c.selector);
+    } catch {
+      return `{ probe: ${JSON.stringify(c.probe)}, selector: ${JSON.stringify(c.selector)}, ` +
+        `qualified: ${c.qualified}, landed: null }`;
+    }
+    // A throwing expression reports `landed: null`, which is a drift FAILURE
+    // naming the selector — strictly louder than letting one bad selector abort
+    // the whole page evaluation with an anonymous "page threw".
+    return (
+      `{ probe: ${JSON.stringify(c.probe)}, selector: ${JSON.stringify(c.selector)}, ` +
+      `qualified: ${c.qualified}, landed: (() => { try { const el = ${expr}; ` +
+      `return el ? el.getAttribute('data-ss-probe') : null; } catch (e) { return null; } })() }`
+    );
+  });
+  const results = await page.evaluate<RoundTripped[]>(`(() => [${probes.join(',\n')}])()`);
 
   const drifted = results.filter((r) => r.qualified && r.landed !== r.probe);
   if (drifted.length) {
@@ -313,7 +350,9 @@ async function main(): Promise<void> {
         drifted
           .map((d) => `    ${d.selector}  described ${d.probe}, resolved ${d.landed}`)
           .join('\n') +
-        '\n  A qualified selector is bound as an @handle, so this is a silent wrong-element click.',
+        '\n  A qualified selector is bound as an @handle, so this is a silent wrong-element click.' +
+        '\n  `resolved null` means the production resolver found NOTHING for a selector the' +
+        '\n  mint-time ladder verified — a mint/runtime divergence, not a page change.',
     );
   }
   const qualifiedCount = results.filter((r) => r.qualified).length;
@@ -402,10 +441,13 @@ async function main(): Promise<void> {
   // The listener calls preventDefault so the anchor's href cannot navigate the
   // page out from under the pending CDP response. Which element received the
   // click is unaffected — that is the whole property.
+  //
+  // Production path again, for the same reason as Property 1: a click in the
+  // real server reaches its element through `getSelectorExpression`, never
+  // through the page-side `ssResolve` that minted the selector.
   const clickResult = await page.evaluate<string | null>(`
     (() => {
-      ${QUALIFY_SOURCE}
-      const el = ssResolve(${JSON.stringify(secondAnchor.selector)});
+      const el = ${getSelectorExpression!(secondAnchor.selector)};
       if (!el) return 'no-match';
       let landed = null;
       el.addEventListener('click', function (e) {
