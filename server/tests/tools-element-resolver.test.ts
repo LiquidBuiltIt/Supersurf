@@ -3,7 +3,9 @@ import {
   getSelectorExpression,
   getAllSelectorExpression,
   findAlternativeSelectors,
+  DESCRIBE_SOURCE,
 } from '../src/tools/lib/element-resolver';
+import { QUALIFY_SOURCE } from '../src/tools/lib/selector-qualify';
 
 describe('getSelectorExpression()', () => {
   it('throws on empty selector', () => {
@@ -288,30 +290,46 @@ describe('findAlternativeSelectors() — ephemeral handles', () => {
 
 describe('DESCRIBE_SOURCE — executed page code', () => {
   /**
-   * Pull the emitted `describe` helper out of the page expression and run it in
-   * Node against a fake element. String assertions alone cannot prove a selector
-   * is escaped — only executing the code the page would execute can.
+   * Execute the real emitted `describe` helper in Node against a fake element.
+   * String assertions alone cannot prove a selector is escaped — only running
+   * the code the page would run can. The helpers come from QUALIFY_SOURCE,
+   * which `describe` now depends on, so both are spliced in.
+   *
+   * What this harness canNOT prove is element IDENTITY: `fakeEl` never sits in
+   * a queryable document. That property is proved by `npm run smoke.hints`
+   * against real Chromium. Do not add an identity assertion here — a
+   * hand-rolled querySelector would only prove our matcher agrees with itself,
+   * which is exactly how the news.ycombinator.com defect shipped green.
    */
-  function runDescribe(code: string, el: any): any {
-    const m = code.match(/const describe = [\s\S]*?\n {2}\};/);
-    expect(m).not.toBeNull();
-    // Stand-in for the DOM's CSS.escape (absent in Node): backslash-prefix every
-    // character that is illegal in a bare CSS identifier.
+  function runDescribe(el: any, doc?: any): any {
     const CSSStub = {
       escape: (s: string) => String(s).replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\' + ch),
     };
     const windowStub = {
       getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
     };
-    const fn = new Function('CSS', 'Node', 'window', 'el', `${m![0]}\nreturn describe(el, 0);`);
-    return fn(CSSStub, { TEXT_NODE: 3 }, windowStub, el);
+    const documentStub = doc ?? {
+      // Default: the base selector resolves straight back to `el` (rung 0).
+      querySelector: () => el,
+      querySelectorAll: () => [el],
+      body: {},
+    };
+    const fn = new Function(
+      'CSS', 'Node', 'window', 'document', 'el',
+      `${QUALIFY_SOURCE}\n${DESCRIBE_SOURCE}\nreturn describe(el, 0);`,
+    );
+    return fn(CSSStub, { TEXT_NODE: 3 }, windowStub, documentStub, el);
   }
 
   const fakeEl = (over: Record<string, any> = {}) => ({
     tagName: 'DIV',
+    nodeType: 1,
     id: '',
     className: '',
     childNodes: [] as any[],
+    children: [] as any[],
+    previousElementSibling: null,
+    parentElement: null,
     attrs: {} as Record<string, string>,
     getAttribute(name: string) {
       return (this as any).attrs[name] ?? null;
@@ -320,36 +338,77 @@ describe('DESCRIBE_SOURCE — executed page code', () => {
     ...over,
   });
 
-  async function pageCode(): Promise<string> {
+  it('is actually the source the page receives', async () => {
     let seen = '';
     await findAlternativeSelectors(async (expression: string) => {
       seen = expression;
       return [];
     }, 'div.missing');
-    return seen;
-  }
+    expect(seen).toContain(DESCRIBE_SOURCE);
+    expect(seen).toContain(QUALIFY_SOURCE);
+  });
 
-  it('escapes class tokens that are illegal bare CSS identifiers', async () => {
-    const out = runDescribe(await pageCode(), fakeEl({ className: 'md:flex w-1/2' }));
+  it('escapes class tokens that are illegal bare CSS identifiers', () => {
+    const out = runDescribe(fakeEl({ className: 'md:flex w-1/2' }));
     expect(out.selector).toBe('div.md\\:flex.w-1\\/2');
   });
 
-  it('escapes the id', async () => {
-    const out = runDescribe(await pageCode(), fakeEl({ id: 'tab:2' }));
+  it('escapes the id', () => {
+    const out = runDescribe(fakeEl({ id: 'tab:2' }));
     expect(out.selector).toBe('div#tab\\:2');
   });
 
-  it('leaves an already-legal class selector alone', async () => {
-    const out = runDescribe(await pageCode(), fakeEl({ className: 'promo-dismiss-link  btn' }));
+  it('leaves an already-legal class selector alone', () => {
+    const out = runDescribe(fakeEl({ className: 'promo-dismiss-link  btn' }));
     expect(out.selector).toBe('div.promo-dismiss-link.btn');
   });
 
-  it('collapses internal whitespace in the label so the hint stays two lines', async () => {
-    const out = runDescribe(
-      await pageCode(),
-      fakeEl({ attrs: { 'aria-label': '  Close\n   the dialog  ' } }),
-    );
+  it('collapses internal whitespace in the label so the hint stays two lines', () => {
+    const out = runDescribe(fakeEl({ attrs: { 'aria-label': '  Close\n   the dialog  ' } }));
     expect(out.label).toBe('Close the dialog');
     expect(out.label).not.toContain('\n');
+  });
+
+  it('emits matchText as the ellipsis-free prefix of the direct text', () => {
+    const long = 'Android 17 is the first release since 3.x to ship a new runtime';
+    const el = fakeEl({ childNodes: [{ nodeType: 3, textContent: long }] });
+    const out = runDescribe(el);
+    expect(out.text).toBe(long.slice(0, 50) + '...');   // display form, unchanged
+    expect(out.matchText).toBe(long.slice(0, 50));       // binding form, no ellipsis
+  });
+
+  it('marks a candidate qualified when the base selector round-trips (rung 0)', () => {
+    const out = runDescribe(fakeEl({ id: 'go' }));
+    expect(out.qualified).toBe(true);
+    expect(out.selector).toBe('div#go');
+  });
+
+  it('qualifies with own direct text when the bare tag is ambiguous (rung 1)', () => {
+    const el = fakeEl({ tagName: 'A', childNodes: [{ nodeType: 3, textContent: 'new' }] });
+    const logo = { textContent: '' };
+    const doc = {
+      querySelector: (s: string) => (s === 'a' ? logo : null),
+      querySelectorAll: (s: string) => (s === 'a' ? [logo, { textContent: 'new', ...el }] : []),
+      body: {},
+    };
+    // Make the :has-text scan return the element identity we passed in.
+    doc.querySelectorAll = (s: string) => (s === 'a' ? [logo, el] : []);
+    (el as any).textContent = 'new';
+    const out = runDescribe(el, doc);
+    expect(out.selector).toBe('a:has-text("new")');
+    expect(out.qualified).toBe(true);
+  });
+
+  it('marks a candidate unqualified when no rung verifies (rung 5)', () => {
+    const twinA = fakeEl({ tagName: 'LI', textContent: '' });
+    const twinB = fakeEl({ tagName: 'LI', textContent: '' });
+    const doc = {
+      querySelector: (s: string) => (s === 'li' ? twinA : null),
+      querySelectorAll: (s: string) => (s === 'li' ? [twinA, twinB] : []),
+      body: {},
+    };
+    const out = runDescribe(twinB, doc);
+    expect(out.qualified).toBe(false);
+    expect(out.selector).toBe('li');
   });
 });

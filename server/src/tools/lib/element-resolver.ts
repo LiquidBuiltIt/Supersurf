@@ -7,6 +7,7 @@
 import { QUERY_DEEP_SOURCE, QUERY_ALL_DEEP_SOURCE } from 'shared';
 import { selectorTokens } from '../../playbooks/candidates';
 import { mintHandleName, bindEphemeral } from '../../experimental/fingerprinting/ephemeral-handles';
+import { QUALIFY_SOURCE } from './selector-qualify';
 
 /** Async page evaluator signature (matches the inner closure of `evalExpr`). */
 export type EvalFn = (expression: string, awaitPromise?: boolean) => Promise<any>;
@@ -109,6 +110,21 @@ export interface AltCandidate {
   score: number;
   /** Ephemeral handle name, minted in Task 4. Absent when no confident text source exists. */
   handle?: string;
+  /**
+   * The ellipsis-free, quote-free, whitespace-collapsed prefix of the element's
+   * direct text. `text` above is the DISPLAY form and carries a literal '...'
+   * when truncated, which can never match anything. This is the form that goes
+   * into a selector and into the binding's identity fact.
+   */
+  matchText: string;
+  /** Same treatment for the accessible-name label. */
+  matchLabel: string;
+  /**
+   * False when NO rung of the qualification ladder produced a selector that
+   * resolves back to this element. A false here means: print `selector` alone,
+   * mint no handle. See `selector-qualify.ts`.
+   */
+  qualified: boolean;
 }
 
 /** How many raw candidates the page is allowed to return before ranking. */
@@ -131,8 +147,12 @@ const HIDDEN_CAP = 2;
  * `CSS.escape` is a DOM API — this expression already calls `document`,
  * `window.getComputedStyle` and `getBoundingClientRect`, so it only ever runs
  * where `CSS.escape` exists (Chrome 41+). No fallback needed.
+ *
+ * Exported so tests can execute it directly rather than regex-scraping it out
+ * of the larger expression. It depends on `QUALIFY_SOURCE` being spliced in
+ * first — every emitter below does that.
  */
-const DESCRIBE_SOURCE = `
+export const DESCRIBE_SOURCE = `
   const describe = (el, score) => {
     const esc = (s) => CSS.escape(String(s));
     let sel = el.tagName.toLowerCase();
@@ -154,13 +174,17 @@ const DESCRIBE_SOURCE = `
       || el.getAttribute('alt') || '';
     const rect = el.getBoundingClientRect();
     const style = window.getComputedStyle(el);
+    const qualified = qualify(el, sel);
     return {
-      selector: sel,
+      selector: qualified.selector,
+      qualified: qualified.source !== null,
       tag: el.tagName.toLowerCase(),
       visible: style.display !== 'none' && style.visibility !== 'hidden'
         && style.opacity !== '0' && rect.width > 0 && rect.height > 0,
       text: directText.length > 50 ? directText.slice(0, 50) + '...' : directText,
+      matchText: ssSafe(directText),
       label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 50),
+      matchLabel: ssSafe(label),
       x: Math.round(rect.left + rect.width / 2),
       y: Math.round(rect.top + rect.height / 2),
       width: Math.round(rect.width),
@@ -174,6 +198,7 @@ const DESCRIBE_SOURCE = `
 function textCandidateExpression(searchText: string): string {
   return `
     (() => {
+      ${QUALIFY_SOURCE}
       ${DESCRIBE_SOURCE}
       const searchLower = ${JSON.stringify(searchText)}.trim().toLowerCase();
       const out = [];
@@ -201,6 +226,7 @@ function textCandidateExpression(searchText: string): string {
 function tokenCandidateExpression(tokens: string[]): string {
   return `
     (() => {
+      ${QUALIFY_SOURCE}
       ${DESCRIBE_SOURCE}
       const tokens = ${JSON.stringify(tokens)};
       const limit = ${RAW_CANDIDATE_CAP};
