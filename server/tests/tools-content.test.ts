@@ -797,3 +797,38 @@ describe('onLookup() — emitted page code', () => {
     expect(code).toContain('CSS.escape');
   });
 });
+
+// ── onSnapshot's formFields fallback emits an escaped, qualified selector ──
+// This block only runs when the extension's `snapshot` command returns no
+// formFields, which is exactly why it was missed by the CSS.escape sweep that
+// fixed onLookup and DESCRIBE_SOURCE. It carried both defects: raw id/class
+// tokens, and a selector that degrades to a bare tag on markup with no id,
+// name or class.
+describe('onSnapshot() — formFields fallback page code', () => {
+  async function capture(): Promise<string> {
+    let seen = '';
+    const ctx: any = {
+      // No formFields in the response, so the eval fallback fires.
+      ext: { sendCmd: async () => ({ nodes: [], formFields: null }) },
+      eval: async (expression: string) => {
+        seen = expression;
+        return [];
+      },
+    };
+    await onSnapshot(ctx, {});
+    return seen;
+  }
+
+  it('escapes id and class tokens', async () => {
+    const code = await capture();
+    expect(code).toContain('const esc = (s) => CSS.escape(String(s));');
+    expect(code).toContain(`sel += '#' + esc(el.id)`);
+    expect(code).toContain(`cls.map(esc).join('.')`);
+  });
+
+  it('qualifies the selector it emits', async () => {
+    const code = await capture();
+    expect(code).toContain(QUALIFY_SOURCE);
+    expect(code).toContain('qualify(el,');
+  });
+});

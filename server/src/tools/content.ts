@@ -85,17 +85,26 @@ export async function onSnapshot(ctx: ToolContext, options: any): Promise<any> {
   if (!formFields) {
     formFields = await ctx.eval(`
       (() => {
+        ${QUALIFY_SOURCE}
         const fields = [];
         const inputs = document.querySelectorAll('input, textarea, select');
         for (const el of inputs) {
           if (el.type === 'hidden') continue;
+          // This fallback only runs when the extension returns no formFields,
+          // which is why it was missed by the CSS.escape sweep that fixed
+          // onLookup and DESCRIBE_SOURCE. Same reason, same fix.
+          const esc = (s) => CSS.escape(String(s));
           let sel = el.tagName.toLowerCase();
-          if (el.id) sel += '#' + el.id;
+          if (el.id) sel += '#' + esc(el.id);
           else if (el.name) sel += '[name="' + el.name + '"]';
           else if (el.className && typeof el.className === 'string') {
             const cls = el.className.trim().split(/\\s+/).filter(Boolean).slice(0, 2);
-            if (cls.length) sel += '.' + cls.join('.');
+            if (cls.length) sel += '.' + cls.map(esc).join('.');
           }
+          // A readable selector is not an identifying one. A form field with no
+          // id, no name and no class degrades to the bare tag \`input\`, which
+          // resolves to the first input in the document — not this one.
+          sel = qualify(el, sel).selector;
 
           const field = {
             selector: sel,
