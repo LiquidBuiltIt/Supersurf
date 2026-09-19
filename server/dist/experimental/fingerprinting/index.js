@@ -129,7 +129,7 @@ async function healInContext(evalInContext, url, selector) {
  * to getElementCenter. When ON: captures on success, heals on miss, escalates (rethrows)
  * if healing fails.
  */
-async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHandle) {
+async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHandle, getSessionId) {
     const url = getUrl();
     const domain = (0, url_2.domainOf)(url), route = (0, url_2.routeOf)(url);
     // Translate a handle reference to the selector it was captured against. Must
@@ -141,7 +141,7 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
     const query = translated.selector;
     if (!index_1.experimentRegistry.isEnabled('fingerprinting')) {
         try {
-            return await (0, element_resolver_1.getElementCenter)(evalFn, query);
+            return await (0, element_resolver_1.getElementCenter)(evalFn, query, getSessionId?.());
         }
         catch (missErr) {
             // The feature is off, but the shape/marker still tells the agent something
@@ -175,7 +175,7 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
         catch { /* telemetry must never break a resolve */ }
     };
     try {
-        const center = await (0, element_resolver_1.getElementCenter)(evalFn, query);
+        const center = await (0, element_resolver_1.getElementCenter)(evalFn, query, getSessionId?.());
         // Single hoisted read: reused for the `hadRecord` telemetry below AND passed into
         // captureOnResolve so it skips its own getRecord — keeps the happy path at one file
         // read total, not two. (Skip entirely for the 'unknown' domain bucket, which never
@@ -199,7 +199,7 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
             fire('escalated', null, null, false);
         }
         if (missErr instanceof Error) {
-            if (translated.attempted && !translated.handle) {
+            if (translated.attempted && !translated.handle && !translated.ephemeral) {
                 // An unresolved handle that also failed as a CSS selector: say so, so the agent
                 // stops retrying the name and looks the element up for itself.
                 missErr.message +=

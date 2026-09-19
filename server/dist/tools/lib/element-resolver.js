@@ -7,9 +7,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getSelectorExpression = getSelectorExpression;
 exports.getAllSelectorExpression = getAllSelectorExpression;
+exports.rankAlternatives = rankAlternatives;
+exports.renderAlternatives = renderAlternatives;
 exports.findAlternativeSelectors = findAlternativeSelectors;
 exports.getElementCenter = getElementCenter;
 const shared_1 = require("../../shared");
+const candidates_1 = require("../../playbooks/candidates");
+const ephemeral_handles_1 = require("../../experimental/fingerprinting/ephemeral-handles");
 /**
  * Rewrite digit-leading IDs (`#883a76-...`) to `[id="..."]` form.
  * CSS spec disallows ID identifiers that start with a digit, so
@@ -86,61 +90,225 @@ function getAllSelectorExpression(selector) {
       return queryAllDeep(${JSON.stringify(rewritten)});
     })()`;
 }
+/** How many raw candidates the page is allowed to return before ranking. */
+const RAW_CANDIDATE_CAP = 24;
+/** How many survive into the rendered hint. */
+const RENDERED_CAP = 5;
+/** Hidden candidates shown only when the visible list is this thin. */
+const VISIBLE_FLOOR = 3;
+const HIDDEN_CAP = 2;
 /**
- * Search the page for elements whose direct text content includes the
- * `:has-text(...)` substring of the failing selector. Returns up to
- * three visible candidates and two hidden, each with a guess at a
- * usable selector. Returns `[]` when the input doesn't have a
- * `:has-text(...)` suffix or when the page-eval throws.
+ * The shared tail of every candidate page expression: describe one element.
+ * Emits a VALID CSS selector — `#id` when there is one, else up to two
+ * dot-joined classes, else a `[role=...]` attribute selector.
+ *
+ * Identifiers go through `CSS.escape`. Splitting the class attribute correctly
+ * is only half of "valid CSS": a Tailwind utility (`md:flex`, `w-1/2`) or a
+ * numeric-leading id is a legal class/id token but an ILLEGAL bare CSS
+ * identifier, so `querySelector` throws `SyntaxError` on the unescaped form.
+ * `CSS.escape` is a DOM API — this expression already calls `document`,
+ * `window.getComputedStyle` and `getBoundingClientRect`, so it only ever runs
+ * where `CSS.escape` exists (Chrome 41+). No fallback needed.
  */
-async function findAlternativeSelectors(evalFn, selector) {
-    const m = selector.match(/:has-text\(["'](.+?)["']\)/);
-    if (!m)
-        return [];
-    const searchText = m[1];
-    try {
-        const result = await evalFn(`
-      (() => {
-        const searchText = ${JSON.stringify(searchText)};
-        const searchLower = searchText.trim().toLowerCase();
-        const alts = [];
-
-        for (const el of document.querySelectorAll('*')) {
-          let directText = '';
-          for (const n of el.childNodes) {
-            if (n.nodeType === Node.TEXT_NODE) directText += n.textContent;
-          }
-          directText = directText.trim();
-          if (!directText.toLowerCase().includes(searchLower)) continue;
-
-          let sel = el.tagName.toLowerCase();
-          if (el.id) {
-            sel += '#' + el.id;
-          } else if (el.className && typeof el.className === 'string') {
-            const cls = el.className.trim().split(/\\\\s+/).filter(Boolean);
-            if (cls.length > 0) sel += '.' + cls.slice(0, 2).join('.');
-          } else if (el.getAttribute('role')) {
-            sel += '[role="' + el.getAttribute('role') + '"]';
-          }
-
-          const rect = el.getBoundingClientRect();
-          const style = window.getComputedStyle(el);
-          const visible = style.display !== 'none' && style.visibility !== 'hidden' &&
-                          style.opacity !== '0' && rect.width > 0 && rect.height > 0;
-
-          alts.push({
-            selector: sel,
-            visible,
-            text: directText.length > 50 ? directText.substring(0, 50) + '...' : directText,
-          });
+const DESCRIBE_SOURCE = `
+  const describe = (el, score) => {
+    const esc = (s) => CSS.escape(String(s));
+    let sel = el.tagName.toLowerCase();
+    if (el.id) {
+      sel += '#' + esc(el.id);
+    } else if (el.className && typeof el.className === 'string' && el.className.trim()) {
+      const cls = el.className.trim().split(/\\s+/).filter(Boolean);
+      if (cls.length > 0) sel += '.' + cls.slice(0, 2).map(esc).join('.');
+    } else if (el.getAttribute('role')) {
+      sel += '[role="' + el.getAttribute('role') + '"]';
+    }
+    let directText = '';
+    for (const n of el.childNodes) {
+      if (n.nodeType === Node.TEXT_NODE) directText += n.textContent;
+    }
+    directText = directText.trim().replace(/\\s+/g, ' ');
+    const label = el.getAttribute('aria-label') || el.getAttribute('title')
+      || el.getAttribute('placeholder') || (typeof el.value === 'string' ? el.value : '')
+      || el.getAttribute('alt') || '';
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return {
+      selector: sel,
+      tag: el.tagName.toLowerCase(),
+      visible: style.display !== 'none' && style.visibility !== 'hidden'
+        && style.opacity !== '0' && rect.width > 0 && rect.height > 0,
+      text: directText.length > 50 ? directText.slice(0, 50) + '...' : directText,
+      label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 50),
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round(rect.top + rect.height / 2),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      score: score,
+    };
+  };
+`;
+/** Page expression for a `:has-text("...")` miss: elements whose DIRECT text contains the phrase. */
+function textCandidateExpression(searchText) {
+    return `
+    (() => {
+      ${DESCRIBE_SOURCE}
+      const searchLower = ${JSON.stringify(searchText)}.trim().toLowerCase();
+      const out = [];
+      for (const el of document.querySelectorAll('*')) {
+        if (out.length >= ${RAW_CANDIDATE_CAP}) break;
+        let directText = '';
+        for (const n of el.childNodes) {
+          if (n.nodeType === Node.TEXT_NODE) directText += n.textContent;
         }
-
-        const vis = alts.filter(a => a.visible);
-        const hid = alts.filter(a => !a.visible);
-        return [...vis.slice(0, 3), ...hid.slice(0, 2)];
-      })()
-    `);
-        return result || [];
+        if (!directText.trim().toLowerCase().includes(searchLower)) continue;
+        out.push(describe(el, 0));
+      }
+      return out;
+    })()
+  `;
+}
+/**
+ * Page expression for a plain-CSS miss. Two passes, mirroring
+ * `playbooks/candidates.ts`: loosened token match over id/class/data-testid/
+ * aria-label first, then an interactive-element sweep to fill the remainder.
+ * The interactive sweep always runs when the token pass under-fills, which is
+ * the only useful answer for a selector like `tr.zA` whose tokens are all noise.
+ */
+function tokenCandidateExpression(tokens) {
+    return `
+    (() => {
+      ${DESCRIBE_SOURCE}
+      const tokens = ${JSON.stringify(tokens)};
+      const limit = ${RAW_CANDIDATE_CAP};
+      const out = [];
+      const seen = new Set();
+      if (tokens.length > 0) {
+        const scored = [];
+        for (const el of document.querySelectorAll('*')) {
+          const hay = (el.id + ' '
+            + (typeof el.className === 'string' ? el.className : '') + ' '
+            + (el.getAttribute('data-testid') || '') + ' '
+            + (el.getAttribute('aria-label') || '')).toLowerCase();
+          if (!hay.trim()) continue;
+          let score = 0;
+          for (const t of tokens) if (hay.indexOf(t) !== -1) score++;
+          if (score > 0) scored.push({ score: score, el: el });
+        }
+        scored.sort((a, b) => b.score - a.score);
+        for (const s of scored.slice(0, limit)) {
+          if (seen.has(s.el)) continue;
+          seen.add(s.el);
+          out.push(describe(s.el, s.score));
+        }
+      }
+      if (out.length < limit) {
+        const interactive = document.querySelectorAll('a[href], button, input, select, textarea, [role="button"]');
+        for (const el of interactive) {
+          if (out.length >= limit) break;
+          if (seen.has(el)) continue;
+          seen.add(el);
+          out.push(describe(el, 0));
+        }
+      }
+      return out;
+    })()
+  `;
+}
+/**
+ * Rank and trim raw page candidates. Pure — all ordering policy lives here
+ * rather than in page code, so it is unit-testable without a DOM.
+ *
+ * Visible candidates first, highest token score first, original order as the
+ * final tiebreak. Hidden and zero-area candidates are appended ONLY when the
+ * visible list is thin (< VISIBLE_FLOOR) and are capped at HIDDEN_CAP: a
+ * selector that matched two hidden 0×0 twins is exactly the failure that made
+ * `click` report success at (0,0), so they must never crowd out real answers.
+ */
+function rankAlternatives(raw) {
+    const byScore = (a, b) => b.score - a.score;
+    const visible = raw.filter((a) => a.visible).sort(byScore);
+    if (visible.length >= VISIBLE_FLOOR)
+        return visible.slice(0, RENDERED_CAP);
+    const hidden = raw.filter((a) => !a.visible).sort(byScore).slice(0, HIDDEN_CAP);
+    return [...visible, ...hidden].slice(0, RENDERED_CAP);
+}
+/**
+ * Render the agent-facing hint block. Two lines per candidate: the metadata
+ * line (with the ephemeral `@handle` when one was minted) and the selector on
+ * its own line so it can be copied cleanly.
+ *
+ * Nothing downstream parses this string — change the template freely, but
+ * change its test with it.
+ */
+function renderAlternatives(alts) {
+    if (!alts || alts.length === 0)
+        return '';
+    let out = 'Did you mean?';
+    alts.forEach((alt, i) => {
+        const parts = [];
+        if (alt.handle)
+            parts.push(`@${alt.handle}`);
+        const caption = alt.text || alt.label;
+        if (caption)
+            parts.push(`"${caption}"`);
+        parts.push(alt.tag);
+        parts.push(alt.visible ? 'visible' : 'hidden');
+        parts.push(`${alt.width}×${alt.height} @ (${alt.x},${alt.y})`);
+        out += `\n  ${i + 1}. ${parts.join(' · ')}`;
+        out += `\n     ${alt.selector}`;
+    });
+    return out;
+}
+/**
+ * Find candidate elements for a failing selector.
+ *
+ * Two strategies, picked on the shape of the input:
+ *   - `:has-text("...")` — scan for elements whose DIRECT text contains the phrase.
+ *   - anything else — loosened token match (`playbooks/candidates.ts:selectorTokens`)
+ *     plus an interactive-element sweep.
+ *
+ * The old `:has-text`-only precondition is gone: a plain CSS miss used to get
+ * an empty list, which is the majority of real misses.
+ *
+ * Never throws — a blocked eval, a dead tab or a malformed selector all yield
+ * `[]` and the caller prints the bare "Element not found" line.
+ *
+ * `sessionId` is unused here in Task 3; Task 4 consumes it to mint ephemeral
+ * handles onto the ranked list.
+ */
+async function findAlternativeSelectors(evalFn, selector, sessionId) {
+    let expression;
+    try {
+        const m = selector.match(/:has-text\(["'](.+?)["']\)/);
+        expression = m
+            ? textCandidateExpression(m[1])
+            : tokenCandidateExpression((0, candidates_1.selectorTokens)(selector));
+    }
+    catch {
+        return [];
+    }
+    try {
+        const raw = await evalFn(expression);
+        if (!Array.isArray(raw))
+            return [];
+        const ranked = rankAlternatives(raw);
+        // Mint a throwaway `@name` per candidate that has a confident text source.
+        // No session id => no binding => no handle: a process-global slot would have
+        // no drop event and would leak for the process lifetime.
+        // Builds new objects rather than mutating `ranked`'s elements in place —
+        // those are the raw page-eval results, and mutating a caller-owned object
+        // is surprising even though production `evalFn` calls always return fresh ones.
+        if (sessionId) {
+            const taken = new Set();
+            return ranked.map((alt) => {
+                const name = (0, ephemeral_handles_1.mintHandleName)({ text: alt.text, label: alt.label, tag: alt.tag }, taken);
+                if (!name)
+                    return alt; // no confident text source — the CSS selector prints alone
+                (0, ephemeral_handles_1.bindEphemeral)(sessionId, name, alt.selector);
+                return { ...alt, handle: name };
+            });
+        }
+        return ranked;
     }
     catch {
         return [];
@@ -148,10 +316,9 @@ async function findAlternativeSelectors(evalFn, selector) {
 }
 /**
  * Resolve a selector to its element's viewport-center coordinates.
- * On miss, throws an Error whose message includes "Did you mean?"
- * suggestions when the selector contains `:has-text(...)`.
+ * On miss, throws an Error whose message carries the ranked candidate list.
  */
-async function getElementCenter(evalFn, selector) {
+async function getElementCenter(evalFn, selector, sessionId) {
     const expr = getSelectorExpression(selector);
     const result = await evalFn(`
     (() => {
@@ -165,17 +332,11 @@ async function getElementCenter(evalFn, selector) {
     })()
   `);
     if (!result) {
-        const hints = await findAlternativeSelectors(evalFn, selector);
+        const hints = await findAlternativeSelectors(evalFn, selector, sessionId);
         let msg = `Element not found: \`${selector}\``;
-        if (hints && hints.length > 0) {
-            msg += '\n\nDid you mean?';
-            hints.forEach((alt, i) => {
-                const vis = alt.visible ? '' : ' (hidden)';
-                msg += `\n  ${i + 1}. \`${alt.selector}\`${vis}`;
-                if (alt.text)
-                    msg += `\n     Text: "${alt.text}"`;
-            });
-        }
+        const block = renderAlternatives(hints);
+        if (block)
+            msg += `\n\n${block}`;
         throw new Error(msg);
     }
     return result;

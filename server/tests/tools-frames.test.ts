@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { findElementInFrames, getCenterInFrame } from '../src/tools/lib/frames';
+import { findElementInFrames, getCenterInFrame, elementNotFoundError } from '../src/tools/lib/frames';
 import type { ToolContext } from '../src/tools/lib/types';
 
 function mockCtx(cdpImpl: (method: string, params: any) => Promise<any>): ToolContext {
@@ -501,5 +501,58 @@ describe('getCenterInFrame', () => {
     ctx.getElementCenter = vi.fn().mockRejectedValue(topErr);
     ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
     await expect(getCenterInFrame(ctx, '#btn')).rejects.toBe(topErr);
+  });
+});
+
+const ctxWith = (alts: any[]) => ({
+  findAlternativeSelectors: vi.fn().mockResolvedValue(alts),
+}) as any;
+
+describe('elementNotFoundError()', () => {
+  it('appends the ranked candidate list to the message', async () => {
+    const err = await elementNotFoundError(ctxWith([
+      { selector: 'span.a.b', tag: 'span', visible: true, text: 'Got it',
+        width: 63, height: 40, x: 1112, y: 664, score: 2 },
+    ]), 'div[role=button]');
+    expect(err.message).toContain('Element not found: div[role=button]');
+    expect(err.message).toContain('Did you mean?');
+    expect(err.message).toContain('span.a.b');
+  });
+
+  it('produces the bare message when there are no candidates', async () => {
+    const err = await elementNotFoundError(ctxWith([]), 'div.nope');
+    expect(err.message).toBe('Element not found: div.nope');
+  });
+
+  it('never propagates a candidate-lookup failure', async () => {
+    const ctx = { findAlternativeSelectors: vi.fn().mockRejectedValue(new Error('eval blocked')) } as any;
+    const err = await elementNotFoundError(ctx, 'div.nope');
+    expect(err.message).toBe('Element not found: div.nope');
+  });
+
+  it('still carries the handle-marker diagnostic', async () => {
+    const err = await elementNotFoundError(ctxWith([]), '@submit_review');
+    expect(err.message).toContain('No handle named `submit_review`');
+  });
+});
+
+describe('elementNotFoundError() — handle diagnostic uses the translated selector', () => {
+  it('drops the "no handle recorded" line when the handle actually resolved', async () => {
+    const ctx = {
+      findAlternativeSelectors: vi.fn().mockResolvedValue([]),
+      resolveSelector: (s: string) => (s === '@got_it' ? 'span.a.b' : s),
+    } as any;
+    const err = await elementNotFoundError(ctx, '@got_it');
+    expect(err.message).toBe('Element not found: @got_it');
+    expect(err.message).not.toContain('No handle named');
+  });
+
+  it('keeps the "no handle recorded" line when the name translated to nothing', async () => {
+    const ctx = {
+      findAlternativeSelectors: vi.fn().mockResolvedValue([]),
+      resolveSelector: (s: string) => s.replace(/^@/, ''),
+    } as any;
+    const err = await elementNotFoundError(ctx, '@never_minted');
+    expect(err.message).toContain('No handle named `never_minted`');
   });
 });

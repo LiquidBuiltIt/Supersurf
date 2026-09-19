@@ -89,7 +89,7 @@ class BrowserBridge {
                 params: ev,
                 result: 'ok',
                 duration_ms: 0,
-            }), meta, emitHandle),
+            }), meta, emitHandle, () => this.connectionManager?.clientId),
             captureFingerprintInContext: (contextId, selector, meta) => void (0, index_2.captureInContext)((expr) => {
                 const params = { expression: expr, returnByValue: true };
                 if (contextId != null)
@@ -142,7 +142,7 @@ class BrowserBridge {
             getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.connectionManager?.getAttachedTab()?.url),
             getSelectorExpression: (selector) => (0, element_resolver_1.getSelectorExpression)(resolveSelectorSync(selector)),
             getAllSelectorExpression: (selector) => (0, element_resolver_1.getAllSelectorExpression)(resolveSelectorSync(selector)),
-            findAlternativeSelectors: (selector) => (0, element_resolver_1.findAlternativeSelectors)(evalFnBound, selector),
+            findAlternativeSelectors: (selector) => (0, element_resolver_1.findAlternativeSelectors)(evalFnBound, selector, this.connectionManager?.clientId),
             formatResult: (name, result, options) => (0, result_formatter_1.formatResult)(name, result, options, this.connectionManager),
             error: (message, options) => (0, result_formatter_1.formatError)(message, options),
         };

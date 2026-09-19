@@ -13,7 +13,7 @@ const helpers_1 = require("./helpers");
             const meta = { name: action.name, purpose: action.purpose };
             const match = await (0, frames_1.resolveInFrames)(ctx, selectorExpr, action.selector, meta);
             if (!match)
-                throw (0, frames_1.elementNotFoundError)(action.selector);
+                throw await (0, frames_1.elementNotFoundError)(ctx, action.selector);
             typeContextId = match.contextId;
             resolvedExpr = match.resolvedExpr;
             const focusExpr = `

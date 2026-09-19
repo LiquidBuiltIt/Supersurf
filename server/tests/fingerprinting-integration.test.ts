@@ -27,6 +27,27 @@ function rec(): FingerprintRecord {
 beforeEach(() => mockEnabled.mockReturnValue(false));
 afterEach(() => { vi.clearAllMocks(); fs.rmSync(TMP, { recursive: true, force: true }); });
 
+/**
+ * Task 3 (BACKLOG #57) made `getElementCenter` unconditionally run a candidate
+ * search via `findAlternativeSelectors` on every miss, not just `:has-text()`
+ * ones. That candidate-search eval now fires between the element-existence
+ * query and `healOnMiss`'s own scoring eval, so a `mockResolvedValueOnce`
+ * queue keyed on CALL ORDER breaks the moment an eval call is added or
+ * removed anywhere in the miss-then-heal path (as Task 3 just did, and a
+ * later task minting handles onto candidates could do again).
+ *
+ * Key on CONTENT instead: `healOnMiss`'s scoring page-eval is the only one of
+ * the three that assigns `var T=` (see `page-scripts.ts:scoreExpr`). Every
+ * other eval in this path is happy to see `null` — the element-existence
+ * query treats it as a genuine miss, and the candidate search treats a
+ * non-array as "no candidates".
+ */
+function healEvalFn(scoreResult: string) {
+  return vi.fn((expression: string) =>
+    Promise.resolve(expression.includes('var T=') ? scoreResult : null),
+  );
+}
+
 describe('resolveWithHealing', () => {
   it('OFF: passes through to getElementCenter (resolves)', async () => {
     const evalFn = vi.fn().mockResolvedValue({ x: 1, y: 2 }); // getElementCenter's inner eval returns coords
@@ -42,10 +63,7 @@ describe('resolveWithHealing', () => {
   it('ON + miss + stored fingerprint + high score: heals to stored coords', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
     putRecord('ex.com', '/', '#go', rec());
-    // first evalFn call = getElementCenter (miss → null); second = scoreExpr (good hit)
-    const evalFn = vi.fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
+    const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
     const center = await resolveWithHealing(evalFn, '#go', url);
     expect(center).toEqual({ x: 42, y: 99 });
   });
@@ -93,9 +111,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
 
   it('emits outcome=healed with score+margin on a successful heal', async () => {
     putRecord('ex.com', '/', '#go', rec());
-    const evalFn = vi.fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
+    const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
     const emit = vi.fn();
     await resolveWithHealing(evalFn, '#go', url, emit);
     expect(emit).toHaveBeenCalledWith(
@@ -105,9 +121,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
 
   it('emits outcome=escalated (hadRecord=true, discovery=known) when the gate fails on low margin', async () => {
     putRecord('ex.com', '/', '#go', rec());
-    const evalFn = vi.fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.05 }));
+    const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.05 }));
     const emit = vi.fn();
     await expect(resolveWithHealing(evalFn, '#go', url, emit)).rejects.toThrow(/not found/i);
     expect(emit).toHaveBeenCalledWith(

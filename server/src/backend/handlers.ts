@@ -22,6 +22,10 @@ import {
   initSession as initHumanization,
   destroySession as destroyHumanization,
 } from '../experimental/mouse-humanization/index';
+import {
+  bindSession as bindEphemeralSession,
+  dropSession as dropEphemeralSession,
+} from '../experimental/fingerprinting/ephemeral-handles';
 import { clearTipCounters } from '../tips';
 import { UPGRADE_NOTICE_MESSAGE } from 'shared';
 
@@ -284,6 +288,7 @@ export async function onConnect(
 
     // Bind experiment registry to daemon transport, keyed by this session's id
     experimentRegistry.bind(mgr.clientId!, client);
+    bindEphemeralSession(mgr.clientId!);
 
     const BB = await getBrowserBridge();
     mgr.bridge = new BB(mgr.config, mgr.extensionServer);
@@ -488,6 +493,7 @@ export async function onDisconnect(
     getRegistry().clearSessionLog(mgr.clientId);
     clearTipCounters(mgr.clientId);
     experimentRegistry.unbind(mgr.clientId);
+    dropEphemeralSession(mgr.clientId);
     destroyHumanization(mgr.clientId);
   }
 

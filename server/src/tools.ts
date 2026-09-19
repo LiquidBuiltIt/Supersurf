@@ -120,6 +120,7 @@ export class BrowserBridge {
             }),
           meta,
           emitHandle,
+          () => this.connectionManager?.clientId,
         ),
       captureFingerprintInContext: (contextId: number | null, selector: string, meta?: import('./experimental/fingerprinting/handle-meta').HandleMeta) =>
         void captureInContext(
@@ -180,7 +181,8 @@ export class BrowserBridge {
       getHandleIndex: () => buildHandleIndex(this.connectionManager?.getAttachedTab()?.url),
       getSelectorExpression: (selector: string) => getSelectorExpression(resolveSelectorSync(selector)),
       getAllSelectorExpression: (selector: string) => getAllSelectorExpression(resolveSelectorSync(selector)),
-      findAlternativeSelectors: (selector: string) => findAlternativeSelectors(evalFnBound, selector),
+      findAlternativeSelectors: (selector: string) =>
+        findAlternativeSelectors(evalFnBound, selector, this.connectionManager?.clientId),
       formatResult: (name, result, options) =>
         formatResult(name, result, options, this.connectionManager),
       error: (message, options) => formatError(message, options),

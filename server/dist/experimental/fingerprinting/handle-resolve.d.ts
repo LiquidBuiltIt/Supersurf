@@ -2,6 +2,8 @@ import type { FingerprintRecord } from './types';
 /** True when `s` is shaped like a handle name. Resolution-time callers must use
  *  `isHandleRef` instead; this is for name-shape validation and diagnostics only. */
 export declare function looksLikeHandle(s: string): boolean;
+/** The marker that declares a selector-slot string a handle reference. */
+export declare const HANDLE_MARKER = "@";
 /**
  * True when a selector-slot string explicitly declares itself a handle reference
  * via the leading `@` marker — the ONLY test `resolveSelectorOrHandle` uses to
@@ -51,11 +53,14 @@ export declare function resolveHandleName(domain: string, route: string, name: s
 export interface SelectorOrHandle {
     /** The selector to query with — the translated one on a hit, the input otherwise. */
     selector: string;
-    /** Non-null only when a handle name matched a stored record. */
+    /** Non-null only when a handle name matched a STORED record. */
     handle: HandleResolution | null;
     /** True when the input looked like a handle and a lookup actually ran, so a
      *  `null` handle means "miss", not "this was a plain selector". */
     attempted: boolean;
+    /** True when the selector came from the session's ephemeral map rather than the
+     *  persistent store. `handle` stays null in that case — there is no record. */
+    ephemeral?: boolean;
 }
 /**
  * The single entry point for handle translation. Idempotent: a plain CSS
