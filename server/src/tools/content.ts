@@ -204,7 +204,7 @@ export async function onLookup(ctx: ToolContext, args: any, options: any): Promi
         let sel = el.tagName.toLowerCase();
         if (el.id) sel += '#' + el.id;
         else if (el.className && typeof el.className === 'string') {
-          const cls = el.className.trim().split(/\\\\s+/).filter(c => c).slice(0, 2);
+          const cls = el.className.trim().split(/\\s+/).filter(c => c).slice(0, 2);
           if (cls.length) sel += '.' + cls.join('.');
         }
 

@@ -123,7 +123,7 @@ export async function findAlternativeSelectors(
           if (el.id) {
             sel += '#' + el.id;
           } else if (el.className && typeof el.className === 'string') {
-            const cls = el.className.trim().split(/\\\\s+/).filter(Boolean);
+            const cls = el.className.trim().split(/\\s+/).filter(Boolean);
             if (cls.length > 0) sel += '.' + cls.slice(0, 2).join('.');
           } else if (el.getAttribute('role')) {
             sel += '[role="' + el.getAttribute('role') + '"]';

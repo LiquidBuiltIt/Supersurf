@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { getSelectorExpression, getAllSelectorExpression } from '../src/tools/lib/element-resolver';
+import {
+  getSelectorExpression,
+  getAllSelectorExpression,
+  findAlternativeSelectors,
+} from '../src/tools/lib/element-resolver';
 
 describe('getSelectorExpression()', () => {
   it('throws on empty selector', () => {
@@ -97,5 +101,34 @@ describe('getAllSelectorExpression()', () => {
 
   it('rejects an empty selector', () => {
     expect(() => getAllSelectorExpression('')).toThrow('Selector is required');
+  });
+});
+
+describe('findAlternativeSelectors() — emitted page code', () => {
+  /** Run the function with a spy evaluator and hand back the page source it built. */
+  async function capture(selector: string): Promise<string> {
+    let seen = '';
+    const evalFn = async (expression: string) => {
+      seen = expression;
+      return [];
+    };
+    await findAlternativeSelectors(evalFn, selector);
+    return seen;
+  }
+
+  it('does not emit the double-backslash class-split typo', async () => {
+    const code = await capture('button:has-text("Got it")');
+    // '\\\\s+' in a TS string literal is the two characters \ \ followed by s+ —
+    // exactly the broken emission this test exists to lock out.
+    expect(code).not.toContain('\\\\s+');
+  });
+
+  it('emits a class-splitting regex that actually splits on whitespace', async () => {
+    const code = await capture('button:has-text("Got it")');
+    const m = code.match(/\.split\((\/[^/]+\/)\)/);
+    expect(m).not.toBeNull();
+    // Build the regex the page would build, and prove it splits whitespace.
+    const re: RegExp = new Function(`return ${m![1]}`)();
+    expect('alpha  beta\tgamma'.split(re)).toEqual(['alpha', 'beta', 'gamma']);
   });
 });

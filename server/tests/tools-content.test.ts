@@ -416,6 +416,19 @@ describe('onLookup()', () => {
     );
     expect(ctx.eval).not.toHaveBeenCalled();
   });
+
+  it('emits a class-splitting regex that actually splits on whitespace', async () => {
+    (ctx.eval as any).mockResolvedValue({ matches: [], total: 0 });
+    await onLookup(ctx, { text: 'Got it' }, {});
+
+    const code = (ctx.eval as any).mock.calls[0][0] as string;
+    expect(code).not.toContain('\\\\s+');
+
+    const m = code.match(/\.split\((\/[^/]+\/)\)/);
+    expect(m).not.toBeNull();
+    const re: RegExp = new Function(`return ${m![1]}`)();
+    expect('alpha  beta\tgamma'.split(re)).toEqual(['alpha', 'beta', 'gamma']);
+  });
 });
 
 describe('onExtractContent()', () => {
