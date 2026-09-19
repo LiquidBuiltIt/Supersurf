@@ -783,7 +783,7 @@ describe('onLookup() — emitted page code', () => {
   it('splices in the shared qualification ladder', async () => {
     const code = await capture();
     expect(code).toContain(QUALIFY_SOURCE);
-    expect(code).toContain('qualify(el,');
+    expect(code).toContain('qualify(m.el, m.selector)');
   });
 
   it('keeps a role fallback before degrading to a bare tag', async () => {
@@ -792,9 +792,15 @@ describe('onLookup() — emitted page code', () => {
   });
 
   // Regression lock, not a proof of this change: the escaping predates it.
+  // Assert on onLookup's OWN escaping statements, never on the bare string
+  // 'CSS.escape' — QUALIFY_SOURCE contains `CSS.escape(cur.id)` in `ssPath`,
+  // so splicing the ladder alone would satisfy that and the lock would hold
+  // even with onLookup's escaping deleted outright.
   it('still escapes id and class tokens', async () => {
     const code = await capture();
-    expect(code).toContain('CSS.escape');
+    expect(code).toContain('const esc = (s) => CSS.escape(String(s));');
+    expect(code).toContain(`sel += '#' + esc(el.id)`);
+    expect(code).toContain(`cls.map(esc).join('.')`);
   });
 });
 
