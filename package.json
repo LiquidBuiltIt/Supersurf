@@ -26,7 +26,7 @@
     "test.shared": "cd shared && npm test",
     "test.cli": "cd cli && npm test",
     "test.scripts": "vitest run",
-    "test": "npm run test.shared && npm run test.daemon && npm run test.server && npm run test.cli && npm run test.extension && npm run test.scripts && npm run smoke.register",
+    "test": "npm run test.shared && npm run test.daemon && npm run test.server && npm run test.cli && npm run test.extension && npm run test.scripts && npm run smoke.register && npm run smoke.hints",
     "mcp": "claude mcp add supersurf -- node server/dist/cli.js",
     "filesize": "find ./{shared,cli,extension,server,daemon} -type f ! -path \"*/node_modules/*\" ! -path \"*/dist/*\" ! -name \"package-lock.json\"  -name *.ts   -exec wc -l {} + | sort -nr",
     "version.bump": "npx tsx scripts/version.bump.ts",
@@ -35,6 +35,7 @@
     "publish": "npx tsx scripts/publish.ts",
     "smoke.pack": "npx tsx scripts/smoke-pack.ts",
     "smoke.register": "npx tsx scripts/smoke-register.ts",
+    "smoke.hints": "npx tsx scripts/smoke-hints.ts",
     "tree": "npx tsx scripts/tree.ts",
     "changelog": "npx tsx scripts/changelog.ts"
   }
