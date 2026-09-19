@@ -48,6 +48,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
   software — the actual licence (Apache-2.0 with a Commons Clause) forbids that. All four now
   declare `SEE LICENSE IN LICENSE`, npm's documented form for a non-SPDX licence, and the README
   badge names Commons Clause instead of implying plain Apache-2.0.
+- feat: **every selector-resolving tool now suggests candidates when an element is not found, not just `:has-text()` clicks.** `findAlternativeSelectors` no longer requires a `:has-text(...)` selector — a plain-CSS miss now gets a loosened token match over id/class/data-testid/aria-label plus an interactive-element sweep, reusing the same `selectorTokens` scorer playbook failure records already use. The candidate list is also wired into the shared `frames.ts` miss path, so `browser_interact` `type`/`clear`/`select_option`/`scroll`/`wait` and `browser_fill_form` all carry it. Candidates now print their tag, visibility, size and centre coordinates, ranked visible-first; hidden and 0×0 elements are omitted unless there are fewer than three visible candidates, and capped at two.
 
 ## 4.0.0 — 2026-09-12
 

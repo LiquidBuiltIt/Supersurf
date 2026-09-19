@@ -1,18 +1,31 @@
 import type { ToolContext } from './types';
 import { handleMissHint } from '../../experimental/fingerprinting/handle-resolve';
+import { renderAlternatives } from './element-resolver';
 
 /**
  * Standard "Element not found" error for a `resolveInFrames()` total miss
- * (selector matched neither the top frame, any child frame, nor a
- * fingerprint heal). Every selector-targeting action that throws immediately
- * on a `resolveInFrames()` miss should build its error through this helper
- * rather than reimplementing it, so the handle-marker diagnostic
- * (`handleMissHint`) is attached once, not per call site. `resolveInFrames`
- * itself stays non-throwing — `wait` polls on a `null` return rather than
- * failing immediately, so the throw decision has to stay with the caller.
+ * (selector matched neither the top frame, any child frame, nor a fingerprint
+ * heal). Every selector-targeting action that throws immediately on a
+ * `resolveInFrames()` miss builds its error through this helper, so both the
+ * handle-marker diagnostic (`handleMissHint`) AND the ranked candidate list are
+ * attached once, not per call site.
+ *
+ * Async because the candidate list is a page read. Best-effort throughout: a
+ * blocked eval or a dead tab yields the bare message rather than a different
+ * error. `resolveInFrames` itself stays non-throwing — `wait` polls on a `null`
+ * return rather than failing immediately, so the throw decision stays with the
+ * caller.
  */
-export function elementNotFoundError(selector: string): Error {
-  return new Error(`Element not found: ${selector}${handleMissHint(selector)}`);
+export async function elementNotFoundError(ctx: ToolContext, selector: string): Promise<Error> {
+  let msg = `Element not found: ${selector}${handleMissHint(selector)}`;
+  try {
+    const alts = await ctx.findAlternativeSelectors(selector);
+    const block = renderAlternatives(alts as any);
+    if (block) msg += `\n\n${block}`;
+  } catch {
+    /* the hint is advisory — never turn a miss into a different failure */
+  }
+  return new Error(msg);
 }
 
 /** DFS-collect every child frame's id from a `Page.getFrameTree` root (top frame excluded). */

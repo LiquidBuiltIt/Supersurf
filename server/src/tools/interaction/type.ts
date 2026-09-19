@@ -11,7 +11,7 @@ registerAction({
       const selectorExpr = ctx.getSelectorExpression(action.selector);
       const meta = { name: action.name, purpose: action.purpose };
       const match = await resolveInFrames(ctx, selectorExpr, action.selector, meta);
-      if (!match) throw elementNotFoundError(action.selector);
+      if (!match) throw await elementNotFoundError(ctx, action.selector);
       typeContextId = match.contextId;
       resolvedExpr = match.resolvedExpr;
       const focusExpr = `

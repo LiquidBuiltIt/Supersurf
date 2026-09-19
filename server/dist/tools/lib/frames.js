@@ -8,18 +8,33 @@ exports.resolveInFrames = resolveInFrames;
 exports.evalInFrameOrTop = evalInFrameOrTop;
 exports.getCenterInFrame = getCenterInFrame;
 const handle_resolve_1 = require("../../experimental/fingerprinting/handle-resolve");
+const element_resolver_1 = require("./element-resolver");
 /**
  * Standard "Element not found" error for a `resolveInFrames()` total miss
- * (selector matched neither the top frame, any child frame, nor a
- * fingerprint heal). Every selector-targeting action that throws immediately
- * on a `resolveInFrames()` miss should build its error through this helper
- * rather than reimplementing it, so the handle-marker diagnostic
- * (`handleMissHint`) is attached once, not per call site. `resolveInFrames`
- * itself stays non-throwing — `wait` polls on a `null` return rather than
- * failing immediately, so the throw decision has to stay with the caller.
+ * (selector matched neither the top frame, any child frame, nor a fingerprint
+ * heal). Every selector-targeting action that throws immediately on a
+ * `resolveInFrames()` miss builds its error through this helper, so both the
+ * handle-marker diagnostic (`handleMissHint`) AND the ranked candidate list are
+ * attached once, not per call site.
+ *
+ * Async because the candidate list is a page read. Best-effort throughout: a
+ * blocked eval or a dead tab yields the bare message rather than a different
+ * error. `resolveInFrames` itself stays non-throwing — `wait` polls on a `null`
+ * return rather than failing immediately, so the throw decision stays with the
+ * caller.
  */
-function elementNotFoundError(selector) {
-    return new Error(`Element not found: ${selector}${(0, handle_resolve_1.handleMissHint)(selector)}`);
+async function elementNotFoundError(ctx, selector) {
+    let msg = `Element not found: ${selector}${(0, handle_resolve_1.handleMissHint)(selector)}`;
+    try {
+        const alts = await ctx.findAlternativeSelectors(selector);
+        const block = (0, element_resolver_1.renderAlternatives)(alts);
+        if (block)
+            msg += `\n\n${block}`;
+    }
+    catch {
+        /* the hint is advisory — never turn a miss into a different failure */
+    }
+    return new Error(msg);
 }
 /** DFS-collect every child frame's id from a `Page.getFrameTree` root (top frame excluded). */
 function collectChildFrameIds(root) {

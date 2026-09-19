@@ -132,3 +132,115 @@ describe('findAlternativeSelectors() — emitted page code', () => {
     expect('alpha  beta\tgamma'.split(re)).toEqual(['alpha', 'beta', 'gamma']);
   });
 });
+
+import {
+  rankAlternatives,
+  renderAlternatives,
+  type AltCandidate,
+} from '../src/tools/lib/element-resolver';
+
+const c = (over: Partial<AltCandidate>): AltCandidate => ({
+  selector: 'div', visible: true, tag: 'div',
+  x: 0, y: 0, width: 10, height: 10, score: 0, ...over,
+});
+
+describe('rankAlternatives()', () => {
+  it('puts visible candidates first, highest score first', () => {
+    const out = rankAlternatives([
+      c({ selector: 'a', visible: true, score: 1 }),
+      c({ selector: 'b', visible: true, score: 3 }),
+      c({ selector: 'd', visible: false, score: 9 }),
+      c({ selector: 'e', visible: true, score: 2 }),
+    ]);
+    expect(out.map((x) => x.selector)).toEqual(['b', 'e', 'a']);
+  });
+
+  it('omits hidden candidates entirely when three or more are visible', () => {
+    const out = rankAlternatives([
+      c({ selector: 'a', visible: true }),
+      c({ selector: 'b', visible: true }),
+      c({ selector: 'd', visible: true }),
+      c({ selector: 'hid', visible: false }),
+    ]);
+    expect(out.some((x) => !x.visible)).toBe(false);
+  });
+
+  it('keeps at most two hidden candidates when fewer than three are visible', () => {
+    const out = rankAlternatives([
+      c({ selector: 'a', visible: true }),
+      c({ selector: 'h1', visible: false }),
+      c({ selector: 'h2', visible: false }),
+      c({ selector: 'h3', visible: false }),
+    ]);
+    expect(out.filter((x) => !x.visible)).toHaveLength(2);
+  });
+
+  it('caps the whole list at five', () => {
+    const out = rankAlternatives(
+      Array.from({ length: 12 }, (_, i) => c({ selector: `s${i}`, visible: true })),
+    );
+    expect(out).toHaveLength(5);
+  });
+});
+
+describe('renderAlternatives()', () => {
+  it('renders the approved two-line shape', () => {
+    const out = renderAlternatives([
+      c({
+        selector: 'span.docs-promo-action-container.promo-dismiss-link',
+        tag: 'span', text: 'Got it', visible: true,
+        width: 63, height: 40, x: 1112, y: 664,
+      }),
+    ]);
+    expect(out).toBe(
+      'Did you mean?\n' +
+      '  1. "Got it" · span · visible · 63×40 @ (1112,664)\n' +
+      '     span.docs-promo-action-container.promo-dismiss-link',
+    );
+  });
+
+  it('marks a hidden candidate as hidden', () => {
+    const out = renderAlternatives([c({ selector: 'div.x', visible: false, width: 0, height: 0 })]);
+    expect(out).toContain('· hidden ·');
+    expect(out).toContain('0×0');
+  });
+
+  it('omits the text segment when the candidate has none', () => {
+    const out = renderAlternatives([c({ selector: 'div.x', tag: 'div' })]);
+    expect(out).toContain('  1. div · visible ·');
+    expect(out).not.toContain('""');
+  });
+
+  it('returns an empty string for an empty list', () => {
+    expect(renderAlternatives([])).toBe('');
+  });
+});
+
+describe('findAlternativeSelectors() — plain CSS selectors', () => {
+  async function capture(selector: string): Promise<string> {
+    let seen = '';
+    await findAlternativeSelectors(async (expression: string) => {
+      seen = expression;
+      return [];
+    }, selector);
+    return seen;
+  }
+
+  it('builds a candidate query for a selector with no :has-text()', async () => {
+    const code = await capture('.docs-promo-action-container');
+    expect(code).not.toBe('');
+    expect(code).toContain('"promo"');
+    expect(code).toContain('"action"');
+    expect(code).toContain('"container"');
+  });
+
+  it('still falls back to interactive elements when the selector yields no tokens', async () => {
+    const code = await capture('tr.zA');
+    expect(code).toContain('a[href], button, input, select, textarea, [role="button"]');
+  });
+
+  it('keeps the text-match path for :has-text() selectors', async () => {
+    const code = await capture('div:has-text("Got it")');
+    expect(code).toContain('"Got it"');
+  });
+});

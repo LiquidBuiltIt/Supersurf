@@ -39,7 +39,7 @@ export async function onFillForm(ctx: ToolContext, args: any, options: any): Pro
     // Resolve top frame first, then DFS child frames on miss, then a
     // fingerprint heal across every frame.
     const match = await resolveInFrames(ctx, expr, field.selector);
-    if (!match) throw elementNotFoundError(field.selector);
+    if (!match) throw await elementNotFoundError(ctx, field.selector);
 
     const fillExpr = `
       (async () => {
