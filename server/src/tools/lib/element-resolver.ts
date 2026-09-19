@@ -353,9 +353,23 @@ export async function findAlternativeSelectors(
     if (sessionId) {
       const taken = new Set<string>();
       return ranked.map((alt) => {
+        // A candidate no rung of the ladder could pin down gets NO name. This is
+        // the "only name it when you can name it honestly" rule extended from
+        // "has readable text" to "has a selector that resolves back to itself" —
+        // the property the news.ycombinator.com defect proved was missing.
+        if (alt.qualified === false) return alt;
         const name = mintHandleName({ text: alt.text, label: alt.label, tag: alt.tag }, taken);
         if (!name) return alt; // no confident text source — the CSS selector prints alone
-        bindEphemeral(sessionId, name, alt.selector);
+        // `mintHandleName` names from `text || label`; guard the same one, using
+        // the ellipsis-free, quote-free forms. Assumption A5: both can be empty
+        // after sanitization even though the raw display forms were not.
+        const matchSource = alt.matchText ? 'text' : (alt.matchLabel ? 'label' : null);
+        bindEphemeral(sessionId, name, alt.selector, {
+          matchSource,
+          matchValue: matchSource === 'text' ? alt.matchText : (matchSource === 'label' ? alt.matchLabel : ''),
+          x: alt.x,
+          y: alt.y,
+        });
         return { ...alt, handle: name };
       });
     }

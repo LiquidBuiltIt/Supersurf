@@ -11,7 +11,8 @@ import { loadDomain } from './store';
 import { normalizeName } from './naming';
 import { domainOf, routeOf } from './url';
 import { experimentRegistry } from '../index';
-import { resolveEphemeral } from './ephemeral-handles';
+import { resolveEphemeralBinding } from './ephemeral-handles';
+import type { EphemeralBinding } from './ephemeral-handles';
 import type { FingerprintRecord } from './types';
 
 /**
@@ -130,6 +131,9 @@ export interface SelectorOrHandle {
   /** True when the selector came from the session's ephemeral map rather than the
    *  persistent store. `handle` stays null in that case — there is no record. */
   ephemeral?: boolean;
+  /** The full ephemeral binding, when `ephemeral` is true. Carries the
+   *  mint-time identity facts the resolve-time guard compares against. */
+  ephemeralBinding?: EphemeralBinding;
 }
 
 /**
@@ -176,8 +180,16 @@ export function resolveSelectorOrHandle(
   // hint that mints these names is ungated, so gating the lookup would print
   // `@handles` that cannot resolve on the default configuration. The persistent
   // store stays gated above — that is the experiment's data; this map is not.
-  const ephemeral = resolveEphemeral(name);
-  if (ephemeral) return { selector: ephemeral, handle: null, attempted: true, ephemeral: true };
+  const binding = resolveEphemeralBinding(name);
+  if (binding) {
+    return {
+      selector: binding.selector,
+      handle: null,
+      attempted: true,
+      ephemeral: true,
+      ephemeralBinding: binding,
+    };
+  }
 
   return { selector: name, handle: null, attempted: true };
 }

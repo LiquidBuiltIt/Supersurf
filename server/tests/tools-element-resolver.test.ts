@@ -247,7 +247,9 @@ describe('findAlternativeSelectors() — plain CSS selectors', () => {
   });
 });
 
-import { resolveEphemeral, dropSession } from '../src/experimental/fingerprinting/ephemeral-handles';
+import {
+  resolveEphemeral, resolveEphemeralBinding, bindSession, dropSession,
+} from '../src/experimental/fingerprinting/ephemeral-handles';
 
 describe('findAlternativeSelectors() — ephemeral handles', () => {
   const page = [
@@ -285,6 +287,85 @@ describe('findAlternativeSelectors() — ephemeral handles', () => {
     }];
     const out = await findAlternativeSelectors(async () => hashed, 'div.missing', 'sess-1');
     expect(out[0].handle).toBeUndefined();
+  });
+
+  const CAND = (over: Record<string, any> = {}) => ({
+    selector: 'span.a.b', tag: 'span', visible: true, text: 'Got it', label: '',
+    matchText: 'Got it', matchLabel: '', qualified: true,
+    width: 63, height: 40, x: 1112, y: 664, score: 2, ...over,
+  });
+
+  it('mints no handle for an unqualified candidate', async () => {
+    bindSession('s-gate');
+    const out = await findAlternativeSelectors(
+      async () => [CAND({ qualified: false, selector: 'li', text: '', matchText: '' })],
+      'li.missing',
+      's-gate',
+    );
+    expect(out[0].handle).toBeUndefined();
+    expect(out[0].selector).toBe('li');
+    dropSession('s-gate');
+  });
+
+  // The test above cannot fail without the gate: its candidate has no text, so
+  // `mintHandleName` refuses it anyway. This one has a perfectly nameable text
+  // source and is rejected ONLY by `qualified: false` — and it checks the
+  // binding map too, because a handle that is never printed but IS bound would
+  // still resolve for any other candidate list that prints the same name.
+  it('mints and binds nothing for an unqualified candidate that does have text', async () => {
+    bindSession('s-gate-text');
+    const out = await findAlternativeSelectors(
+      async () => [CAND({ qualified: false, selector: 'a', tag: 'a', text: 'Brand new', matchText: 'Brand new' })],
+      'a.missing',
+      's-gate-text',
+    );
+    expect(out[0].handle).toBeUndefined();
+    expect(resolveEphemeral('brand_new')).toBeNull();
+    dropSession('s-gate-text');
+  });
+
+  it('binds the qualified selector, not the bare tag', async () => {
+    bindSession('s-bind');
+    await findAlternativeSelectors(
+      async () => [CAND({ selector: 'a:has-text("new")', tag: 'a', text: 'new', matchText: 'new' })],
+      'a.missing',
+      's-bind',
+    );
+    expect(resolveEphemeral('new_a')).toBe('a:has-text("new")');
+    dropSession('s-bind');
+  });
+
+  it('binds matchText (ellipsis-free) as the identity fact, never the display text', async () => {
+    bindSession('s-ellipsis');
+    const long = 'Android 17 is the first release since 3.x to ship a n';
+    await findAlternativeSelectors(
+      async () => [CAND({
+        selector: `a:has-text("${long.slice(0, 50)}")`, tag: 'a',
+        text: long.slice(0, 50) + '...', matchText: long.slice(0, 50),
+      })],
+      'a.missing',
+      's-ellipsis',
+    );
+    const b = resolveEphemeralBinding('android_17_is_the');
+    expect(b!.facts.matchValue).toBe(long.slice(0, 50));
+    expect(b!.facts.matchValue).not.toContain('...');
+    dropSession('s-ellipsis');
+  });
+
+  it('falls back to the label as the identity fact when there is no text', async () => {
+    bindSession('s-label');
+    await findAlternativeSelectors(
+      async () => [CAND({
+        selector: 'button[aria-label="Close the dialog"]', tag: 'button',
+        text: '', matchText: '', label: 'Close the dialog', matchLabel: 'Close the dialog',
+      })],
+      'button.missing',
+      's-label',
+    );
+    const b = resolveEphemeralBinding('close_the_dialog');
+    expect(b!.facts.matchSource).toBe('label');
+    expect(b!.facts.matchValue).toBe('Close the dialog');
+    dropSession('s-label');
   });
 });
 
