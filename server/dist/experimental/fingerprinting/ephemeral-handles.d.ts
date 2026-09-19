@@ -31,6 +31,12 @@ export declare function bindEphemeral(sessionId: string, name: string, selector:
  * it only ever runs after the persistent store has already missed, so a
  * cross-session name collision can only affect a name that would otherwise have
  * resolved to nothing.
+ *
+ * Two concurrent sessions CAN mint the same name, though, and assumption A3
+ * never covered that case. The winner is the most recently minted binding, not
+ * the oldest session: `bindEphemeral` already establishes "latest hint wins"
+ * within a session, and iterating `_sessions` in insertion order would have
+ * handed the name to whichever session connected first — the opposite rule.
  */
 export declare function resolveEphemeral(name: string): string | null;
 //# sourceMappingURL=ephemeral-handles.d.ts.map

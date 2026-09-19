@@ -34,7 +34,7 @@ export function looksLikeHandle(s: string): boolean {
 }
 
 /** The marker that declares a selector-slot string a handle reference. */
-const HANDLE_MARKER = '@';
+export const HANDLE_MARKER = '@';
 
 /**
  * True when a selector-slot string explicitly declares itself a handle reference

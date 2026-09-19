@@ -535,3 +535,24 @@ describe('elementNotFoundError()', () => {
     expect(err.message).toContain('No handle named `submit_review`');
   });
 });
+
+describe('elementNotFoundError() — handle diagnostic uses the translated selector', () => {
+  it('drops the "no handle recorded" line when the handle actually resolved', async () => {
+    const ctx = {
+      findAlternativeSelectors: vi.fn().mockResolvedValue([]),
+      resolveSelector: (s: string) => (s === '@got_it' ? 'span.a.b' : s),
+    } as any;
+    const err = await elementNotFoundError(ctx, '@got_it');
+    expect(err.message).toBe('Element not found: @got_it');
+    expect(err.message).not.toContain('No handle named');
+  });
+
+  it('keeps the "no handle recorded" line when the name translated to nothing', async () => {
+    const ctx = {
+      findAlternativeSelectors: vi.fn().mockResolvedValue([]),
+      resolveSelector: (s: string) => s.replace(/^@/, ''),
+    } as any;
+    const err = await elementNotFoundError(ctx, '@never_minted');
+    expect(err.message).toContain('No handle named `never_minted`');
+  });
+});

@@ -1,5 +1,5 @@
 import type { ToolContext } from './types';
-import { handleMissHint } from '../../experimental/fingerprinting/handle-resolve';
+import { handleMissHint, isHandleRef, HANDLE_MARKER } from '../../experimental/fingerprinting/handle-resolve';
 import { renderAlternatives } from './element-resolver';
 
 /**
@@ -17,7 +17,17 @@ import { renderAlternatives } from './element-resolver';
  * caller.
  */
 export async function elementNotFoundError(ctx: ToolContext, selector: string): Promise<Error> {
-  let msg = `Element not found: ${selector}${handleMissHint(selector)}`;
+  // The marker diagnostic must read the TRANSLATED selector, not the raw one.
+  // `resolveSelectorOrHandle` returns a real selector when an `@name` resolved
+  // (persistent store or ephemeral map) and the bare marker-stripped name when
+  // it did not, so "translated to something other than the bare name" is exactly
+  // "the handle resolved". Saying "no handle named `got_it` is recorded" after
+  // resolving `@got_it` — the element was simply gone by the time we queried —
+  // sends the agent after the wrong problem.
+  const bareName = isHandleRef(selector) ? selector.slice(HANDLE_MARKER.length) : selector;
+  const translated = ctx.resolveSelector?.(selector) ?? bareName;
+  const handleResolved = isHandleRef(selector) && translated !== bareName;
+  let msg = `Element not found: ${selector}${handleResolved ? '' : handleMissHint(selector)}`;
   try {
     const alts = await ctx.findAlternativeSelectors(selector);
     const block = renderAlternatives(alts as any);

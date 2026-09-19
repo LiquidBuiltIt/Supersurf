@@ -8,6 +8,7 @@
 // `resolveSelectorOrHandle` checks the `fingerprinting` experiment gate itself,
 // so callers don't have to.
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.HANDLE_MARKER = void 0;
 exports.looksLikeHandle = looksLikeHandle;
 exports.isHandleRef = isHandleRef;
 exports.handleMissHint = handleMissHint;
@@ -36,7 +37,7 @@ function looksLikeHandle(s) {
     return typeof s === 'string' && s.length <= 64 && HANDLE_RE.test(s);
 }
 /** The marker that declares a selector-slot string a handle reference. */
-const HANDLE_MARKER = '@';
+exports.HANDLE_MARKER = '@';
 /**
  * True when a selector-slot string explicitly declares itself a handle reference
  * via the leading `@` marker — the ONLY test `resolveSelectorOrHandle` uses to
@@ -44,7 +45,7 @@ const HANDLE_MARKER = '@';
  * `submit_review` is always a CSS selector; `@submit_review` is always a handle.
  */
 function isHandleRef(s) {
-    return typeof s === 'string' && s.startsWith(HANDLE_MARKER) && s.length > HANDLE_MARKER.length;
+    return typeof s === 'string' && s.startsWith(exports.HANDLE_MARKER) && s.length > exports.HANDLE_MARKER.length;
 }
 /**
  * Failure-path advisory for a selector-slot string that missed. Takes the RAW
@@ -63,7 +64,7 @@ function isHandleRef(s) {
  */
 function handleMissHint(raw) {
     if (isHandleRef(raw)) {
-        const name = raw.slice(HANDLE_MARKER.length);
+        const name = raw.slice(exports.HANDLE_MARKER.length);
         return `\n\nNo handle named \`${name}\` is recorded for this page.`;
     }
     if (!looksLikeHandle(raw))
@@ -124,7 +125,7 @@ function resolveSelectorOrHandle(url, selector) {
     if (!isHandleRef(selector)) {
         return { selector, handle: null, attempted: false };
     }
-    const name = selector.slice(HANDLE_MARKER.length);
+    const name = selector.slice(exports.HANDLE_MARKER.length);
     // ORDER IS THE WHOLE DESIGN. The persistent store is tier 1; the session's
     // ephemeral map is tier 2, consulted ONLY after the store misses. Reversing
     // them lets a freshly minted hint name that collides on text shadow a real

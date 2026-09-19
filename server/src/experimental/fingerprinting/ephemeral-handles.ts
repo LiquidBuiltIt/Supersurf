@@ -34,8 +34,18 @@ const MAX_PER_SESSION = 200;
 /** Most tokens a minted name may carry, so one verbose button can't produce a sentence. */
 const MAX_TOKENS = 4;
 
-/** sessionId -> (handle name -> selector). */
-const _sessions: Map<string, Map<string, string>> = new Map();
+/** One binding: the selector plus the global order in which it was minted. */
+interface EphemeralBinding {
+  selector: string;
+  /** Monotonic mint counter — the tiebreak when two sessions mint the same name. */
+  seq: number;
+}
+
+/** sessionId -> (handle name -> binding). */
+const _sessions: Map<string, Map<string, EphemeralBinding>> = new Map();
+
+/** Monotonic across every session, so "newest" is comparable between them. */
+let _seq = 0;
 
 /** Register a session. Called on connect, alongside `experimentRegistry.bind`. */
 export function bindSession(sessionId: string): void {
@@ -100,7 +110,7 @@ export function bindEphemeral(sessionId: string, name: string, selector: string)
     _sessions.set(sessionId, slot);
   }
   slot.delete(name); // re-insert so the newest binding is also the newest entry
-  slot.set(name, selector);
+  slot.set(name, { selector, seq: ++_seq });
   while (slot.size > MAX_PER_SESSION) {
     const oldest = slot.keys().next().value as string | undefined;
     if (oldest === undefined) break;
@@ -118,13 +128,20 @@ export function bindEphemeral(sessionId: string, name: string, selector: string)
  * it only ever runs after the persistent store has already missed, so a
  * cross-session name collision can only affect a name that would otherwise have
  * resolved to nothing.
+ *
+ * Two concurrent sessions CAN mint the same name, though, and assumption A3
+ * never covered that case. The winner is the most recently minted binding, not
+ * the oldest session: `bindEphemeral` already establishes "latest hint wins"
+ * within a session, and iterating `_sessions` in insertion order would have
+ * handed the name to whichever session connected first — the opposite rule.
  */
 export function resolveEphemeral(name: string): string | null {
   const norm = normalizeName(name);
   if (!norm) return null;
+  let best: EphemeralBinding | null = null;
   for (const slot of _sessions.values()) {
     const hit = slot.get(norm);
-    if (hit) return hit;
+    if (hit && (!best || hit.seq > best.seq)) best = hit;
   }
-  return null;
+  return best ? best.selector : null;
 }

@@ -204,11 +204,16 @@ async function onLookup(ctx, args, options) {
         directText = directText.trim();
         if (!directText.toLowerCase().includes(searchLower)) continue;
 
+        // CSS.escape: a Tailwind utility (\`md:flex\`) or a numeric-leading id is a
+        // legal class/id token but an illegal bare CSS identifier, so the
+        // unescaped form makes querySelector throw. Matches DESCRIBE_SOURCE in
+        // tools/lib/element-resolver.ts.
+        const esc = (s) => CSS.escape(String(s));
         let sel = el.tagName.toLowerCase();
-        if (el.id) sel += '#' + el.id;
+        if (el.id) sel += '#' + esc(el.id);
         else if (el.className && typeof el.className === 'string') {
           const cls = el.className.trim().split(/\\s+/).filter(c => c).slice(0, 2);
-          if (cls.length) sel += '.' + cls.join('.');
+          if (cls.length) sel += '.' + cls.map(esc).join('.');
         }
 
         const rect = el.getBoundingClientRect();

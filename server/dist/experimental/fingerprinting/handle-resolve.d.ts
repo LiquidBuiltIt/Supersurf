@@ -2,6 +2,8 @@ import type { FingerprintRecord } from './types';
 /** True when `s` is shaped like a handle name. Resolution-time callers must use
  *  `isHandleRef` instead; this is for name-shape validation and diagnostics only. */
 export declare function looksLikeHandle(s: string): boolean;
+/** The marker that declares a selector-slot string a handle reference. */
+export declare const HANDLE_MARKER = "@";
 /**
  * True when a selector-slot string explicitly declares itself a handle reference
  * via the leading `@` marker — the ONLY test `resolveSelectorOrHandle` uses to

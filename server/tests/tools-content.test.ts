@@ -429,6 +429,26 @@ describe('onLookup()', () => {
     const re: RegExp = new Function(`return ${m![1]}`)();
     expect('alpha  beta\tgamma'.split(re)).toEqual(['alpha', 'beta', 'gamma']);
   });
+
+  it('escapes class and id tokens that are illegal bare CSS identifiers', async () => {
+    (ctx.eval as any).mockResolvedValue({ matches: [], total: 0 });
+    await onLookup(ctx, { text: 'Got it' }, {});
+
+    const code = (ctx.eval as any).mock.calls[0][0] as string;
+    // Splitting the class attribute correctly is only half of "valid CSS" — a
+    // Tailwind utility is a legal class token and an illegal bare identifier.
+    // Execute the emitted escaper rather than string-matching it.
+    const m = code.match(/const esc = \(s\) => [^;]+;/);
+    expect(m).not.toBeNull();
+    const CSSStub = {
+      escape: (v: string) => String(v).replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\' + ch),
+    };
+    const esc = new Function('CSS', `${m![0]} return esc;`)(CSSStub);
+    expect(esc('md:flex')).toBe('md\\:flex');
+    // ...and prove it is actually applied at both identifier sites.
+    expect(code).toContain("'#' + esc(el.id)");
+    expect(code).toContain('cls.map(esc).join');
+  });
 });
 
 describe('onExtractContent()', () => {

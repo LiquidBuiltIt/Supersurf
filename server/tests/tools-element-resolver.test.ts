@@ -285,3 +285,71 @@ describe('findAlternativeSelectors() — ephemeral handles', () => {
     expect(out[0].handle).toBeUndefined();
   });
 });
+
+describe('DESCRIBE_SOURCE — executed page code', () => {
+  /**
+   * Pull the emitted `describe` helper out of the page expression and run it in
+   * Node against a fake element. String assertions alone cannot prove a selector
+   * is escaped — only executing the code the page would execute can.
+   */
+  function runDescribe(code: string, el: any): any {
+    const m = code.match(/const describe = [\s\S]*?\n {2}\};/);
+    expect(m).not.toBeNull();
+    // Stand-in for the DOM's CSS.escape (absent in Node): backslash-prefix every
+    // character that is illegal in a bare CSS identifier.
+    const CSSStub = {
+      escape: (s: string) => String(s).replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\' + ch),
+    };
+    const windowStub = {
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
+    };
+    const fn = new Function('CSS', 'Node', 'window', 'el', `${m![0]}\nreturn describe(el, 0);`);
+    return fn(CSSStub, { TEXT_NODE: 3 }, windowStub, el);
+  }
+
+  const fakeEl = (over: Record<string, any> = {}) => ({
+    tagName: 'DIV',
+    id: '',
+    className: '',
+    childNodes: [] as any[],
+    attrs: {} as Record<string, string>,
+    getAttribute(name: string) {
+      return (this as any).attrs[name] ?? null;
+    },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 10, height: 10 }),
+    ...over,
+  });
+
+  async function pageCode(): Promise<string> {
+    let seen = '';
+    await findAlternativeSelectors(async (expression: string) => {
+      seen = expression;
+      return [];
+    }, 'div.missing');
+    return seen;
+  }
+
+  it('escapes class tokens that are illegal bare CSS identifiers', async () => {
+    const out = runDescribe(await pageCode(), fakeEl({ className: 'md:flex w-1/2' }));
+    expect(out.selector).toBe('div.md\\:flex.w-1\\/2');
+  });
+
+  it('escapes the id', async () => {
+    const out = runDescribe(await pageCode(), fakeEl({ id: 'tab:2' }));
+    expect(out.selector).toBe('div#tab\\:2');
+  });
+
+  it('leaves an already-legal class selector alone', async () => {
+    const out = runDescribe(await pageCode(), fakeEl({ className: 'promo-dismiss-link  btn' }));
+    expect(out.selector).toBe('div.promo-dismiss-link.btn');
+  });
+
+  it('collapses internal whitespace in the label so the hint stays two lines', async () => {
+    const out = runDescribe(
+      await pageCode(),
+      fakeEl({ attrs: { 'aria-label': '  Close\n   the dialog  ' } }),
+    );
+    expect(out.label).toBe('Close the dialog');
+    expect(out.label).not.toContain('\n');
+  });
+});

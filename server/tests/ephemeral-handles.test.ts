@@ -146,3 +146,36 @@ describe('resolveSelectorOrHandle() — ephemeral tier ordering', () => {
     expect(out.attempted).toBe(false);
   });
 });
+
+describe('cross-session name collisions', () => {
+  beforeEach(() => {
+    dropSession('old');
+    dropSession('new');
+  });
+
+  it('resolves to the most recently minted binding, not the oldest session', () => {
+    bindSession('old');
+    bindSession('new');
+    bindEphemeral('old', 'got_it', 'span.old');
+    bindEphemeral('new', 'got_it', 'span.new');
+    expect(resolveEphemeral('got_it')).toBe('span.new');
+  });
+
+  it('a later re-mint by the older session wins it back', () => {
+    bindSession('old');
+    bindSession('new');
+    bindEphemeral('old', 'got_it', 'span.old');
+    bindEphemeral('new', 'got_it', 'span.new');
+    bindEphemeral('old', 'got_it', 'span.old2');
+    expect(resolveEphemeral('got_it')).toBe('span.old2');
+  });
+
+  it('falls back to the surviving session when the newest one disconnects', () => {
+    bindSession('old');
+    bindSession('new');
+    bindEphemeral('old', 'got_it', 'span.old');
+    bindEphemeral('new', 'got_it', 'span.new');
+    dropSession('new');
+    expect(resolveEphemeral('got_it')).toBe('span.old');
+  });
+});

@@ -123,15 +123,24 @@ const HIDDEN_CAP = 2;
  * The shared tail of every candidate page expression: describe one element.
  * Emits a VALID CSS selector — `#id` when there is one, else up to two
  * dot-joined classes, else a `[role=...]` attribute selector.
+ *
+ * Identifiers go through `CSS.escape`. Splitting the class attribute correctly
+ * is only half of "valid CSS": a Tailwind utility (`md:flex`, `w-1/2`) or a
+ * numeric-leading id is a legal class/id token but an ILLEGAL bare CSS
+ * identifier, so `querySelector` throws `SyntaxError` on the unescaped form.
+ * `CSS.escape` is a DOM API — this expression already calls `document`,
+ * `window.getComputedStyle` and `getBoundingClientRect`, so it only ever runs
+ * where `CSS.escape` exists (Chrome 41+). No fallback needed.
  */
 const DESCRIBE_SOURCE = `
   const describe = (el, score) => {
+    const esc = (s) => CSS.escape(String(s));
     let sel = el.tagName.toLowerCase();
     if (el.id) {
-      sel += '#' + el.id;
+      sel += '#' + esc(el.id);
     } else if (el.className && typeof el.className === 'string' && el.className.trim()) {
       const cls = el.className.trim().split(/\\s+/).filter(Boolean);
-      if (cls.length > 0) sel += '.' + cls.slice(0, 2).join('.');
+      if (cls.length > 0) sel += '.' + cls.slice(0, 2).map(esc).join('.');
     } else if (el.getAttribute('role')) {
       sel += '[role="' + el.getAttribute('role') + '"]';
     }
@@ -151,7 +160,7 @@ const DESCRIBE_SOURCE = `
       visible: style.display !== 'none' && style.visibility !== 'hidden'
         && style.opacity !== '0' && rect.width > 0 && rect.height > 0,
       text: directText.length > 50 ? directText.slice(0, 50) + '...' : directText,
-      label: String(label).trim().slice(0, 50),
+      label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 50),
       x: Math.round(rect.left + rect.width / 2),
       y: Math.round(rect.top + rect.height / 2),
       width: Math.round(rect.width),
