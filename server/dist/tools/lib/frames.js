@@ -8,6 +8,7 @@ exports.resolveInFrames = resolveInFrames;
 exports.evalInFrameOrTop = evalInFrameOrTop;
 exports.getCenterInFrame = getCenterInFrame;
 const handle_resolve_1 = require("../../experimental/fingerprinting/handle-resolve");
+const ephemeral_handles_1 = require("../../experimental/fingerprinting/ephemeral-handles");
 const element_resolver_1 = require("./element-resolver");
 /**
  * Standard "Element not found" error for a `resolveInFrames()` total miss
@@ -343,6 +344,13 @@ async function getCenterInFrame(ctx, selector, meta) {
         return { x, y, contextId: null };
     }
     catch (topFrameErr) {
+        // An identity mismatch is a REFUSAL, not a miss. The child-frame walk below
+        // only searches child frames (collectChildFrameIds excludes the top frame),
+        // so it cannot re-find the wrong element — but `healInFrames` can, and a
+        // heal that "rescues" a binding we have just proved wrong is the exact
+        // silent-success this guard exists to prevent.
+        if (topFrameErr instanceof ephemeral_handles_1.EphemeralIdentityError)
+            throw topFrameErr;
         // Translate a handle name once, up front: `query` is used for the page query,
         // the fingerprint capture key AND the heal key below, and a raw handle name
         // would miss on all three (store keys are real CSS selectors). Mirrors the

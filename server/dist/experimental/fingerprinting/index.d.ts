@@ -93,5 +93,7 @@ export type HealEmit = (ev: HealEvent) => void;
 export declare function resolveWithHealing(evalFn: EvalFn, selector: string, getUrl: () => string | undefined, emit?: HealEmit, meta?: HandleMeta, emitHandle?: HandleEmit, getSessionId?: () => string | undefined): Promise<{
     x: number;
     y: number;
+    text: string;
+    label: string;
 }>;
 //# sourceMappingURL=index.d.ts.map

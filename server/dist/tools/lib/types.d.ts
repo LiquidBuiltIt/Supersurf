@@ -53,6 +53,8 @@ export interface ToolContext {
     getElementCenter(selector: string, meta?: HandleMeta): Promise<{
         x: number;
         y: number;
+        text: string;
+        label: string;
     }>;
     /**
      * Fingerprint an element that was resolved inside a child frame (iframe), bound to that

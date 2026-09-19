@@ -47,7 +47,40 @@ export interface AltCandidate {
     score: number;
     /** Ephemeral handle name, minted in Task 4. Absent when no confident text source exists. */
     handle?: string;
+    /**
+     * The ellipsis-free, quote-free, whitespace-collapsed prefix of the element's
+     * direct text. `text` above is the DISPLAY form and carries a literal '...'
+     * when truncated, which can never match anything. This is the form that goes
+     * into a selector and into the binding's identity fact.
+     */
+    matchText: string;
+    /** Same treatment for the accessible-name label. */
+    matchLabel: string;
+    /**
+     * False when NO rung of the qualification ladder produced a selector that
+     * resolves back to this element. A false here means: print `selector` alone,
+     * mint no handle. See `selector-qualify.ts`.
+     */
+    qualified: boolean;
 }
+/**
+ * The shared tail of every candidate page expression: describe one element.
+ * Emits a VALID CSS selector — `#id` when there is one, else up to two
+ * dot-joined classes, else a `[role=...]` attribute selector.
+ *
+ * Identifiers go through `CSS.escape`. Splitting the class attribute correctly
+ * is only half of "valid CSS": a Tailwind utility (`md:flex`, `w-1/2`) or a
+ * numeric-leading id is a legal class/id token but an ILLEGAL bare CSS
+ * identifier, so `querySelector` throws `SyntaxError` on the unescaped form.
+ * `CSS.escape` is a DOM API — this expression already calls `document`,
+ * `window.getComputedStyle` and `getBoundingClientRect`, so it only ever runs
+ * where `CSS.escape` exists (Chrome 41+). No fallback needed.
+ *
+ * Exported so tests can execute it directly rather than regex-scraping it out
+ * of the larger expression. It depends on `QUALIFY_SOURCE` being spliced in
+ * first — every emitter below does that.
+ */
+export declare const DESCRIBE_SOURCE = "\n  const describe = (el, score) => {\n    const esc = (s) => CSS.escape(String(s));\n    let sel = el.tagName.toLowerCase();\n    if (el.id) {\n      sel += '#' + esc(el.id);\n    } else if (el.className && typeof el.className === 'string' && el.className.trim()) {\n      const cls = el.className.trim().split(/\\s+/).filter(Boolean);\n      if (cls.length > 0) sel += '.' + cls.slice(0, 2).map(esc).join('.');\n    } else if (el.getAttribute('role')) {\n      sel += '[role=\"' + el.getAttribute('role') + '\"]';\n    }\n    let directText = '';\n    for (const n of el.childNodes) {\n      if (n.nodeType === Node.TEXT_NODE) directText += n.textContent;\n    }\n    directText = directText.trim().replace(/\\s+/g, ' ');\n    const label = el.getAttribute('aria-label') || el.getAttribute('title')\n      || el.getAttribute('placeholder') || (typeof el.value === 'string' ? el.value : '')\n      || el.getAttribute('alt') || '';\n    const rect = el.getBoundingClientRect();\n    const style = window.getComputedStyle(el);\n    const qualified = qualify(el, sel);\n    return {\n      selector: qualified.selector,\n      qualified: qualified.source !== null,\n      tag: el.tagName.toLowerCase(),\n      visible: style.display !== 'none' && style.visibility !== 'hidden'\n        && style.opacity !== '0' && rect.width > 0 && rect.height > 0,\n      text: directText.length > 50 ? directText.slice(0, 50) + '...' : directText,\n      matchText: ssSafe(directText),\n      label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 50),\n      matchLabel: ssSafe(label),\n      x: Math.round(rect.left + rect.width / 2),\n      y: Math.round(rect.top + rect.height / 2),\n      width: Math.round(rect.width),\n      height: Math.round(rect.height),\n      score: score,\n    };\n  };\n";
 /**
  * Rank and trim raw page candidates. Pure — all ordering policy lives here
  * rather than in page code, so it is unit-testable without a DOM.
@@ -89,9 +122,15 @@ export declare function findAlternativeSelectors(evalFn: EvalFn, selector: strin
 /**
  * Resolve a selector to its element's viewport-center coordinates.
  * On miss, throws an Error whose message carries the ranked candidate list.
+ * Also returns the resolved element's direct text and accessible-name label —
+ * one extra property on a round trip that already happens, so a caller holding
+ * mint-time identity facts can verify it reached the right element before
+ * dispatching any input.
  */
 export declare function getElementCenter(evalFn: EvalFn, selector: string, sessionId?: string): Promise<{
     x: number;
     y: number;
+    text: string;
+    label: string;
 }>;
 //# sourceMappingURL=element-resolver.d.ts.map

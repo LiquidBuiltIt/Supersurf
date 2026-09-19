@@ -13,6 +13,7 @@ const store_1 = require("./store");
 const page_scripts_1 = require("./page-scripts");
 const handle_meta_1 = require("./handle-meta");
 const handle_resolve_1 = require("./handle-resolve");
+const ephemeral_handles_1 = require("./ephemeral-handles");
 exports.THRESHOLD = 0.6;
 exports.MARGIN = 0.10;
 var url_1 = require("./url");
@@ -141,9 +142,21 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
     const query = translated.selector;
     if (!index_1.experimentRegistry.isEnabled('fingerprinting')) {
         try {
-            return await (0, element_resolver_1.getElementCenter)(evalFn, query, getSessionId?.());
+            const center = await (0, element_resolver_1.getElementCenter)(evalFn, query, getSessionId?.());
+            // Ephemeral tier-2 resolution is deliberately OUTSIDE the experiment gate
+            // (handle-resolve.ts:175-180), so the identity guard must be too —
+            // guarding only the gate-on path would leave the default configuration
+            // unprotected, which is the configuration the defect was found on.
+            const guard = translated.ephemeralBinding
+                ? (0, ephemeral_handles_1.checkEphemeralIdentity)(selector.replace(/^@/, ''), translated.ephemeralBinding.facts, center)
+                : null;
+            if (guard)
+                throw guard;
+            return center;
         }
         catch (missErr) {
+            if (missErr instanceof ephemeral_handles_1.EphemeralIdentityError)
+                throw missErr;
             // The feature is off, but the shape/marker still tells the agent something
             // useful: either they used `@name` (translation just doesn't run while the
             // experiment is disabled) or the shape alone suggests they meant to.
@@ -176,6 +189,14 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
     };
     try {
         const center = await (0, element_resolver_1.getElementCenter)(evalFn, query, getSessionId?.());
+        const guard = translated.ephemeralBinding
+            ? (0, ephemeral_handles_1.checkEphemeralIdentity)(selector.replace(/^@/, ''), translated.ephemeralBinding.facts, center)
+            : null;
+        // Thrown BEFORE capture and telemetry: a mismatch is not a resolve, and
+        // writing a fingerprint for an element we just proved is the wrong one
+        // would poison the store.
+        if (guard)
+            throw guard;
         // Single hoisted read: reused for the `hadRecord` telemetry below AND passed into
         // captureOnResolve so it skips its own getRecord — keeps the happy path at one file
         // read total, not two. (Skip entirely for the 'unknown' domain bucket, which never
@@ -187,11 +208,17 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
         return center;
     }
     catch (missErr) {
+        // A proven-wrong element must never be rescued by a heal: healing would
+        // re-resolve and hand back coordinates for something we already rejected.
+        if (missErr instanceof ephemeral_handles_1.EphemeralIdentityError)
+            throw missErr;
         try {
             const attempt = await healOnMiss(evalFn, url, query);
             if (attempt.hit) {
                 fire('healed', attempt.score, attempt.margin, true);
-                return { x: attempt.hit.cx, y: attempt.hit.cy };
+                // A heal matches by fingerprint, not by a live text read, so it has no
+                // identity text to report. Empty, never invented.
+                return { x: attempt.hit.cx, y: attempt.hit.cy, text: '', label: '' };
             }
             fire('escalated', attempt.score, attempt.margin, attempt.hadRecord);
         }

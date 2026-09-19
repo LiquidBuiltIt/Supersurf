@@ -5,6 +5,7 @@
 // ToolContext factory. Takes an `evalFn` callback rather than an
 // IExtensionTransport so callers can inject a pre-bound evaluator.
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.DESCRIBE_SOURCE = void 0;
 exports.getSelectorExpression = getSelectorExpression;
 exports.getAllSelectorExpression = getAllSelectorExpression;
 exports.rankAlternatives = rankAlternatives;
@@ -14,6 +15,7 @@ exports.getElementCenter = getElementCenter;
 const shared_1 = require("../../shared");
 const candidates_1 = require("../../playbooks/candidates");
 const ephemeral_handles_1 = require("../../experimental/fingerprinting/ephemeral-handles");
+const selector_qualify_1 = require("./selector-qualify");
 /**
  * Rewrite digit-leading IDs (`#883a76-...`) to `[id="..."]` form.
  * CSS spec disallows ID identifiers that start with a digit, so
@@ -109,8 +111,12 @@ const HIDDEN_CAP = 2;
  * `CSS.escape` is a DOM API — this expression already calls `document`,
  * `window.getComputedStyle` and `getBoundingClientRect`, so it only ever runs
  * where `CSS.escape` exists (Chrome 41+). No fallback needed.
+ *
+ * Exported so tests can execute it directly rather than regex-scraping it out
+ * of the larger expression. It depends on `QUALIFY_SOURCE` being spliced in
+ * first — every emitter below does that.
  */
-const DESCRIBE_SOURCE = `
+exports.DESCRIBE_SOURCE = `
   const describe = (el, score) => {
     const esc = (s) => CSS.escape(String(s));
     let sel = el.tagName.toLowerCase();
@@ -132,13 +138,17 @@ const DESCRIBE_SOURCE = `
       || el.getAttribute('alt') || '';
     const rect = el.getBoundingClientRect();
     const style = window.getComputedStyle(el);
+    const qualified = qualify(el, sel);
     return {
-      selector: sel,
+      selector: qualified.selector,
+      qualified: qualified.source !== null,
       tag: el.tagName.toLowerCase(),
       visible: style.display !== 'none' && style.visibility !== 'hidden'
         && style.opacity !== '0' && rect.width > 0 && rect.height > 0,
       text: directText.length > 50 ? directText.slice(0, 50) + '...' : directText,
+      matchText: ssSafe(directText),
       label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 50),
+      matchLabel: ssSafe(label),
       x: Math.round(rect.left + rect.width / 2),
       y: Math.round(rect.top + rect.height / 2),
       width: Math.round(rect.width),
@@ -151,7 +161,8 @@ const DESCRIBE_SOURCE = `
 function textCandidateExpression(searchText) {
     return `
     (() => {
-      ${DESCRIBE_SOURCE}
+      ${selector_qualify_1.QUALIFY_SOURCE}
+      ${exports.DESCRIBE_SOURCE}
       const searchLower = ${JSON.stringify(searchText)}.trim().toLowerCase();
       const out = [];
       for (const el of document.querySelectorAll('*')) {
@@ -177,7 +188,8 @@ function textCandidateExpression(searchText) {
 function tokenCandidateExpression(tokens) {
     return `
     (() => {
-      ${DESCRIBE_SOURCE}
+      ${selector_qualify_1.QUALIFY_SOURCE}
+      ${exports.DESCRIBE_SOURCE}
       const tokens = ${JSON.stringify(tokens)};
       const limit = ${RAW_CANDIDATE_CAP};
       const out = [];
@@ -301,10 +313,29 @@ async function findAlternativeSelectors(evalFn, selector, sessionId) {
         if (sessionId) {
             const taken = new Set();
             return ranked.map((alt) => {
+                // A candidate no rung of the ladder could pin down gets NO name. This is
+                // the "only name it when you can name it honestly" rule extended from
+                // "has readable text" to "has a selector that resolves back to itself" —
+                // the property the news.ycombinator.com defect proved was missing.
+                // Falsy, not `=== false`: `ranked` reaches here through a `raw as
+                // AltCandidate[]` assertion over browser-eval JSON, so a MISSING
+                // `qualified` is as unproven as an explicit `false` and must fail the
+                // same way. TypeScript forecloses nothing across that boundary.
+                if (!alt.qualified)
+                    return alt;
                 const name = (0, ephemeral_handles_1.mintHandleName)({ text: alt.text, label: alt.label, tag: alt.tag }, taken);
                 if (!name)
                     return alt; // no confident text source — the CSS selector prints alone
-                (0, ephemeral_handles_1.bindEphemeral)(sessionId, name, alt.selector);
+                // `mintHandleName` names from `text || label`; guard the same one, using
+                // the ellipsis-free, quote-free forms. Assumption A5: both can be empty
+                // after sanitization even though the raw display forms were not.
+                const matchSource = alt.matchText ? 'text' : (alt.matchLabel ? 'label' : null);
+                (0, ephemeral_handles_1.bindEphemeral)(sessionId, name, alt.selector, {
+                    matchSource,
+                    matchValue: matchSource === 'text' ? alt.matchText : (matchSource === 'label' ? alt.matchLabel : ''),
+                    x: alt.x,
+                    y: alt.y,
+                });
                 return { ...alt, handle: name };
             });
         }
@@ -317,6 +348,10 @@ async function findAlternativeSelectors(evalFn, selector, sessionId) {
 /**
  * Resolve a selector to its element's viewport-center coordinates.
  * On miss, throws an Error whose message carries the ranked candidate list.
+ * Also returns the resolved element's direct text and accessible-name label —
+ * one extra property on a round trip that already happens, so a caller holding
+ * mint-time identity facts can verify it reached the right element before
+ * dispatching any input.
  */
 async function getElementCenter(evalFn, selector, sessionId) {
     const expr = getSelectorExpression(selector);
@@ -325,9 +360,18 @@ async function getElementCenter(evalFn, selector, sessionId) {
       const el = ${expr};
       if (!el) return null;
       const rect = el.getBoundingClientRect();
+      let directText = '';
+      for (const n of el.childNodes) {
+        if (n.nodeType === Node.TEXT_NODE) directText += n.textContent;
+      }
+      const label = el.getAttribute('aria-label') || el.getAttribute('title')
+        || el.getAttribute('placeholder') || (typeof el.value === 'string' ? el.value : '')
+        || el.getAttribute('alt') || '';
       return {
         x: Math.round(rect.left + rect.width / 2),
         y: Math.round(rect.top + rect.height / 2),
+        text: String(directText).replace(/\\s+/g, ' ').trim().slice(0, 200),
+        label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 200),
       };
     })()
   `);
@@ -339,6 +383,11 @@ async function getElementCenter(evalFn, selector, sessionId) {
             msg += `\n\n${block}`;
         throw new Error(msg);
     }
-    return result;
+    return {
+        x: result.x,
+        y: result.y,
+        text: result.text ?? '',
+        label: result.label ?? '',
+    };
 }
 //# sourceMappingURL=element-resolver.js.map
