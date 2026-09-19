@@ -218,8 +218,35 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
         if (missErr instanceof ephemeral_handles_1.EphemeralIdentityError)
             throw missErr;
         // Same provenance tag as the gate-off branch above.
-        if (translated.ephemeralBinding)
+        if (translated.ephemeralBinding) {
             (0, ephemeral_handles_1.markEphemeralMiss)(missErr);
+            // ...and a PLAIN miss on an ephemeral binding refuses the heal outright,
+            // for the same reason `getCenterInFrame` refuses the child-frame walk.
+            // The heal matches by stored FINGERPRINT against a domain+route+selector
+            // key; an ephemeral binding is session-scoped and was minted against one
+            // specific element in the top frame. A record filed under the same
+            // selector string is not evidence of the same element — the defect this
+            // guard exists for (news.ycombinator.com) is precisely a selector that
+            // matches many elements. Worse, a heal returns `text: ''` by
+            // construction, so `checkEphemeralIdentity` could not vet its result even
+            // if it were called. Fail closed: no identity check is possible, so no
+            // action. (The gate-OFF branch above never reaches `healOnMiss` at all,
+            // so it needs no equivalent — checked, not assumed.)
+            //
+            // Telemetry: still exactly one terminal event per gate-on resolve, and
+            // 'escalated' is already that event — the resolve ended with no
+            // coordinates and the error went back to the agent. score/margin are null
+            // and hadRecord false because nothing was scored and the store was never
+            // read, identical to the existing `catch` arm below when `healOnMiss`
+            // throws. No new `outcome` member: a refusal is an escalation with a
+            // narrower cause, not a new resolve outcome for the metrics trail.
+            fire('escalated', null, null, false);
+            // The message-augmentation block below is skipped deliberately, not
+            // dropped: an ephemeral binding always carries `attempted: true` AND
+            // `ephemeral: true` (`handle-resolve.ts:224-226`), so both of its arms are
+            // already false on this path and it appends nothing today.
+            throw missErr;
+        }
         try {
             const attempt = await healOnMiss(evalFn, url, query);
             if (attempt.hit) {

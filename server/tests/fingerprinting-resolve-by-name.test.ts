@@ -306,4 +306,76 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
       expect(isEphemeralMiss(err)).toBe(false);
     });
   });
+
+  /**
+   * The mark above protects the child-frame walk. The heal is the OTHER
+   * fallback a plain miss reaches, and it sits inside `resolveWithHealing`
+   * itself — so the mark cannot stop it, because the heal runs first.
+   *
+   * A heal matches by stored fingerprint under a domain+route+selector key and
+   * returns `text: ''`, so `checkEphemeralIdentity` has nothing to vet even in
+   * principle. Reachable only with the experiment ON *and* a record filed under
+   * the ephemeral selector — narrow, but the configuration this branch's own
+   * changelog claims parity for.
+   *
+   * Keyed on eval CONTENT, not call order: `healOnMiss`'s scoring page-eval is
+   * the only one in this path that assigns `var T=` (`page-scripts.ts`
+   * `scoreExpr`). Its absence IS the proof the heal never ran.
+   */
+  describe('ephemeral bindings refuse the fingerprint heal on a plain miss', () => {
+    const HEALED = JSON.stringify({ cx: 999, cy: 999, score: 0.95, margin: 0.5 });
+
+    /** Misses every element query; would heal generously if the scorer were ever asked. */
+    function missThenHealEval() {
+      const seen: string[] = [];
+      const fn = async (expr: string) => {
+        seen.push(expr);
+        return expr.includes('var T=') ? HEALED : null;
+      };
+      return { fn, seen, scored: () => seen.some(e => e.includes('var T=')) };
+    }
+
+    beforeEach(() => {
+      // A record keyed by the exact selector the ephemeral binding translates to.
+      putRecord('news.ycombinator.com', '/', 'a:has-text("new")',
+        rec({ selector: 'a:has-text("new")', text: 'new', cx: 999, cy: 999 }));
+    });
+
+    it('never asks the scorer for an ephemeral handle whose element is gone', async () => {
+      const { fn, scored } = missThenHealEval();
+      await expect(resolveWithHealing(fn, '@new_a', () => url)).rejects.toThrow(/not found/i);
+      expect(scored()).toBe(false);
+    });
+
+    it('rethrows the marked miss instead of returning healed coordinates', async () => {
+      const { fn } = missThenHealEval();
+      const err = await resolveWithHealing(fn, '@new_a', () => url).catch(e => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(isEphemeralMiss(err)).toBe(true);
+    });
+
+    it('emits escalated, never healed, for the refusal', async () => {
+      const events: any[] = [];
+      const { fn } = missThenHealEval();
+      await expect(
+        resolveWithHealing(fn, '@new_a', () => url, e => events.push(e)),
+      ).rejects.toThrow(/not found/i);
+      expect(events.some(e => e.outcome === 'healed')).toBe(false);
+      expect(events).toContainEqual(expect.objectContaining({
+        event: 'fingerprint', outcome: 'escalated', score: null, margin: null, hadRecord: false,
+      }));
+    });
+
+    // The control that keeps this fix honest: healing must still work for
+    // everything that is not an ephemeral binding. Same selector, same record,
+    // no `@` — heals exactly as before.
+    it('CONTROL: a plain non-ephemeral miss on the same selector still heals', async () => {
+      const events: any[] = [];
+      const { fn, scored } = missThenHealEval();
+      const center = await resolveWithHealing(fn, 'a:has-text("new")', () => url, e => events.push(e));
+      expect(center).toEqual({ x: 999, y: 999, text: '', label: '' });
+      expect(scored()).toBe(true);
+      expect(events).toContainEqual(expect.objectContaining({ outcome: 'healed' }));
+    });
+  });
 });
