@@ -133,16 +133,20 @@ function resolveHandleName(domain, route, name) {
  *   - At RESOLVE time, `checkEphemeralIdentity` re-reads the resolved element's
  *     text or label and refuses to act when it no longer matches the fact the
  *     name was taken from. That is what covers the page changing afterwards, and
- *     it throws a typed error precisely so the fingerprint heal and the
- *     child-frame walk cannot re-resolve past it.
+ *     on the paths that reach it, it throws a typed error precisely so the
+ *     fingerprint heal and the child-frame walk cannot re-resolve past it.
  *
  * What is still NOT guaranteed, so nobody rebuilds the old confidence: a binding
  * whose `matchSource` is null — neither text nor label survived sanitization —
  * has no fact to compare and fails OPEN, riding on mint-time qualification
  * alone; coordinate drift is reported in the mismatch message but never causes
- * one, because coordinates move legitimately and text identity does not; and the
+ * one, because coordinates move legitimately and text identity does not; the
  * guard covers EPHEMERAL bindings only, since a stored handle's selector is
- * vetted by the fingerprint score gate instead.
+ * vetted by the fingerprint score gate instead; and the guard sits on the
+ * COORDINATE path (`ctx.getElementCenter` → `resolveWithHealing`), so only
+ * `click`, `hover` and `drag` reach it — `type`, `clear`, `select_option`,
+ * `scroll`, `wait`, `file_upload` and `browser_fill_form` resolve through
+ * `resolveInFrames` and never run the check at all (backlog #58).
  *
  * The `@` marker is recognized — and stripped — before the experiment gate below,
  * not after: leaving it in place on a disabled/unknown-domain fallthrough would
