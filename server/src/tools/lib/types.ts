@@ -55,7 +55,7 @@ export interface ToolContext {
   /** Async sleep utility. */
   sleep(ms: number): Promise<void>;
   /** Resolve a CSS selector to its element's viewport center coordinates. Throws with "Did you mean?" hints on failure. */
-  getElementCenter(selector: string, meta?: HandleMeta): Promise<{ x: number; y: number }>;
+  getElementCenter(selector: string, meta?: HandleMeta): Promise<{ x: number; y: number; text: string; label: string }>;
   /**
    * Fingerprint an element that was resolved inside a child frame (iframe), bound to that
    * frame's execution context. The top-frame capture path (`getElementCenter` →

@@ -50,7 +50,7 @@ describe('BrowserBridge — handle event emission', () => {
 
     const ctx = (bridge as any).buildContext(undefined);
     const center = await ctx.getElementCenter('#fn', { name: 'First Name', purpose: 'enter name' });
-    expect(center).toEqual({ x: 10, y: 20 });
+    expect(center).toEqual({ x: 10, y: 20, text: '', label: '' });
 
     // Capture is fire-and-forget inside resolveWithHealing; flush microtasks/timers.
     await new Promise((r) => setTimeout(r, 10));

@@ -386,21 +386,34 @@ export async function findAlternativeSelectors(
 /**
  * Resolve a selector to its element's viewport-center coordinates.
  * On miss, throws an Error whose message carries the ranked candidate list.
+ * Also returns the resolved element's direct text and accessible-name label —
+ * one extra property on a round trip that already happens, so a caller holding
+ * mint-time identity facts can verify it reached the right element before
+ * dispatching any input.
  */
 export async function getElementCenter(
   evalFn: EvalFn,
   selector: string,
   sessionId?: string,
-): Promise<{ x: number; y: number }> {
+): Promise<{ x: number; y: number; text: string; label: string }> {
   const expr = getSelectorExpression(selector);
   const result = await evalFn(`
     (() => {
       const el = ${expr};
       if (!el) return null;
       const rect = el.getBoundingClientRect();
+      let directText = '';
+      for (const n of el.childNodes) {
+        if (n.nodeType === Node.TEXT_NODE) directText += n.textContent;
+      }
+      const label = el.getAttribute('aria-label') || el.getAttribute('title')
+        || el.getAttribute('placeholder') || (typeof el.value === 'string' ? el.value : '')
+        || el.getAttribute('alt') || '';
       return {
         x: Math.round(rect.left + rect.width / 2),
         y: Math.round(rect.top + rect.height / 2),
+        text: String(directText).replace(/\\s+/g, ' ').trim().slice(0, 200),
+        label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 200),
       };
     })()
   `);
@@ -411,5 +424,10 @@ export async function getElementCenter(
     if (block) msg += `\n\n${block}`;
     throw new Error(msg);
   }
-  return result;
+  return {
+    x: result.x,
+    y: result.y,
+    text: result.text ?? '',
+    label: result.label ?? '',
+  };
 }

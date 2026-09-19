@@ -497,3 +497,51 @@ describe('DESCRIBE_SOURCE — executed page code', () => {
     expect(out.selector).toBe('li');
   });
 });
+
+import { getElementCenter } from '../src/tools/lib/element-resolver';
+
+describe('getElementCenter() — return shape', () => {
+  it('returns the resolved element text and label alongside the centre', async () => {
+    const evalFn = async () => ({ x: 146, y: 20, text: 'Hacker News', label: '' });
+    const out = await getElementCenter(evalFn as any, 'a');
+    expect(out).toEqual({ x: 146, y: 20, text: 'Hacker News', label: '' });
+  });
+
+  // The test above is satisfied by a pass-through of whatever the page returned.
+  // This one is not: it pins the normalization the identity guard depends on —
+  // an absent text/label must arrive as '' (which the guard treats as a
+  // mismatch), never as `undefined` (which `String(undefined)` would turn into
+  // the literal "undefined").
+  it('normalizes an absent text or label to an empty string, not undefined', async () => {
+    const evalFn = async () => ({ x: 1, y: 2 });
+    const out = await getElementCenter(evalFn as any, 'a');
+    expect(out).toEqual({ x: 1, y: 2, text: '', label: '' });
+  });
+
+  it('asks the page for the element\'s direct text nodes', async () => {
+    let seen = '';
+    const evalFn = async (expr: string) => { seen = expr; return { x: 0, y: 0, text: '', label: '' }; };
+    await getElementCenter(evalFn as any, 'a');
+    expect(seen).toContain('Node.TEXT_NODE');
+  });
+
+  // The guard compares a mint-time label against a resolve-time label, so the
+  // two must be read by the SAME attribute chain or they are not comparable.
+  // Compared against the real `DESCRIBE_SOURCE` (the mint side), not a literal.
+  it('reads the label through the identical attribute chain the mint uses', async () => {
+    const chain = (src: string) => {
+      const m = src.match(/const label = ([\s\S]*?);/);
+      return m ? m[1].replace(/\s+/g, ' ').trim() : null;
+    };
+    let seen = '';
+    const evalFn = async (expr: string) => { seen = expr; return { x: 0, y: 0, text: '', label: '' }; };
+    await getElementCenter(evalFn as any, 'a');
+    expect(chain(DESCRIBE_SOURCE)).not.toBeNull();
+    expect(chain(seen)).toBe(chain(DESCRIBE_SOURCE));
+  });
+
+  it('still throws the candidate-bearing miss error when nothing resolves', async () => {
+    const evalFn = async () => null;
+    await expect(getElementCenter(evalFn as any, 'a.nope')).rejects.toThrow('Element not found');
+  });
+});

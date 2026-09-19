@@ -556,3 +556,45 @@ describe('elementNotFoundError() — handle diagnostic uses the translated selec
     expect(err.message).toContain('No handle named `never_minted`');
   });
 });
+
+import { EphemeralIdentityError } from '../src/experimental/fingerprinting/ephemeral-handles';
+
+describe('getCenterInFrame() — ephemeral identity refusal', () => {
+  /**
+   * An identity mismatch is a REFUSAL, not a miss. The two fallbacks this catch
+   * block owns — the child-frame selector walk and `healInFrames` — would both
+   * go looking for another element to act on, which is the silent wrong-element
+   * action the guard exists to prevent. So the assertions that matter are the
+   * "was never called" ones, not the rejection: the pre-guard code rejects too,
+   * it just tries everything else first.
+   */
+  it('rethrows immediately, without a child-frame walk or a fingerprint heal', async () => {
+    const ctx = mockCtx(async (method) => {
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [{ frame: { id: 'c' }, childFrames: [] }] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+      if (method === 'Runtime.evaluate') return { result: {} };
+    });
+    const idErr = new EphemeralIdentityError('Handle `@new_a` no longer identifies the element it was minted for.');
+    ctx.getElementCenter = vi.fn().mockRejectedValue(idErr);
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    ctx.healFingerprintInContext = vi.fn().mockResolvedValue({ cx: 9, cy: 9, score: 1 });
+
+    await expect(getCenterInFrame(ctx, '@new_a')).rejects.toBe(idErr);
+    expect(ctx.cdp).not.toHaveBeenCalled();
+    expect(ctx.healFingerprintInContext).not.toHaveBeenCalled();
+    expect(ctx.getSelectorExpression).not.toHaveBeenCalled();
+  });
+
+  it('still walks child frames for an ordinary top-frame miss', async () => {
+    const ctx = mockCtx(async (method) => {
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'top' }, childFrames: [] } };
+      if (method === 'Runtime.evaluate') return { result: {} };
+    });
+    ctx.getElementCenter = vi.fn().mockRejectedValue(new Error('Element not found: `#btn`'));
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    await expect(getCenterInFrame(ctx, '#btn')).rejects.toThrow('Element not found');
+    expect(ctx.cdp).toHaveBeenCalled();
+  });
+});

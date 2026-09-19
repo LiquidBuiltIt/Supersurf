@@ -213,3 +213,63 @@ describe('binding identity facts', () => {
     expect(resolveEphemeralBinding('never_minted')).toBeNull();
   });
 });
+
+import { checkEphemeralIdentity, EphemeralIdentityError } from '../src/experimental/fingerprinting/ephemeral-handles';
+
+describe('checkEphemeralIdentity()', () => {
+  const at = (text: string, label = '', x = 262, y = 20) => ({ x, y, text, label });
+
+  it('passes when the resolved text starts with the minted text', () => {
+    const facts = { matchSource: 'text' as const, matchValue: 'new', x: 262, y: 20 };
+    expect(checkEphemeralIdentity('new_a', facts, at('new'))).toBeNull();
+  });
+
+  it('passes when the minted text was a 50-char prefix of a longer caption', () => {
+    const full = 'Android 17 is the first release since 3.x to ship a new runtime';
+    const facts = { matchSource: 'text' as const, matchValue: full.slice(0, 50), x: 398, y: 358 };
+    expect(checkEphemeralIdentity('android_17_is_the', facts, at(full))).toBeNull();
+  });
+
+  it('ignores whitespace and case differences', () => {
+    const facts = { matchSource: 'text' as const, matchValue: 'Got it', x: 0, y: 0 };
+    expect(checkEphemeralIdentity('got_it', facts, at('  GOT   IT  '))).toBeNull();
+  });
+
+  it('FAILS when the resolved element carries different text — the HN case', () => {
+    const facts = { matchSource: 'text' as const, matchValue: 'new', x: 262, y: 20 };
+    const err = checkEphemeralIdentity('new_a', facts, at('Hacker News', '', 146, 20));
+    expect(err).toBeInstanceOf(EphemeralIdentityError);
+    expect(err!.message).toContain('@new_a');
+    expect(err!.message).toContain('"new"');
+    expect(err!.message).toContain('"Hacker News"');
+    expect(err!.message).toContain('(262,20)');
+    expect(err!.message).toContain('(146,20)');
+  });
+
+  it('guards on the label when the handle was named from the label', () => {
+    const facts = { matchSource: 'label' as const, matchValue: 'Close the dialog', x: 0, y: 0 };
+    expect(checkEphemeralIdentity('close_the_dialog', facts, at('', 'Close the dialog'))).toBeNull();
+    expect(checkEphemeralIdentity('close_the_dialog', facts, at('', 'Open the menu'))).toBeInstanceOf(EphemeralIdentityError);
+  });
+
+  it('does not throw on coordinate drift alone — coordinates are a soft signal', () => {
+    const facts = { matchSource: 'text' as const, matchValue: 'new', x: 262, y: 20 };
+    expect(checkEphemeralIdentity('new_a', facts, at('new', '', 262, 4000))).toBeNull();
+  });
+
+  it('is a no-op when no identity fact survived sanitization (assumption A5)', () => {
+    const facts = { matchSource: null, matchValue: '', x: 0, y: 0 };
+    expect(checkEphemeralIdentity('weird_button', facts, at('anything at all'))).toBeNull();
+  });
+
+  // The fail-CLOSED half of the same rule: a fact that DID survive gets no
+  // benefit of the doubt when the element it resolved to reports no text.
+  // `getElementCenter` normalizes a missing text/label to '', so this is the
+  // shape a text-less element actually arrives in.
+  it('FAILS when the handle has a fact but the resolved element reports no text', () => {
+    const facts = { matchSource: 'text' as const, matchValue: 'new', x: 262, y: 20 };
+    const err = checkEphemeralIdentity('new_a', facts, at(''));
+    expect(err).toBeInstanceOf(EphemeralIdentityError);
+    expect(err!.message).toContain('(no text)');
+  });
+});

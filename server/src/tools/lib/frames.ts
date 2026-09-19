@@ -1,5 +1,6 @@
 import type { ToolContext } from './types';
 import { handleMissHint, isHandleRef, HANDLE_MARKER } from '../../experimental/fingerprinting/handle-resolve';
+import { EphemeralIdentityError } from '../../experimental/fingerprinting/ephemeral-handles';
 import { renderAlternatives } from './element-resolver';
 
 /**
@@ -353,6 +354,12 @@ export async function getCenterInFrame(
     const { x, y } = await ctx.getElementCenter(selector, meta);
     return { x, y, contextId: null };
   } catch (topFrameErr) {
+    // An identity mismatch is a REFUSAL, not a miss. The child-frame walk below
+    // only searches child frames (collectChildFrameIds excludes the top frame),
+    // so it cannot re-find the wrong element — but `healInFrames` can, and a
+    // heal that "rescues" a binding we have just proved wrong is the exact
+    // silent-success this guard exists to prevent.
+    if (topFrameErr instanceof EphemeralIdentityError) throw topFrameErr;
     // Translate a handle name once, up front: `query` is used for the page query,
     // the fingerprint capture key AND the heal key below, and a raw handle name
     // would miss on all three (store keys are real CSS selectors). Mirrors the
