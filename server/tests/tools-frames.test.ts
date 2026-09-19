@@ -557,7 +557,7 @@ describe('elementNotFoundError() — handle diagnostic uses the translated selec
   });
 });
 
-import { EphemeralIdentityError } from '../src/experimental/fingerprinting/ephemeral-handles';
+import { EphemeralIdentityError, markEphemeralMiss } from '../src/experimental/fingerprinting/ephemeral-handles';
 
 describe('getCenterInFrame() — ephemeral identity refusal', () => {
   /**
@@ -595,6 +595,54 @@ describe('getCenterInFrame() — ephemeral identity refusal', () => {
     ctx.getElementCenter = vi.fn().mockRejectedValue(new Error('Element not found: `#btn`'));
     ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
     await expect(getCenterInFrame(ctx, '#btn')).rejects.toThrow('Element not found');
+    expect(ctx.cdp).toHaveBeenCalled();
+  });
+
+  /**
+   * A plain MISS on an ephemeral handle, not a mismatch. The old catch block let
+   * this one through to the child-frame walk on the argument that the walk cannot
+   * re-find the top-frame element — true, and exactly the problem: the "Did you
+   * mean?" candidates an ephemeral handle is minted from are enumerated from the
+   * TOP frame only, so any child-frame hit is by construction a different element,
+   * and nothing on that branch runs `checkEphemeralIdentity`.
+   */
+  it('refuses the child-frame fallback for an ephemeral handle whose top-frame element is gone', async () => {
+    const ctx = mockCtx(async (method) => {
+      if (method === 'Page.getFrameTree') {
+        return { frameTree: { frame: { id: 'top' }, childFrames: [{ frame: { id: 'c' }, childFrames: [] }] } };
+      }
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+      if (method === 'Runtime.evaluate') return { result: { objectId: 'wrong-el' } };
+      if (method === 'DOM.getFrameOwner') return { backendNodeId: 99 };
+      if (method === 'DOM.resolveNode') return { object: { objectId: 'iframe-obj' } };
+      if (method === 'Runtime.callFunctionOn') return { result: { value: { left: 100, top: 50 } } };
+    });
+    const miss = markEphemeralMiss(new Error('Element not found: `got_it`'));
+    ctx.getElementCenter = vi.fn().mockRejectedValue(miss);
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    ctx.resolveSelector = vi.fn((s: string) => s.replace(/^@/, ''));
+    ctx.healFingerprintInContext = vi.fn().mockResolvedValue({ cx: 9, cy: 9, score: 1 });
+    ctx.captureFingerprintInContext = vi.fn();
+
+    await expect(getCenterInFrame(ctx, '@got_it')).rejects.toBe(miss);
+    // The assertions that matter: no fallback ever ran, so nothing unverified
+    // could be handed back as a click target.
+    expect(ctx.cdp).not.toHaveBeenCalled();
+    expect(ctx.getSelectorExpression).not.toHaveBeenCalled();
+    expect(ctx.healFingerprintInContext).not.toHaveBeenCalled();
+    expect(ctx.captureFingerprintInContext).not.toHaveBeenCalled();
+  });
+
+  it('marks a miss as ephemeral only when the binding actually produced the selector', async () => {
+    // An unmarked miss on a plain selector keeps the child-frame walk.
+    const ctx = mockCtx(async (method) => {
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'top' }, childFrames: [] } };
+      if (method === 'Runtime.evaluate') return { result: {} };
+    });
+    ctx.getElementCenter = vi.fn().mockRejectedValue(new Error('Element not found: `@got_it`'));
+    ctx.getSelectorExpression = vi.fn((s) => `document.querySelector("${s}")`);
+    ctx.resolveSelector = vi.fn((s: string) => s.replace(/^@/, ''));
+    await expect(getCenterInFrame(ctx, '@got_it')).rejects.toThrow('Element not found');
     expect(ctx.cdp).toHaveBeenCalled();
   });
 });

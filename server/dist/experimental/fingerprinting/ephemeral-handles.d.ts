@@ -44,6 +44,11 @@ export declare class EphemeralIdentityError extends Error {
     readonly ssEphemeralMismatch = true;
     constructor(message: string);
 }
+/** Mark a miss error as having come from an ephemeral binding. Returns the same
+ *  object so call sites can stay one-liners. */
+export declare function markEphemeralMiss<T>(err: T): T;
+/** True when `err` is a miss on a selector an ephemeral binding produced. */
+export declare function isEphemeralMiss(err: unknown): boolean;
 /** Register a session. Called on connect, alongside `experimentRegistry.bind`. */
 export declare function bindSession(sessionId: string): void;
 /** Forget every ephemeral name for a session. Called on disconnect. */

@@ -157,6 +157,11 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
         catch (missErr) {
             if (missErr instanceof ephemeral_handles_1.EphemeralIdentityError)
                 throw missErr;
+            // Tag the provenance before it leaves: downstream fallbacks (the
+            // child-frame walk in `getCenterInFrame`) must refuse to substitute an
+            // element for a handle minted against the top frame. See `markEphemeralMiss`.
+            if (translated.ephemeralBinding)
+                (0, ephemeral_handles_1.markEphemeralMiss)(missErr);
             // The feature is off, but the shape/marker still tells the agent something
             // useful: either they used `@name` (translation just doesn't run while the
             // experiment is disabled) or the shape alone suggests they meant to.
@@ -212,6 +217,9 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
         // re-resolve and hand back coordinates for something we already rejected.
         if (missErr instanceof ephemeral_handles_1.EphemeralIdentityError)
             throw missErr;
+        // Same provenance tag as the gate-off branch above.
+        if (translated.ephemeralBinding)
+            (0, ephemeral_handles_1.markEphemeralMiss)(missErr);
         try {
             const attempt = await healOnMiss(evalFn, url, query);
             if (attempt.hit) {

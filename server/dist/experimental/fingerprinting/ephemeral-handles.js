@@ -27,6 +27,8 @@
 // in `backend/handlers.ts`.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EphemeralIdentityError = void 0;
+exports.markEphemeralMiss = markEphemeralMiss;
+exports.isEphemeralMiss = isEphemeralMiss;
 exports.bindSession = bindSession;
 exports.dropSession = dropSession;
 exports.mintHandleName = mintHandleName;
@@ -57,6 +59,39 @@ class EphemeralIdentityError extends Error {
     }
 }
 exports.EphemeralIdentityError = EphemeralIdentityError;
+/**
+ * Provenance mark for an ordinary MISS whose selector came from an ephemeral
+ * binding. Distinct from `EphemeralIdentityError`, which means "we found an
+ * element and it is the wrong one"; this means "the element is simply gone".
+ *
+ * It exists because the fallback that follows a miss is not always safe. The
+ * candidate list an ephemeral handle is minted from is enumerated from the TOP
+ * frame only (`findAlternativeSelectors`), so `getCenterInFrame`'s child-frame
+ * walk can only ever return an element the handle was never bound to — and
+ * nothing on that branch runs `checkEphemeralIdentity`. `resolveWithHealing` is
+ * the only code that knows, authoritatively, which resolution tier produced the
+ * selector, so it marks the error on the way out rather than making
+ * `getCenterInFrame` re-derive the tier from a URL it does not have.
+ *
+ * `Symbol.for` so the mark survives two module instances (test realms, dual
+ * CJS/ESM loads); non-enumerable so it never leaks into a serialized error.
+ */
+const EPHEMERAL_MISS = Symbol.for('supersurf.ephemeralHandleMiss');
+/** Mark a miss error as having come from an ephemeral binding. Returns the same
+ *  object so call sites can stay one-liners. */
+function markEphemeralMiss(err) {
+    if (err && typeof err === 'object') {
+        try {
+            Object.defineProperty(err, EPHEMERAL_MISS, { value: true, enumerable: false, configurable: true });
+        }
+        catch { /* frozen error: the mark is best-effort, never a new failure */ }
+    }
+    return err;
+}
+/** True when `err` is a miss on a selector an ephemeral binding produced. */
+function isEphemeralMiss(err) {
+    return !!(err && typeof err === 'object' && err[EPHEMERAL_MISS] === true);
+}
 /** sessionId -> (handle name -> binding). */
 const _sessions = new Map();
 /** Monotonic across every session, so "newest" is comparable between them. */

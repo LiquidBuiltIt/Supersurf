@@ -351,6 +351,18 @@ async function getCenterInFrame(ctx, selector, meta) {
         // silent-success this guard exists to prevent.
         if (topFrameErr instanceof ephemeral_handles_1.EphemeralIdentityError)
             throw topFrameErr;
+        // An ordinary MISS on an ephemeral handle is refused for the mirror-image
+        // reason. "The walk cannot re-find the top-frame element" is precisely the
+        // problem: the "Did you mean?" candidates a binding is minted from are
+        // enumerated from the top frame (`document.querySelectorAll('*')`), so any
+        // child-frame hit is BY CONSTRUCTION a different element — and no code on
+        // this branch runs `checkEphemeralIdentity`, because `ctx.resolveSelector`
+        // returns a bare string and drops `ephemeralBinding`. A handle minted
+        // against the top frame has no legitimate child-frame answer, so refusing
+        // costs nothing and keeps the branch's promise: no silent wrong-element
+        // action. Matches the mint gate (`element-resolver.ts`) and the rethrow above.
+        if ((0, ephemeral_handles_1.isEphemeralMiss)(topFrameErr))
+            throw topFrameErr;
         // Translate a handle name once, up front: `query` is used for the page query,
         // the fingerprint capture key AND the heal key below, and a raw handle name
         // would miss on all three (store keys are real CSS selectors). Mirrors the

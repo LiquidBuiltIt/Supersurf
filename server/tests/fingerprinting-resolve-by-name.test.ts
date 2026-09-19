@@ -192,7 +192,7 @@ describe('resolveWithHealing with a handle name', () => {
 import {
   bindEphemeral, bindSession, dropSession,
 } from '../src/experimental/fingerprinting/ephemeral-handles';
-import { EphemeralIdentityError } from '../src/experimental/fingerprinting/ephemeral-handles';
+import { EphemeralIdentityError, isEphemeralMiss } from '../src/experimental/fingerprinting/ephemeral-handles';
 
 /**
  * The resolve-time identity guard, exercised through `resolveWithHealing` — the
@@ -271,5 +271,39 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
     const { fn } = evalTo('Hacker News');
     const center = await resolveWithHealing(fn, 'a:has-text("new")', () => url);
     expect(center).toMatchObject({ x: 146, y: 20 });
+  });
+
+  /**
+   * A MISS (element gone) is not a mismatch, so it stays an ordinary Error — but
+   * `getCenterInFrame` must be able to tell that the selector behind it came from
+   * an ephemeral binding, because its child-frame fallback runs no identity check
+   * and the candidates a binding is minted from are top-frame only.
+   */
+  describe('ephemeral provenance on a miss', () => {
+    const missEval = async () => null;
+
+    it('marks an ephemeral handle\'s miss, experiment ON', async () => {
+      const err = await resolveWithHealing(missEval, '@new_a', () => url).catch(e => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(EphemeralIdentityError);
+      expect(isEphemeralMiss(err)).toBe(true);
+    });
+
+    it('marks an ephemeral handle\'s miss on the experiment-OFF path too', async () => {
+      mockEnabled.mockReturnValue(false);
+      const err = await resolveWithHealing(missEval, '@new_a', () => url).catch(e => e);
+      expect(isEphemeralMiss(err)).toBe(true);
+    });
+
+    it('never marks a plain CSS selector\'s miss', async () => {
+      const err = await resolveWithHealing(missEval, 'a:has-text("new")', () => url).catch(e => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(isEphemeralMiss(err)).toBe(false);
+    });
+
+    it('never marks an unbound handle name\'s miss — nothing was translated', async () => {
+      const err = await resolveWithHealing(missEval, '@never_minted', () => url).catch(e => e);
+      expect(isEphemeralMiss(err)).toBe(false);
+    });
   });
 });

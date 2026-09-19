@@ -7,7 +7,7 @@ import type { Fingerprint, FingerprintRecord, ScoreHit } from './types';
 import { mergeHandleMeta } from './handle-meta';
 import type { HandleMeta } from './handle-meta';
 import { resolveSelectorOrHandle, handleMissHint } from './handle-resolve';
-import { checkEphemeralIdentity, EphemeralIdentityError } from './ephemeral-handles';
+import { checkEphemeralIdentity, EphemeralIdentityError, markEphemeralMiss } from './ephemeral-handles';
 
 export const THRESHOLD = 0.6;
 export const MARGIN = 0.10;
@@ -229,6 +229,10 @@ export async function resolveWithHealing(
       return center;
     } catch (missErr) {
       if (missErr instanceof EphemeralIdentityError) throw missErr;
+      // Tag the provenance before it leaves: downstream fallbacks (the
+      // child-frame walk in `getCenterInFrame`) must refuse to substitute an
+      // element for a handle minted against the top frame. See `markEphemeralMiss`.
+      if (translated.ephemeralBinding) markEphemeralMiss(missErr);
       // The feature is off, but the shape/marker still tells the agent something
       // useful: either they used `@name` (translation just doesn't run while the
       // experiment is disabled) or the shape alone suggests they meant to.
@@ -280,6 +284,8 @@ export async function resolveWithHealing(
     // A proven-wrong element must never be rescued by a heal: healing would
     // re-resolve and hand back coordinates for something we already rejected.
     if (missErr instanceof EphemeralIdentityError) throw missErr;
+    // Same provenance tag as the gate-off branch above.
+    if (translated.ephemeralBinding) markEphemeralMiss(missErr);
     try {
       const attempt = await healOnMiss(evalFn, url, query);
       if (attempt.hit) {
