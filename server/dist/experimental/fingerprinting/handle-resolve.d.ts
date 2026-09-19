@@ -104,10 +104,14 @@ export interface SelectorOrHandle {
  * one, because coordinates move legitimately and text identity does not; the
  * guard covers EPHEMERAL bindings only, since a stored handle's selector is
  * vetted by the fingerprint score gate instead; and the guard sits on the
- * COORDINATE path (`ctx.getElementCenter` → `resolveWithHealing`), so only
- * `click`, `hover` and `drag` reach it — `type`, `clear`, `select_option`,
- * `scroll`, `wait`, `file_upload` and `browser_fill_form` resolve through
- * `resolveInFrames` and never run the check at all (backlog #58).
+ * COORDINATE path (`ctx.getElementCenter` → `resolveWithHealing`), so exactly
+ * four verbs reach it — `click`, `hover` and `select_custom` (via
+ * `getCenterInFrame`) plus `browser_drag` (via `ctx.getElementCenter` directly,
+ * once per endpoint). `type`, `clear`, `select_option`, `scroll`, `wait`,
+ * `file_upload` and `browser_fill_form` resolve through `resolveInFrames` and
+ * never run the check at all (backlog #58). That list is the complete set of
+ * `getElementCenter`/`getCenterInFrame` call sites — re-derive it by grep
+ * before editing, not from this comment.
  *
  * The `@` marker is recognized — and stripped — before the experiment gate below,
  * not after: leaving it in place on a disabled/unknown-domain fallthrough would
