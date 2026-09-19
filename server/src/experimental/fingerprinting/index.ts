@@ -201,6 +201,7 @@ export async function resolveWithHealing(
   emit?: HealEmit,
   meta?: HandleMeta,
   emitHandle?: HandleEmit,
+  getSessionId?: () => string | undefined,
 ): Promise<{ x: number; y: number }> {
   const url = getUrl();
   const domain = domainOf(url), route = routeOf(url);
@@ -215,7 +216,7 @@ export async function resolveWithHealing(
 
   if (!experimentRegistry.isEnabled('fingerprinting')) {
     try {
-      return await getElementCenter(evalFn, query);
+      return await getElementCenter(evalFn, query, getSessionId?.());
     } catch (missErr) {
       // The feature is off, but the shape/marker still tells the agent something
       // useful: either they used `@name` (translation just doesn't run while the
@@ -247,7 +248,7 @@ export async function resolveWithHealing(
     } catch { /* telemetry must never break a resolve */ }
   };
   try {
-    const center = await getElementCenter(evalFn, query);
+    const center = await getElementCenter(evalFn, query, getSessionId?.());
     // Single hoisted read: reused for the `hadRecord` telemetry below AND passed into
     // captureOnResolve so it skips its own getRecord — keeps the happy path at one file
     // read total, not two. (Skip entirely for the 'unknown' domain bucket, which never
@@ -269,7 +270,7 @@ export async function resolveWithHealing(
       fire('escalated', null, null, false);
     }
     if (missErr instanceof Error) {
-      if (translated.attempted && !translated.handle) {
+      if (translated.attempted && !translated.handle && !translated.ephemeral) {
         // An unresolved handle that also failed as a CSS selector: say so, so the agent
         // stops retrying the name and looks the element up for itself.
         missErr.message +=

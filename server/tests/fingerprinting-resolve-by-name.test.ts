@@ -91,13 +91,16 @@ describe('resolveSelectorOrHandle', () => {
     mockEnabled.mockReturnValue(false);
     const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button');
     expect(out.selector).toBe('tweet_button');
-    expect(out.attempted).toBe(false);
+    // The ephemeral tier (Task 4) is consulted even when the experiment is off,
+    // so a lookup did run here — it just missed. `attempted` now reflects that.
+    expect(out.attempted).toBe(true);
   });
 
   it('strips the `@` marker for the unknown domain bucket (nothing is ever stored there)', () => {
     const out = resolveSelectorOrHandle(undefined, '@tweet_button');
     expect(out.selector).toBe('tweet_button');
-    expect(out.attempted).toBe(false);
+    // Same as above: the ephemeral tier still runs (and misses) for the 'unknown' bucket.
+    expect(out.attempted).toBe(true);
   });
 });
 

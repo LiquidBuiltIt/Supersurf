@@ -13,6 +13,7 @@ exports.findAlternativeSelectors = findAlternativeSelectors;
 exports.getElementCenter = getElementCenter;
 const shared_1 = require("../../shared");
 const candidates_1 = require("../../playbooks/candidates");
+const ephemeral_handles_1 = require("../../experimental/fingerprinting/ephemeral-handles");
 /**
  * Rewrite digit-leading IDs (`#883a76-...`) to `[id="..."]` form.
  * CSS spec disallows ID identifiers that start with a digit, so
@@ -281,7 +282,24 @@ async function findAlternativeSelectors(evalFn, selector, sessionId) {
         const raw = await evalFn(expression);
         if (!Array.isArray(raw))
             return [];
-        return rankAlternatives(raw);
+        const ranked = rankAlternatives(raw);
+        // Mint a throwaway `@name` per candidate that has a confident text source.
+        // No session id => no binding => no handle: a process-global slot would have
+        // no drop event and would leak for the process lifetime.
+        // Builds new objects rather than mutating `ranked`'s elements in place —
+        // those are the raw page-eval results, and mutating a caller-owned object
+        // is surprising even though production `evalFn` calls always return fresh ones.
+        if (sessionId) {
+            const taken = new Set();
+            return ranked.map((alt) => {
+                const name = (0, ephemeral_handles_1.mintHandleName)({ text: alt.text, label: alt.label, tag: alt.tag }, taken);
+                if (!name)
+                    return alt; // no confident text source — the CSS selector prints alone
+                (0, ephemeral_handles_1.bindEphemeral)(sessionId, name, alt.selector);
+                return { ...alt, handle: name };
+            });
+        }
+        return ranked;
     }
     catch {
         return [];

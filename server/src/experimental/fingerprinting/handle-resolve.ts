@@ -11,6 +11,7 @@ import { loadDomain } from './store';
 import { normalizeName } from './naming';
 import { domainOf, routeOf } from './url';
 import { experimentRegistry } from '../index';
+import { resolveEphemeral } from './ephemeral-handles';
 import type { FingerprintRecord } from './types';
 
 /**
@@ -121,11 +122,14 @@ export function resolveHandleName(
 export interface SelectorOrHandle {
   /** The selector to query with — the translated one on a hit, the input otherwise. */
   selector: string;
-  /** Non-null only when a handle name matched a stored record. */
+  /** Non-null only when a handle name matched a STORED record. */
   handle: HandleResolution | null;
   /** True when the input looked like a handle and a lookup actually ran, so a
    *  `null` handle means "miss", not "this was a plain selector". */
   attempted: boolean;
+  /** True when the selector came from the session's ephemeral map rather than the
+   *  persistent store. `handle` stays null in that case — there is no record. */
+  ephemeral?: boolean;
 }
 
 /**
@@ -153,16 +157,27 @@ export function resolveSelectorOrHandle(
   }
   const name = selector.slice(HANDLE_MARKER.length);
 
-  if (!experimentRegistry.isEnabled('fingerprinting')) {
-    return { selector: name, handle: null, attempted: false };
+  // ORDER IS THE WHOLE DESIGN. The persistent store is tier 1; the session's
+  // ephemeral map is tier 2, consulted ONLY after the store misses. Reversing
+  // them lets a freshly minted hint name that collides on text shadow a real
+  // persisted handle, which breaks the "first name sticks" invariant enforced
+  // in handle-meta.ts:49-60.
+  if (experimentRegistry.isEnabled('fingerprinting')) {
+    const domain = domainOf(url);
+    // Nothing is ever persisted into the 'unknown' bucket (see captureOnResolve),
+    // so there is nothing to resolve against.
+    if (domain !== 'unknown') {
+      const handle = resolveHandleName(domain, routeOf(url), name);
+      if (handle) return { selector: handle.selector, handle, attempted: true };
+    }
   }
 
-  const domain = domainOf(url);
-  // Nothing is ever persisted into the 'unknown' bucket (see captureOnResolve),
-  // so there is nothing to resolve against.
-  if (domain === 'unknown') return { selector: name, handle: null, attempted: false };
+  // Tier 2, and DELIBERATELY OUTSIDE the experiment gate. The "Did you mean?"
+  // hint that mints these names is ungated, so gating the lookup would print
+  // `@handles` that cannot resolve on the default configuration. The persistent
+  // store stays gated above — that is the experiment's data; this map is not.
+  const ephemeral = resolveEphemeral(name);
+  if (ephemeral) return { selector: ephemeral, handle: null, attempted: true, ephemeral: true };
 
-  const handle = resolveHandleName(domain, routeOf(url), name);
-  if (!handle) return { selector: name, handle: null, attempted: true };
-  return { selector: handle.selector, handle, attempted: true };
+  return { selector: name, handle: null, attempted: true };
 }

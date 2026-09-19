@@ -120,6 +120,7 @@ export class BrowserBridge {
             }),
           meta,
           emitHandle,
+          () => this.connectionManager?.clientId,
         ),
       captureFingerprintInContext: (contextId: number | null, selector: string, meta?: import('./experimental/fingerprinting/handle-meta').HandleMeta) =>
         void captureInContext(

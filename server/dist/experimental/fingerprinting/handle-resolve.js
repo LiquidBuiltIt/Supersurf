@@ -17,6 +17,7 @@ const store_1 = require("./store");
 const naming_1 = require("./naming");
 const url_1 = require("./url");
 const index_1 = require("../index");
+const ephemeral_handles_1 = require("./ephemeral-handles");
 /**
  * A bare snake_case identifier with at least one underscore — the shape a
  * normalized handle name takes (see `naming.ts`).
@@ -124,17 +125,28 @@ function resolveSelectorOrHandle(url, selector) {
         return { selector, handle: null, attempted: false };
     }
     const name = selector.slice(HANDLE_MARKER.length);
-    if (!index_1.experimentRegistry.isEnabled('fingerprinting')) {
-        return { selector: name, handle: null, attempted: false };
+    // ORDER IS THE WHOLE DESIGN. The persistent store is tier 1; the session's
+    // ephemeral map is tier 2, consulted ONLY after the store misses. Reversing
+    // them lets a freshly minted hint name that collides on text shadow a real
+    // persisted handle, which breaks the "first name sticks" invariant enforced
+    // in handle-meta.ts:49-60.
+    if (index_1.experimentRegistry.isEnabled('fingerprinting')) {
+        const domain = (0, url_1.domainOf)(url);
+        // Nothing is ever persisted into the 'unknown' bucket (see captureOnResolve),
+        // so there is nothing to resolve against.
+        if (domain !== 'unknown') {
+            const handle = resolveHandleName(domain, (0, url_1.routeOf)(url), name);
+            if (handle)
+                return { selector: handle.selector, handle, attempted: true };
+        }
     }
-    const domain = (0, url_1.domainOf)(url);
-    // Nothing is ever persisted into the 'unknown' bucket (see captureOnResolve),
-    // so there is nothing to resolve against.
-    if (domain === 'unknown')
-        return { selector: name, handle: null, attempted: false };
-    const handle = resolveHandleName(domain, (0, url_1.routeOf)(url), name);
-    if (!handle)
-        return { selector: name, handle: null, attempted: true };
-    return { selector: handle.selector, handle, attempted: true };
+    // Tier 2, and DELIBERATELY OUTSIDE the experiment gate. The "Did you mean?"
+    // hint that mints these names is ungated, so gating the lookup would print
+    // `@handles` that cannot resolve on the default configuration. The persistent
+    // store stays gated above — that is the experiment's data; this map is not.
+    const ephemeral = (0, ephemeral_handles_1.resolveEphemeral)(name);
+    if (ephemeral)
+        return { selector: ephemeral, handle: null, attempted: true, ephemeral: true };
+    return { selector: name, handle: null, attempted: true };
 }
 //# sourceMappingURL=handle-resolve.js.map

@@ -51,11 +51,14 @@ export declare function resolveHandleName(domain: string, route: string, name: s
 export interface SelectorOrHandle {
     /** The selector to query with — the translated one on a hit, the input otherwise. */
     selector: string;
-    /** Non-null only when a handle name matched a stored record. */
+    /** Non-null only when a handle name matched a STORED record. */
     handle: HandleResolution | null;
     /** True when the input looked like a handle and a lookup actually ran, so a
      *  `null` handle means "miss", not "this was a plain selector". */
     attempted: boolean;
+    /** True when the selector came from the session's ephemeral map rather than the
+     *  persistent store. `handle` stays null in that case — there is no record. */
+    ephemeral?: boolean;
 }
 /**
  * The single entry point for handle translation. Idempotent: a plain CSS

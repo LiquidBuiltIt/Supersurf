@@ -90,7 +90,7 @@ export type HealEmit = (ev: HealEvent) => void;
  * to getElementCenter. When ON: captures on success, heals on miss, escalates (rethrows)
  * if healing fails.
  */
-export declare function resolveWithHealing(evalFn: EvalFn, selector: string, getUrl: () => string | undefined, emit?: HealEmit, meta?: HandleMeta, emitHandle?: HandleEmit): Promise<{
+export declare function resolveWithHealing(evalFn: EvalFn, selector: string, getUrl: () => string | undefined, emit?: HealEmit, meta?: HandleMeta, emitHandle?: HandleEmit, getSessionId?: () => string | undefined): Promise<{
     x: number;
     y: number;
 }>;

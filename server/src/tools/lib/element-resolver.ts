@@ -6,6 +6,7 @@
 
 import { QUERY_DEEP_SOURCE, QUERY_ALL_DEEP_SOURCE } from 'shared';
 import { selectorTokens } from '../../playbooks/candidates';
+import { mintHandleName, bindEphemeral } from '../../experimental/fingerprinting/ephemeral-handles';
 
 /** Async page evaluator signature (matches the inner closure of `evalExpr`). */
 export type EvalFn = (expression: string, awaitPromise?: boolean) => Promise<any>;
@@ -307,7 +308,23 @@ export async function findAlternativeSelectors(
   try {
     const raw = await evalFn(expression);
     if (!Array.isArray(raw)) return [];
-    return rankAlternatives(raw as AltCandidate[]);
+    const ranked = rankAlternatives(raw as AltCandidate[]);
+    // Mint a throwaway `@name` per candidate that has a confident text source.
+    // No session id => no binding => no handle: a process-global slot would have
+    // no drop event and would leak for the process lifetime.
+    // Builds new objects rather than mutating `ranked`'s elements in place —
+    // those are the raw page-eval results, and mutating a caller-owned object
+    // is surprising even though production `evalFn` calls always return fresh ones.
+    if (sessionId) {
+      const taken = new Set<string>();
+      return ranked.map((alt) => {
+        const name = mintHandleName({ text: alt.text, label: alt.label, tag: alt.tag }, taken);
+        if (!name) return alt; // no confident text source — the CSS selector prints alone
+        bindEphemeral(sessionId, name, alt.selector);
+        return { ...alt, handle: name };
+      });
+    }
+    return ranked;
   } catch {
     return [];
   }

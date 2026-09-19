@@ -61,6 +61,7 @@ const daemon_spawn_1 = require("../daemon-spawn");
 const shared_2 = require("../shared");
 const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
+const ephemeral_handles_1 = require("../experimental/fingerprinting/ephemeral-handles");
 const tips_1 = require("../tips");
 const shared_3 = require("../shared");
 const log = (0, shared_2.createLog)('[Conn]');
@@ -277,6 +278,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         };
         // Bind experiment registry to daemon transport, keyed by this session's id
         index_1.experimentRegistry.bind(mgr.clientId, client);
+        (0, ephemeral_handles_1.bindSession)(mgr.clientId);
         const BB = await getBrowserBridge();
         mgr.bridge = new BB(mgr.config, mgr.extensionServer);
         await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr, mgr.metricsLogger);
@@ -447,6 +449,7 @@ async function onDisconnect(mgr, options = {}) {
         (0, shared_2.getRegistry)().clearSessionLog(mgr.clientId);
         (0, tips_1.clearTipCounters)(mgr.clientId);
         index_1.experimentRegistry.unbind(mgr.clientId);
+        (0, ephemeral_handles_1.dropSession)(mgr.clientId);
         (0, index_2.destroySession)(mgr.clientId);
     }
     mgr.state = 'passive';

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   getSelectorExpression,
   getAllSelectorExpression,
@@ -242,5 +242,46 @@ describe('findAlternativeSelectors() — plain CSS selectors', () => {
   it('keeps the text-match path for :has-text() selectors', async () => {
     const code = await capture('div:has-text("Got it")');
     expect(code).toContain('"Got it"');
+  });
+});
+
+import { resolveEphemeral, dropSession } from '../src/experimental/fingerprinting/ephemeral-handles';
+
+describe('findAlternativeSelectors() — ephemeral handles', () => {
+  const page = [
+    { selector: 'span.a.b', tag: 'span', visible: true, text: 'Got it',
+      label: '', width: 63, height: 40, x: 1112, y: 664, score: 2 },
+    { selector: 'div.c', tag: 'div', visible: true, text: '',
+      label: '', width: 10, height: 10, x: 1, y: 2, score: 1 },
+  ];
+
+  beforeEach(() => dropSession('sess-1'));
+
+  it('mints a handle for a candidate with text and none for one without', async () => {
+    const out = await findAlternativeSelectors(async () => page, 'div.missing', 'sess-1');
+    expect(out[0].handle).toBe('got_it');
+    expect(out[1].handle).toBeUndefined();
+    expect(resolveEphemeral('got_it')).toBe('span.a.b');
+  });
+
+  it('renders the handle on the candidate line and omits it where absent', async () => {
+    const out = await findAlternativeSelectors(async () => page, 'div.missing', 'sess-1');
+    const text = renderAlternatives(out);
+    expect(text).toContain('1. @got_it · "Got it" · span · visible · 63×40 @ (1112,664)');
+    expect(text).toContain('2. div · visible ·');
+  });
+
+  it('mints nothing when there is no session id', async () => {
+    const out = await findAlternativeSelectors(async () => page, 'div.missing');
+    expect(out[0].handle).toBeUndefined();
+  });
+
+  it('never derives a name from class tokens', async () => {
+    const hashed = [{
+      selector: 'div.SidebarAbout-module__description__xTkIP', tag: 'div',
+      visible: true, text: '', label: '', width: 5, height: 5, x: 0, y: 0, score: 3,
+    }];
+    const out = await findAlternativeSelectors(async () => hashed, 'div.missing', 'sess-1');
+    expect(out[0].handle).toBeUndefined();
   });
 });

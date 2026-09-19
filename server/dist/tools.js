@@ -89,7 +89,7 @@ class BrowserBridge {
                 params: ev,
                 result: 'ok',
                 duration_ms: 0,
-            }), meta, emitHandle),
+            }), meta, emitHandle, () => this.connectionManager?.clientId),
             captureFingerprintInContext: (contextId, selector, meta) => void (0, index_2.captureInContext)((expr) => {
                 const params = { expression: expr, returnByValue: true };
                 if (contextId != null)
