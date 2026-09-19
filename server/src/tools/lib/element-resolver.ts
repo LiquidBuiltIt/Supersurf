@@ -357,7 +357,11 @@ export async function findAlternativeSelectors(
         // the "only name it when you can name it honestly" rule extended from
         // "has readable text" to "has a selector that resolves back to itself" —
         // the property the news.ycombinator.com defect proved was missing.
-        if (alt.qualified === false) return alt;
+        // Falsy, not `=== false`: `ranked` reaches here through a `raw as
+        // AltCandidate[]` assertion over browser-eval JSON, so a MISSING
+        // `qualified` is as unproven as an explicit `false` and must fail the
+        // same way. TypeScript forecloses nothing across that boundary.
+        if (!alt.qualified) return alt;
         const name = mintHandleName({ text: alt.text, label: alt.label, tag: alt.tag }, taken);
         if (!name) return alt; // no confident text source — the CSS selector prints alone
         // `mintHandleName` names from `text || label`; guard the same one, using

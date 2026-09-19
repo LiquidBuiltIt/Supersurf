@@ -254,9 +254,9 @@ import {
 describe('findAlternativeSelectors() — ephemeral handles', () => {
   const page = [
     { selector: 'span.a.b', tag: 'span', visible: true, text: 'Got it',
-      label: '', width: 63, height: 40, x: 1112, y: 664, score: 2 },
+      label: '', width: 63, height: 40, x: 1112, y: 664, score: 2, qualified: true },
     { selector: 'div.c', tag: 'div', visible: true, text: '',
-      label: '', width: 10, height: 10, x: 1, y: 2, score: 1 },
+      label: '', width: 10, height: 10, x: 1, y: 2, score: 1, qualified: true },
   ];
 
   beforeEach(() => dropSession('sess-1'));
@@ -284,6 +284,7 @@ describe('findAlternativeSelectors() — ephemeral handles', () => {
     const hashed = [{
       selector: 'div.SidebarAbout-module__description__xTkIP', tag: 'div',
       visible: true, text: '', label: '', width: 5, height: 5, x: 0, y: 0, score: 3,
+      qualified: true,
     }];
     const out = await findAlternativeSelectors(async () => hashed, 'div.missing', 'sess-1');
     expect(out[0].handle).toBeUndefined();
@@ -295,10 +296,13 @@ describe('findAlternativeSelectors() — ephemeral handles', () => {
     width: 63, height: 40, x: 1112, y: 664, score: 2, ...over,
   });
 
-  it('mints no handle for an unqualified candidate', async () => {
+  // `qualified: true` on purpose: the gate now short-circuits every falsy
+  // `qualified`, so a `false` here would return before `mintHandleName` ran and
+  // this test would assert nothing about the rule its name claims.
+  it('mints no handle for a candidate with no nameable text', async () => {
     bindSession('s-gate');
     const out = await findAlternativeSelectors(
-      async () => [CAND({ qualified: false, selector: 'li', text: '', matchText: '' })],
+      async () => [CAND({ qualified: true, selector: 'li', text: '', matchText: '' })],
       'li.missing',
       's-gate',
     );
@@ -307,11 +311,11 @@ describe('findAlternativeSelectors() — ephemeral handles', () => {
     dropSession('s-gate');
   });
 
-  // The test above cannot fail without the gate: its candidate has no text, so
-  // `mintHandleName` refuses it anyway. This one has a perfectly nameable text
-  // source and is rejected ONLY by `qualified: false` — and it checks the
-  // binding map too, because a handle that is never printed but IS bound would
-  // still resolve for any other candidate list that prints the same name.
+  // The test above covers `mintHandleName`'s no-text rule, not the gate. This
+  // one is the gate's own coverage: a perfectly nameable text source, rejected
+  // ONLY by `qualified: false` — and it checks the binding map too, because a
+  // handle that is never printed but IS bound would still resolve for any other
+  // candidate list that prints the same name.
   it('mints and binds nothing for an unqualified candidate that does have text', async () => {
     bindSession('s-gate-text');
     const out = await findAlternativeSelectors(
