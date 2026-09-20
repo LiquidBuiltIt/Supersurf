@@ -114,7 +114,43 @@ function resolveHandleName(domain, route, name) {
  * A miss deliberately returns the (marker-stripped) input rather than throwing —
  * the caller then runs the normal CSS path, which either finds a real element
  * with that name (unlikely, but harmless) or produces the normal not-found
- * error. There is no path on which a handle can resolve to the wrong element.
+ * error.
+ *
+ * A HIT is the interesting case, and this comment used to assert "there is no
+ * path on which a handle can resolve to the wrong element". There was one, it
+ * shipped in 2be4745, and it took a browser to find it: the element-miss hint
+ * bound a handle to the *displayed* candidate selector, which is built for
+ * readability, so on markup carrying no id and no class (news.ycombinator.com)
+ * three separate handles all bound to the bare selector `a`, all resolved to the
+ * first anchor in the document, and `click` reported success. Two narrower and
+ * actually-true statements replace it:
+ *
+ *   - At MINT time, the qualification ladder (`tools/lib/selector-qualify.ts`)
+ *     climbs until the selector re-resolves to the element it describes, and the
+ *     candidate builder (`tools/lib/element-resolver.ts`) mints no handle at all
+ *     when no rung verifies. A binding therefore starts out unambiguous against
+ *     the page as it was at mint time.
+ *   - At RESOLVE time, `checkEphemeralIdentity` re-reads the resolved element's
+ *     text or label and refuses to act when it no longer matches the fact the
+ *     name was taken from. That is what covers the page changing afterwards, and
+ *     on the paths that reach it, it throws a typed error precisely so the
+ *     fingerprint heal and the child-frame walk cannot re-resolve past it.
+ *
+ * What is still NOT guaranteed, so nobody rebuilds the old confidence: a binding
+ * whose `matchSource` is null — neither text nor label survived sanitization —
+ * has no fact to compare and fails OPEN, riding on mint-time qualification
+ * alone; coordinate drift is reported in the mismatch message but never causes
+ * one, because coordinates move legitimately and text identity does not; the
+ * guard covers EPHEMERAL bindings only, since a stored handle's selector is
+ * vetted by the fingerprint score gate instead; and the guard sits on the
+ * COORDINATE path (`ctx.getElementCenter` → `resolveWithHealing`), so exactly
+ * four verbs reach it — `click`, `hover` and `select_custom` (via
+ * `getCenterInFrame`) plus `browser_drag` (via `ctx.getElementCenter` directly,
+ * once per endpoint). `type`, `clear`, `select_option`, `scroll`, `wait`,
+ * `file_upload` and `browser_fill_form` resolve through `resolveInFrames` and
+ * never run the check at all (backlog #58). That list is the complete set of
+ * `getElementCenter`/`getCenterInFrame` call sites — re-derive it by grep
+ * before editing, not from this comment.
  *
  * The `@` marker is recognized — and stripped — before the experiment gate below,
  * not after: leaving it in place on a disabled/unknown-domain fallthrough would
@@ -145,9 +181,16 @@ function resolveSelectorOrHandle(url, selector) {
     // hint that mints these names is ungated, so gating the lookup would print
     // `@handles` that cannot resolve on the default configuration. The persistent
     // store stays gated above — that is the experiment's data; this map is not.
-    const ephemeral = (0, ephemeral_handles_1.resolveEphemeral)(name);
-    if (ephemeral)
-        return { selector: ephemeral, handle: null, attempted: true, ephemeral: true };
+    const binding = (0, ephemeral_handles_1.resolveEphemeralBinding)(name);
+    if (binding) {
+        return {
+            selector: binding.selector,
+            handle: null,
+            attempted: true,
+            ephemeral: true,
+            ephemeralBinding: binding,
+        };
+    }
     return { selector: name, handle: null, attempted: true };
 }
 //# sourceMappingURL=handle-resolve.js.map

@@ -52,7 +52,7 @@ describe('resolveWithHealing', () => {
   it('OFF: passes through to getElementCenter (resolves)', async () => {
     const evalFn = vi.fn().mockResolvedValue({ x: 1, y: 2 }); // getElementCenter's inner eval returns coords
     const center = await resolveWithHealing(evalFn, '#go', url);
-    expect(center).toEqual({ x: 1, y: 2 });
+    expect(center).toEqual({ x: 1, y: 2, text: '', label: '' });
   });
 
   it('OFF: a miss throws and does NOT heal', async () => {
@@ -65,7 +65,7 @@ describe('resolveWithHealing', () => {
     putRecord('ex.com', '/', '#go', rec());
     const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
     const center = await resolveWithHealing(evalFn, '#go', url);
-    expect(center).toEqual({ x: 42, y: 99 });
+    expect(center).toEqual({ x: 42, y: 99, text: '', label: '' });
   });
 
   it('ON + miss + low margin: escalates (throws), never false-heals', async () => {

@@ -7,6 +7,7 @@ import type { Fingerprint, FingerprintRecord, ScoreHit } from './types';
 import { mergeHandleMeta } from './handle-meta';
 import type { HandleMeta } from './handle-meta';
 import { resolveSelectorOrHandle, handleMissHint } from './handle-resolve';
+import { checkEphemeralIdentity, EphemeralIdentityError, markEphemeralMiss } from './ephemeral-handles';
 
 export const THRESHOLD = 0.6;
 export const MARGIN = 0.10;
@@ -202,7 +203,7 @@ export async function resolveWithHealing(
   meta?: HandleMeta,
   emitHandle?: HandleEmit,
   getSessionId?: () => string | undefined,
-): Promise<{ x: number; y: number }> {
+): Promise<{ x: number; y: number; text: string; label: string }> {
   const url = getUrl();
   const domain = domainOf(url), route = routeOf(url);
 
@@ -216,8 +217,22 @@ export async function resolveWithHealing(
 
   if (!experimentRegistry.isEnabled('fingerprinting')) {
     try {
-      return await getElementCenter(evalFn, query, getSessionId?.());
+      const center = await getElementCenter(evalFn, query, getSessionId?.());
+      // Ephemeral tier-2 resolution is deliberately OUTSIDE the experiment gate
+      // (handle-resolve.ts:175-180), so the identity guard must be too —
+      // guarding only the gate-on path would leave the default configuration
+      // unprotected, which is the configuration the defect was found on.
+      const guard = translated.ephemeralBinding
+        ? checkEphemeralIdentity(selector.replace(/^@/, ''), translated.ephemeralBinding.facts, center)
+        : null;
+      if (guard) throw guard;
+      return center;
     } catch (missErr) {
+      if (missErr instanceof EphemeralIdentityError) throw missErr;
+      // Tag the provenance before it leaves: downstream fallbacks (the
+      // child-frame walk in `getCenterInFrame`) must refuse to substitute an
+      // element for a handle minted against the top frame. See `markEphemeralMiss`.
+      if (translated.ephemeralBinding) markEphemeralMiss(missErr);
       // The feature is off, but the shape/marker still tells the agent something
       // useful: either they used `@name` (translation just doesn't run while the
       // experiment is disabled) or the shape alone suggests they meant to.
@@ -249,6 +264,13 @@ export async function resolveWithHealing(
   };
   try {
     const center = await getElementCenter(evalFn, query, getSessionId?.());
+    const guard = translated.ephemeralBinding
+      ? checkEphemeralIdentity(selector.replace(/^@/, ''), translated.ephemeralBinding.facts, center)
+      : null;
+    // Thrown BEFORE capture and telemetry: a mismatch is not a resolve, and
+    // writing a fingerprint for an element we just proved is the wrong one
+    // would poison the store.
+    if (guard) throw guard;
     // Single hoisted read: reused for the `hadRecord` telemetry below AND passed into
     // captureOnResolve so it skips its own getRecord — keeps the happy path at one file
     // read total, not two. (Skip entirely for the 'unknown' domain bucket, which never
@@ -259,11 +281,46 @@ export async function resolveWithHealing(
     fire('resolved', null, null, !!existing);
     return center;
   } catch (missErr) {
+    // A proven-wrong element must never be rescued by a heal: healing would
+    // re-resolve and hand back coordinates for something we already rejected.
+    if (missErr instanceof EphemeralIdentityError) throw missErr;
+    // Same provenance tag as the gate-off branch above.
+    if (translated.ephemeralBinding) {
+      markEphemeralMiss(missErr);
+      // ...and a PLAIN miss on an ephemeral binding refuses the heal outright,
+      // for the same reason `getCenterInFrame` refuses the child-frame walk.
+      // The heal matches by stored FINGERPRINT against a domain+route+selector
+      // key; an ephemeral binding is session-scoped and was minted against one
+      // specific element in the top frame. A record filed under the same
+      // selector string is not evidence of the same element — the defect this
+      // guard exists for (news.ycombinator.com) is precisely a selector that
+      // matches many elements. Worse, a heal returns `text: ''` by
+      // construction, so `checkEphemeralIdentity` could not vet its result even
+      // if it were called. Fail closed: no identity check is possible, so no
+      // action. (The gate-OFF branch above never reaches `healOnMiss` at all,
+      // so it needs no equivalent — checked, not assumed.)
+      //
+      // Telemetry: this path still ends in exactly one terminal event, and
+      // 'escalated' is already that event — the resolve ended with no
+      // coordinates and the error went back to the agent. score/margin are null
+      // and hadRecord false because nothing was scored and the store was never
+      // read, identical to the existing `catch` arm below when `healOnMiss`
+      // throws. No new `outcome` member: a refusal is an escalation with a
+      // narrower cause, not a new resolve outcome for the metrics trail.
+      fire('escalated', null, null, false);
+      // The message-augmentation block below is skipped deliberately, not
+      // dropped: an ephemeral binding always carries `attempted: true` AND
+      // `ephemeral: true` (`handle-resolve.ts:224-226`), so both of its arms are
+      // already false on this path and it appends nothing today.
+      throw missErr;
+    }
     try {
       const attempt = await healOnMiss(evalFn, url, query);
       if (attempt.hit) {
         fire('healed', attempt.score, attempt.margin, true);
-        return { x: attempt.hit.cx, y: attempt.hit.cy };
+        // A heal matches by fingerprint, not by a live text read, so it has no
+        // identity text to report. Empty, never invented.
+        return { x: attempt.hit.cx, y: attempt.hit.cy, text: '', label: '' };
       }
       fire('escalated', attempt.score, attempt.margin, attempt.hadRecord);
     } catch {

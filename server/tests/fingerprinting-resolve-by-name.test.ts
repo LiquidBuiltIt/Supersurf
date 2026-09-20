@@ -111,7 +111,7 @@ describe('resolveWithHealing with a handle name', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const { fn, seen } = fakeEval({ '#post': { x: 42, y: 43 } });
     const center = await resolveWithHealing(fn, '@tweet_button', () => url);
-    expect(center).toEqual({ x: 42, y: 43 });
+    expect(center).toEqual({ x: 42, y: 43, text: '', label: '' });
     expect(seen.some(e => e.includes('"#post"'))).toBe(true);
     expect(seen.some(e => e.includes('"tweet_button"'))).toBe(false);
   });
@@ -167,7 +167,7 @@ describe('resolveWithHealing with a handle name', () => {
   it('leaves plain-selector behaviour completely unchanged', async () => {
     const { fn, seen } = fakeEval({ '#post': { x: 7, y: 8 } });
     const center = await resolveWithHealing(fn, '#post', () => url);
-    expect(center).toEqual({ x: 7, y: 8 });
+    expect(center).toEqual({ x: 7, y: 8, text: '', label: '' });
     expect(seen.some(e => e.includes('"#post"'))).toBe(true);
   });
 
@@ -175,7 +175,7 @@ describe('resolveWithHealing with a handle name', () => {
     mockEnabled.mockReturnValue(false);
     const { fn, seen } = fakeEval({ tweet_button: { x: 3, y: 4 } });
     const center = await resolveWithHealing(fn, '@tweet_button', () => url);
-    expect(center).toEqual({ x: 3, y: 4 });
+    expect(center).toEqual({ x: 3, y: 4, text: '', label: '' });
     expect(seen.some(e => e.includes('"tweet_button"'))).toBe(true);
   });
 
@@ -186,5 +186,196 @@ describe('resolveWithHealing with a handle name', () => {
       .rejects.toThrow(/No handle named `tweet_button` is recorded for this page/);
     await expect(resolveWithHealing(fn, '@tweet_button', () => url))
       .rejects.not.toThrow(/If you meant the handle/);
+  });
+});
+
+import {
+  bindEphemeral, bindSession, dropSession,
+} from '../src/experimental/fingerprinting/ephemeral-handles';
+import { EphemeralIdentityError, isEphemeralMiss } from '../src/experimental/fingerprinting/ephemeral-handles';
+
+/**
+ * The resolve-time identity guard, exercised through `resolveWithHealing` — the
+ * only place a real caller meets it. `fakeEval` above returns coordinates only;
+ * these cases need the element's text too, so they carry their own evaluator.
+ */
+describe('resolveWithHealing — ephemeral identity guard', () => {
+  const url = 'https://news.ycombinator.com/';
+  const SESSION = 's-guard';
+  const FACTS = { matchSource: 'text' as const, matchValue: 'new', x: 262, y: 20 };
+
+  /** Resolves every selector to one element, with the text the page would report. */
+  const evalTo = (text: string, x = 146, y = 20) => {
+    const calls: string[] = [];
+    const fn = async (expr: string) => { calls.push(expr); return { x, y, text, label: '' }; };
+    return { fn, calls };
+  };
+
+  beforeEach(() => {
+    dropSession(SESSION);
+    bindSession(SESSION);
+    bindEphemeral(SESSION, 'new_a', 'a:has-text("new")', FACTS);
+  });
+  afterEach(() => dropSession(SESSION));
+
+  it('resolves normally when the element still carries the minted text', async () => {
+    const { fn } = evalTo('new', 262, 20);
+    const center = await resolveWithHealing(fn, '@new_a', () => url);
+    expect(center).toEqual({ x: 262, y: 20, text: 'new', label: '' });
+  });
+
+  it('refuses when the handle\'s selector now resolves to a different element', async () => {
+    const { fn } = evalTo('Hacker News');
+    await expect(resolveWithHealing(fn, '@new_a', () => url))
+      .rejects.toBeInstanceOf(EphemeralIdentityError);
+  });
+
+  it('refuses on the experiment-OFF path too — ephemeral resolution is ungated', async () => {
+    mockEnabled.mockReturnValue(false);
+    const { fn } = evalTo('Hacker News');
+    await expect(resolveWithHealing(fn, '@new_a', () => url))
+      .rejects.toBeInstanceOf(EphemeralIdentityError);
+  });
+
+  it('does not append the "no recorded handle" hint to a refusal — the handle DID resolve', async () => {
+    const { fn } = evalTo('Hacker News');
+    await expect(resolveWithHealing(fn, '@new_a', () => url))
+      .rejects.not.toThrow(/no recorded handle named/);
+  });
+
+  // The heal is the other escape hatch: it re-resolves by fingerprint and would
+  // hand back coordinates for an element we have just proved is the wrong one.
+  it('a fingerprint heal cannot rescue a refused handle', async () => {
+    putRecord('news.ycombinator.com', '/', 'a:has-text("new")',
+      rec({ selector: 'a:has-text("new")', text: 'new', cx: 999, cy: 999 }));
+    const events: any[] = [];
+    const { fn } = evalTo('Hacker News');
+    await expect(
+      resolveWithHealing(fn, '@new_a', () => url, e => events.push(e)),
+    ).rejects.toBeInstanceOf(EphemeralIdentityError);
+    expect(events.some(e => e.outcome === 'healed')).toBe(false);
+  });
+
+  // Capture writes the store. Writing a fingerprint for an element we just
+  // rejected would teach the heal the wrong answer permanently.
+  it('writes no fingerprint telemetry for a refused resolve', async () => {
+    const events: any[] = [];
+    const { fn } = evalTo('Hacker News');
+    await expect(
+      resolveWithHealing(fn, '@new_a', () => url, e => events.push(e)),
+    ).rejects.toBeInstanceOf(EphemeralIdentityError);
+    expect(events.some(e => e.outcome === 'resolved')).toBe(false);
+  });
+
+  it('leaves a plain CSS selector unguarded — there are no mint-time facts to check', async () => {
+    const { fn } = evalTo('Hacker News');
+    const center = await resolveWithHealing(fn, 'a:has-text("new")', () => url);
+    expect(center).toMatchObject({ x: 146, y: 20 });
+  });
+
+  /**
+   * A MISS (element gone) is not a mismatch, so it stays an ordinary Error — but
+   * `getCenterInFrame` must be able to tell that the selector behind it came from
+   * an ephemeral binding, because its child-frame fallback runs no identity check
+   * and the candidates a binding is minted from are top-frame only.
+   */
+  describe('ephemeral provenance on a miss', () => {
+    const missEval = async () => null;
+
+    it('marks an ephemeral handle\'s miss, experiment ON', async () => {
+      const err = await resolveWithHealing(missEval, '@new_a', () => url).catch(e => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(EphemeralIdentityError);
+      expect(isEphemeralMiss(err)).toBe(true);
+    });
+
+    it('marks an ephemeral handle\'s miss on the experiment-OFF path too', async () => {
+      mockEnabled.mockReturnValue(false);
+      const err = await resolveWithHealing(missEval, '@new_a', () => url).catch(e => e);
+      expect(isEphemeralMiss(err)).toBe(true);
+    });
+
+    it('never marks a plain CSS selector\'s miss', async () => {
+      const err = await resolveWithHealing(missEval, 'a:has-text("new")', () => url).catch(e => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(isEphemeralMiss(err)).toBe(false);
+    });
+
+    it('never marks an unbound handle name\'s miss — nothing was translated', async () => {
+      const err = await resolveWithHealing(missEval, '@never_minted', () => url).catch(e => e);
+      expect(isEphemeralMiss(err)).toBe(false);
+    });
+  });
+
+  /**
+   * The mark above protects the child-frame walk. The heal is the OTHER
+   * fallback a plain miss reaches, and it sits inside `resolveWithHealing`
+   * itself — so the mark cannot stop it, because the heal runs first.
+   *
+   * A heal matches by stored fingerprint under a domain+route+selector key and
+   * returns `text: ''`, so `checkEphemeralIdentity` has nothing to vet even in
+   * principle. Reachable only with the experiment ON *and* a record filed under
+   * the ephemeral selector — narrow, but the configuration this branch's own
+   * changelog claims parity for.
+   *
+   * Keyed on eval CONTENT, not call order: `healOnMiss`'s scoring page-eval is
+   * the only one in this path that assigns `var T=` (`page-scripts.ts`
+   * `scoreExpr`). Its absence IS the proof the heal never ran.
+   */
+  describe('ephemeral bindings refuse the fingerprint heal on a plain miss', () => {
+    const HEALED = JSON.stringify({ cx: 999, cy: 999, score: 0.95, margin: 0.5 });
+
+    /** Misses every element query; would heal generously if the scorer were ever asked. */
+    function missThenHealEval() {
+      const seen: string[] = [];
+      const fn = async (expr: string) => {
+        seen.push(expr);
+        return expr.includes('var T=') ? HEALED : null;
+      };
+      return { fn, seen, scored: () => seen.some(e => e.includes('var T=')) };
+    }
+
+    beforeEach(() => {
+      // A record keyed by the exact selector the ephemeral binding translates to.
+      putRecord('news.ycombinator.com', '/', 'a:has-text("new")',
+        rec({ selector: 'a:has-text("new")', text: 'new', cx: 999, cy: 999 }));
+    });
+
+    it('never asks the scorer for an ephemeral handle whose element is gone', async () => {
+      const { fn, scored } = missThenHealEval();
+      await expect(resolveWithHealing(fn, '@new_a', () => url)).rejects.toThrow(/not found/i);
+      expect(scored()).toBe(false);
+    });
+
+    it('rethrows the marked miss instead of returning healed coordinates', async () => {
+      const { fn } = missThenHealEval();
+      const err = await resolveWithHealing(fn, '@new_a', () => url).catch(e => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(isEphemeralMiss(err)).toBe(true);
+    });
+
+    it('emits escalated, never healed, for the refusal', async () => {
+      const events: any[] = [];
+      const { fn } = missThenHealEval();
+      await expect(
+        resolveWithHealing(fn, '@new_a', () => url, e => events.push(e)),
+      ).rejects.toThrow(/not found/i);
+      expect(events.some(e => e.outcome === 'healed')).toBe(false);
+      expect(events).toContainEqual(expect.objectContaining({
+        event: 'fingerprint', outcome: 'escalated', score: null, margin: null, hadRecord: false,
+      }));
+    });
+
+    // The control that keeps this fix honest: healing must still work for
+    // everything that is not an ephemeral binding. Same selector, same record,
+    // no `@` — heals exactly as before.
+    it('CONTROL: a plain non-ephemeral miss on the same selector still heals', async () => {
+      const events: any[] = [];
+      const { fn, scored } = missThenHealEval();
+      const center = await resolveWithHealing(fn, 'a:has-text("new")', () => url, e => events.push(e));
+      expect(center).toEqual({ x: 999, y: 999, text: '', label: '' });
+      expect(scored()).toBe(true);
+      expect(events).toContainEqual(expect.objectContaining({ outcome: 'healed' }));
+    });
   });
 });

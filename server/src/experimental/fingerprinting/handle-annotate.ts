@@ -23,14 +23,30 @@ export type HandleIndex = Map<string, string>;
  * separately, in its own pass; see `buildHandleIndex`).
  *
  * Exact-string keys only — no fuzzy matching. The `browser_snapshot` form-field
- * collector synthesises `tag#id` first and `tag[name="..."]` second (see
- * tools/content.ts:88-96); `browser_lookup`'s in-page collector only ever emits
- * `tag#id` or a class-based shape, no `[name="..."]` branch (see
- * tools/content.ts:196-201) — the `tag[name="..."]` derived key exists for the
- * snapshot collector. Neither collector ever emits a bare `#id` — both always
- * prepend the tag name first — so a bare `#id` key is not derived; a record whose
- * own stored selector genuinely is `#foo` is already covered by the own-selector
- * pass.
+ * collector (tools/content.ts:104-115) synthesises `tag#id` first,
+ * `tag[name="..."]` second and a class-based shape third; `browser_lookup`'s
+ * in-page collector (tools/content.ts:227-234) emits `tag#id`, a class-based
+ * shape, or `tag[role="..."]`, and has no `[name="..."]` branch — the
+ * `tag[name="..."]` derived key exists for the snapshot collector. Neither
+ * collector ever emits a bare `#id` — both always prepend the tag name first — so
+ * a bare `#id` key is not derived; a record whose own stored selector genuinely is
+ * `#foo` is already covered by the own-selector pass.
+ *
+ * KNOWN MISS — escaping. Both collectors now emit `CSS.escape(id)`, while the
+ * keys below are built from the RAW `rec.htmlId`. A digit-leading id, or one
+ * carrying `:` or `/` (a Tailwind-style or framework-generated id), therefore
+ * escapes in the rendered selector and never matches its derived key, so the
+ * field renders without its handle. That is a missing annotation, never a wrong
+ * one. It has always applied to `browser_lookup`; it now applies to the snapshot
+ * form-field collector too, which gained `CSS.escape` in the same change.
+ *
+ * KNOWN MISS — qualification. Both collectors run the built selector through
+ * `qualify` (tools/lib/selector-qualify.ts), which APPENDS a `:has-text("...")`,
+ * an attribute clause or a whole `:nth-of-type` path when the readable form does
+ * not resolve back to its own element. A qualified selector is no longer an exact
+ * match for any key here, so it too renders without its handle. This is why a
+ * radio group annotates at most its first field: `ssResolve('input[name="x"]')`
+ * returns the first match, so only that one keeps the unqualified key.
  *
  * Class-based shapes (`tag.a.b`) are deliberately NOT indexed: framework-hashed
  * class names churn between deploys and the collectors truncate to the first two

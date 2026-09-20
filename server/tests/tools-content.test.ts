@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onSnapshot, onLookup, onExtractContent, MAX_SELECTOR_MATCHES } from '../src/tools/content';
 import { getSelectorExpression } from '../src/tools/lib/element-resolver';
+import { QUALIFY_SOURCE } from '../src/tools/lib/selector-qualify';
 import type { ToolContext } from '../src/tools/lib/types';
 import type { HandleIndex } from '../src/experimental/fingerprinting/handle-annotate';
 
@@ -755,5 +756,85 @@ describe('handle substitution in reader output', () => {
 
     const result = await onLookup(ctx, { text: 'Post' }, {});
     expect(result.content[0].text).toContain('**button#post**');
+  });
+});
+
+// ── onLookup emits a qualified selector ──────────────────────────────────
+// browser_lookup prints selectors an agent pastes straight back into
+// browser_interact. The build used to stop at tag/#id/.class, so a class-less
+// match printed a bare tag that resolves to a DIFFERENT element on reuse.
+// Nothing is bound here, but a suggestion that resolves elsewhere is still a
+// lie — so each match now runs through the same ladder the element-miss hint
+// uses, and gains the `[role=…]` rung it never had.
+describe('onLookup() — emitted page code', () => {
+  async function capture(): Promise<string> {
+    let seen = '';
+    const ctx: any = {
+      eval: async (expression: string) => {
+        seen = expression;
+        return [];
+      },
+      ext: { sendCmd: async () => ({}) },
+    };
+    await onLookup(ctx, { text: 'Sign in' }, {});
+    return seen;
+  }
+
+  it('splices in the shared qualification ladder', async () => {
+    const code = await capture();
+    expect(code).toContain(QUALIFY_SOURCE);
+    expect(code).toContain('qualify(m.el, m.selector)');
+  });
+
+  it('keeps a role fallback before degrading to a bare tag', async () => {
+    const code = await capture();
+    expect(code).toContain(`[role="`);
+  });
+
+  // Regression lock, not a proof of this change: the escaping predates it.
+  // Assert on onLookup's OWN escaping statements, never on the bare string
+  // 'CSS.escape' — QUALIFY_SOURCE contains `CSS.escape(cur.id)` in `ssPath`,
+  // so splicing the ladder alone would satisfy that and the lock would hold
+  // even with onLookup's escaping deleted outright.
+  it('still escapes id and class tokens', async () => {
+    const code = await capture();
+    expect(code).toContain('const esc = (s) => CSS.escape(String(s));');
+    expect(code).toContain(`sel += '#' + esc(el.id)`);
+    expect(code).toContain(`cls.map(esc).join('.')`);
+  });
+});
+
+// ── onSnapshot's formFields fallback emits an escaped, qualified selector ──
+// This block only runs when the extension's `snapshot` command returns no
+// formFields, which is exactly why it was missed by the CSS.escape sweep that
+// fixed onLookup and DESCRIBE_SOURCE. It carried both defects: raw id/class
+// tokens, and a selector that degrades to a bare tag on markup with no id,
+// name or class.
+describe('onSnapshot() — formFields fallback page code', () => {
+  async function capture(): Promise<string> {
+    let seen = '';
+    const ctx: any = {
+      // No formFields in the response, so the eval fallback fires.
+      ext: { sendCmd: async () => ({ nodes: [], formFields: null }) },
+      eval: async (expression: string) => {
+        seen = expression;
+        return [];
+      },
+    };
+    await onSnapshot(ctx, {});
+    return seen;
+  }
+
+  it('escapes id and class tokens', async () => {
+    const code = await capture();
+    expect(code).toContain('const esc = (s) => CSS.escape(String(s));');
+    expect(code).toContain(`sel += '#' + esc(el.id)`);
+    expect(code).toContain(`cls.map(esc).join('.')`);
+  });
+
+  it('qualifies the selector it emits', async () => {
+    const code = await capture();
+    expect(code).toContain(QUALIFY_SOURCE);
+    expect(code).toContain('qualify(el,');
   });
 });

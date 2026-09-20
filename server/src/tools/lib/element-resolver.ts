@@ -7,6 +7,7 @@
 import { QUERY_DEEP_SOURCE, QUERY_ALL_DEEP_SOURCE } from 'shared';
 import { selectorTokens } from '../../playbooks/candidates';
 import { mintHandleName, bindEphemeral } from '../../experimental/fingerprinting/ephemeral-handles';
+import { QUALIFY_SOURCE } from './selector-qualify';
 
 /** Async page evaluator signature (matches the inner closure of `evalExpr`). */
 export type EvalFn = (expression: string, awaitPromise?: boolean) => Promise<any>;
@@ -17,12 +18,27 @@ export type EvalFn = (expression: string, awaitPromise?: boolean) => Promise<any
  * `document.querySelector('#883a76')` throws `SyntaxError: not a valid selector`
  * — but Ashby (and other apps that use UUID-style element IDs) emit them anyway.
  * The attribute-selector form is always valid, so we transparently rewrite.
+ *
+ * MUST only ever see a CSS selector — never a `:has-text("…")` literal. The
+ * pattern `\s#\d` occurs in ordinary prose (`a:has-text("Fix crash #1234")`),
+ * and rewriting it there turns the sought text into `Fix crash [id="1234"]`,
+ * which matches nothing. Both expression builders below therefore split
+ * `:has-text` off FIRST and rewrite only the base selector.
  */
 function rewriteDigitLeadingIds(selector: string): string {
   return selector.replace(
     /(^|[\s>+~,])([a-zA-Z][\w-]*)?#(\d[\w-]*)/g,
     (_, lead, tag, id) => `${lead}${tag || ''}[id="${id}"]`,
   );
+}
+
+/** The `:has-text("…")` split, shared by both expression builders. Returns the
+ *  base selector already rewritten, plus the text literal EXACTLY as written. */
+const HAS_TEXT_RE = /^(.+?):has-text\(["'](.+?)["']\)(.*)$/;
+function splitHasText(selector: string): { base: string; text: string } | null {
+  const m = selector.match(HAS_TEXT_RE);
+  if (!m) return null;
+  return { base: rewriteDigitLeadingIds(m[1]), text: m[2] };
 }
 
 /**
@@ -40,10 +56,9 @@ function rewriteDigitLeadingIds(selector: string): string {
  */
 export function getSelectorExpression(selector: string): string {
   if (!selector) throw new Error('Selector is required for this action');
-  const rewritten = rewriteDigitLeadingIds(selector);
-  const m = rewritten.match(/^(.+?):has-text\(["'](.+?)["']\)(.*)$/);
-  if (m) {
-    const [, base, text] = m;
+  const split = splitHasText(selector);
+  if (split) {
+    const { base, text } = split;
     return `(() => {
       ${QUERY_ALL_DEEP_SOURCE}
       for (const el of queryAllDeep(${JSON.stringify(base)})) {
@@ -54,7 +69,7 @@ export function getSelectorExpression(selector: string): string {
   }
   return `(() => {
       ${QUERY_DEEP_SOURCE}
-      return queryDeep(${JSON.stringify(rewritten)});
+      return queryDeep(${JSON.stringify(rewriteDigitLeadingIds(selector))});
     })()`;
 }
 
@@ -74,10 +89,9 @@ export function getSelectorExpression(selector: string): string {
  */
 export function getAllSelectorExpression(selector: string): string {
   if (!selector) throw new Error('Selector is required for this action');
-  const rewritten = rewriteDigitLeadingIds(selector);
-  const m = rewritten.match(/^(.+?):has-text\(["'](.+?)["']\)(.*)$/);
-  if (m) {
-    const [, base, text] = m;
+  const split = splitHasText(selector);
+  if (split) {
+    const { base, text } = split;
     return `(() => {
       ${QUERY_ALL_DEEP_SOURCE}
       return queryAllDeep(${JSON.stringify(base)}).filter(
@@ -87,7 +101,7 @@ export function getAllSelectorExpression(selector: string): string {
   }
   return `(() => {
       ${QUERY_ALL_DEEP_SOURCE}
-      return queryAllDeep(${JSON.stringify(rewritten)});
+      return queryAllDeep(${JSON.stringify(rewriteDigitLeadingIds(selector))});
     })()`;
 }
 
@@ -109,6 +123,21 @@ export interface AltCandidate {
   score: number;
   /** Ephemeral handle name, minted in Task 4. Absent when no confident text source exists. */
   handle?: string;
+  /**
+   * The ellipsis-free, quote-free, whitespace-collapsed prefix of the element's
+   * direct text. `text` above is the DISPLAY form and carries a literal '...'
+   * when truncated, which can never match anything. This is the form that goes
+   * into a selector and into the binding's identity fact.
+   */
+  matchText: string;
+  /** Same treatment for the accessible-name label. */
+  matchLabel: string;
+  /**
+   * False when NO rung of the qualification ladder produced a selector that
+   * resolves back to this element. A false here means: print `selector` alone,
+   * mint no handle. See `selector-qualify.ts`.
+   */
+  qualified: boolean;
 }
 
 /** How many raw candidates the page is allowed to return before ranking. */
@@ -131,8 +160,12 @@ const HIDDEN_CAP = 2;
  * `CSS.escape` is a DOM API — this expression already calls `document`,
  * `window.getComputedStyle` and `getBoundingClientRect`, so it only ever runs
  * where `CSS.escape` exists (Chrome 41+). No fallback needed.
+ *
+ * Exported so tests can execute it directly rather than regex-scraping it out
+ * of the larger expression. It depends on `QUALIFY_SOURCE` being spliced in
+ * first — every emitter below does that.
  */
-const DESCRIBE_SOURCE = `
+export const DESCRIBE_SOURCE = `
   const describe = (el, score) => {
     const esc = (s) => CSS.escape(String(s));
     let sel = el.tagName.toLowerCase();
@@ -154,13 +187,17 @@ const DESCRIBE_SOURCE = `
       || el.getAttribute('alt') || '';
     const rect = el.getBoundingClientRect();
     const style = window.getComputedStyle(el);
+    const qualified = qualify(el, sel);
     return {
-      selector: sel,
+      selector: qualified.selector,
+      qualified: qualified.source !== null,
       tag: el.tagName.toLowerCase(),
       visible: style.display !== 'none' && style.visibility !== 'hidden'
         && style.opacity !== '0' && rect.width > 0 && rect.height > 0,
       text: directText.length > 50 ? directText.slice(0, 50) + '...' : directText,
+      matchText: ssSafe(directText),
       label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 50),
+      matchLabel: ssSafe(label),
       x: Math.round(rect.left + rect.width / 2),
       y: Math.round(rect.top + rect.height / 2),
       width: Math.round(rect.width),
@@ -174,6 +211,7 @@ const DESCRIBE_SOURCE = `
 function textCandidateExpression(searchText: string): string {
   return `
     (() => {
+      ${QUALIFY_SOURCE}
       ${DESCRIBE_SOURCE}
       const searchLower = ${JSON.stringify(searchText)}.trim().toLowerCase();
       const out = [];
@@ -201,6 +239,7 @@ function textCandidateExpression(searchText: string): string {
 function tokenCandidateExpression(tokens: string[]): string {
   return `
     (() => {
+      ${QUALIFY_SOURCE}
       ${DESCRIBE_SOURCE}
       const tokens = ${JSON.stringify(tokens)};
       const limit = ${RAW_CANDIDATE_CAP};
@@ -327,9 +366,27 @@ export async function findAlternativeSelectors(
     if (sessionId) {
       const taken = new Set<string>();
       return ranked.map((alt) => {
+        // A candidate no rung of the ladder could pin down gets NO name. This is
+        // the "only name it when you can name it honestly" rule extended from
+        // "has readable text" to "has a selector that resolves back to itself" —
+        // the property the news.ycombinator.com defect proved was missing.
+        // Falsy, not `=== false`: `ranked` reaches here through a `raw as
+        // AltCandidate[]` assertion over browser-eval JSON, so a MISSING
+        // `qualified` is as unproven as an explicit `false` and must fail the
+        // same way. TypeScript forecloses nothing across that boundary.
+        if (!alt.qualified) return alt;
         const name = mintHandleName({ text: alt.text, label: alt.label, tag: alt.tag }, taken);
         if (!name) return alt; // no confident text source — the CSS selector prints alone
-        bindEphemeral(sessionId, name, alt.selector);
+        // `mintHandleName` names from `text || label`; guard the same one, using
+        // the ellipsis-free, quote-free forms. Assumption A5: both can be empty
+        // after sanitization even though the raw display forms were not.
+        const matchSource = alt.matchText ? 'text' : (alt.matchLabel ? 'label' : null);
+        bindEphemeral(sessionId, name, alt.selector, {
+          matchSource,
+          matchValue: matchSource === 'text' ? alt.matchText : (matchSource === 'label' ? alt.matchLabel : ''),
+          x: alt.x,
+          y: alt.y,
+        });
         return { ...alt, handle: name };
       });
     }
@@ -342,21 +399,34 @@ export async function findAlternativeSelectors(
 /**
  * Resolve a selector to its element's viewport-center coordinates.
  * On miss, throws an Error whose message carries the ranked candidate list.
+ * Also returns the resolved element's direct text and accessible-name label —
+ * one extra property on a round trip that already happens, so a caller holding
+ * mint-time identity facts can verify it reached the right element before
+ * dispatching any input.
  */
 export async function getElementCenter(
   evalFn: EvalFn,
   selector: string,
   sessionId?: string,
-): Promise<{ x: number; y: number }> {
+): Promise<{ x: number; y: number; text: string; label: string }> {
   const expr = getSelectorExpression(selector);
   const result = await evalFn(`
     (() => {
       const el = ${expr};
       if (!el) return null;
       const rect = el.getBoundingClientRect();
+      let directText = '';
+      for (const n of el.childNodes) {
+        if (n.nodeType === Node.TEXT_NODE) directText += n.textContent;
+      }
+      const label = el.getAttribute('aria-label') || el.getAttribute('title')
+        || el.getAttribute('placeholder') || (typeof el.value === 'string' ? el.value : '')
+        || el.getAttribute('alt') || '';
       return {
         x: Math.round(rect.left + rect.width / 2),
         y: Math.round(rect.top + rect.height / 2),
+        text: String(directText).replace(/\\s+/g, ' ').trim().slice(0, 200),
+        label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 200),
       };
     })()
   `);
@@ -367,5 +437,10 @@ export async function getElementCenter(
     if (block) msg += `\n\n${block}`;
     throw new Error(msg);
   }
-  return result;
+  return {
+    x: result.x,
+    y: result.y,
+    text: result.text ?? '',
+    label: result.label ?? '',
+  };
 }

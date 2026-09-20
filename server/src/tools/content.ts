@@ -11,6 +11,7 @@
 
 import type { ToolContext } from './lib/types';
 import { annotateSelector } from '../experimental/fingerprinting/handle-annotate';
+import { QUALIFY_SOURCE } from './lib/selector-qualify';
 
 /**
  * Coalesce adjacent `InlineTextBox` siblings under the same parent into a single
@@ -79,22 +80,39 @@ export function coalesceInlineTextBoxes(nodes: any[]): any[] {
 export async function onSnapshot(ctx: ToolContext, options: any): Promise<any> {
   const result = await ctx.ext.sendCmd('snapshot', { tabId: ctx.tabId });
 
-  // Use form fields from extension if available, otherwise collect via eval
+  // The extension has NEVER emitted a `formFields` key: its `snapshot` handler
+  // returns `Accessibility.getFullAXTree` verbatim, shape `{ nodes: [...] }`
+  // (extension/src/background.ts). So `result?.formFields` is always undefined
+  // and the collector below is the path taken on EVERY browser_snapshot call —
+  // not a rare fallback. The check is kept as cheap defence in case the
+  // extension ever starts supplying fields, and the unit tests drive that
+  // branch by mocking a response that carries them.
   let formFields = result?.formFields;
   if (!formFields) {
     formFields = await ctx.eval(`
       (() => {
+        ${QUALIFY_SOURCE}
         const fields = [];
         const inputs = document.querySelectorAll('input, textarea, select');
         for (const el of inputs) {
           if (el.type === 'hidden') continue;
+          // CSS.escape: a Tailwind utility (\`md:flex\`) or a numeric-leading id
+          // is a legal class/id token but an illegal bare CSS identifier, so the
+          // unescaped form makes querySelector throw. This collector runs on
+          // every snapshot (see above) — the earlier escaping sweep that fixed
+          // onLookup and DESCRIBE_SOURCE simply overlooked it. Same fix.
+          const esc = (s) => CSS.escape(String(s));
           let sel = el.tagName.toLowerCase();
-          if (el.id) sel += '#' + el.id;
+          if (el.id) sel += '#' + esc(el.id);
           else if (el.name) sel += '[name="' + el.name + '"]';
           else if (el.className && typeof el.className === 'string') {
             const cls = el.className.trim().split(/\\s+/).filter(Boolean).slice(0, 2);
-            if (cls.length) sel += '.' + cls.join('.');
+            if (cls.length) sel += '.' + cls.map(esc).join('.');
           }
+          // A readable selector is not an identifying one. A form field with no
+          // id, no name and no class degrades to the bare tag \`input\`, which
+          // resolves to the first input in the document — not this one.
+          sel = qualify(el, sel).selector;
 
           const field = {
             selector: sel,
@@ -189,6 +207,7 @@ export async function onLookup(ctx: ToolContext, args: any, options: any): Promi
 
   const data = await ctx.eval(`
     (() => {
+      ${QUALIFY_SOURCE}
       const searchText = ${JSON.stringify(searchText)};
       const searchLower = searchText.trim().toLowerCase();
       const matches = [];
@@ -208,18 +227,19 @@ export async function onLookup(ctx: ToolContext, args: any, options: any): Promi
         const esc = (s) => CSS.escape(String(s));
         let sel = el.tagName.toLowerCase();
         if (el.id) sel += '#' + esc(el.id);
-        else if (el.className && typeof el.className === 'string') {
+        else if (el.className && typeof el.className === 'string' && el.className.trim()) {
           const cls = el.className.trim().split(/\\s+/).filter(c => c).slice(0, 2);
           if (cls.length) sel += '.' + cls.map(esc).join('.');
+        } else if (el.getAttribute('role')) {
+          sel += '[role="' + el.getAttribute('role') + '"]';
         }
-
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
         const visible = style.display !== 'none' && style.visibility !== 'hidden' &&
                         style.opacity !== '0' && rect.width > 0 && rect.height > 0;
 
         matches.push({
-          selector: sel, visible,
+          el, selector: sel, visible,
           text: directText.length > 100 ? directText.substring(0, 100) + '...' : directText,
           tag: el.tagName.toLowerCase(),
           x: Math.round(rect.left + rect.width / 2),
@@ -253,7 +273,22 @@ export async function onLookup(ctx: ToolContext, args: any, options: any): Promi
 
       const visible = matches.filter(m => m.visible);
       const hidden = matches.filter(m => !m.visible);
-      return { matches: [...visible, ...hidden].slice(0, ${limit}), total: matches.length };
+      const shown = [...visible, ...hidden].slice(0, ${limit});
+
+      // Qualify AFTER slicing, never inside the loop. A readable selector is not
+      // an identifying one — without qualify, a class-less page hands back a bare
+      // tag that matches a different element the moment the agent pastes it.
+      // Nothing is bound here — no handle, no wrong click — but a suggestion that
+      // resolves elsewhere is still a lie. Rung 1 alone costs a querySelectorAll
+      // plus a textContent scan per candidate, so running it on every match of a
+      // common word on a text-dense page is work whose result is then thrown away.
+      // Ordering and slicing depend only on \`visible\`, so which matches survive is
+      // identical either way. \`el\` is a live node and must not reach JSON.
+      for (const m of shown) {
+        m.selector = qualify(m.el, m.selector).selector;
+        delete m.el;
+      }
+      return { matches: shown, total: matches.length };
     })()
   `);
 

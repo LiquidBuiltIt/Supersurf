@@ -3,7 +3,9 @@ import {
   getSelectorExpression,
   getAllSelectorExpression,
   findAlternativeSelectors,
+  DESCRIBE_SOURCE,
 } from '../src/tools/lib/element-resolver';
+import { QUALIFY_SOURCE } from '../src/tools/lib/selector-qualify';
 
 describe('getSelectorExpression()', () => {
   it('throws on empty selector', () => {
@@ -64,6 +66,22 @@ describe('getSelectorExpression()', () => {
     expect(out).toContain('"Apply"');
   });
 
+  it('never rewrites a `#digit` sequence that lives inside a :has-text() literal', () => {
+    // The digit-leading-id rewrite used to run on the WHOLE selector string before
+    // :has-text extraction, so issue-tracker text like "Fix crash #1234" came out as
+    // `Fix crash [id="1234"]` and matched nothing. The literal is text, not CSS.
+    const out = getSelectorExpression('a:has-text("Fix crash #1234")');
+    expect(out).toContain('"Fix crash #1234"');
+    expect(out).not.toContain('[id=');
+    expect(out).toContain('queryAllDeep("a")');
+  });
+
+  it('still rewrites a digit-leading id in the base while the text literal is left alone', () => {
+    const out = getSelectorExpression('div#123abc:has-text("see #42")');
+    expect(out).toContain('queryAllDeep("div[id=\\"123abc\\"]")');
+    expect(out).toContain('"see #42"');
+  });
+
   // ── self-containment / shape ──
 
   it('returns a single expression (an IIFE), not a bare statement', () => {
@@ -97,6 +115,12 @@ describe('getAllSelectorExpression()', () => {
     expect(expr).toContain('queryAllDeep("li")');
     expect(expr).toContain('.filter(');
     expect(expr).toContain('Ship it');
+  });
+
+  it('leaves a `#digit` sequence inside a :has-text() literal alone, like the singular form', () => {
+    const out = getAllSelectorExpression('a:has-text("Fix crash #1234")');
+    expect(out).toContain('"Fix crash #1234"');
+    expect(out).not.toContain('[id=');
   });
 
   it('rejects an empty selector', () => {
@@ -245,14 +269,16 @@ describe('findAlternativeSelectors() — plain CSS selectors', () => {
   });
 });
 
-import { resolveEphemeral, dropSession } from '../src/experimental/fingerprinting/ephemeral-handles';
+import {
+  resolveEphemeral, resolveEphemeralBinding, bindSession, dropSession,
+} from '../src/experimental/fingerprinting/ephemeral-handles';
 
 describe('findAlternativeSelectors() — ephemeral handles', () => {
   const page = [
     { selector: 'span.a.b', tag: 'span', visible: true, text: 'Got it',
-      label: '', width: 63, height: 40, x: 1112, y: 664, score: 2 },
+      label: '', width: 63, height: 40, x: 1112, y: 664, score: 2, qualified: true },
     { selector: 'div.c', tag: 'div', visible: true, text: '',
-      label: '', width: 10, height: 10, x: 1, y: 2, score: 1 },
+      label: '', width: 10, height: 10, x: 1, y: 2, score: 1, qualified: true },
   ];
 
   beforeEach(() => dropSession('sess-1'));
@@ -280,38 +306,137 @@ describe('findAlternativeSelectors() — ephemeral handles', () => {
     const hashed = [{
       selector: 'div.SidebarAbout-module__description__xTkIP', tag: 'div',
       visible: true, text: '', label: '', width: 5, height: 5, x: 0, y: 0, score: 3,
+      qualified: true,
     }];
     const out = await findAlternativeSelectors(async () => hashed, 'div.missing', 'sess-1');
     expect(out[0].handle).toBeUndefined();
+  });
+
+  const CAND = (over: Record<string, any> = {}) => ({
+    selector: 'span.a.b', tag: 'span', visible: true, text: 'Got it', label: '',
+    matchText: 'Got it', matchLabel: '', qualified: true,
+    width: 63, height: 40, x: 1112, y: 664, score: 2, ...over,
+  });
+
+  // `qualified: true` on purpose: the gate now short-circuits every falsy
+  // `qualified`, so a `false` here would return before `mintHandleName` ran and
+  // this test would assert nothing about the rule its name claims.
+  it('mints no handle for a candidate with no nameable text', async () => {
+    bindSession('s-gate');
+    const out = await findAlternativeSelectors(
+      async () => [CAND({ qualified: true, selector: 'li', text: '', matchText: '' })],
+      'li.missing',
+      's-gate',
+    );
+    expect(out[0].handle).toBeUndefined();
+    expect(out[0].selector).toBe('li');
+    dropSession('s-gate');
+  });
+
+  // The test above covers `mintHandleName`'s no-text rule, not the gate. This
+  // one is the gate's own coverage: a perfectly nameable text source, rejected
+  // ONLY by `qualified: false` — and it checks the binding map too, because a
+  // handle that is never printed but IS bound would still resolve for any other
+  // candidate list that prints the same name.
+  it('mints and binds nothing for an unqualified candidate that does have text', async () => {
+    bindSession('s-gate-text');
+    const out = await findAlternativeSelectors(
+      async () => [CAND({ qualified: false, selector: 'a', tag: 'a', text: 'Brand new', matchText: 'Brand new' })],
+      'a.missing',
+      's-gate-text',
+    );
+    expect(out[0].handle).toBeUndefined();
+    expect(resolveEphemeral('brand_new')).toBeNull();
+    dropSession('s-gate-text');
+  });
+
+  it('binds the qualified selector, not the bare tag', async () => {
+    bindSession('s-bind');
+    await findAlternativeSelectors(
+      async () => [CAND({ selector: 'a:has-text("new")', tag: 'a', text: 'new', matchText: 'new' })],
+      'a.missing',
+      's-bind',
+    );
+    expect(resolveEphemeral('new_a')).toBe('a:has-text("new")');
+    dropSession('s-bind');
+  });
+
+  it('binds matchText (ellipsis-free) as the identity fact, never the display text', async () => {
+    bindSession('s-ellipsis');
+    const long = 'Android 17 is the first release since 3.x to ship a n';
+    await findAlternativeSelectors(
+      async () => [CAND({
+        selector: `a:has-text("${long.slice(0, 50)}")`, tag: 'a',
+        text: long.slice(0, 50) + '...', matchText: long.slice(0, 50),
+      })],
+      'a.missing',
+      's-ellipsis',
+    );
+    const b = resolveEphemeralBinding('android_17_is_the');
+    expect(b!.facts.matchValue).toBe(long.slice(0, 50));
+    expect(b!.facts.matchValue).not.toContain('...');
+    dropSession('s-ellipsis');
+  });
+
+  it('falls back to the label as the identity fact when there is no text', async () => {
+    bindSession('s-label');
+    await findAlternativeSelectors(
+      async () => [CAND({
+        selector: 'button[aria-label="Close the dialog"]', tag: 'button',
+        text: '', matchText: '', label: 'Close the dialog', matchLabel: 'Close the dialog',
+      })],
+      'button.missing',
+      's-label',
+    );
+    const b = resolveEphemeralBinding('close_the_dialog');
+    expect(b!.facts.matchSource).toBe('label');
+    expect(b!.facts.matchValue).toBe('Close the dialog');
+    dropSession('s-label');
   });
 });
 
 describe('DESCRIBE_SOURCE — executed page code', () => {
   /**
-   * Pull the emitted `describe` helper out of the page expression and run it in
-   * Node against a fake element. String assertions alone cannot prove a selector
-   * is escaped — only executing the code the page would execute can.
+   * Execute the real emitted `describe` helper in Node against a fake element.
+   * String assertions alone cannot prove a selector is escaped — only running
+   * the code the page would run can. The helpers come from QUALIFY_SOURCE,
+   * which `describe` now depends on, so both are spliced in.
+   *
+   * What this harness canNOT prove is element IDENTITY: `fakeEl` never sits in
+   * a queryable document. That property is proved by `npm run smoke.hints`
+   * against real Chromium. Do not add an identity assertion here — a
+   * hand-rolled querySelector would only prove our matcher agrees with itself,
+   * which is exactly how the news.ycombinator.com defect shipped green.
    */
-  function runDescribe(code: string, el: any): any {
-    const m = code.match(/const describe = [\s\S]*?\n {2}\};/);
-    expect(m).not.toBeNull();
-    // Stand-in for the DOM's CSS.escape (absent in Node): backslash-prefix every
-    // character that is illegal in a bare CSS identifier.
+  function runDescribe(el: any, doc?: any): any {
     const CSSStub = {
       escape: (s: string) => String(s).replace(/[^a-zA-Z0-9_-]/g, (ch) => '\\' + ch),
     };
     const windowStub = {
       getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
     };
-    const fn = new Function('CSS', 'Node', 'window', 'el', `${m![0]}\nreturn describe(el, 0);`);
-    return fn(CSSStub, { TEXT_NODE: 3 }, windowStub, el);
+    const documentStub = doc ?? {
+      // Default: the base selector resolves straight back to `el` (rung 0).
+      querySelector: () => el,
+      querySelectorAll: () => [el],
+      body: {},
+    };
+    const fn = new Function(
+      'CSS', 'Node', 'window', 'document', 'el',
+      `${QUALIFY_SOURCE}\n${DESCRIBE_SOURCE}\nreturn describe(el, 0);`,
+    );
+    return fn(CSSStub, { TEXT_NODE: 3 }, windowStub, documentStub, el);
   }
 
   const fakeEl = (over: Record<string, any> = {}) => ({
     tagName: 'DIV',
+    nodeType: 1,
     id: '',
     className: '',
     childNodes: [] as any[],
+    children: [] as any[],
+    previousElementSibling: null,
+    parentElement: null,
     attrs: {} as Record<string, string>,
     getAttribute(name: string) {
       return (this as any).attrs[name] ?? null;
@@ -320,36 +445,125 @@ describe('DESCRIBE_SOURCE — executed page code', () => {
     ...over,
   });
 
-  async function pageCode(): Promise<string> {
+  it('is actually the source the page receives', async () => {
     let seen = '';
     await findAlternativeSelectors(async (expression: string) => {
       seen = expression;
       return [];
     }, 'div.missing');
-    return seen;
-  }
+    expect(seen).toContain(DESCRIBE_SOURCE);
+    expect(seen).toContain(QUALIFY_SOURCE);
+  });
 
-  it('escapes class tokens that are illegal bare CSS identifiers', async () => {
-    const out = runDescribe(await pageCode(), fakeEl({ className: 'md:flex w-1/2' }));
+  it('escapes class tokens that are illegal bare CSS identifiers', () => {
+    const out = runDescribe(fakeEl({ className: 'md:flex w-1/2' }));
     expect(out.selector).toBe('div.md\\:flex.w-1\\/2');
   });
 
-  it('escapes the id', async () => {
-    const out = runDescribe(await pageCode(), fakeEl({ id: 'tab:2' }));
+  it('escapes the id', () => {
+    const out = runDescribe(fakeEl({ id: 'tab:2' }));
     expect(out.selector).toBe('div#tab\\:2');
   });
 
-  it('leaves an already-legal class selector alone', async () => {
-    const out = runDescribe(await pageCode(), fakeEl({ className: 'promo-dismiss-link  btn' }));
+  it('leaves an already-legal class selector alone', () => {
+    const out = runDescribe(fakeEl({ className: 'promo-dismiss-link  btn' }));
     expect(out.selector).toBe('div.promo-dismiss-link.btn');
   });
 
-  it('collapses internal whitespace in the label so the hint stays two lines', async () => {
-    const out = runDescribe(
-      await pageCode(),
-      fakeEl({ attrs: { 'aria-label': '  Close\n   the dialog  ' } }),
-    );
+  it('collapses internal whitespace in the label so the hint stays two lines', () => {
+    const out = runDescribe(fakeEl({ attrs: { 'aria-label': '  Close\n   the dialog  ' } }));
     expect(out.label).toBe('Close the dialog');
     expect(out.label).not.toContain('\n');
+  });
+
+  it('emits matchText as the ellipsis-free prefix of the direct text', () => {
+    const long = 'Android 17 is the first release since 3.x to ship a new runtime';
+    const el = fakeEl({ childNodes: [{ nodeType: 3, textContent: long }] });
+    const out = runDescribe(el);
+    expect(out.text).toBe(long.slice(0, 50) + '...');   // display form, unchanged
+    expect(out.matchText).toBe(long.slice(0, 50));       // binding form, no ellipsis
+  });
+
+  it('marks a candidate qualified when the base selector round-trips (rung 0)', () => {
+    const out = runDescribe(fakeEl({ id: 'go' }));
+    expect(out.qualified).toBe(true);
+    expect(out.selector).toBe('div#go');
+  });
+
+  it('qualifies with own direct text when the bare tag is ambiguous (rung 1)', () => {
+    const el = fakeEl({ tagName: 'A', childNodes: [{ nodeType: 3, textContent: 'new' }] });
+    const logo = { textContent: '' };
+    const doc = {
+      querySelector: (s: string) => (s === 'a' ? logo : null),
+      querySelectorAll: (s: string) => (s === 'a' ? [logo, { textContent: 'new', ...el }] : []),
+      body: {},
+    };
+    // Make the :has-text scan return the element identity we passed in.
+    doc.querySelectorAll = (s: string) => (s === 'a' ? [logo, el] : []);
+    (el as any).textContent = 'new';
+    const out = runDescribe(el, doc);
+    expect(out.selector).toBe('a:has-text("new")');
+    expect(out.qualified).toBe(true);
+  });
+
+  it('marks a candidate unqualified when no rung verifies (rung 5)', () => {
+    const twinA = fakeEl({ tagName: 'LI', textContent: '' });
+    const twinB = fakeEl({ tagName: 'LI', textContent: '' });
+    const doc = {
+      querySelector: (s: string) => (s === 'li' ? twinA : null),
+      querySelectorAll: (s: string) => (s === 'li' ? [twinA, twinB] : []),
+      body: {},
+    };
+    const out = runDescribe(twinB, doc);
+    expect(out.qualified).toBe(false);
+    expect(out.selector).toBe('li');
+  });
+});
+
+import { getElementCenter } from '../src/tools/lib/element-resolver';
+
+describe('getElementCenter() — return shape', () => {
+  it('returns the resolved element text and label alongside the centre', async () => {
+    const evalFn = async () => ({ x: 146, y: 20, text: 'Hacker News', label: '' });
+    const out = await getElementCenter(evalFn as any, 'a');
+    expect(out).toEqual({ x: 146, y: 20, text: 'Hacker News', label: '' });
+  });
+
+  // The test above is satisfied by a pass-through of whatever the page returned.
+  // This one is not: it pins the normalization the identity guard depends on —
+  // an absent text/label must arrive as '' (which the guard treats as a
+  // mismatch), never as `undefined` (which `String(undefined)` would turn into
+  // the literal "undefined").
+  it('normalizes an absent text or label to an empty string, not undefined', async () => {
+    const evalFn = async () => ({ x: 1, y: 2 });
+    const out = await getElementCenter(evalFn as any, 'a');
+    expect(out).toEqual({ x: 1, y: 2, text: '', label: '' });
+  });
+
+  it('asks the page for the element\'s direct text nodes', async () => {
+    let seen = '';
+    const evalFn = async (expr: string) => { seen = expr; return { x: 0, y: 0, text: '', label: '' }; };
+    await getElementCenter(evalFn as any, 'a');
+    expect(seen).toContain('Node.TEXT_NODE');
+  });
+
+  // The guard compares a mint-time label against a resolve-time label, so the
+  // two must be read by the SAME attribute chain or they are not comparable.
+  // Compared against the real `DESCRIBE_SOURCE` (the mint side), not a literal.
+  it('reads the label through the identical attribute chain the mint uses', async () => {
+    const chain = (src: string) => {
+      const m = src.match(/const label = ([\s\S]*?);/);
+      return m ? m[1].replace(/\s+/g, ' ').trim() : null;
+    };
+    let seen = '';
+    const evalFn = async (expr: string) => { seen = expr; return { x: 0, y: 0, text: '', label: '' }; };
+    await getElementCenter(evalFn as any, 'a');
+    expect(chain(DESCRIBE_SOURCE)).not.toBeNull();
+    expect(chain(seen)).toBe(chain(DESCRIBE_SOURCE));
+  });
+
+  it('still throws the candidate-bearing miss error when nothing resolves', async () => {
+    const evalFn = async () => null;
+    await expect(getElementCenter(evalFn as any, 'a.nope')).rejects.toThrow('Element not found');
   });
 });

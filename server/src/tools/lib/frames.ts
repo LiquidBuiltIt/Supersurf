@@ -1,5 +1,6 @@
 import type { ToolContext } from './types';
 import { handleMissHint, isHandleRef, HANDLE_MARKER } from '../../experimental/fingerprinting/handle-resolve';
+import { EphemeralIdentityError, isEphemeralMiss } from '../../experimental/fingerprinting/ephemeral-handles';
 import { renderAlternatives } from './element-resolver';
 
 /**
@@ -353,6 +354,23 @@ export async function getCenterInFrame(
     const { x, y } = await ctx.getElementCenter(selector, meta);
     return { x, y, contextId: null };
   } catch (topFrameErr) {
+    // An identity mismatch is a REFUSAL, not a miss. The child-frame walk below
+    // only searches child frames (collectChildFrameIds excludes the top frame),
+    // so it cannot re-find the wrong element — but `healInFrames` can, and a
+    // heal that "rescues" a binding we have just proved wrong is the exact
+    // silent-success this guard exists to prevent.
+    if (topFrameErr instanceof EphemeralIdentityError) throw topFrameErr;
+    // An ordinary MISS on an ephemeral handle is refused for the mirror-image
+    // reason. "The walk cannot re-find the top-frame element" is precisely the
+    // problem: the "Did you mean?" candidates a binding is minted from are
+    // enumerated from the top frame (`document.querySelectorAll('*')`), so any
+    // child-frame hit is BY CONSTRUCTION a different element — and no code on
+    // this branch runs `checkEphemeralIdentity`, because `ctx.resolveSelector`
+    // returns a bare string and drops `ephemeralBinding`. A handle minted
+    // against the top frame has no legitimate child-frame answer, so refusing
+    // costs nothing and keeps the branch's promise: no silent wrong-element
+    // action. Matches the mint gate (`element-resolver.ts`) and the rethrow above.
+    if (isEphemeralMiss(topFrameErr)) throw topFrameErr;
     // Translate a handle name once, up front: `query` is used for the page query,
     // the fingerprint capture key AND the heal key below, and a raw handle name
     // would miss on all three (store keys are real CSS selectors). Mirrors the

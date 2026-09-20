@@ -34,11 +34,91 @@ const MAX_PER_SESSION = 200;
 /** Most tokens a minted name may carry, so one verbose button can't produce a sentence. */
 const MAX_TOKENS = 4;
 
-/** One binding: the selector plus the global order in which it was minted. */
-interface EphemeralBinding {
+/**
+ * What a binding must remember so a resolve-time mismatch can be DETECTED.
+ *
+ * The original binding stored only `{ selector, seq }`. That is exactly why the
+ * news.ycombinator.com defect could report success: with the mint-time facts
+ * discarded there was nothing left to compare the resolved element against, and
+ * the click probe could not help because it derives its target from the same
+ * (wrong) query.
+ *
+ * `matchSource` names which fact the handle's NAME came from, because that is
+ * the fact worth guarding — `mintHandleName` uses `text || label`.
+ * `matchSource: null` means neither survived sanitization (assumption A5): the
+ * handle is still minted, because its selector round-trip-verified at mint
+ * time, but no resolve-time text guard can run for it.
+ *
+ * `x`/`y` are the mint-time centre. Coordinate drift is a SOFT signal only —
+ * coordinates move legitimately on scroll, reflow and animation; text identity
+ * does not. They appear in the error message, never in the throw decision.
+ */
+export interface EphemeralFacts {
+  matchSource: 'text' | 'label' | null;
+  matchValue: string;
+  x: number;
+  y: number;
+}
+
+/** One binding: the selector, the mint-time identity facts, and the global
+ *  order in which it was minted. */
+export interface EphemeralBinding {
   selector: string;
   /** Monotonic mint counter — the tiebreak when two sessions mint the same name. */
   seq: number;
+  facts: EphemeralFacts;
+}
+
+/**
+ * Thrown when an ephemeral handle resolves to an element that is not the one it
+ * was minted for. A distinct type, not a plain Error, because two catch blocks
+ * must let it through instead of falling back:
+ *   - `resolveWithHealing`'s miss branch would try a fingerprint heal
+ *     (`fingerprinting/index.ts:261`)
+ *   - `getCenterInFrame`'s catch would try the child-frame walk (`frames.ts:355`)
+ * Both would re-resolve and act on an element we have just proved is wrong.
+ */
+export class EphemeralIdentityError extends Error {
+  readonly ssEphemeralMismatch = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'EphemeralIdentityError';
+  }
+}
+
+/**
+ * Provenance mark for an ordinary MISS whose selector came from an ephemeral
+ * binding. Distinct from `EphemeralIdentityError`, which means "we found an
+ * element and it is the wrong one"; this means "the element is simply gone".
+ *
+ * It exists because the fallback that follows a miss is not always safe. The
+ * candidate list an ephemeral handle is minted from is enumerated from the TOP
+ * frame only (`findAlternativeSelectors`), so `getCenterInFrame`'s child-frame
+ * walk can only ever return an element the handle was never bound to — and
+ * nothing on that branch runs `checkEphemeralIdentity`. `resolveWithHealing` is
+ * the only code that knows, authoritatively, which resolution tier produced the
+ * selector, so it marks the error on the way out rather than making
+ * `getCenterInFrame` re-derive the tier from a URL it does not have.
+ *
+ * `Symbol.for` so the mark survives two module instances (test realms, dual
+ * CJS/ESM loads); non-enumerable so it never leaks into a serialized error.
+ */
+const EPHEMERAL_MISS = Symbol.for('supersurf.ephemeralHandleMiss');
+
+/** Mark a miss error as having come from an ephemeral binding. Returns the same
+ *  object so call sites can stay one-liners. */
+export function markEphemeralMiss<T>(err: T): T {
+  if (err && typeof err === 'object') {
+    try {
+      Object.defineProperty(err, EPHEMERAL_MISS, { value: true, enumerable: false, configurable: true });
+    } catch { /* frozen error: the mark is best-effort, never a new failure */ }
+  }
+  return err;
+}
+
+/** True when `err` is a miss on a selector an ephemeral binding produced. */
+export function isEphemeralMiss(err: unknown): boolean {
+  return !!(err && typeof err === 'object' && (err as any)[EPHEMERAL_MISS] === true);
 }
 
 /** sessionId -> (handle name -> binding). */
@@ -101,8 +181,14 @@ export function mintHandleName(
   return null;
 }
 
-/** Bind a minted name to the selector it describes, for this session only. */
-export function bindEphemeral(sessionId: string, name: string, selector: string): void {
+/** Bind a minted name to the selector it describes plus the facts that prove
+ *  the binding is still pointing at the same element, for this session only. */
+export function bindEphemeral(
+  sessionId: string,
+  name: string,
+  selector: string,
+  facts: EphemeralFacts,
+): void {
   if (!sessionId || !name || !selector) return;
   let slot = _sessions.get(sessionId);
   if (!slot) {
@@ -110,7 +196,7 @@ export function bindEphemeral(sessionId: string, name: string, selector: string)
     _sessions.set(sessionId, slot);
   }
   slot.delete(name); // re-insert so the newest binding is also the newest entry
-  slot.set(name, { selector, seq: ++_seq });
+  slot.set(name, { selector, seq: ++_seq, facts });
   while (slot.size > MAX_PER_SESSION) {
     const oldest = slot.keys().next().value as string | undefined;
     if (oldest === undefined) break;
@@ -135,7 +221,7 @@ export function bindEphemeral(sessionId: string, name: string, selector: string)
  * within a session, and iterating `_sessions` in insertion order would have
  * handed the name to whichever session connected first — the opposite rule.
  */
-export function resolveEphemeral(name: string): string | null {
+export function resolveEphemeralBinding(name: string): EphemeralBinding | null {
   const norm = normalizeName(name);
   if (!norm) return null;
   let best: EphemeralBinding | null = null;
@@ -143,5 +229,56 @@ export function resolveEphemeral(name: string): string | null {
     const hit = slot.get(norm);
     if (hit && (!best || hit.seq > best.seq)) best = hit;
   }
-  return best ? best.selector : null;
+  return best;
+}
+
+/** Selector-only form. Kept because most callers want nothing else. */
+export function resolveEphemeral(name: string): string | null {
+  const b = resolveEphemeralBinding(name);
+  return b ? b.selector : null;
+}
+
+/** Whitespace-collapsed, trimmed, lower-cased — the comparison form. */
+function normText(s: string): string {
+  return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Compare an ephemeral handle's mint-time identity against the element its
+ * selector actually resolved to. Returns the error to throw, or `null` to
+ * proceed. Pure and synchronous, so it is unit-testable with no DOM.
+ *
+ * Prefix comparison, not equality: the minted value is a <=50-char prefix of
+ * the mint-time text (see `ssSafe` in `selector-qualify.ts`), while the
+ * resolved value is the full text.
+ *
+ * Coordinates are reported, never judged — see EphemeralFacts.
+ *
+ * Absent FACTS fail OPEN (`matchSource: null`, assumption A5): such a handle is
+ * legitimately minted — its selector round-trip-verified at mint time — and
+ * there is simply nothing to compare, so refusing it would break a handle that
+ * was never in doubt. An absent RESOLVED value fails CLOSED: `getElementCenter`
+ * normalizes a missing text/label to '', and a fact that did survive gets no
+ * benefit of the doubt from an element that reports nothing.
+ */
+export function checkEphemeralIdentity(
+  name: string,
+  facts: EphemeralFacts,
+  resolved: { x: number; y: number; text: string; label: string },
+): EphemeralIdentityError | null {
+  if (!facts || facts.matchSource === null || !facts.matchValue) return null;
+  const expected = normText(facts.matchValue);
+  const actual = normText(facts.matchSource === 'label' ? resolved.label : resolved.text);
+  if (actual.startsWith(expected)) return null;
+
+  const shown = (s: string) => (s ? `"${s.slice(0, 60)}"` : '(no text)');
+  return new EphemeralIdentityError(
+    `Handle \`@${name}\` no longer identifies the element it was minted for. Nothing was done.\n` +
+    `  minted for:  ${shown(facts.matchValue)} at (${facts.x},${facts.y})\n` +
+    `  resolved to: ${shown(facts.matchSource === 'label' ? resolved.label : resolved.text)} ` +
+    `at (${resolved.x},${resolved.y})\n` +
+    `The page changed, or the selector bound to this handle matches more than one element. ` +
+    `Target the element with a CSS selector, or re-run the action that produced the ` +
+    `"Did you mean?" list to mint a fresh handle.`,
+  );
 }
