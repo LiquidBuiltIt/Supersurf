@@ -18,13 +18,18 @@
 // `shared/dom/shadow-walker.ts`: this code runs in the page, not in Node. It
 // references `document` and `CSS`, which are not in the server's TS lib.
 //
-// ASSUMPTION A1 — candidates are always light-DOM. Both candidate expressions
-// in `element-resolver.ts` enumerate with `document.querySelectorAll('*')`,
-// which does not pierce shadow roots, so `document.querySelector` here has
-// identical semantics to the runtime's `queryDeep` (which tries
-// `document.querySelector` first). If candidates ever become shadow-aware,
-// splice `QUERY_DEEP_SOURCE` in here or this check silently stops matching
-// what the runtime does.
+// ASSUMPTION A1 — every element handed to `qualify` is light-DOM. All FOUR
+// splice sites enumerate without piercing shadow roots:
+//   - `element-resolver.ts:201` and `:229` — both candidate expressions,
+//     `document.querySelectorAll('*')`
+//   - `tools/content.ts` `onLookup` — `document.querySelectorAll('*')`
+//   - `tools/content.ts` `onSnapshot`'s form-field collector —
+//     `document.querySelectorAll('input, textarea, select')`
+// So `document.querySelector` here has identical semantics to the runtime's
+// `queryDeep` (which tries `document.querySelector` first). Any NEW caller
+// must be added to this list and checked against it: if one ever enumerates
+// shadow-aware, splice `QUERY_DEEP_SOURCE` in here or this check silently
+// stops matching what the runtime does.
 //
 // @module tools/lib/selector-qualify
 Object.defineProperty(exports, "__esModule", { value: true });
