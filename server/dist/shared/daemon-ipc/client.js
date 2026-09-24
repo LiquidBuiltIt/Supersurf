@@ -31,6 +31,7 @@ class DaemonClient {
     _browser = 'chrome';
     _buildTime = null;
     _configDrift = false;
+    _peers = [];
     _version = null;
     _extensionConnected = false;
     _extensionVersionError = null;
@@ -74,6 +75,10 @@ class DaemonClient {
     /** True when the daemon has detected a config file change since its startup. */
     isConfigDrifted() {
         return this._configDrift;
+    }
+    /** The other live sessions the daemon reported on the last envelope. */
+    getPeerSessions() {
+        return [...this._peers];
     }
     /** Drain and return buffered native-dialog events captured from prior responses. */
     consumeDialogEvents() {
@@ -121,6 +126,8 @@ class DaemonClient {
                             this._connected = true;
                             if (msg.config_drift === true)
                                 this._configDrift = true;
+                            if (Array.isArray(msg.peers))
+                                this._peers = msg.peers;
                             this._version = msg.version || null;
                             this._extensionConnected = msg.extensionConnected === true;
                             this._extensionVersionError =
@@ -140,6 +147,8 @@ class DaemonClient {
                         if (msg.jsonrpc === '2.0' && msg.id !== undefined) {
                             if (msg.config_drift === true)
                                 this._configDrift = true;
+                            if (Array.isArray(msg.peers))
+                                this._peers = msg.peers;
                             const pending = this.inflight.get(String(msg.id));
                             if (pending) {
                                 this.inflight.delete(String(msg.id));

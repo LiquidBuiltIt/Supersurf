@@ -18,6 +18,18 @@ function mockBridge(overrides: Partial<ExtensionBridge> = {}): ExtensionBridge {
   } as any;
 }
 
+/** A scheduler wired up with the given session ids already registered. */
+function schedulerWithSessions(ids: string[]): { sessions: SessionRegistry; enqueue: RequestScheduler['enqueue'] } {
+  const bridge = mockBridge();
+  const sessions = new SessionRegistry();
+  const scheduler = new RequestScheduler(bridge, sessions);
+  for (const id of ids) {
+    sessions.add(id, mockSocket());
+    scheduler.addSession(id);
+  }
+  return { sessions, enqueue: scheduler.enqueue.bind(scheduler) };
+}
+
 describe('RequestScheduler', () => {
   let bridge: ExtensionBridge;
   let sessions: SessionRegistry;
@@ -174,6 +186,15 @@ describe('RequestScheduler', () => {
       await scheduler.enqueue('s1', 'closeTab', {});
       expect(sessions.get('s1')!.ownedTabs.has(50)).toBe(false);
       expect(sessions.getAttachedTabId('s1')).toBeNull();
+    });
+
+    it('refuses to close another session\'s tab and names the owner', async () => {
+      const s = schedulerWithSessions(['sm-a', 'sm-b']);
+      s.sessions.addOwnedTab('sm-a', 101);
+      s.sessions.setAttachedTabId('sm-a', 101);
+
+      await expect(s.enqueue('sm-b', 'closeTab', { tabId: 101 }))
+        .rejects.toThrow(/owned by session "sm-a"/);
     });
   });
 

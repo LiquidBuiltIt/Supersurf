@@ -22,6 +22,7 @@ export declare class DaemonClient implements IExtensionTransport {
     private _browser;
     private _buildTime;
     private _configDrift;
+    private _peers;
     private _version;
     private _extensionConnected;
     private _extensionVersionError;
@@ -47,6 +48,8 @@ export declare class DaemonClient implements IExtensionTransport {
     get activeSessionCount(): number | null;
     /** True when the daemon has detected a config file change since its startup. */
     isConfigDrifted(): boolean;
+    /** The other live sessions the daemon reported on the last envelope. */
+    getPeerSessions(): string[];
     /** Drain and return buffered native-dialog events captured from prior responses. */
     consumeDialogEvents(): DialogEvent[];
     /**

@@ -35,6 +35,7 @@ export class DaemonClient implements IExtensionTransport {
   private _browser: string = 'chrome';
   private _buildTime: string | null = null;
   private _configDrift: boolean = false;
+  private _peers: string[] = [];
   private _version: string | null = null;
   private _extensionConnected: boolean = false;
   private _extensionVersionError: string | null = null;
@@ -90,6 +91,11 @@ export class DaemonClient implements IExtensionTransport {
     return this._configDrift;
   }
 
+  /** The other live sessions the daemon reported on the last envelope. */
+  getPeerSessions(): string[] {
+    return [...this._peers];
+  }
+
   /** Drain and return buffered native-dialog events captured from prior responses. */
   consumeDialogEvents(): DialogEvent[] {
     if (this.dialogEventBuffer.length === 0) return [];
@@ -142,6 +148,7 @@ export class DaemonClient implements IExtensionTransport {
               this._buildTime = msg.buildTimestamp || null;
               this._connected = true;
               if (msg.config_drift === true) this._configDrift = true;
+              if (Array.isArray(msg.peers)) this._peers = msg.peers;
               this._version = msg.version || null;
               this._extensionConnected = msg.extensionConnected === true;
               this._extensionVersionError =
@@ -162,6 +169,7 @@ export class DaemonClient implements IExtensionTransport {
             // JSON-RPC responses
             if (msg.jsonrpc === '2.0' && msg.id !== undefined) {
               if (msg.config_drift === true) this._configDrift = true;
+              if (Array.isArray(msg.peers)) this._peers = msg.peers;
               const pending = this.inflight.get(String(msg.id));
               if (pending) {
                 this.inflight.delete(String(msg.id));
