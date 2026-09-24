@@ -44,6 +44,7 @@ const mockDaemonClientInstance = {
   onReconnect: null as (() => void) | null,
   onTabInfoUpdate: null as ((tabInfo: any) => void) | null,
   isConfigDrifted: vi.fn(() => false),
+  getPeerSessions: vi.fn(() => [] as string[]),
 };
 
 vi.mock('shared', async (importOriginal) => {
@@ -145,6 +146,7 @@ describe('ConnectionManager', () => {
     mockDaemonClientInstance.activeSessionCount = null;
     mockDaemonClientInstance.onReconnect = null;
     mockDaemonClientInstance.onTabInfoUpdate = null;
+    mockDaemonClientInstance.getPeerSessions.mockReturnValue([]);
     mockMetricsWrite.mockClear();
 
     backend = new ConnectionManager(makeConfig());
@@ -511,6 +513,29 @@ describe('ConnectionManager', () => {
       const status = await backend.callTool('status', {}, { rawResult: true });
       expect(status.attached_tab).toBeNull();
       expect(status.browser).toBeNull();
+    });
+
+    it('reports disconnect as a release and names the remaining agents', async () => {
+      await backend.callTool('connect', { client_id: 'test' });
+      mockDaemonClientInstance.getPeerSessions.mockReturnValue(['sm-hn']);
+
+      const out = await backend.callTool('disconnect', {}, { rawResult: true });
+
+      expect(out.success).toBe(true);
+      expect(out.peers).toEqual(['sm-hn']);
+      expect(out.message).toContain('Session released');
+      expect(out.message).toContain('sm-hn');
+    });
+
+    it('does not fail when another session holds the browser', async () => {
+      await backend.callTool('connect', { client_id: 'test' });
+      mockDaemonClientInstance.getPeerSessions.mockReturnValue(['sm-hn']);
+
+      // toMatchObject on both success AND peers — asserting success alone
+      // passes even against the unmodified handler, which never reads
+      // peers and never throws either way.
+      await expect(backend.callTool('disconnect', {}, { rawResult: true }))
+        .resolves.toMatchObject({ success: true, peers: ['sm-hn'] });
     });
   });
 

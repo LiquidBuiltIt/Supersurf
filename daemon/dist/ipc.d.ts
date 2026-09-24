@@ -86,9 +86,16 @@ export declare class IPCServer {
     private spawnProfile;
     /** Build a status response from live daemon state. */
     private buildStatusResponse;
-    /** Write an NDJSON line to a socket. Injects `config_drift` into session_ack
-     *  and JSON-RPC response envelopes when the config file has changed since
-     *  daemon startup. */
+    /** Find the session id whose socket is the given one.
+     *  ponytail: O(n) scan over single-digit sessions. Swap in a
+     *  WeakMap<net.Socket, string> if the session count ever grows — no
+     *  call-site churn either way. */
+    private socketSessionId;
+    /** Write an NDJSON line to a socket. Injects `config_drift` and `peers`
+     *  into session_ack and JSON-RPC response envelopes: `config_drift` when
+     *  the config file has changed since daemon startup, `peers` with the
+     *  other live session ids so a caller can tell the truth about who else
+     *  is holding the browser. */
     private sendLine;
     /** Gracefully shut down the IPC server. */
     stop(): Promise<void>;

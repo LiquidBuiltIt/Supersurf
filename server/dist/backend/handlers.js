@@ -434,6 +434,10 @@ async function onDisconnect(mgr, options = {}) {
         };
     }
     log('Disconnecting...');
+    // Read the other live sessions BEFORE any teardown below runs — once
+    // mgr.extensionServer is stopped and nulled out, this would read [] forever.
+    const transport = mgr.extensionServer;
+    const peers = typeof transport?.getPeerSessions === 'function' ? transport.getPeerSessions() : [];
     if (mgr.bridge) {
         mgr.bridge.serverClosed();
         mgr.bridge = null;
@@ -458,15 +462,21 @@ async function onDisconnect(mgr, options = {}) {
     mgr.profile = null;
     mgr.extensionConnected = false;
     mgr.notifyToolsListChanged().catch((err) => log('Error sending notification:', err));
+    // Report, do not decide. A second agent holding the browser is not this
+    // agent's fault, so this is a release with a truthful note — never an error.
+    const message = peers.length === 0
+        ? 'Session released. No other agents connected.'
+        : `Session released. Browser stays open — ${peers.length} other agent` +
+            `${peers.length === 1 ? '' : 's'} still connected (${peers.join(', ')}).`;
     if (options.rawResult) {
-        return { success: true, state: 'passive' };
+        return { success: true, state: 'passive', peers, message };
     }
     return {
         content: [
             {
                 type: 'text',
                 text: mgr.statusHeader() +
-                    `### Disconnected from Service\n\nSession closed. Call \`connect\` to reconnect.`,
+                    `### Disconnected from Service\n\n${message} Call \`connect\` to reconnect.`,
             },
         ],
     };

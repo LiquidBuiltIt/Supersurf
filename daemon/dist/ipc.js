@@ -109,7 +109,8 @@ class IPCServer {
                             if (this.sessions.has(sessionId)) {
                                 this.sendLine(socket, {
                                     type: 'session_reject',
-                                    reason: 'Session ID already in use',
+                                    reason: `Session ID "${sessionId}" is already in use by a live session. ` +
+                                        `Pass a different client_id to \`connect\`.`,
                                 });
                                 socket.end();
                                 return;
@@ -499,15 +500,33 @@ class IPCServer {
             schedulerQueueDepth: this.scheduler.getQueueDepth(),
         };
     }
-    /** Write an NDJSON line to a socket. Injects `config_drift` into session_ack
-     *  and JSON-RPC response envelopes when the config file has changed since
-     *  daemon startup. */
+    /** Find the session id whose socket is the given one.
+     *  ponytail: O(n) scan over single-digit sessions. Swap in a
+     *  WeakMap<net.Socket, string> if the session count ever grows — no
+     *  call-site churn either way. */
+    socketSessionId(socket) {
+        for (const session of this.sessions.values()) {
+            if (session.socket === socket)
+                return session.sessionId;
+        }
+        return null;
+    }
+    /** Write an NDJSON line to a socket. Injects `config_drift` and `peers`
+     *  into session_ack and JSON-RPC response envelopes: `config_drift` when
+     *  the config file has changed since daemon startup, `peers` with the
+     *  other live session ids so a caller can tell the truth about who else
+     *  is holding the browser. */
     sendLine(socket, data) {
         if (!socket.writable)
             return;
-        if (this.configDrift && data && typeof data === 'object'
-            && (data.type === 'session_ack' || data.jsonrpc === '2.0')) {
-            data = { ...data, config_drift: true };
+        const isEnvelope = data && typeof data === 'object'
+            && (data.type === 'session_ack' || data.jsonrpc === '2.0');
+        if (isEnvelope) {
+            if (this.configDrift)
+                data = { ...data, config_drift: true };
+            const self = this.socketSessionId(socket);
+            const peers = this.sessions.ids().filter((id) => id !== self);
+            data = { ...data, peers };
         }
         socket.write(JSON.stringify(data) + '\n');
     }

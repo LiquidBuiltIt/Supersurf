@@ -121,6 +121,42 @@ describe('IPCServer', () => {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   });
 
+  /** Register two clients under the same session id; return the second
+   *  client's session_reject envelope. */
+  async function registerTwice(id: string): Promise<any> {
+    await ipc.start();
+
+    const client1 = await connectToSocket(sockPath);
+    writeLine(client1, { type: 'session_register', sessionId: id });
+    await readLine(client1);
+
+    const client2 = await connectToSocket(sockPath);
+    writeLine(client2, { type: 'session_register', sessionId: id });
+    const reject = await readLine(client2);
+
+    client1.end();
+    client2.end();
+    return reject;
+  }
+
+  /** Register a first session, then a second under a different id; return
+   *  the second client's session_ack envelope. */
+  async function registerSecondSession(firstId: string, secondId: string): Promise<any> {
+    await ipc.start();
+
+    const client1 = await connectToSocket(sockPath);
+    writeLine(client1, { type: 'session_register', sessionId: firstId });
+    await readLine(client1);
+
+    const client2 = await connectToSocket(sockPath);
+    writeLine(client2, { type: 'session_register', sessionId: secondId });
+    const ack = await readLine(client2);
+
+    client1.end();
+    client2.end();
+    return ack;
+  }
+
   it('starts and accepts connections', async () => {
     await ipc.start();
     const client = await connectToSocket(sockPath);
@@ -252,6 +288,18 @@ describe('IPCServer', () => {
 
     client1.end();
     client2.end();
+  });
+
+  it('names the conflicting session when a client_id is already in use', async () => {
+    const reject = await registerTwice('dup');
+    expect(reject.type).toBe('session_reject');
+    expect(reject.reason).toContain('dup');
+    expect(reject.reason).toMatch(/already in use/i);
+  });
+
+  it('puts the other live session ids on the envelope', async () => {
+    const ack = await registerSecondSession('sm-a', 'sm-b');
+    expect(ack.peers).toEqual(['sm-a']);
   });
 
   it('rejects non-handshake messages before registration', async () => {
