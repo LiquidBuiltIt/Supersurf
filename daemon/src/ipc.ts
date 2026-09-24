@@ -625,7 +625,8 @@ export class IPCServer {
       && (data.type === 'session_ack' || data.jsonrpc === '2.0');
     if (isEnvelope) {
       if (this.configDrift) data = { ...data, config_drift: true };
-      const peers = this.sessions.ids().filter((id) => id !== this.socketSessionId(socket));
+      const self = this.socketSessionId(socket);
+      const peers = this.sessions.ids().filter((id) => id !== self);
       data = { ...data, peers };
     }
     socket.write(JSON.stringify(data) + '\n');
