@@ -488,13 +488,15 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         const tabId = tabHandlers.getAttachedTabId();
         return { messages: consoleHandler.getMessages(tabId || undefined) };
     });
-    // networkRequests
+    // networkRequests — scoped to the caller's own tab, like consoleMessages above.
     wsConnection.registerCommandHandler('networkRequests', async (params) => {
-        return { requests: networkTracker.getRequests() };
+        const tabId = tabHandlers.getAttachedTabId();
+        return { requests: networkTracker.getRequests(tabId || undefined) };
     });
     // clearNetwork
     wsConnection.registerCommandHandler('clearNetwork', async () => {
-        networkTracker.clearRequests();
+        const tabId = tabHandlers.getAttachedTabId();
+        networkTracker.clearRequests(tabId || undefined);
         cdpNetworkRequests.clear();
         return { success: true };
     });

@@ -283,6 +283,47 @@ describe('NetworkTracker', () => {
     });
   });
 
+  describe('tab scoping', () => {
+    // One Chrome profile has one webRequest stream, so without a tabId on each
+    // entry every session reads every other session's traffic. These four cases
+    // are the whole contract; the cross-session proof is scripts/smoke-parallel.ts.
+    function fireOn(tabId: number, requestId: string, url: string) {
+      mockChrome.webRequest.onBeforeRequest._fire({
+        requestId,
+        tabId,
+        url,
+        method: 'GET',
+        type: 'main_frame',
+        timeStamp: 1,
+      });
+    }
+
+    beforeEach(() => {
+      tracker.init();
+      fireOn(7, 'a', 'https://a.com');
+      fireOn(9, 'b', 'https://b.com');
+      fireOn(7, 'c', 'https://c.com');
+    });
+
+    it('getRequests(tabId) returns only that tab\'s requests', () => {
+      expect(tracker.getRequests(7).map(r => r.url)).toEqual(['https://a.com', 'https://c.com']);
+      expect(tracker.getRequests(9).map(r => r.url)).toEqual(['https://b.com']);
+    });
+
+    it('getRequests() with no tabId still returns every request', () => {
+      expect(tracker.getRequests()).toHaveLength(3);
+    });
+
+    it('clearRequests(tabId) leaves the other tab\'s requests alone', () => {
+      tracker.clearRequests(7);
+      expect(tracker.getRequests().map(r => r.url)).toEqual(['https://b.com']);
+    });
+
+    it('records the owning tabId on each tracked request', () => {
+      expect(tracker.getRequests().map(r => r.tabId)).toEqual([7, 9, 7]);
+    });
+  });
+
   describe('MAX_REQUESTS enforcement (500)', () => {
     it('evicts oldest request when limit is reached', () => {
       tracker.init();

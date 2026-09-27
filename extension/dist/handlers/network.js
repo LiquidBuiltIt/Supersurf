@@ -36,12 +36,29 @@ export class NetworkTracker {
         this.browser.webRequest.onCompleted.addListener((details) => this._handleCompleted(details), filter, ['responseHeaders']);
         this.browser.webRequest.onErrorOccurred.addListener((details) => this._handleError(details), filter);
     }
-    /** Return all tracked requests as an array, ordered oldest-first. */
-    getRequests() {
-        return Array.from(this.requests.values());
+    /**
+     * Return tracked requests oldest-first, filtered to one tab when given.
+     * Callers that can name a tab MUST pass it — an unfiltered read hands the
+     * caller every other session's traffic.
+     */
+    getRequests(tabId) {
+        const all = Array.from(this.requests.values());
+        return tabId === undefined ? all : all.filter((r) => r.tabId === tabId);
     }
-    clearRequests() {
-        this.requests.clear();
+    /**
+     * Drop tracked requests — only the named tab's when given, all when not.
+     * The unscoped clear is destructive across sessions: it deletes traffic the
+     * clearing session never captured and cannot get back.
+     */
+    clearRequests(tabId) {
+        if (tabId === undefined) {
+            this.requests.clear();
+            return;
+        }
+        for (const [id, req] of this.requests) {
+            if (req.tabId === tabId)
+                this.requests.delete(id);
+        }
     }
     /** Create initial entry on request start, evicting oldest if at capacity. */
     _handleBeforeRequest(details) {
@@ -53,6 +70,7 @@ export class NetworkTracker {
         }
         this.requests.set(details.requestId, {
             requestId: details.requestId,
+            tabId: details.tabId,
             url: details.url,
             method: details.method,
             type: details.type,

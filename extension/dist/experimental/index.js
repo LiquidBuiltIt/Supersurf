@@ -59,7 +59,7 @@ export class ExperimentalFeatures {
                 args: [stabilityMs],
             });
             // Network idle polling
-            const networkIdlePromise = pollNetworkIdle(networkTracker, 500, timeout);
+            const networkIdlePromise = pollNetworkIdle(networkTracker, tabId, 500, timeout);
             // Race: both signals vs overall timeout
             await Promise.race([
                 Promise.all([domStablePromise, networkIdlePromise]),
@@ -70,15 +70,19 @@ export class ExperimentalFeatures {
     }
 }
 /**
- * Poll networkTracker for 0 pending requests over idleMs.
+ * Poll networkTracker for 0 pending requests over idleMs, on ONE tab.
  * A request is "pending" if it has no statusCode and no error.
+ *
+ * The tab scope is load-bearing, not tidiness: unscoped, a session's wait
+ * hangs on another session's slow page, which is a wait that never settles
+ * for a reason the waiting agent cannot see.
  */
-function pollNetworkIdle(tracker, idleMs, timeout) {
+function pollNetworkIdle(tracker, tabId, idleMs, timeout) {
     return new Promise((resolve) => {
         const startTime = Date.now();
         let idleSince = null;
         const interval = setInterval(() => {
-            const requests = tracker.getRequests();
+            const requests = tracker.getRequests(tabId);
             const pending = requests.filter(r => !r.statusCode && !r.error);
             if (pending.length === 0) {
                 if (idleSince === null) {

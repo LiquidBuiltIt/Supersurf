@@ -16,6 +16,12 @@ import { Logger } from '../utils/logger.js';
 /** Accumulated metadata for a single HTTP request through its lifecycle. */
 interface NetworkRequest {
   requestId: string;
+  /**
+   * Owning tab, or -1 for requests with no tab. This is what makes the log
+   * attributable: without it every session reads every other session's
+   * traffic, because one Chrome profile has one webRequest stream.
+   */
+  tabId: number;
   url: string;
   method: string;
   /** Resource type (e.g. "xmlhttprequest", "script", "image"). */
@@ -79,13 +85,29 @@ export class NetworkTracker {
     );
   }
 
-  /** Return all tracked requests as an array, ordered oldest-first. */
-  getRequests(): NetworkRequest[] {
-    return Array.from(this.requests.values());
+  /**
+   * Return tracked requests oldest-first, filtered to one tab when given.
+   * Callers that can name a tab MUST pass it — an unfiltered read hands the
+   * caller every other session's traffic.
+   */
+  getRequests(tabId?: number): NetworkRequest[] {
+    const all = Array.from(this.requests.values());
+    return tabId === undefined ? all : all.filter((r) => r.tabId === tabId);
   }
 
-  clearRequests(): void {
-    this.requests.clear();
+  /**
+   * Drop tracked requests — only the named tab's when given, all when not.
+   * The unscoped clear is destructive across sessions: it deletes traffic the
+   * clearing session never captured and cannot get back.
+   */
+  clearRequests(tabId?: number): void {
+    if (tabId === undefined) {
+      this.requests.clear();
+      return;
+    }
+    for (const [id, req] of this.requests) {
+      if (req.tabId === tabId) this.requests.delete(id);
+    }
   }
 
   /** Create initial entry on request start, evicting oldest if at capacity. */
@@ -98,6 +120,7 @@ export class NetworkTracker {
 
     this.requests.set(details.requestId, {
       requestId: details.requestId,
+      tabId: details.tabId,
       url: details.url,
       method: details.method,
       type: details.type,
