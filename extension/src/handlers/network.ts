@@ -85,23 +85,16 @@ export class NetworkTracker {
     );
   }
 
-  /**
-   * Return tracked requests oldest-first, filtered to one tab when given.
-   * Callers that can name a tab MUST pass it — an unfiltered read hands the
-   * caller every other session's traffic.
-   */
-  getRequests(tabId?: number): NetworkRequest[] {
+  /** Tracked requests for one tab, oldest-first. `null` returns every tab's —
+   *  reserved for diagnostics, never for a session-facing response. */
+  getRequests(tabId: number | null): NetworkRequest[] {
     const all = Array.from(this.requests.values());
-    return tabId === undefined ? all : all.filter((r) => r.tabId === tabId);
+    return tabId === null ? all : all.filter((r) => r.tabId === tabId);
   }
 
-  /**
-   * Drop tracked requests — only the named tab's when given, all when not.
-   * The unscoped clear is destructive across sessions: it deletes traffic the
-   * clearing session never captured and cannot get back.
-   */
-  clearRequests(tabId?: number): void {
-    if (tabId === undefined) {
+  /** Drop one tab's requests. `null` drops every tab's. */
+  clearRequests(tabId: number | null): void {
+    if (tabId === null) {
       this.requests.clear();
       return;
     }

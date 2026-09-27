@@ -82,7 +82,7 @@ describe('NetworkTracker', () => {
         timeStamp: 1000,
       });
 
-      const requests = tracker.getRequests();
+      const requests = tracker.getRequests(null);
       expect(requests).toHaveLength(1);
       expect(requests[0]).toEqual({
         requestId: 'req-1',
@@ -106,7 +106,7 @@ describe('NetworkTracker', () => {
         requestBody: { formData: { name: ['test'] } },
       });
 
-      const requests = tracker.getRequests();
+      const requests = tracker.getRequests(null);
       expect(requests[0].requestBody).toEqual({ formData: { name: ['test'] } });
     });
 
@@ -131,7 +131,7 @@ describe('NetworkTracker', () => {
         ],
       });
 
-      const requests = tracker.getRequests();
+      const requests = tracker.getRequests(null);
       expect(requests[0].requestHeaders).toEqual({
         'Content-Type': 'application/json',
         'Authorization': 'Bearer token123',
@@ -146,7 +146,7 @@ describe('NetworkTracker', () => {
         requestHeaders: [{ name: 'X-Test', value: 'value' }],
       });
 
-      expect(tracker.getRequests()).toHaveLength(0);
+      expect(tracker.getRequests(null)).toHaveLength(0);
     });
 
     it('skips headers without name or value', () => {
@@ -169,7 +169,7 @@ describe('NetworkTracker', () => {
         ],
       });
 
-      const requests = tracker.getRequests();
+      const requests = tracker.getRequests(null);
       expect(requests[0].requestHeaders).toEqual({ Valid: 'yes' });
     });
 
@@ -193,7 +193,7 @@ describe('NetworkTracker', () => {
         ],
       });
 
-      const requests = tracker.getRequests();
+      const requests = tracker.getRequests(null);
       expect(requests[0].statusCode).toBe(200);
       expect(requests[0].statusLine).toBe('HTTP/1.1 200 OK');
       expect(requests[0].responseHeaders).toEqual({
@@ -217,7 +217,7 @@ describe('NetworkTracker', () => {
         error: 'net::ERR_CONNECTION_REFUSED',
       });
 
-      const requests = tracker.getRequests();
+      const requests = tracker.getRequests(null);
       expect(requests[0].error).toBe('net::ERR_CONNECTION_REFUSED');
     });
 
@@ -229,7 +229,7 @@ describe('NetworkTracker', () => {
         error: 'net::ERR_FAILED',
       });
 
-      expect(tracker.getRequests()).toHaveLength(0);
+      expect(tracker.getRequests(null)).toHaveLength(0);
     });
   });
 
@@ -253,14 +253,14 @@ describe('NetworkTracker', () => {
         timeStamp: 200,
       });
 
-      const requests = tracker.getRequests();
+      const requests = tracker.getRequests(null);
       expect(requests).toHaveLength(2);
       expect(requests[0].url).toBe('https://a.com');
       expect(requests[1].url).toBe('https://b.com');
     });
 
     it('returns empty array when no requests tracked', () => {
-      expect(tracker.getRequests()).toHaveLength(0);
+      expect(tracker.getRequests(null)).toHaveLength(0);
     });
   });
 
@@ -276,10 +276,10 @@ describe('NetworkTracker', () => {
         timeStamp: 1,
       });
 
-      expect(tracker.getRequests()).toHaveLength(1);
+      expect(tracker.getRequests(null)).toHaveLength(1);
 
-      tracker.clearRequests();
-      expect(tracker.getRequests()).toHaveLength(0);
+      tracker.clearRequests(null);
+      expect(tracker.getRequests(null)).toHaveLength(0);
     });
   });
 
@@ -310,17 +310,17 @@ describe('NetworkTracker', () => {
       expect(tracker.getRequests(9).map(r => r.url)).toEqual(['https://b.com']);
     });
 
-    it('getRequests() with no tabId still returns every request', () => {
-      expect(tracker.getRequests()).toHaveLength(3);
+    it('getRequests(null) still returns every request', () => {
+      expect(tracker.getRequests(null)).toHaveLength(3);
     });
 
     it('clearRequests(tabId) leaves the other tab\'s requests alone', () => {
       tracker.clearRequests(7);
-      expect(tracker.getRequests().map(r => r.url)).toEqual(['https://b.com']);
+      expect(tracker.getRequests(null).map(r => r.url)).toEqual(['https://b.com']);
     });
 
     it('records the owning tabId on each tracked request', () => {
-      expect(tracker.getRequests().map(r => r.tabId)).toEqual([7, 9, 7]);
+      expect(tracker.getRequests(null).map(r => r.tabId)).toEqual([7, 9, 7]);
     });
   });
 
@@ -339,7 +339,7 @@ describe('NetworkTracker', () => {
         });
       }
 
-      expect(tracker.getRequests()).toHaveLength(500);
+      expect(tracker.getRequests(null)).toHaveLength(500);
 
       // Add one more
       mockChrome.webRequest.onBeforeRequest._fire({
@@ -350,7 +350,7 @@ describe('NetworkTracker', () => {
         timeStamp: 500,
       });
 
-      const requests = tracker.getRequests();
+      const requests = tracker.getRequests(null);
       expect(requests).toHaveLength(500);
 
       // Oldest (req-0) should be gone

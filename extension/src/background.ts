@@ -530,17 +530,24 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     return { messages: consoleHandler.getMessages(tabId || undefined) };
   });
 
-  // networkRequests — scoped to the caller's own tab, like consoleMessages above.
-  wsConnection.registerCommandHandler('networkRequests', async (params) => {
+  // networkRequests — a session reads its own tab's traffic and nothing else:
+  // request and response headers and bodies are in these records.
+  wsConnection.registerCommandHandler('networkRequests', async () => {
     const tabId = tabHandlers.getAttachedTabId();
-    return { requests: networkTracker.getRequests(tabId || undefined) };
+    return { requests: networkTracker.getRequests(tabId) };
   });
 
   // clearNetwork
   wsConnection.registerCommandHandler('clearNetwork', async () => {
     const tabId = tabHandlers.getAttachedTabId();
-    networkTracker.clearRequests(tabId || undefined);
-    cdpNetworkRequests.clear();
+    networkTracker.clearRequests(tabId);
+    // CDP records carry no tabId yet (Task 5 adds it), so this filter is a
+    // no-op today — it deletes nothing for any real session tab. That is
+    // deliberate: it stops the unconditional cross-session wipe now without
+    // inventing a tabId this code doesn't have.
+    for (const [id, r] of cdpNetworkRequests) {
+      if (tabId === null || (r as any).tabId === tabId) cdpNetworkRequests.delete(id);
+    }
     return { success: true };
   });
 
