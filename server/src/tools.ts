@@ -131,6 +131,7 @@ export class BrowserBridge {
           },
           this.connectionManager?.getAttachedTab()?.url,
           selector,
+          () => this.connectionManager?.clientId,
           meta,
           emitHandle,
         ),
@@ -143,6 +144,7 @@ export class BrowserBridge {
           },
           this.connectionManager?.getAttachedTab()?.url,
           selector,
+          () => this.connectionManager?.clientId,
         ).then(async (hit) => {
           if (!hit) return null;
           const url = this.connectionManager?.getAttachedTab()?.url;

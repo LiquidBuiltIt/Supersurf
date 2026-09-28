@@ -279,7 +279,7 @@ describe('getTip — playbooks-milestone tip', () => {
   }
 
   it('does not fire before the trail reaches 8 entries', () => {
-    experimentRegistry.enable('test-session', 'fingerprinting');
+    experimentRegistry.enable('sess-milestone-early', 'fingerprinting');
     recordCalls(7);
     expect(getTip('browser_tabs', { action: 'list' }, 'ok', undefined, 'sess-milestone-early')).toBeNull();
   });
@@ -307,7 +307,7 @@ describe('getTip — playbooks-milestone tip', () => {
   });
 
   it('never fires for the playbooks tool itself', () => {
-    experimentRegistry.enable('test-session', 'fingerprinting');
+    experimentRegistry.enable('sess-milestone-pb', 'fingerprinting');
     recordCalls(8);
     expect(getTip('playbooks', { action: 'history' }, 'ok', undefined, 'sess-milestone-pb')).toBeNull();
   });
@@ -350,7 +350,7 @@ describe('getTip — playbooks-repeat tip', () => {
   });
 
   it('does not fire when the repeated window is a single tool (e.g. scroll x3)', () => {
-    experimentRegistry.enable('test-session', 'fingerprinting');
+    experimentRegistry.enable('sess-repeat-scroll', 'fingerprinting');
     for (let i = 0; i < 6; i++) {
       actionTrail.record({
         tool: 'browser_interact', type: 'scroll_by', outcome: 'ok', message: 'ok',
@@ -361,7 +361,7 @@ describe('getTip — playbooks-repeat tip', () => {
   });
 
   it('does not fire when the only matching window overlaps the last window', () => {
-    experimentRegistry.enable('test-session', 'fingerprinting');
+    experimentRegistry.enable('sess-repeat-overlap', 'fingerprinting');
     const rec = (tool: string, url: string) =>
       actionTrail.record({ tool, type: tool, outcome: 'ok', message: 'ok', params: {}, url });
     // Sequence [C, D, A, B, A, B, A]: the A,B,A pattern at indices [4,5,6] also
@@ -394,7 +394,7 @@ describe('getTip — playbooks-repeat tip', () => {
   });
 
   it('never fires for the playbooks tool itself', () => {
-    experimentRegistry.enable('test-session', 'fingerprinting');
+    experimentRegistry.enable('sess-repeat-pb', 'fingerprinting');
     recordWindow('https://ex.com/a');
     recordWindow('https://ex.com/a');
     expect(getTip('playbooks', { action: 'history' }, 'ok', undefined, 'sess-repeat-pb')).toBeNull();

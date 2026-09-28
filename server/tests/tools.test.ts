@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BrowserBridge } from '../src/tools';
+import { actionTrail } from '../src/playbooks/trail';
 
 // Mock the logger
 vi.mock('shared', async (importOriginal) => {
@@ -78,6 +79,7 @@ describe('BrowserBridge', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    actionTrail._resetForTest();
     mockExt = createMockExt();
     mockCM = createMockConnectionManager();
     bridge = new BrowserBridge({}, mockExt);

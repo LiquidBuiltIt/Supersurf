@@ -89,7 +89,7 @@ async function captureOnResolve(evalFn, url, selector, meta, emitHandle, preload
  * so `getCenterInFrame`'s frame-walk fallback calls this with an `evalFn` already bound to
  * the child frame's execution context. Gated + fire-and-forget; never throws.
  */
-async function captureInContext(evalInContext, url, selector, meta, emitHandle, getSessionId) {
+async function captureInContext(evalInContext, url, selector, getSessionId, meta, emitHandle) {
     if (!index_1.experimentRegistry.isEnabled('fingerprinting', getSessionId?.() ?? null))
         return;
     await captureOnResolve(evalInContext, url, selector, meta, emitHandle);

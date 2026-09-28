@@ -95,13 +95,13 @@ class BrowserBridge {
                 if (contextId != null)
                     params.contextId = contextId; // null => top-frame default context
                 return (0, cdp_1.cdp)(ext, 'Runtime.evaluate', params, tabId).then((r) => r.result?.value);
-            }, this.connectionManager?.getAttachedTab()?.url, selector, meta, emitHandle),
+            }, this.connectionManager?.getAttachedTab()?.url, selector, () => this.connectionManager?.clientId, meta, emitHandle),
             healFingerprintInContext: (contextId, selector) => (0, index_2.healInContext)((expr) => {
                 const params = { expression: expr, returnByValue: true };
                 if (contextId != null)
                     params.contextId = contextId; // null => top-frame default context
                 return (0, cdp_1.cdp)(ext, 'Runtime.evaluate', params, tabId).then((r) => r.result?.value);
-            }, this.connectionManager?.getAttachedTab()?.url, selector).then(async (hit) => {
+            }, this.connectionManager?.getAttachedTab()?.url, selector, () => this.connectionManager?.clientId).then(async (hit) => {
                 if (!hit)
                     return null;
                 const url = this.connectionManager?.getAttachedTab()?.url;

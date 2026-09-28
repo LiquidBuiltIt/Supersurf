@@ -127,9 +127,9 @@ export async function captureInContext(
   evalInContext: EvalFn,
   url: string | undefined,
   selector: string,
+  getSessionId: () => string | undefined,
   meta?: HandleMeta,
   emitHandle?: HandleEmit,
-  getSessionId?: () => string | undefined,
 ): Promise<void> {
   if (!experimentRegistry.isEnabled('fingerprinting', getSessionId?.() ?? null)) return;
   await captureOnResolve(evalInContext, url, selector, meta, emitHandle);
@@ -166,7 +166,7 @@ export async function healInContext(
   evalInContext: EvalFn,
   url: string | undefined,
   selector: string,
-  getSessionId?: () => string | undefined,
+  getSessionId: () => string | undefined,
 ): Promise<ScoreHit | null> {
   if (!experimentRegistry.isEnabled('fingerprinting', getSessionId?.() ?? null)) return null;
   try {

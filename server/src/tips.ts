@@ -19,7 +19,7 @@ interface TipRule {
   tool: string;
   match: (params: Record<string, unknown>, result: string, error?: string) => boolean;
   /** Static message, or a function resolved at fire time (e.g. gate-dependent copy). */
-  message: string | ((sessionId?: string) => string);
+  message: string | ((sessionId?: string | null) => string);
 }
 
 /** Max consecutive firings per (session, tool, tip_id) before suppression kicks in. */
@@ -91,7 +91,7 @@ const PLAYBOOKS_GATE_OFF =
   "Tip: this session's actions could be replayed as a playbook script. Enable the `fingerprinting` " +
   'experiment in ~/.supersurf/config.json and restart the daemon to unlock `playbooks run`.';
 
-function playbooksTipMessage(onMessage: string, sessionId?: string): string {
+function playbooksTipMessage(onMessage: string, sessionId?: string | null): string {
   return experimentRegistry.isEnabled('fingerprinting', sessionId ?? null) ? onMessage : PLAYBOOKS_GATE_OFF;
 }
 
@@ -297,7 +297,7 @@ export function getTip(
   params: Record<string, unknown>,
   result: 'ok' | 'error',
   error?: string,
-  sessionId?: string
+  sessionId?: string | null
 ): string | null {
   const fired = sessionId ? firedOnce.get(sessionId) : undefined;
   let best: TipRule | null = null;
