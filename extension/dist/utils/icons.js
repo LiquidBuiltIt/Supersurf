@@ -20,6 +20,11 @@ export class IconManager {
     ctx;
     /** Resolved to `chrome.action` (MV3) or `chrome.browserAction` (MV2 fallback). */
     actionAPI;
+    /** The tab this icon currently advertises. UI state only \u2014 NOT session state.
+     *  One toolbar icon cannot represent N sessions; with several agents connected
+     *  this shows the most recent attachment. */
+    _displayedTabId = null;
+    _displayedStealth = false;
     constructor(browserAPI, logger, sessionContext) {
         this.browser = browserAPI;
         this.logger = logger;
@@ -30,8 +35,8 @@ export class IconManager {
     init() {
         this.browser.tabs.onActivated.addListener(() => this.updateBadgeForTab());
         this.browser.tabs.onRemoved.addListener((tabId) => {
-            if (tabId === this.ctx.attachedTabId) {
-                this.ctx.attachedTabId = null;
+            if (tabId === this._displayedTabId) {
+                this._displayedTabId = null;
                 this.updateBadgeForTab();
             }
         });
@@ -40,11 +45,11 @@ export class IconManager {
         this.ctx.connected = value;
     }
     setAttachedTab(tabId) {
-        this.ctx.attachedTabId = tabId;
+        this._displayedTabId = tabId;
         this.updateBadgeForTab();
     }
     setStealthMode(enabled) {
-        this.ctx.stealthMode = enabled;
+        this._displayedStealth = enabled;
         this.updateBadgeForTab();
     }
     /** Show checkmark badge on the attached tab, clear badge on all others. */
@@ -53,8 +58,8 @@ export class IconManager {
             const [tab] = await this.browser.tabs.query({ active: true, currentWindow: true });
             if (!tab?.id)
                 return;
-            if (tab.id === this.ctx.attachedTabId) {
-                const color = this.ctx.stealthMode ? '#333333' : '#1c75bc';
+            if (tab.id === this._displayedTabId) {
+                const color = this._displayedStealth ? '#333333' : '#1c75bc';
                 await this.updateBadge(tab.id, { text: '\u2713', color, title: 'Automated' });
             }
             else {

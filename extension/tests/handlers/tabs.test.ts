@@ -44,7 +44,7 @@ describe('TabHandlers', () => {
 
   describe('getAttachedTabId()', () => {
     it('returns null initially', () => {
-      expect(tabs.getAttachedTabId()).toBeNull();
+      expect(tabs.getAttachedTabId(null)).toBeNull();
     });
   });
 
@@ -59,7 +59,7 @@ describe('TabHandlers', () => {
         url: 'https://example.com',
         active: true,
       });
-      expect(tabs.getAttachedTabId()).toBe(100);
+      expect(tabs.getAttachedTabId(null)).toBe(100);
       expect(result.attachedTab.id).toBe(100);
     });
 
@@ -162,7 +162,7 @@ describe('TabHandlers', () => {
 
       const result = await tabs.selectTab({ index: 1 });
 
-      expect(tabs.getAttachedTabId()).toBe(20);
+      expect(tabs.getAttachedTabId(null)).toBe(20);
       expect(result.attachedTab.id).toBe(20);
       expect(result.attachedTab.index).toBe(1);
     });
@@ -257,13 +257,13 @@ describe('TabHandlers', () => {
       mockChrome.tabs.create.mockResolvedValue(createdTab);
       await tabs.createTab({});
 
-      expect(tabs.getAttachedTabId()).toBe(50);
+      expect(tabs.getAttachedTabId(null)).toBe(50);
 
       const result = await tabs.closeTab();
 
       expect(mockChrome.tabs.remove).toHaveBeenCalledWith(50);
       expect(result.success).toBe(true);
-      expect(tabs.getAttachedTabId()).toBeNull();
+      expect(tabs.getAttachedTabId(null)).toBeNull();
     });
 
     it('closes a specific tab by index', async () => {
@@ -315,7 +315,7 @@ describe('TabHandlers', () => {
       // Wait for async auto-reattach to resolve (finds no candidates)
       await new Promise(r => setTimeout(r, 10));
 
-      expect(tabs.getAttachedTabId()).toBeNull();
+      expect(tabs.getAttachedTabId(null)).toBeNull();
       expect(mockIconManager.setAttachedTab).toHaveBeenCalledWith(null);
     });
   });
@@ -326,11 +326,11 @@ describe('TabHandlers', () => {
       mockChrome.tabs.create.mockResolvedValue(createdTab);
       await tabs.createTab({});
 
-      expect(tabs.getAttachedTabId()).toBe(70);
+      expect(tabs.getAttachedTabId(null)).toBe(70);
 
       tabs.handleTabClosed(70);
 
-      expect(tabs.getAttachedTabId()).toBeNull();
+      expect(tabs.getAttachedTabId(null)).toBeNull();
       expect(mockIconManager.setAttachedTab).toHaveBeenCalledWith(null);
     });
 
@@ -341,7 +341,7 @@ describe('TabHandlers', () => {
 
       tabs.handleTabClosed(999);
 
-      expect(tabs.getAttachedTabId()).toBe(80);
+      expect(tabs.getAttachedTabId(null)).toBe(80);
     });
 
     it('cleans up stealth and techStack maps', async () => {
@@ -369,12 +369,12 @@ describe('TabHandlers', () => {
       mockChrome.tabs.create.mockResolvedValue(createdTab);
       await tabs.createTab({});
 
-      expect(tabs.getAttachedTabId()).toBe(95);
+      expect(tabs.getAttachedTabId(null)).toBe(95);
 
       // Fire the onRemoved event
       mockChrome.tabs.onRemoved._fire(95, { windowId: 1, isWindowClosing: false });
 
-      expect(tabs.getAttachedTabId()).toBeNull();
+      expect(tabs.getAttachedTabId(null)).toBeNull();
     });
 
     it('auto-reattaches to another tab when attached tab is closed externally', async () => {
@@ -386,7 +386,7 @@ describe('TabHandlers', () => {
       // Attach to tab1
       mockChrome.tabs.query.mockResolvedValue([tab1, tab2]);
       await tabs.selectTab({ index: 0 });
-      expect(tabs.getAttachedTabId()).toBe(50);
+      expect(tabs.getAttachedTabId(null)).toBe(50);
 
       // Simulate tab1 closing externally — query returns remaining tabs
       mockChrome.tabs.query.mockResolvedValue([tab2]);
@@ -396,7 +396,7 @@ describe('TabHandlers', () => {
       // Wait for async auto-reattach
       await new Promise(r => setTimeout(r, 10));
 
-      expect(tabs.getAttachedTabId()).toBe(60);
+      expect(tabs.getAttachedTabId(null)).toBe(60);
     });
 
     it('sets attachedTabId to null when no other tabs available after close', async () => {
@@ -410,7 +410,7 @@ describe('TabHandlers', () => {
       tabs.handleTabClosed(50);
       await new Promise(r => setTimeout(r, 10));
 
-      expect(tabs.getAttachedTabId()).toBeNull();
+      expect(tabs.getAttachedTabId(null)).toBeNull();
     });
   });
 
@@ -514,16 +514,16 @@ describe('TabHandlers', () => {
         id: 300, index: 0, title: 'Tab', url: 'https://example.com', windowId: 1,
       });
 
-      const result = await tabs.ensureAttachedTab();
+      const result = await tabs.ensureAttachedTab(null);
       expect(result.tabId).toBe(300);
       expect(result.recovery).toBeUndefined();
     });
 
     it('honors an explicit tabId and returns it without recovery', async () => {
-      sessionContext.attachedTabId = 10;
+      sessionContext.getSession().attachedTabId = 10;
       mockChrome.tabs.get.mockResolvedValue({ id: 20, index: 1, title: 'B', url: 'https://b.com', windowId: 1 });
 
-      const result = await tabs.ensureAttachedTab(20);
+      const result = await tabs.ensureAttachedTab(null, 20);
       expect(result.tabId).toBe(20);
       expect(result.recovery).toBeUndefined();
     });
@@ -531,42 +531,42 @@ describe('TabHandlers', () => {
     it('does NOT mutate the shared attachedTabId when given an explicit tabId (concurrency isolation)', async () => {
       // The shared global points at tab 10; an explicit override to tab 20 must
       // not flip it — otherwise one caller would redirect a concurrent caller.
-      sessionContext.attachedTabId = 10;
+      sessionContext.getSession().attachedTabId = 10;
       mockChrome.tabs.get.mockResolvedValue({ id: 20, index: 1, title: 'B', url: 'https://b.com', windowId: 1 });
 
-      await tabs.ensureAttachedTab(20);
-      expect(tabs.getAttachedTabId()).toBe(10);
+      await tabs.ensureAttachedTab(null, 20);
+      expect(tabs.getAttachedTabId(null)).toBe(10);
     });
 
     it('throws for an explicit tabId that no longer exists (without touching the global)', async () => {
-      sessionContext.attachedTabId = 10;
+      sessionContext.getSession().attachedTabId = 10;
       mockChrome.tabs.get.mockRejectedValue(new Error('No tab with id: 999'));
 
-      await expect(tabs.ensureAttachedTab(999)).rejects.toThrow();
-      expect(tabs.getAttachedTabId()).toBe(10);
+      await expect(tabs.ensureAttachedTab(null, 999)).rejects.toThrow();
+      expect(tabs.getAttachedTabId(null)).toBe(10);
     });
 
     it('recovers when attachedTabId is null by selecting the active visible tab', async () => {
       // No attached tab
-      expect(tabs.getAttachedTabId()).toBeNull();
+      expect(tabs.getAttachedTabId(null)).toBeNull();
 
       mockChrome.tabs.query.mockResolvedValue([
         { id: 1, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: false },
         { id: 2, index: 1, title: 'B', url: 'https://b.com', windowId: 1, active: true },
       ]);
 
-      const result = await tabs.ensureAttachedTab();
+      const result = await tabs.ensureAttachedTab(null);
       expect(result.tabId).toBe(2);
       expect(result.recovery).toBeDefined();
       expect(result.recovery!.reason).toBe('no-attached-tab');
       expect(result.recovery!.newTabId).toBe(2);
       expect(result.recovery!.url).toBe('https://b.com');
-      expect(tabs.getAttachedTabId()).toBe(2);
+      expect(tabs.getAttachedTabId(null)).toBe(2);
     });
 
     it('recovers when attachedTabId points at a tab that no longer exists (stale)', async () => {
       // Force-set a stale attached tab id
-      sessionContext.attachedTabId = 999;
+      sessionContext.getSession().attachedTabId = 999;
 
       // chrome.tabs.get throws for 999
       mockChrome.tabs.get.mockImplementation(async (id: number) => {
@@ -578,18 +578,18 @@ describe('TabHandlers', () => {
         { id: 11, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: true },
       ]);
 
-      const result = await tabs.ensureAttachedTab();
+      const result = await tabs.ensureAttachedTab(null);
       expect(result.tabId).toBe(11);
       expect(result.recovery).toBeDefined();
       expect(result.recovery!.reason).toBe('stale-attached-tab');
       expect(result.recovery!.previousTabId).toBe(999);
       expect(result.recovery!.newTabId).toBe(11);
-      expect(tabs.getAttachedTabId()).toBe(11);
+      expect(tabs.getAttachedTabId(null)).toBe(11);
     });
 
     it('prefers the active visible tab in the same window as the stale tab', async () => {
       // The stale tab's windowId is known from tabs.query result (since .get fails, we fall back)
-      sessionContext.attachedTabId = 777;
+      sessionContext.getSession().attachedTabId = 777;
       mockChrome.tabs.get.mockRejectedValue(new Error('No tab'));
 
       mockChrome.tabs.query.mockResolvedValue([
@@ -601,7 +601,7 @@ describe('TabHandlers', () => {
       // windows.getCurrent returns windowId 1
       mockChrome.windows.getCurrent.mockResolvedValue({ id: 1, type: 'normal', focused: true });
 
-      const result = await tabs.ensureAttachedTab();
+      const result = await tabs.ensureAttachedTab(null);
       expect(result.tabId).toBe(60);
     });
 
@@ -610,7 +610,7 @@ describe('TabHandlers', () => {
         { id: 70, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: false },
       ]);
 
-      const result = await tabs.ensureAttachedTab();
+      const result = await tabs.ensureAttachedTab(null);
       expect(result.tabId).toBe(70);
       expect(result.recovery).toBeDefined();
     });
@@ -622,13 +622,13 @@ describe('TabHandlers', () => {
         { id: 82, index: 2, title: 'real', url: 'https://real.com', windowId: 1, active: false },
       ]);
 
-      const result = await tabs.ensureAttachedTab();
+      const result = await tabs.ensureAttachedTab(null);
       expect(result.tabId).toBe(82);
     });
 
     it('throws a clear error when no tabs are available for recovery', async () => {
       mockChrome.tabs.query.mockResolvedValue([]);
-      await expect(tabs.ensureAttachedTab()).rejects.toThrow(
+      await expect(tabs.ensureAttachedTab(null)).rejects.toThrow(
         /No attached tab and no recoverable tabs/i
       );
     });
@@ -637,7 +637,7 @@ describe('TabHandlers', () => {
       mockChrome.tabs.query.mockResolvedValue([
         { id: 90, index: 0, title: 'x', url: 'chrome://settings', windowId: 1, active: true },
       ]);
-      await expect(tabs.ensureAttachedTab()).rejects.toThrow(
+      await expect(tabs.ensureAttachedTab(null)).rejects.toThrow(
         /No attached tab and no recoverable tabs/i
       );
     });
@@ -647,7 +647,7 @@ describe('TabHandlers', () => {
         { id: 100, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: true },
       ]);
 
-      await tabs.ensureAttachedTab();
+      await tabs.ensureAttachedTab(null);
       const logCalls = (mockLogger.log as any).mock.calls.map((c: any[]) => String(c[0]));
       expect(logCalls.some((m: string) => /recover/i.test(m))).toBe(true);
     });
@@ -657,7 +657,7 @@ describe('TabHandlers', () => {
         { id: 110, index: 0, title: 'A', url: 'https://a.com', windowId: 1, active: true },
       ]);
 
-      await tabs.ensureAttachedTab();
+      await tabs.ensureAttachedTab(null);
       expect(mockIconManager.setAttachedTab).toHaveBeenCalledWith(110);
     });
   });

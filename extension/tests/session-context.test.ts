@@ -98,48 +98,6 @@ describe('SessionContext', () => {
     });
   });
 
-  describe('convenience accessors', () => {
-    it('attachedTabId delegates to null-key session', () => {
-      expect(ctx.attachedTabId).toBeNull();
-
-      ctx.attachedTabId = 42;
-      expect(ctx.attachedTabId).toBe(42);
-      expect(ctx.getSession().attachedTabId).toBe(42);
-    });
-
-    it('stealthMode delegates to null-key session', () => {
-      expect(ctx.stealthMode).toBe(false);
-
-      ctx.stealthMode = true;
-      expect(ctx.stealthMode).toBe(true);
-      expect(ctx.getSession().stealthMode).toBe(true);
-    });
-
-    it('stealthTabs delegates to null-key session', () => {
-      const tabs = ctx.stealthTabs;
-      expect(tabs).toBeInstanceOf(Map);
-
-      tabs.set(1, true);
-      expect(ctx.getSession().stealthTabs.get(1)).toBe(true);
-    });
-
-    it('cursorPositions delegates to null-key session', () => {
-      const positions = ctx.cursorPositions;
-      expect(positions).toBeInstanceOf(Map);
-
-      positions.set(1, { x: 100, y: 200 });
-      expect(ctx.getSession().cursorPositions.get(1)).toEqual({ x: 100, y: 200 });
-    });
-
-    it('humanizationConfig delegates to null-key session', () => {
-      expect(ctx.humanizationConfig.enabled).toBe(false);
-
-      ctx.humanizationConfig = { enabled: true };
-      expect(ctx.humanizationConfig.enabled).toBe(true);
-      expect(ctx.getSession().humanizationConfig.enabled).toBe(true);
-    });
-  });
-
   describe('persistence', () => {
     it('persists state to chrome.storage.session on mutation', async () => {
       const mockChrome = createMockChrome();
@@ -149,7 +107,8 @@ describe('SessionContext', () => {
       pCtx.connected = true;
       pCtx.debuggerAttached = true;
       pCtx.currentDebuggerTabId = 42;
-      pCtx.attachedTabId = 7;
+      pCtx.getSession().attachedTabId = 7;
+      pCtx.persistSession();
 
       // Allow fire-and-forget persist to complete
       await new Promise(r => setTimeout(r, 10));
@@ -186,11 +145,12 @@ describe('SessionContext', () => {
       expect(pCtx.connected).toBe(true);
       expect(pCtx.debuggerAttached).toBe(true);
       expect(pCtx.currentDebuggerTabId).toBe(55);
-      expect(pCtx.attachedTabId).toBe(12);
-      expect(pCtx.stealthMode).toBe(true);
-      expect(pCtx.stealthTabs.get(12)).toBe(true);
-      expect(pCtx.cursorPositions.get(12)).toEqual({ x: 100, y: 200 });
-      expect(pCtx.humanizationConfig.enabled).toBe(true);
+      const session = pCtx.getSession();
+      expect(session.attachedTabId).toBe(12);
+      expect(session.stealthMode).toBe(true);
+      expect(session.stealthTabs.get(12)).toBe(true);
+      expect(session.cursorPositions.get(12)).toEqual({ x: 100, y: 200 });
+      expect(session.humanizationConfig.enabled).toBe(true);
     });
 
     it('clearStorage removes persisted state', async () => {
@@ -209,9 +169,9 @@ describe('SessionContext', () => {
       const pCtx = new SessionContext();
       // No init() call — should work fine without persistence
       pCtx.connected = true;
-      pCtx.attachedTabId = 5;
+      pCtx.getSession().attachedTabId = 5;
       expect(pCtx.connected).toBe(true);
-      expect(pCtx.attachedTabId).toBe(5);
+      expect(pCtx.getSession().attachedTabId).toBe(5);
     });
 
     it('persistSession() triggers write-through for Map mutations', async () => {
@@ -219,7 +179,7 @@ describe('SessionContext', () => {
       const pCtx = new SessionContext();
       await pCtx.init(mockChrome);
 
-      pCtx.cursorPositions.set(1, { x: 50, y: 75 });
+      pCtx.getSession().cursorPositions.set(1, { x: 50, y: 75 });
       pCtx.persistSession();
 
       await new Promise(r => setTimeout(r, 10));

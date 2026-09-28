@@ -37,7 +37,7 @@ describe('Mouse Humanization Extension Handlers', () => {
     vi.clearAllMocks();
     wsConnection = createMockWsConnection();
     sessionContext = new SessionContext();
-    sessionContext.attachedTabId = 42;
+    sessionContext.getSession().attachedTabId = 42;
     mockCdp = createMockCdp();
     registerMouseHandlers(wsConnection, sessionContext, mockCdp);
   });
@@ -80,7 +80,7 @@ describe('Mouse Humanization Extension Handlers', () => {
         ],
       });
 
-      const pos = sessionContext.cursorPositions.get(42);
+      const pos = sessionContext.getSession().cursorPositions.get(42);
       expect(pos).toEqual({ x: 300, y: 400 });
     });
 
@@ -94,7 +94,7 @@ describe('Mouse Humanization Extension Handlers', () => {
     });
 
     it('throws when no tab attached', async () => {
-      sessionContext.attachedTabId = null;
+      sessionContext.getSession().attachedTabId = null;
       const handler = wsConnection._getHandler('humanizedMouseMove');
 
       await expect(handler({ waypoints: [{ x: 0, y: 0, delayMs: 0 }] }))
@@ -116,7 +116,7 @@ describe('Mouse Humanization Extension Handlers', () => {
 
       expect(result.success).toBe(true);
       expect(result.enabled).toBe(true);
-      expect(sessionContext.humanizationConfig.enabled).toBe(true);
+      expect(sessionContext.getSession().humanizationConfig.enabled).toBe(true);
       expect(mockChrome.alarms.create).toHaveBeenCalledWith(
         'mouse-idle-drift',
         expect.objectContaining({ delayInMinutes: expect.any(Number) })
@@ -132,7 +132,7 @@ describe('Mouse Humanization Extension Handlers', () => {
 
       expect(result.success).toBe(true);
       expect(result.enabled).toBe(false);
-      expect(sessionContext.humanizationConfig.enabled).toBe(false);
+      expect(sessionContext.getSession().humanizationConfig.enabled).toBe(false);
       expect(mockChrome.alarms.clear).toHaveBeenCalledWith('mouse-idle-drift');
     });
   });
@@ -164,7 +164,7 @@ describe('Mouse Humanization Extension Handlers', () => {
     });
 
     it('throws when no tab attached', async () => {
-      sessionContext.attachedTabId = null;
+      sessionContext.getSession().attachedTabId = null;
       const handler = wsConnection._getHandler('getViewportDimensions');
 
       await expect(handler({})).rejects.toThrow('No tab attached');
@@ -183,22 +183,22 @@ describe('handleIdleDrift()', () => {
   });
 
   it('does nothing when humanization is disabled', async () => {
-    sessionContext.humanizationConfig = { enabled: false };
+    sessionContext.getSession().humanizationConfig = { enabled: false };
     await handleIdleDrift(sessionContext, mockCdp);
     expect(mockCdp).not.toHaveBeenCalled();
   });
 
   it('does nothing when no tab is attached', async () => {
-    sessionContext.humanizationConfig = { enabled: true };
-    sessionContext.attachedTabId = null;
+    sessionContext.getSession().humanizationConfig = { enabled: true };
+    sessionContext.getSession().attachedTabId = null;
     await handleIdleDrift(sessionContext, mockCdp);
     expect(mockCdp).not.toHaveBeenCalled();
   });
 
   it('dispatches a small drift from current position', async () => {
-    sessionContext.humanizationConfig = { enabled: true };
-    sessionContext.attachedTabId = 42;
-    sessionContext.cursorPositions.set(42, { x: 500, y: 300 });
+    sessionContext.getSession().humanizationConfig = { enabled: true };
+    sessionContext.getSession().attachedTabId = 42;
+    sessionContext.getSession().cursorPositions.set(42, { x: 500, y: 300 });
 
     await handleIdleDrift(sessionContext, mockCdp);
 
@@ -215,14 +215,14 @@ describe('handleIdleDrift()', () => {
   });
 
   it('updates cursor position after drift', async () => {
-    sessionContext.humanizationConfig = { enabled: true };
-    sessionContext.attachedTabId = 42;
-    sessionContext.cursorPositions.set(42, { x: 500, y: 500 });
+    sessionContext.getSession().humanizationConfig = { enabled: true };
+    sessionContext.getSession().attachedTabId = 42;
+    sessionContext.getSession().cursorPositions.set(42, { x: 500, y: 500 });
 
     await handleIdleDrift(sessionContext, mockCdp);
 
     // Verify CDP was called with coordinates from the drift
-    const pos = sessionContext.cursorPositions.get(42);
+    const pos = sessionContext.getSession().cursorPositions.get(42);
     expect(pos).toBeDefined();
     // The new position should match what was dispatched to CDP
     const cdpCall = mockCdp.mock.calls[0];
@@ -231,8 +231,8 @@ describe('handleIdleDrift()', () => {
   });
 
   it('schedules next drift alarm', async () => {
-    sessionContext.humanizationConfig = { enabled: true };
-    sessionContext.attachedTabId = 42;
+    sessionContext.getSession().humanizationConfig = { enabled: true };
+    sessionContext.getSession().attachedTabId = 42;
 
     await handleIdleDrift(sessionContext, mockCdp);
 
@@ -243,8 +243,8 @@ describe('handleIdleDrift()', () => {
   });
 
   it('handles CDP failures gracefully', async () => {
-    sessionContext.humanizationConfig = { enabled: true };
-    sessionContext.attachedTabId = 42;
+    sessionContext.getSession().humanizationConfig = { enabled: true };
+    sessionContext.getSession().attachedTabId = 42;
     mockCdp.mockRejectedValueOnce(new Error('Tab closed'));
 
     // Should not throw

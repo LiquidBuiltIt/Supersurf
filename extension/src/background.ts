@@ -78,8 +78,7 @@ chrome.tabs.onCreated.addListener((tab) => {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tabHandlers) return;
 
-  const attachedTabId = tabHandlers.getAttachedTabId();
-  if (tabId === attachedTabId && changeInfo.url && wsConnection) {
+  if (tabHandlers.isTabAttachedByAnySession(tabId) && changeInfo.url && wsConnection) {
     wsConnection.sendNotification('notifications/tab_info_update', {
       currentTab: {
         id: tab.id,
@@ -101,8 +100,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (details.frameId !== 0) return;
   if (!domainWhitelist || !tabHandlers) return;
 
-  const attachedTabId = tabHandlers.getAttachedTabId();
-  if (details.tabId !== attachedTabId) return;
+  if (!tabHandlers.isTabAttachedByAnySession(details.tabId)) return;
 
   if (!domainWhitelist.isDomainAllowed(details.url)) {
     // onBeforeNavigate fires before the navigation commits — the tab is
@@ -383,7 +381,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // Honor an explicit tabId from the caller so concurrent callers don't
     // collide on the shared attached-tab global. The resolver falls back to
     // the attached tab (with recovery) when no tabId is given.
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
 
     const action = params.action || 'url';
     if (action === 'url') {
@@ -452,7 +451,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   // forwardCDPCommand — Generic CDP passthrough for server-side tools
   // that need direct CDP access (e.g., CSS inspection, accessibility tree).
   wsConnection.registerCommandHandler('forwardCDPCommand', async (params) => {
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
     return await cdp(tabId, params.method, params.params || {});
   });
 
@@ -462,7 +462,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   // Bot-detection bypass: shouldUnwrap/wrapWithUnwrap temporarily restores native
   // DOM methods that pages may have overridden to detect automation.
   wsConnection.registerCommandHandler('evaluate', async (params) => {
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
 
     const code = params.function || params.expression || '';
 
@@ -499,13 +500,15 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
   // snapshot (accessible DOM)
   wsConnection.registerCommandHandler('snapshot', async (params) => {
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
     return await cdp(tabId, 'Accessibility.getFullAXTree', {});
   });
 
   // screenshot
   wsConnection.registerCommandHandler('screenshot', async (params) => {
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
 
     const captureParams: any = {
       format: params.type || 'jpeg',
@@ -526,20 +529,23 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
   // consoleMessages
   wsConnection.registerCommandHandler('consoleMessages', async (params) => {
-    const tabId = tabHandlers.getAttachedTabId();
-    return { messages: consoleHandler.getMessages(tabId || undefined) };
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = tabHandlers.getAttachedTabId(sid);
+    return { messages: consoleHandler.getMessages(tabId ?? undefined) };
   });
 
   // networkRequests — a session reads its own tab's traffic and nothing else:
   // request and response headers and bodies are in these records.
-  wsConnection.registerCommandHandler('networkRequests', async () => {
-    const tabId = tabHandlers.getAttachedTabId();
+  wsConnection.registerCommandHandler('networkRequests', async (params) => {
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = tabHandlers.getAttachedTabId(sid);
     return { requests: networkTracker.getRequests(tabId) };
   });
 
   // clearNetwork
-  wsConnection.registerCommandHandler('clearNetwork', async () => {
-    const tabId = tabHandlers.getAttachedTabId();
+  wsConnection.registerCommandHandler('clearNetwork', async (params) => {
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = tabHandlers.getAttachedTabId(sid);
     networkTracker.clearRequests(tabId);
     // CDP records carry no tabId yet (Task 5 adds it), so this filter is a
     // no-op today — it deletes nothing for any real session tab. That is
@@ -569,7 +575,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     if (!pending) {
       return { dialog: null, note: 'No native dialog is currently open.' };
     }
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
     await dialogHandler.handle(tabId, action === 'accept', params.text ?? '');
     sessionContext.dialogPending = false;
     return { dialog: { ...pending, resolved: action } };
@@ -577,7 +584,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
   // window management
   wsConnection.registerCommandHandler('window', async (params) => {
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
 
     const tab = await chrome.tabs.get(tabId);
     const windowId = tab.windowId;
@@ -608,7 +616,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
   // performance metrics
   wsConnection.registerCommandHandler('performanceMetrics', async (params) => {
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
     const result = await cdp(tabId, 'Performance.getMetrics', {});
     return { metrics: result.metrics };
   });
@@ -622,7 +631,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   // Runs in MAIN world (not isolated) so it can interact with page-level input frameworks.
   // Types character-by-character with randomized delays to mimic human input.
   wsConnection.registerCommandHandler('secure_fill', async (params) => {
-    const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
 
     const results = await chrome.scripting.executeScript({
       target: { tabId },
@@ -668,7 +678,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   // drainSpawnedTabs — returns and clears tabs created since a given timestamp
   wsConnection.registerCommandHandler('drainSpawnedTabs', async (params) => {
     const since = params?.since || 0;
-    const attachedTabId = tabHandlers.getAttachedTabId();
+    const sid = (params?._sessionId as string | undefined) ?? null;
+    const attachedTabId = tabHandlers.getAttachedTabId(sid);
 
     const spawned: any[] = [];
     const remaining: typeof spawnedTabBuffer = [];
@@ -703,10 +714,9 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   // whitelist toggling). Each handler returns true to indicate async sendResponse.
   chrome.runtime.onMessage.addListener((message: any, _sender: any, sendResponse: any) => {
     if (message.type === 'getStatus') {
-      const attachedTabId = tabHandlers.getAttachedTabId();
       sendResponse({
         connected: wsConnection.isConnected,
-        currentTabConnected: attachedTabId !== null,
+        currentTabConnected: tabHandlers.hasAnyAttachedTab(),
         stealthMode: null,
         projectName: wsConnection.projectName,
         versionError: wsConnection.versionError,

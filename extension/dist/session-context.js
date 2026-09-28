@@ -47,8 +47,9 @@ function deserializeSession(s) {
  * State is written through to chrome.storage.session on every mutation
  * so it survives MV3 service worker suspension cycles.
  *
- * The convenience accessors (attachedTabId, stealthMode, etc.) delegate to
- * the null-key session for backwards compatibility with single-client usage.
+ * There are no no-arg convenience accessors — callers must go through
+ * `getSession(sessionId)` so the compiler names anyone who forgets which
+ * session they're acting for.
  */
 export class SessionContext {
     /** Whether the WebSocket connection to the MCP server is active. */
@@ -117,35 +118,18 @@ export class SessionContext {
     persistSession() {
         this.persist();
     }
-    // Convenience accessors for single-client backwards compat
-    // These delegate to the null-key session.
-    get attachedTabId() {
-        return this.getSession().attachedTabId;
+    /**
+     * Every live session's state, for operations that are not attributable to a
+     * caller — a tab-close event names a tab, not a session, so cleanup has to
+     * sweep all of them.
+     */
+    sessionEntries() {
+        return [...this.sessions.entries()];
     }
-    set attachedTabId(value) {
-        this.getSession().attachedTabId = value;
-        this.persist();
-    }
-    get stealthMode() {
-        return this.getSession().stealthMode;
-    }
-    set stealthMode(value) {
-        this.getSession().stealthMode = value;
-        this.persist();
-    }
-    get stealthTabs() {
-        return this.getSession().stealthTabs;
-    }
-    get cursorPositions() {
-        return this.getSession().cursorPositions;
-    }
-    get humanizationConfig() {
-        return this.getSession().humanizationConfig;
-    }
-    set humanizationConfig(value) {
-        this.getSession().humanizationConfig = value;
-        this.persist();
-    }
+    // No no-arg accessors. A no-arg read resolved the `null` map key, so every
+    // caller that omitted the session id shared one global tab pointer across
+    // concurrent agents (D1). Callers use `getSession(sessionId)` and the
+    // compiler now names anyone who forgets. Do not add them back.
     /**
      * Clear all persisted session state from chrome.storage.session.
      * Called on disable/disconnect to prevent unbounded growth across
