@@ -87,7 +87,7 @@ export class BrowserBridge {
     // costs one regex test. Gate + store access live in the experimental module —
     // this is the thin delegation hook.
     const resolveSelectorSync = (selector: string): string =>
-      resolveSelectorOrHandle(this.connectionManager?.getAttachedTab()?.url, selector).selector;
+      resolveSelectorOrHandle(this.connectionManager?.getAttachedTab()?.url, selector, this.connectionManager?.clientId ?? null).selector;
     const emitHandle = (ev: import('./experimental/fingerprinting/index').AnyHandleEvent) =>
       this.metricsLogger?.write({
         session_id: this.connectionManager?.clientId ?? 'unknown',
@@ -178,7 +178,7 @@ export class BrowserBridge {
             : { cx: hit.cx, cy: hit.cy, score: hit.score };
         }),
       resolveSelector: resolveSelectorSync,
-      getHandleIndex: () => buildHandleIndex(this.connectionManager?.getAttachedTab()?.url),
+      getHandleIndex: () => buildHandleIndex(this.connectionManager?.getAttachedTab()?.url, this.connectionManager?.clientId ?? null),
       getSelectorExpression: (selector: string) => getSelectorExpression(resolveSelectorSync(selector)),
       getAllSelectorExpression: (selector: string) => getAllSelectorExpression(resolveSelectorSync(selector)),
       findAlternativeSelectors: (selector: string) =>

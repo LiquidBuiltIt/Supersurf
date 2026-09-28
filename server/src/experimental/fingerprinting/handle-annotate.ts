@@ -69,9 +69,9 @@ function derivedKeysFor(rec: FingerprintRecord): string[] {
  * no usable domain, or nothing was ever recorded on this exact route — callers then
  * render exactly as they did before. Never throws.
  */
-export function buildHandleIndex(url: string | undefined): HandleIndex {
+export function buildHandleIndex(url: string | undefined, sessionId: string | null): HandleIndex {
   const index: HandleIndex = new Map();
-  if (!experimentRegistry.isEnabled('fingerprinting')) return index;
+  if (!experimentRegistry.isEnabled('fingerprinting', sessionId)) return index;
 
   const domain = domainOf(url);
   // Nothing is ever persisted into the 'unknown' bucket (see captureOnResolve).

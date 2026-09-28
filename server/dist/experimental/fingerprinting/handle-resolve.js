@@ -157,7 +157,7 @@ function resolveHandleName(domain, route, name) {
  * hand the CSS path a syntactically invalid selector (`@foo`) instead of a clean
  * (if pointless) query for `foo`.
  */
-function resolveSelectorOrHandle(url, selector) {
+function resolveSelectorOrHandle(url, selector, sessionId) {
     if (!isHandleRef(selector)) {
         return { selector, handle: null, attempted: false };
     }
@@ -167,7 +167,7 @@ function resolveSelectorOrHandle(url, selector) {
     // them lets a freshly minted hint name that collides on text shadow a real
     // persisted handle, which breaks the "first name sticks" invariant enforced
     // in handle-meta.ts:49-60.
-    if (index_1.experimentRegistry.isEnabled('fingerprinting')) {
+    if (index_1.experimentRegistry.isEnabled('fingerprinting', sessionId)) {
         const domain = (0, url_1.domainOf)(url);
         // Nothing is ever persisted into the 'unknown' bucket (see captureOnResolve),
         // so there is nothing to resolve against.

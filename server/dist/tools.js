@@ -66,7 +66,7 @@ class BrowserBridge {
         // Handle→selector translation. Synchronous and idempotent; a plain CSS selector
         // costs one regex test. Gate + store access live in the experimental module —
         // this is the thin delegation hook.
-        const resolveSelectorSync = (selector) => (0, handle_resolve_1.resolveSelectorOrHandle)(this.connectionManager?.getAttachedTab()?.url, selector).selector;
+        const resolveSelectorSync = (selector) => (0, handle_resolve_1.resolveSelectorOrHandle)(this.connectionManager?.getAttachedTab()?.url, selector, this.connectionManager?.clientId ?? null).selector;
         const emitHandle = (ev) => this.metricsLogger?.write({
             session_id: this.connectionManager?.clientId ?? 'unknown',
             tool: 'handle',
@@ -139,7 +139,7 @@ class BrowserBridge {
                     : { cx: hit.cx, cy: hit.cy, score: hit.score };
             }),
             resolveSelector: resolveSelectorSync,
-            getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.connectionManager?.getAttachedTab()?.url),
+            getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.connectionManager?.getAttachedTab()?.url, this.connectionManager?.clientId ?? null),
             getSelectorExpression: (selector) => (0, element_resolver_1.getSelectorExpression)(resolveSelectorSync(selector)),
             getAllSelectorExpression: (selector) => (0, element_resolver_1.getAllSelectorExpression)(resolveSelectorSync(selector)),
             findAlternativeSelectors: (selector) => (0, element_resolver_1.findAlternativeSelectors)(evalFnBound, selector, this.connectionManager?.clientId),

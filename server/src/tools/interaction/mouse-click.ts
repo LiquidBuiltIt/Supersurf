@@ -22,7 +22,7 @@ registerAction({
       if (el && (el.closest('a[href]') || el.onclick)) el.click();
     })()`).catch(() => {});
 
-    if (experimentRegistry.isEnabled('smart_waiting')) {
+    if (experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null)) {
       try { await ctx.ext.sendCmd('waitForReady', { timeout: 3000, stabilityMs: 300, tabId: ctx.tabId }); }
       catch { /* non-blocking */ }
     }

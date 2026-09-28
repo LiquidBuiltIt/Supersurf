@@ -24,7 +24,7 @@ export function humanizationSessionId(ctx: ToolContext): string {
 }
 
 export async function moveCursorTo(ctx: ToolContext, x: number, y: number): Promise<void> {
-  if (experimentRegistry.isEnabled('mouse_humanization')) {
+  if (experimentRegistry.isEnabled('mouse_humanization', ctx.connectionManager?.clientId ?? null)) {
     try {
       const viewport = await getViewportSize(ctx);
       const waypoints = generateMovement(humanizationSessionId(ctx), x, y, viewport);

@@ -89,8 +89,8 @@ async function captureOnResolve(evalFn, url, selector, meta, emitHandle, preload
  * so `getCenterInFrame`'s frame-walk fallback calls this with an `evalFn` already bound to
  * the child frame's execution context. Gated + fire-and-forget; never throws.
  */
-async function captureInContext(evalInContext, url, selector, meta, emitHandle) {
-    if (!index_1.experimentRegistry.isEnabled('fingerprinting'))
+async function captureInContext(evalInContext, url, selector, meta, emitHandle, getSessionId) {
+    if (!index_1.experimentRegistry.isEnabled('fingerprinting', getSessionId?.() ?? null))
         return;
     await captureOnResolve(evalInContext, url, selector, meta, emitHandle);
 }
@@ -114,8 +114,8 @@ async function healOnMiss(evalFn, url, selector) {
  * top-frame coords), or null when there's no record / the gate fails. Gated;
  * never throws.
  */
-async function healInContext(evalInContext, url, selector) {
-    if (!index_1.experimentRegistry.isEnabled('fingerprinting'))
+async function healInContext(evalInContext, url, selector, getSessionId) {
+    if (!index_1.experimentRegistry.isEnabled('fingerprinting', getSessionId?.() ?? null))
         return null;
     try {
         const attempt = await healOnMiss(evalInContext, url, selector);
@@ -138,9 +138,9 @@ async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHand
     // `query` is used as the page query, the capture key AND the heal key, and a
     // stray `@` marker left in place would be a syntactically invalid CSS selector
     // on all three, gate on or off.
-    const translated = (0, handle_resolve_1.resolveSelectorOrHandle)(url, selector);
+    const translated = (0, handle_resolve_1.resolveSelectorOrHandle)(url, selector, getSessionId?.() ?? null);
     const query = translated.selector;
-    if (!index_1.experimentRegistry.isEnabled('fingerprinting')) {
+    if (!index_1.experimentRegistry.isEnabled('fingerprinting', getSessionId?.() ?? null)) {
         try {
             const center = await (0, element_resolver_1.getElementCenter)(evalFn, query, getSessionId?.());
             // Ephemeral tier-2 resolution is deliberately OUTSIDE the experiment gate

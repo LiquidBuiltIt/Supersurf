@@ -129,8 +129,9 @@ export async function captureInContext(
   selector: string,
   meta?: HandleMeta,
   emitHandle?: HandleEmit,
+  getSessionId?: () => string | undefined,
 ): Promise<void> {
-  if (!experimentRegistry.isEnabled('fingerprinting')) return;
+  if (!experimentRegistry.isEnabled('fingerprinting', getSessionId?.() ?? null)) return;
   await captureOnResolve(evalInContext, url, selector, meta, emitHandle);
 }
 
@@ -161,8 +162,13 @@ export async function healOnMiss(evalFn: EvalFn, url: string | undefined, select
  * top-frame coords), or null when there's no record / the gate fails. Gated;
  * never throws.
  */
-export async function healInContext(evalInContext: EvalFn, url: string | undefined, selector: string): Promise<ScoreHit | null> {
-  if (!experimentRegistry.isEnabled('fingerprinting')) return null;
+export async function healInContext(
+  evalInContext: EvalFn,
+  url: string | undefined,
+  selector: string,
+  getSessionId?: () => string | undefined,
+): Promise<ScoreHit | null> {
+  if (!experimentRegistry.isEnabled('fingerprinting', getSessionId?.() ?? null)) return null;
   try {
     const attempt = await healOnMiss(evalInContext, url, selector);
     return attempt.hit; // non-null ONLY when the gate passed
@@ -212,10 +218,10 @@ export async function resolveWithHealing(
   // `query` is used as the page query, the capture key AND the heal key, and a
   // stray `@` marker left in place would be a syntactically invalid CSS selector
   // on all three, gate on or off.
-  const translated = resolveSelectorOrHandle(url, selector);
+  const translated = resolveSelectorOrHandle(url, selector, getSessionId?.() ?? null);
   const query = translated.selector;
 
-  if (!experimentRegistry.isEnabled('fingerprinting')) {
+  if (!experimentRegistry.isEnabled('fingerprinting', getSessionId?.() ?? null)) {
     try {
       const center = await getElementCenter(evalFn, query, getSessionId?.());
       // Ephemeral tier-2 resolution is deliberately OUTSIDE the experiment gate

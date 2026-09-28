@@ -7,7 +7,7 @@ export type HandleIndex = Map<string, string>;
  * no usable domain, or nothing was ever recorded on this exact route — callers then
  * render exactly as they did before. Never throws.
  */
-export declare function buildHandleIndex(url: string | undefined): HandleIndex;
+export declare function buildHandleIndex(url: string | undefined, sessionId: string | null): HandleIndex;
 /**
  * Render a selector for agent-facing output, substituting the recorded handle when
  * there is one. An unrecorded selector comes back byte-identical.

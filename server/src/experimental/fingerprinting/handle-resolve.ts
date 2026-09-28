@@ -191,6 +191,7 @@ export interface SelectorOrHandle {
 export function resolveSelectorOrHandle(
   url: string | undefined,
   selector: string,
+  sessionId: string | null,
 ): SelectorOrHandle {
   if (!isHandleRef(selector)) {
     return { selector, handle: null, attempted: false };
@@ -202,7 +203,7 @@ export function resolveSelectorOrHandle(
   // them lets a freshly minted hint name that collides on text shadow a real
   // persisted handle, which breaks the "first name sticks" invariant enforced
   // in handle-meta.ts:49-60.
-  if (experimentRegistry.isEnabled('fingerprinting')) {
+  if (experimentRegistry.isEnabled('fingerprinting', sessionId)) {
     const domain = domainOf(url);
     // Nothing is ever persisted into the 'unknown' bucket (see captureOnResolve),
     // so there is nothing to resolve against.
