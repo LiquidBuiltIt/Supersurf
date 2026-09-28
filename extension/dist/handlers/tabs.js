@@ -531,7 +531,8 @@ export class TabHandlers {
         }
         this.ctx.persistSession();
         this.techStackInfo.delete(tabId);
-        this.iconManager.setAttachedTab(null);
+        if (orphaned.length > 0)
+            this.iconManager.setAttachedTab(null);
         for (const sessionId of orphaned) {
             this.autoReattach(sessionId).catch(() => { });
         }

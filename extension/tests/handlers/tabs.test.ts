@@ -339,9 +339,12 @@ describe('TabHandlers', () => {
       mockChrome.tabs.create.mockResolvedValue(createdTab);
       await tabs.createTab({});
 
+      mockIconManager.setAttachedTab.mockClear();
+
       tabs.handleTabClosed(999);
 
       expect(tabs.getAttachedTabId(null)).toBe(80);
+      expect(mockIconManager.setAttachedTab).not.toHaveBeenCalled();
     });
 
     it('cleans up stealth and techStack maps', async () => {
