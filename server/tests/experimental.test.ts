@@ -204,12 +204,17 @@ describe('ExperimentRegistry (IPC proxy)', () => {
       expect(experimentRegistry.isEnabled('fingerprinting', null)).toBe(true);
     });
 
-    it('a playbook run\'s fingerprinting activation does not reach the calling agent', () => {
+    it('a playbook run\'s fingerprinting activation does not leak through an omitted session id', () => {
       experimentRegistry.bind('agent', mockTransport());
       experimentRegistry.bind('pb-run-1', mockTransport());
       experimentRegistry.enable('pb-run-1', 'fingerprinting'); // what runner.ts does for meta.experiments
-      expect(experimentRegistry.isEnabled('fingerprinting', 'pb-run-1')).toBe(true);
-      expect(experimentRegistry.isEnabled('fingerprinting', 'agent')).toBe(false);
+
+      // The two explicit-id assertions this test used to carry held before the
+      // fix too — the signature was isEnabled(feature, sessionId?) and only the
+      // OMITTED id unioned. So the omission is the only thing worth asserting,
+      // and `as any` is deliberate: the parameter is now required, and this
+      // pins the runtime answer a JS caller or a stale compiled call site gets.
+      expect((experimentRegistry.isEnabled as any)('fingerprinting')).toBe(false);
     });
   });
 
