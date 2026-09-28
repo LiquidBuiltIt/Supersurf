@@ -130,7 +130,7 @@ async function healInContext(evalInContext, url, selector, getSessionId) {
  * to getElementCenter. When ON: captures on success, heals on miss, escalates (rethrows)
  * if healing fails.
  */
-async function resolveWithHealing(evalFn, selector, getUrl, emit, meta, emitHandle, getSessionId) {
+async function resolveWithHealing(evalFn, selector, getUrl, getSessionId, emit, meta, emitHandle) {
     const url = getUrl();
     const domain = (0, url_2.domainOf)(url), route = (0, url_2.routeOf)(url);
     // Translate a handle reference to the selector it was captured against. Must

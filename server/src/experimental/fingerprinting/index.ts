@@ -205,10 +205,10 @@ export async function resolveWithHealing(
   evalFn: EvalFn,
   selector: string,
   getUrl: () => string | undefined,
+  getSessionId: () => string | undefined,
   emit?: HealEmit,
   meta?: HandleMeta,
   emitHandle?: HandleEmit,
-  getSessionId?: () => string | undefined,
 ): Promise<{ x: number; y: number; text: string; label: string }> {
   const url = getUrl();
   const domain = domainOf(url), route = routeOf(url);

@@ -110,6 +110,7 @@ export class BrowserBridge {
           evalFnBound,
           selector,
           () => this.connectionManager?.getAttachedTab()?.url,
+          () => this.connectionManager?.clientId,
           (ev) =>
             this.metricsLogger?.write({
               session_id: this.connectionManager?.clientId ?? 'unknown',
@@ -120,7 +121,6 @@ export class BrowserBridge {
             }),
           meta,
           emitHandle,
-          () => this.connectionManager?.clientId,
         ),
       captureFingerprintInContext: (contextId: number | null, selector: string, meta?: import('./experimental/fingerprinting/handle-meta').HandleMeta) =>
         void captureInContext(

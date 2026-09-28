@@ -83,13 +83,13 @@ class BrowserBridge {
             cdp: (method, params) => (0, cdp_1.cdp)(ext, method, params, tabId),
             eval: evalFnBound,
             sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
-            getElementCenter: (selector, meta) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.connectionManager?.getAttachedTab()?.url, (ev) => this.metricsLogger?.write({
+            getElementCenter: (selector, meta) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.connectionManager?.getAttachedTab()?.url, () => this.connectionManager?.clientId, (ev) => this.metricsLogger?.write({
                 session_id: this.connectionManager?.clientId ?? 'unknown',
                 tool: 'fingerprint',
                 params: ev,
                 result: 'ok',
                 duration_ms: 0,
-            }), meta, emitHandle, () => this.connectionManager?.clientId),
+            }), meta, emitHandle),
             captureFingerprintInContext: (contextId, selector, meta) => void (0, index_2.captureInContext)((expr) => {
                 const params = { expression: expr, returnByValue: true };
                 if (contextId != null)
