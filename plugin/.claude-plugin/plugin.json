@@ -1,0 +1,11 @@
+{
+  "name": "supersurf",
+  "description": "Skills for driving a real Chrome browser through the SuperSurf MCP server.",
+  "author": {
+    "name": "LiquidBuiltIt"
+  },
+  "homepage": "https://liquidbuiltit.github.io/Supersurf",
+  "repository": "https://github.com/LiquidBuiltIt/Supersurf",
+  "license": "SEE LICENSE IN LICENSE",
+  "keywords": ["browser", "automation", "chrome", "mcp"]
+}

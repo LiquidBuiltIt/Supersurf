@@ -1,0 +1,14 @@
+{
+  "name": "supersurf",
+  "description": "The SuperSurf plugin for Claude Code.",
+  "owner": {
+    "name": "LiquidBuiltIt"
+  },
+  "plugins": [
+    {
+      "name": "supersurf",
+      "description": "Skills for driving a real Chrome browser through the SuperSurf MCP server.",
+      "source": "./plugin"
+    }
+  ]
+}
