@@ -17,6 +17,7 @@ function createSessionState() {
         stealthTabs: new Map(),
         cursorPositions: new Map(),
         humanizationConfig: { enabled: false },
+        dialogPendingTabs: new Set(),
     };
 }
 function serializeSession(s) {
@@ -35,6 +36,8 @@ function deserializeSession(s) {
         stealthTabs: new Map(s.stealthTabs || []),
         cursorPositions: new Map(s.cursorPositions || []),
         humanizationConfig: s.humanizationConfig || { enabled: false },
+        // Not persisted — see the field's doc comment on SessionState.
+        dialogPendingTabs: new Set(),
     };
 }
 /**
@@ -58,10 +61,6 @@ export class SessionContext {
      *  once; the previous single-tab global made agent B's screenshot detach
      *  agent A's tab and silently kill A's network capture. */
     _attachedDebuggerTabs = new Set();
-    /** True while a native dialog is held open and blocking the renderer.
-     *  In-memory only — deliberately NOT persisted so a service-worker restart
-     *  clears it (a stale-true flag would wedge the session). */
-    _dialogPending = false;
     // Per-session state. null key = single-client mode (backwards compat).
     sessions = new Map();
     /** Reference to chrome.storage.session for persistence. */
@@ -88,8 +87,6 @@ export class SessionContext {
     markDebuggerDetached(tabId) { this._attachedDebuggerTabs.delete(tabId); this.persist(); }
     /** Every tab currently attached — for the CDP event filter. */
     attachedDebuggerTabs() { return [...this._attachedDebuggerTabs]; }
-    get dialogPending() { return this._dialogPending; }
-    set dialogPending(value) { this._dialogPending = value; }
     /**
      * Get or lazily create the session state for a given session ID.
      * @param sessionId - Session identifier, or null/undefined for single-client mode

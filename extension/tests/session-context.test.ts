@@ -184,20 +184,21 @@ describe('SessionContext', () => {
   });
 });
 
-describe('SessionContext.dialogPending', () => {
-  it('defaults to false', () => {
-    expect(new SessionContext().dialogPending).toBe(false);
+describe('SessionContext.dialogPendingTabs (per session)', () => {
+  it('defaults to an empty set', () => {
+    expect(new SessionContext().getSession(null).dialogPendingTabs.size).toBe(0);
   });
 
-  it('is settable and gettable', () => {
+  it('is settable and gettable per session', () => {
     const ctx = new SessionContext();
-    ctx.dialogPending = true;
-    expect(ctx.dialogPending).toBe(true);
-    ctx.dialogPending = false;
-    expect(ctx.dialogPending).toBe(false);
+    const session = ctx.getSession(null);
+    session.dialogPendingTabs.add(7);
+    expect(session.dialogPendingTabs.has(7)).toBe(true);
+    session.dialogPendingTabs.delete(7);
+    expect(session.dialogPendingTabs.has(7)).toBe(false);
   });
 
-  it('is NOT included in persisted serialized state', async () => {
+  it('is NOT included in persisted serialized session state', async () => {
     const store: Record<string, any> = {};
     const chromeRef: any = {
       storage: { session: {
@@ -208,10 +209,11 @@ describe('SessionContext.dialogPending', () => {
     };
     const ctx = new SessionContext();
     await ctx.init(chromeRef);
-    ctx.dialogPending = true;        // must NOT persist
-    ctx.connected = true;            // DOES persist — forces a write-through
+    ctx.getSession(null).dialogPendingTabs.add(7);   // must NOT persist
+    ctx.connected = true;                            // DOES persist — forces a write-through
     const persisted = store['__supersurf_session_state'];
     expect(persisted).toBeDefined();
-    expect('dialogPending' in persisted).toBe(false);
+    const session = persisted.sessions['__null__'];
+    expect('dialogPendingTabs' in session).toBe(false);
   });
 });

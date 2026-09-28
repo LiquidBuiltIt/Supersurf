@@ -226,10 +226,13 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         const req = cdpNetworkRequests.get(params.requestId);
         if (req) req.completed = true;
       } else if (method === 'Page.javascriptDialogOpening') {
-        // CDP holds the dialog open until we call Page.handleJavaScriptDialog.
-        // Record it, flag the session, and wake any in-flight command's race.
-        dialogHandler.onDialogOpening(params);
-        sessionContext.dialogPending = true;
+        // CDP holds the dialog open until Page.handleJavaScriptDialog. Record it
+        // against its tab and flag ONLY the sessions attached to that tab: Chrome
+        // freezes one renderer, and the harness must not be coarser than that.
+        dialogHandler.onDialogOpening(sourceTabId, params);
+        for (const [, s] of sessionContext.sessionEntries()) {
+          if (s.attachedTabId === sourceTabId) s.dialogPendingTabs.add(sourceTabId);
+        }
         wsConnection.notifyDialogOpened();
       }
     } catch (e) {
@@ -238,11 +241,14 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   });
 
   chromeDebugger.onDetach.addListener((source) => {
-    // Fires per tab — clear only that tab's attachment, never every tab.
+    // Fires per tab — clear only that tab's attachment and pending dialog,
+    // never every tab. Sweeping dialogPendingTabs across all sessions (rather
+    // than a global flag) means tab B detaching can't clear a dialog still
+    // held on tab A.
     if (source.tabId === undefined || !sessionContext.isDebuggerAttached(source.tabId)) return;
     sessionContext.markDebuggerDetached(source.tabId);
-    dialogHandler.clearPending();
-    sessionContext.dialogPending = false;
+    dialogHandler.clearPending(source.tabId);
+    for (const [, s] of sessionContext.sessionEntries()) s.dialogPendingTabs.delete(source.tabId);
     logger.log('[Background] Debugger detached from tab', source.tabId);
   });
 
@@ -334,12 +340,17 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
   // Every response carries the currently-held native dialog (if any) in
   // `_dialogs`, so the triggering tool's own result surfaces it.
-  wsConnection.setDialogEventProvider(() => {
-    const held = dialogHandler.getPending();
+  wsConnection.setDialogEventProvider((sessionId: string | null) => {
+    const tabId = tabHandlers.getAttachedTabId(sessionId);
+    const held = tabId === null ? null : dialogHandler.getPending(tabId);
     return held ? [held] : [];
   });
-  // Short-circuit page-touching commands while a dialog blocks the renderer.
-  wsConnection.setDialogPendingChecker(() => sessionContext.dialogPending);
+
+  // Short-circuit page-touching commands only for the session whose own tab is
+  // frozen. A dialog in another agent's tab never blocked this one in Chrome.
+  wsConnection.setDialogPendingChecker(
+    (sessionId: string | null) => sessionContext.getSession(sessionId).dialogPendingTabs.size > 0
+  );
 
   // ── Register command handlers ──
   // Each handler corresponds to a JSON-RPC method the server can invoke.
@@ -554,26 +565,25 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
   // dialog
   wsConnection.registerCommandHandler('dialog', async (params) => {
+    const sid = (params?._sessionId as string | undefined) ?? null;
     // action defaults: explicit `action` wins; else legacy `accept` maps
     // (true→accept, false→dismiss); else `view`.
     const action: 'view' | 'accept' | 'dismiss' =
       params.action ??
       (params.accept === undefined ? 'view' : params.accept ? 'accept' : 'dismiss');
 
-    const pending = dialogHandler.getPending();
-    // `view` is a pure state read — answer before any tab work. A held dialog
-    // freezes the renderer, so ensureAttachedTab can hang exactly when the
-    // agent most needs to see what dialog is blocking.
-    if (action === 'view') {
-      return { dialog: pending };
-    }
-    if (!pending) {
-      return { dialog: null, note: 'No native dialog is currently open.' };
-    }
-    const sid = (params?._sessionId as string | undefined) ?? null;
-    const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
-    await dialogHandler.handle(tabId, action === 'accept', params.text ?? '');
-    sessionContext.dialogPending = false;
+    // Resolve the tab WITHOUT ensureAttachedTab: a held dialog freezes the
+    // renderer, so tab work can hang exactly when the agent most needs to see
+    // what is blocking. This was already true of `view`; it is true of the
+    // resolve path too.
+    const tabId = tabHandlers.getAttachedTabId(sid);
+    const pending = tabId === null ? null : dialogHandler.getPending(tabId);
+
+    if (action === 'view') return { dialog: pending };
+    if (!pending) return { dialog: null, note: 'No native dialog is currently open.' };
+
+    await dialogHandler.handle(pending.tabId, action === 'accept', params.text ?? '');
+    for (const [, s] of sessionContext.sessionEntries()) s.dialogPendingTabs.delete(pending.tabId);
     return { dialog: { ...pending, resolved: action } };
   });
 
@@ -727,8 +737,9 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     if (message.type === 'disableExtension') {
       chrome.storage.local.set({ extensionEnabled: false });
       wsConnection.disconnect();
-      dialogHandler.clearPending();
-      sessionContext.dialogPending = false;
+      // Global teardown — clear every tab's held dialog and every session's flag.
+      for (const tabId of sessionContext.attachedDebuggerTabs()) dialogHandler.clearPending(tabId);
+      for (const [, s] of sessionContext.sessionEntries()) s.dialogPendingTabs.clear();
       sessionContext.clearStorage();
       sendResponse({ ok: true });
       return true;

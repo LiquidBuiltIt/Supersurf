@@ -10,37 +10,40 @@
  * Adapted from Blueprint MCP (Apache 2.0).
  */
 /**
- * Tracks the single currently-held native dialog and resolves it through CDP.
- * Only one JS dialog can be open per renderer at a time, so a single slot
- * suffices.
+ * Tracks the held native dialog PER TAB and resolves it through CDP.
+ *
+ * Only one JS dialog can be open per renderer — but this handler spans every
+ * renderer in the profile, so a single slot let one agent's dialog overwrite
+ * the record of another's. Keyed by tab id instead.
  */
 export class DialogHandler {
     browser;
     logger;
-    pending = null;
+    pending = new Map();
     constructor(browserAPI, logger) {
         this.browser = browserAPI;
         this.logger = logger;
     }
     /** Record a dialog that CDP just held open. Called from the debugger event listener. */
-    onDialogOpening(params) {
-        this.pending = {
+    onDialogOpening(tabId, params) {
+        this.pending.set(tabId, {
+            tabId,
             type: params.type,
             message: params.message ?? '',
             defaultPrompt: params.defaultPrompt ?? '',
             url: params.url ?? '',
             hasBrowserHandler: !!params.hasBrowserHandler,
             timestamp: Date.now(),
-        };
-        this.logger.log('[DialogHandler] held', this.pending.type, JSON.stringify(this.pending.message));
+        });
+        this.logger.log('[DialogHandler] held', tabId, params.type, JSON.stringify(params.message ?? ''));
     }
-    /** The currently-held dialog, or null if none is open. */
-    getPending() {
-        return this.pending;
+    /** The currently-held dialog for a tab, or null if none is open. */
+    getPending(tabId) {
+        return this.pending.get(tabId) ?? null;
     }
-    /** Forget the held dialog without touching CDP (used on detach / navigation). */
-    clearPending() {
-        this.pending = null;
+    /** Forget a tab's held dialog without touching CDP (used on detach / navigation). */
+    clearPending(tabId) {
+        this.pending.delete(tabId);
     }
     /**
      * Resolve the held dialog via CDP. `accept=true` clicks OK (and supplies
@@ -57,6 +60,6 @@ export class DialogHandler {
             if (!/no dialog is showing/i.test(msg))
                 throw e;
         }
-        this.pending = null;
+        this.pending.delete(tabId);
     }
 }

@@ -30,6 +30,10 @@ export interface SessionState {
   /** Last known cursor position per tab, used by mouse humanization for path continuity. */
   cursorPositions: Map<number, { x: number; y: number }>;
   humanizationConfig: HumanizationConfig;
+  /** Tabs of THIS session that currently have a held dialog. In-memory only —
+   *  deliberately not persisted, so a service-worker restart clears it rather
+   *  than wedging the session with a stale true. */
+  dialogPendingTabs: Set<number>;
 }
 
 /** JSON-serializable shape for a SessionState (Maps become entry arrays). */
@@ -56,6 +60,7 @@ function createSessionState(): SessionState {
     stealthTabs: new Map(),
     cursorPositions: new Map(),
     humanizationConfig: { enabled: false },
+    dialogPendingTabs: new Set(),
   };
 }
 
@@ -76,6 +81,8 @@ function deserializeSession(s: SerializedSessionState): SessionState {
     stealthTabs: new Map(s.stealthTabs || []),
     cursorPositions: new Map(s.cursorPositions || []),
     humanizationConfig: s.humanizationConfig || { enabled: false },
+    // Not persisted — see the field's doc comment on SessionState.
+    dialogPendingTabs: new Set(),
   };
 }
 
@@ -100,10 +107,6 @@ export class SessionContext {
    *  once; the previous single-tab global made agent B's screenshot detach
    *  agent A's tab and silently kill A's network capture. */
   private _attachedDebuggerTabs: Set<number> = new Set();
-  /** True while a native dialog is held open and blocking the renderer.
-   *  In-memory only — deliberately NOT persisted so a service-worker restart
-   *  clears it (a stale-true flag would wedge the session). */
-  private _dialogPending: boolean = false;
 
   // Per-session state. null key = single-client mode (backwards compat).
   private sessions: Map<string | null, SessionState> = new Map();
@@ -135,9 +138,6 @@ export class SessionContext {
   markDebuggerDetached(tabId: number): void { this._attachedDebuggerTabs.delete(tabId); this.persist(); }
   /** Every tab currently attached — for the CDP event filter. */
   attachedDebuggerTabs(): number[] { return [...this._attachedDebuggerTabs]; }
-
-  get dialogPending(): boolean { return this._dialogPending; }
-  set dialogPending(value: boolean) { this._dialogPending = value; }
 
   /**
    * Get or lazily create the session state for a given session ID.
