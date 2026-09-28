@@ -51,20 +51,20 @@ function healEvalFn(scoreResult: string) {
 describe('resolveWithHealing', () => {
   it('OFF: passes through to getElementCenter (resolves)', async () => {
     const evalFn = vi.fn().mockResolvedValue({ x: 1, y: 2 }); // getElementCenter's inner eval returns coords
-    const center = await resolveWithHealing(evalFn, '#go', url);
+    const center = await resolveWithHealing(evalFn, '#go', url, () => undefined);
     expect(center).toEqual({ x: 1, y: 2, text: '', label: '' });
   });
 
   it('OFF: a miss throws and does NOT heal', async () => {
     const evalFn = vi.fn().mockResolvedValue(null); // element not found
-    await expect(resolveWithHealing(evalFn, '#go', url)).rejects.toThrow(/not found/i);
+    await expect(resolveWithHealing(evalFn, '#go', url, () => undefined)).rejects.toThrow(/not found/i);
   });
 
   it('ON + miss + stored fingerprint + high score: heals to stored coords', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
     putRecord('ex.com', '/', '#go', rec());
     const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
-    const center = await resolveWithHealing(evalFn, '#go', url);
+    const center = await resolveWithHealing(evalFn, '#go', url, () => undefined);
     expect(center).toEqual({ x: 42, y: 99, text: '', label: '' });
   });
 
@@ -74,13 +74,13 @@ describe('resolveWithHealing', () => {
     const evalFn = vi.fn()
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.05 })); // margin < 0.10
-    await expect(resolveWithHealing(evalFn, '#go', url)).rejects.toThrow(/not found/i);
+    await expect(resolveWithHealing(evalFn, '#go', url, () => undefined)).rejects.toThrow(/not found/i);
   });
 
   it('ON + miss + no stored fingerprint: escalates (throws)', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
     const evalFn = vi.fn().mockResolvedValueOnce(null);
-    await expect(resolveWithHealing(evalFn, '#missing', url)).rejects.toThrow(/not found/i);
+    await expect(resolveWithHealing(evalFn, '#missing', url, () => undefined)).rejects.toThrow(/not found/i);
   });
 });
 
@@ -90,7 +90,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
   it('emits outcome=resolved with hadRecord=false + discovery=new on first-contact resolve', async () => {
     const evalFn = vi.fn().mockResolvedValue({ x: 1, y: 2 });
     const emit = vi.fn();
-    await resolveWithHealing(evalFn, '#go', url, emit);
+    await resolveWithHealing(evalFn, '#go', url, () => undefined, emit);
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'fingerprint', outcome: 'resolved', selector: '#go', domain: 'ex.com', route: '/',
@@ -103,7 +103,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
     putRecord('ex.com', '/', '#go', rec());
     const evalFn = vi.fn().mockResolvedValue({ x: 1, y: 2 });
     const emit = vi.fn();
-    await resolveWithHealing(evalFn, '#go', url, emit);
+    await resolveWithHealing(evalFn, '#go', url, () => undefined, emit);
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'resolved', hadRecord: true, discovery: 'known' }),
     );
@@ -113,7 +113,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
     putRecord('ex.com', '/', '#go', rec());
     const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
     const emit = vi.fn();
-    await resolveWithHealing(evalFn, '#go', url, emit);
+    await resolveWithHealing(evalFn, '#go', url, () => undefined, emit);
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'healed', score: 0.9, margin: 0.5, hadRecord: true, discovery: 'known' }),
     );
@@ -123,7 +123,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
     putRecord('ex.com', '/', '#go', rec());
     const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.05 }));
     const emit = vi.fn();
-    await expect(resolveWithHealing(evalFn, '#go', url, emit)).rejects.toThrow(/not found/i);
+    await expect(resolveWithHealing(evalFn, '#go', url, () => undefined, emit)).rejects.toThrow(/not found/i);
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'escalated', score: 0.9, margin: 0.05, hadRecord: true, discovery: 'known' }),
     );
@@ -132,7 +132,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
   it('emits outcome=escalated (hadRecord=false, discovery=new) when no fingerprint exists', async () => {
     const evalFn = vi.fn().mockResolvedValueOnce(null);
     const emit = vi.fn();
-    await expect(resolveWithHealing(evalFn, '#missing', url, emit)).rejects.toThrow(/not found/i);
+    await expect(resolveWithHealing(evalFn, '#missing', url, () => undefined, emit)).rejects.toThrow(/not found/i);
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'escalated', hadRecord: false, discovery: 'new' }),
     );

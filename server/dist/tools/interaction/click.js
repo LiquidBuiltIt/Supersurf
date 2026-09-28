@@ -138,7 +138,7 @@ function describeClickOutcome(target, probe, hadSpawn) {
       if (el && (el.closest('a[href]') || el.onclick)) el.click();
     })()`;
         await (0, frames_1.evalInFrameOrTop)(ctx, domClickExpr, clickContextId).catch(() => { });
-        if (index_1.experimentRegistry.isEnabled('smart_waiting')) {
+        if (index_1.experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null)) {
             try {
                 await ctx.ext.sendCmd('waitForReady', { timeout: 3000, stabilityMs: 300, tabId: ctx.tabId });
             }

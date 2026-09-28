@@ -54,7 +54,7 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
     ['scroll_to', 'scroll_by', 'scroll_into_view'].includes(a.type)
   );
   const captureMode = isOnlyScrollActions ? 'viewport' : 'document';
-  if (experimentRegistry.isEnabled('page_diffing')) {
+  if (experimentRegistry.isEnabled('page_diffing', ctx.connectionManager?.clientId ?? null)) {
     try { beforeState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode, tabId: ctx.tabId }); }
     catch { /* silently skip — extension may not support it yet */ }
   }

@@ -110,7 +110,7 @@ describe('resolveWithHealing with a handle name', () => {
   it('queries the translated selector, not the handle name', async () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const { fn, seen } = fakeEval({ '#post': { x: 42, y: 43 } });
-    const center = await resolveWithHealing(fn, '@tweet_button', () => url);
+    const center = await resolveWithHealing(fn, '@tweet_button', () => url, () => undefined);
     expect(center).toEqual({ x: 42, y: 43, text: '', label: '' });
     expect(seen.some(e => e.includes('"#post"'))).toBe(true);
     expect(seen.some(e => e.includes('"tweet_button"'))).toBe(false);
@@ -120,7 +120,7 @@ describe('resolveWithHealing with a handle name', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const events: AnyHandleEvent[] = [];
     const { fn } = fakeEval({ '#post': { x: 1, y: 2 } });
-    await resolveWithHealing(fn, '@tweet_button', () => url, undefined, undefined, e => events.push(e));
+    await resolveWithHealing(fn, '@tweet_button', () => url, () => undefined, undefined, undefined, e => events.push(e));
     const ev = events.find(e => e.event === 'handle.resolved');
     expect(ev).toMatchObject({
       event: 'handle.resolved', name: '@tweet_button', match: 'canonical',
@@ -132,7 +132,7 @@ describe('resolveWithHealing with a handle name', () => {
     const events: AnyHandleEvent[] = [];
     const { fn } = fakeEval({});
     await expect(
-      resolveWithHealing(fn, '@tweet_button', () => url, undefined, undefined, e => events.push(e)),
+      resolveWithHealing(fn, '@tweet_button', () => url, () => undefined, undefined, undefined, e => events.push(e)),
     ).rejects.toThrow(/tweet_button/);
     expect(events.find(e => e.event === 'handle.resolved')).toMatchObject({
       match: 'miss', candidateCount: 0, selector: '',
@@ -141,32 +141,32 @@ describe('resolveWithHealing with a handle name', () => {
 
   it('appends a handle hint to the error when an unresolved `@`-marked handle fails as a selector', async () => {
     const { fn } = fakeEval({});
-    await expect(resolveWithHealing(fn, '@tweet_button', () => url))
+    await expect(resolveWithHealing(fn, '@tweet_button', () => url, () => undefined))
       .rejects.toThrow(/no recorded handle named `tweet_button`/);
   });
 
   it('a bare snake_case selector is never treated as a handle — it just misses as CSS', async () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     const { fn } = fakeEval({});
-    await expect(resolveWithHealing(fn, 'tweet_button', () => url))
+    await expect(resolveWithHealing(fn, 'tweet_button', () => url, () => undefined))
       .rejects.not.toThrow(/no recorded handle named/);
   });
 
   it('appends the `@` hint when a bare snake_case selector misses and looks handle-shaped', async () => {
     const { fn } = fakeEval({});
-    await expect(resolveWithHealing(fn, 'tweet_button', () => url))
+    await expect(resolveWithHealing(fn, 'tweet_button', () => url, () => undefined))
       .rejects.toThrow(/If you meant the handle, target it with `@tweet_button`/);
   });
 
   it('does not append the `@` hint for a miss that is not handle-shaped', async () => {
     const { fn } = fakeEval({});
-    await expect(resolveWithHealing(fn, '#post', () => url))
+    await expect(resolveWithHealing(fn, '#post', () => url, () => undefined))
       .rejects.not.toThrow(/If you meant the handle/);
   });
 
   it('leaves plain-selector behaviour completely unchanged', async () => {
     const { fn, seen } = fakeEval({ '#post': { x: 7, y: 8 } });
-    const center = await resolveWithHealing(fn, '#post', () => url);
+    const center = await resolveWithHealing(fn, '#post', () => url, () => undefined);
     expect(center).toEqual({ x: 7, y: 8, text: '', label: '' });
     expect(seen.some(e => e.includes('"#post"'))).toBe(true);
   });
@@ -174,7 +174,7 @@ describe('resolveWithHealing with a handle name', () => {
   it('falls through to the CSS path for a `@`-marked handle when the experiment is off, marker stripped', async () => {
     mockEnabled.mockReturnValue(false);
     const { fn, seen } = fakeEval({ tweet_button: { x: 3, y: 4 } });
-    const center = await resolveWithHealing(fn, '@tweet_button', () => url);
+    const center = await resolveWithHealing(fn, '@tweet_button', () => url, () => undefined);
     expect(center).toEqual({ x: 3, y: 4, text: '', label: '' });
     expect(seen.some(e => e.includes('"tweet_button"'))).toBe(true);
   });
@@ -182,9 +182,9 @@ describe('resolveWithHealing with a handle name', () => {
   it('reports "no handle recorded" — not the `@` hint — when a marker-bearing selector misses with the experiment off', async () => {
     mockEnabled.mockReturnValue(false);
     const { fn } = fakeEval({});
-    await expect(resolveWithHealing(fn, '@tweet_button', () => url))
+    await expect(resolveWithHealing(fn, '@tweet_button', () => url, () => undefined))
       .rejects.toThrow(/No handle named `tweet_button` is recorded for this page/);
-    await expect(resolveWithHealing(fn, '@tweet_button', () => url))
+    await expect(resolveWithHealing(fn, '@tweet_button', () => url, () => undefined))
       .rejects.not.toThrow(/If you meant the handle/);
   });
 });
@@ -220,26 +220,26 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
 
   it('resolves normally when the element still carries the minted text', async () => {
     const { fn } = evalTo('new', 262, 20);
-    const center = await resolveWithHealing(fn, '@new_a', () => url);
+    const center = await resolveWithHealing(fn, '@new_a', () => url, () => undefined);
     expect(center).toEqual({ x: 262, y: 20, text: 'new', label: '' });
   });
 
   it('refuses when the handle\'s selector now resolves to a different element', async () => {
     const { fn } = evalTo('Hacker News');
-    await expect(resolveWithHealing(fn, '@new_a', () => url))
+    await expect(resolveWithHealing(fn, '@new_a', () => url, () => undefined))
       .rejects.toBeInstanceOf(EphemeralIdentityError);
   });
 
   it('refuses on the experiment-OFF path too — ephemeral resolution is ungated', async () => {
     mockEnabled.mockReturnValue(false);
     const { fn } = evalTo('Hacker News');
-    await expect(resolveWithHealing(fn, '@new_a', () => url))
+    await expect(resolveWithHealing(fn, '@new_a', () => url, () => undefined))
       .rejects.toBeInstanceOf(EphemeralIdentityError);
   });
 
   it('does not append the "no recorded handle" hint to a refusal — the handle DID resolve', async () => {
     const { fn } = evalTo('Hacker News');
-    await expect(resolveWithHealing(fn, '@new_a', () => url))
+    await expect(resolveWithHealing(fn, '@new_a', () => url, () => undefined))
       .rejects.not.toThrow(/no recorded handle named/);
   });
 
@@ -251,7 +251,7 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
     const events: any[] = [];
     const { fn } = evalTo('Hacker News');
     await expect(
-      resolveWithHealing(fn, '@new_a', () => url, e => events.push(e)),
+      resolveWithHealing(fn, '@new_a', () => url, () => undefined, e => events.push(e)),
     ).rejects.toBeInstanceOf(EphemeralIdentityError);
     expect(events.some(e => e.outcome === 'healed')).toBe(false);
   });
@@ -262,14 +262,14 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
     const events: any[] = [];
     const { fn } = evalTo('Hacker News');
     await expect(
-      resolveWithHealing(fn, '@new_a', () => url, e => events.push(e)),
+      resolveWithHealing(fn, '@new_a', () => url, () => undefined, e => events.push(e)),
     ).rejects.toBeInstanceOf(EphemeralIdentityError);
     expect(events.some(e => e.outcome === 'resolved')).toBe(false);
   });
 
   it('leaves a plain CSS selector unguarded — there are no mint-time facts to check', async () => {
     const { fn } = evalTo('Hacker News');
-    const center = await resolveWithHealing(fn, 'a:has-text("new")', () => url);
+    const center = await resolveWithHealing(fn, 'a:has-text("new")', () => url, () => undefined);
     expect(center).toMatchObject({ x: 146, y: 20 });
   });
 
@@ -283,7 +283,7 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
     const missEval = async () => null;
 
     it('marks an ephemeral handle\'s miss, experiment ON', async () => {
-      const err = await resolveWithHealing(missEval, '@new_a', () => url).catch(e => e);
+      const err = await resolveWithHealing(missEval, '@new_a', () => url, () => undefined).catch(e => e);
       expect(err).toBeInstanceOf(Error);
       expect(err).not.toBeInstanceOf(EphemeralIdentityError);
       expect(isEphemeralMiss(err)).toBe(true);
@@ -291,18 +291,18 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
 
     it('marks an ephemeral handle\'s miss on the experiment-OFF path too', async () => {
       mockEnabled.mockReturnValue(false);
-      const err = await resolveWithHealing(missEval, '@new_a', () => url).catch(e => e);
+      const err = await resolveWithHealing(missEval, '@new_a', () => url, () => undefined).catch(e => e);
       expect(isEphemeralMiss(err)).toBe(true);
     });
 
     it('never marks a plain CSS selector\'s miss', async () => {
-      const err = await resolveWithHealing(missEval, 'a:has-text("new")', () => url).catch(e => e);
+      const err = await resolveWithHealing(missEval, 'a:has-text("new")', () => url, () => undefined).catch(e => e);
       expect(err).toBeInstanceOf(Error);
       expect(isEphemeralMiss(err)).toBe(false);
     });
 
     it('never marks an unbound handle name\'s miss — nothing was translated', async () => {
-      const err = await resolveWithHealing(missEval, '@never_minted', () => url).catch(e => e);
+      const err = await resolveWithHealing(missEval, '@never_minted', () => url, () => undefined).catch(e => e);
       expect(isEphemeralMiss(err)).toBe(false);
     });
   });
@@ -343,13 +343,13 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
 
     it('never asks the scorer for an ephemeral handle whose element is gone', async () => {
       const { fn, scored } = missThenHealEval();
-      await expect(resolveWithHealing(fn, '@new_a', () => url)).rejects.toThrow(/not found/i);
+      await expect(resolveWithHealing(fn, '@new_a', () => url, () => undefined)).rejects.toThrow(/not found/i);
       expect(scored()).toBe(false);
     });
 
     it('rethrows the marked miss instead of returning healed coordinates', async () => {
       const { fn } = missThenHealEval();
-      const err = await resolveWithHealing(fn, '@new_a', () => url).catch(e => e);
+      const err = await resolveWithHealing(fn, '@new_a', () => url, () => undefined).catch(e => e);
       expect(err).toBeInstanceOf(Error);
       expect(isEphemeralMiss(err)).toBe(true);
     });
@@ -358,7 +358,7 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
       const events: any[] = [];
       const { fn } = missThenHealEval();
       await expect(
-        resolveWithHealing(fn, '@new_a', () => url, e => events.push(e)),
+        resolveWithHealing(fn, '@new_a', () => url, () => undefined, e => events.push(e)),
       ).rejects.toThrow(/not found/i);
       expect(events.some(e => e.outcome === 'healed')).toBe(false);
       expect(events).toContainEqual(expect.objectContaining({
@@ -372,7 +372,7 @@ describe('resolveWithHealing — ephemeral identity guard', () => {
     it('CONTROL: a plain non-ephemeral miss on the same selector still heals', async () => {
       const events: any[] = [];
       const { fn, scored } = missThenHealEval();
-      const center = await resolveWithHealing(fn, 'a:has-text("new")', () => url, e => events.push(e));
+      const center = await resolveWithHealing(fn, 'a:has-text("new")', () => url, () => undefined, e => events.push(e));
       expect(center).toEqual({ x: 999, y: 999, text: '', label: '' });
       expect(scored()).toBe(true);
       expect(events).toContainEqual(expect.objectContaining({ outcome: 'healed' }));

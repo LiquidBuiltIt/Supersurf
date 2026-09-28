@@ -11,11 +11,16 @@
  */
 
 import { Logger } from '../utils/logger.js';
+import { SessionContext } from '../session-context.js';
 
 export type DialogType = 'alert' | 'confirm' | 'prompt' | 'beforeunload';
 
 /** A native dialog currently held open by CDP, awaiting an agent decision. */
 export interface HeldDialog {
+  /** The tab whose renderer is frozen. Chrome scopes dialogs per renderer; the
+   *  handler spans every renderer, so the tab is what makes a held dialog
+   *  attributable to the session that caused it. */
+  tabId: number;
   type: DialogType;
   message: string;
   defaultPrompt: string;
@@ -34,14 +39,16 @@ interface DialogOpeningParams {
 }
 
 /**
- * Tracks the single currently-held native dialog and resolves it through CDP.
- * Only one JS dialog can be open per renderer at a time, so a single slot
- * suffices.
+ * Tracks the held native dialog PER TAB and resolves it through CDP.
+ *
+ * Only one JS dialog can be open per renderer — but this handler spans every
+ * renderer in the profile, so a single slot let one agent's dialog overwrite
+ * the record of another's. Keyed by tab id instead.
  */
 export class DialogHandler {
   private browser: typeof chrome;
   private logger: Logger;
-  private pending: HeldDialog | null = null;
+  private pending: Map<number, HeldDialog> = new Map();
 
   constructor(browserAPI: typeof chrome, logger: Logger) {
     this.browser = browserAPI;
@@ -49,26 +56,27 @@ export class DialogHandler {
   }
 
   /** Record a dialog that CDP just held open. Called from the debugger event listener. */
-  onDialogOpening(params: DialogOpeningParams): void {
-    this.pending = {
+  onDialogOpening(tabId: number, params: DialogOpeningParams): void {
+    this.pending.set(tabId, {
+      tabId,
       type: params.type,
       message: params.message ?? '',
       defaultPrompt: params.defaultPrompt ?? '',
       url: params.url ?? '',
       hasBrowserHandler: !!params.hasBrowserHandler,
       timestamp: Date.now(),
-    };
-    this.logger.log('[DialogHandler] held', this.pending.type, JSON.stringify(this.pending.message));
+    });
+    this.logger.log('[DialogHandler] held', tabId, params.type, JSON.stringify(params.message ?? ''));
   }
 
-  /** The currently-held dialog, or null if none is open. */
-  getPending(): HeldDialog | null {
-    return this.pending;
+  /** The currently-held dialog for a tab, or null if none is open. */
+  getPending(tabId: number): HeldDialog | null {
+    return this.pending.get(tabId) ?? null;
   }
 
-  /** Forget the held dialog without touching CDP (used on detach / navigation). */
-  clearPending(): void {
-    this.pending = null;
+  /** Forget a tab's held dialog without touching CDP (used on detach / navigation). */
+  clearPending(tabId: number): void {
+    this.pending.delete(tabId);
   }
 
   /**
@@ -88,6 +96,17 @@ export class DialogHandler {
       const msg = String(e?.message || e);
       if (!/no dialog is showing/i.test(msg)) throw e;
     }
-    this.pending = null;
+    this.pending.delete(tabId);
   }
+}
+
+/**
+ * Forget a tab's held dialog, and sweep that tab id out of every session's
+ * `dialogPendingTabs`. Used when a tab's debugger detaches — that event names
+ * a tab, not a session, and this must clear ONLY that tab: sessions holding a
+ * dialog on some other tab are untouched.
+ */
+export function clearDialogForTab(dialogHandler: DialogHandler, sessionContext: SessionContext, tabId: number): void {
+  dialogHandler.clearPending(tabId);
+  for (const [, s] of sessionContext.sessionEntries()) s.dialogPendingTabs.delete(tabId);
 }

@@ -78,7 +78,7 @@ export class WebSocketConnection {
      * empty if none.
      */
     dialogEventProvider = null;
-    /** Returns true while a native dialog is held open (renderer frozen). */
+    /** Returns true while a native dialog is held open (renderer frozen) for the given session. */
     dialogPendingChecker = null;
     /**
      * Single-slot resolver for the current in-flight command's dialog race.
@@ -371,7 +371,7 @@ export class WebSocketConnection {
             }
             if (this.dialogEventProvider) {
                 try {
-                    const events = this.dialogEventProvider();
+                    const events = this.dialogEventProvider(message.params?._sessionId ?? null);
                     if (events && events.length > 0) {
                         if (finalResponse && typeof finalResponse === 'object') {
                             finalResponse = { ...finalResponse, _dialogs: events };
@@ -408,7 +408,7 @@ export class WebSocketConnection {
     }
     async _routeCommand(message) {
         const { method, params } = message;
-        if (this.dialogPendingChecker?.() && !DIALOG_SAFE_METHODS.has(method)) {
+        if (this.dialogPendingChecker?.(params?._sessionId ?? null) && !DIALOG_SAFE_METHODS.has(method)) {
             throw new Error('A native dialog is blocking the page. Inspect it with ' +
                 'browser_handle_dialog {action:"view"}, then resolve it with ' +
                 '{action:"accept"} or {action:"dismiss"} before issuing other commands.');

@@ -58,8 +58,8 @@ function text(body: string, isError = false): any {
  * the run session its own `fingerprinting` activation (`runner.ts` already does
  * this for `meta.experiments`). Tracked as BACKLOG #21.
  */
-function gate(): string | null {
-  if (experimentRegistry.isEnabled('fingerprinting')) return null;
+function gate(sessionId: string | null): string | null {
+  if (experimentRegistry.isEnabled('fingerprinting', sessionId)) return null;
   return 'Playbook runs need the `fingerprinting` experiment, which is off.\n\n' +
     'Enable it in `~/.supersurf/config.json` under `experiments`, then restart the daemon:\n' +
     '  npx supersurf-daemon@latest restart\n\n' +
@@ -105,7 +105,7 @@ function doHistory(args: any): any {
 }
 
 async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<any> {
-  const blocked = gate();
+  const blocked = gate(ctx.connectionManager?.clientId ?? null);
   if (blocked) return text(blocked, true);
 
   const name = normalizeName(String(args.name ?? ''));

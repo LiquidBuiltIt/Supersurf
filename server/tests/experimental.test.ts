@@ -19,19 +19,19 @@ describe('ExperimentRegistry', () => {
 
   describe('enable / disable / isEnabled', () => {
     it('starts with all experiments disabled', () => {
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
-      expect(experimentRegistry.isEnabled('smart_waiting')).toBe(false);
+      expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(false);
+      expect(experimentRegistry.isEnabled('smart_waiting', 's1')).toBe(false);
     });
 
     it('enables an experiment', () => {
       experimentRegistry.enable('s1', 'page_diffing');
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(true);
+      expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(true);
     });
 
     it('disables an experiment', () => {
       experimentRegistry.enable('s1', 'page_diffing');
       experimentRegistry.disable('s1', 'page_diffing');
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
+      expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(false);
     });
 
     it('throws on unknown experiment name', () => {
@@ -45,8 +45,8 @@ describe('ExperimentRegistry', () => {
       experimentRegistry.enable('s1', 'page_diffing');
       experimentRegistry.enable('s2', 'smart_waiting');
       experimentRegistry.reset();
-      expect(experimentRegistry.isEnabled('page_diffing')).toBe(false);
-      expect(experimentRegistry.isEnabled('smart_waiting')).toBe(false);
+      expect(experimentRegistry.isEnabled('page_diffing', 's1')).toBe(false);
+      expect(experimentRegistry.isEnabled('smart_waiting', 's2')).toBe(false);
     });
   });
 
@@ -185,12 +185,36 @@ describe('ExperimentRegistry (IPC proxy)', () => {
       expect(b.sendCmd).not.toHaveBeenCalled();
     });
 
-    it('isEnabled without a session id reports true when any session has it on', () => {
+    it('isEnabled with a null session id reports true when any session has it on', () => {
       experimentRegistry.bind('session-a', mockTransport());
       experimentRegistry.enable('session-a', 'fingerprinting');
 
-      expect(experimentRegistry.isEnabled('fingerprinting')).toBe(true);
+      expect(experimentRegistry.isEnabled('fingerprinting', null)).toBe(true);
       expect(experimentRegistry.isEnabled('fingerprinting', 'session-b')).toBe(false);
+    });
+
+    it('does not leak one session\'s experiment flag into another', () => {
+      experimentRegistry.bind('run-session', mockTransport());
+      experimentRegistry.bind('agent-session', mockTransport());
+      experimentRegistry.enable('run-session', 'fingerprinting');
+
+      expect(experimentRegistry.isEnabled('fingerprinting', 'run-session')).toBe(true);
+      expect(experimentRegistry.isEnabled('fingerprinting', 'agent-session')).toBe(false);
+      // The union is still reachable, but only by asking for it explicitly.
+      expect(experimentRegistry.isEnabled('fingerprinting', null)).toBe(true);
+    });
+
+    it('a playbook run\'s fingerprinting activation does not leak through an omitted session id', () => {
+      experimentRegistry.bind('agent', mockTransport());
+      experimentRegistry.bind('pb-run-1', mockTransport());
+      experimentRegistry.enable('pb-run-1', 'fingerprinting'); // what runner.ts does for meta.experiments
+
+      // The two explicit-id assertions this test used to carry held before the
+      // fix too — the signature was isEnabled(feature, sessionId?) and only the
+      // OMITTED id unioned. So the omission is the only thing worth asserting,
+      // and `as any` is deliberate: the parameter is now required, and this
+      // pins the runtime answer a JS caller or a stale compiled call site gets.
+      expect((experimentRegistry.isEnabled as any)('fingerprinting')).toBe(false);
     });
   });
 

@@ -18,8 +18,8 @@ import { Logger } from './utils/logger.js';
 import { IconManager } from './utils/icons.js';
 import { WebSocketConnection } from './connection/websocket.js';
 import { TabHandlers } from './handlers/tabs.js';
-import { NetworkTracker } from './handlers/network.js';
-import { DialogHandler } from './handlers/dialogs.js';
+import { NetworkTracker, getRequestsForSession } from './handlers/network.js';
+import { DialogHandler, clearDialogForTab } from './handlers/dialogs.js';
 import { ConsoleHandler } from './handlers/console.js';
 import { DownloadHandler } from './handlers/downloads.js';
 import { wrapWithUnwrap, shouldUnwrap } from './utils/unwrap.js';
@@ -71,8 +71,7 @@ chrome.tabs.onCreated.addListener((tab) => {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (!tabHandlers)
         return;
-    const attachedTabId = tabHandlers.getAttachedTabId();
-    if (tabId === attachedTabId && changeInfo.url && wsConnection) {
+    if (tabHandlers.isTabAttachedByAnySession(tabId) && changeInfo.url && wsConnection) {
         wsConnection.sendNotification('notifications/tab_info_update', {
             currentTab: {
                 id: tab.id,
@@ -93,8 +92,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         return;
     if (!domainWhitelist || !tabHandlers)
         return;
-    const attachedTabId = tabHandlers.getAttachedTabId();
-    if (details.tabId !== attachedTabId)
+    if (!tabHandlers.isTabAttachedByAnySession(details.tabId))
         return;
     if (!domainWhitelist.isDomainAllowed(details.url)) {
         // onBeforeNavigate fires before the navigation commits — the tab is
@@ -180,7 +178,11 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
             !method.startsWith('Runtime.') &&
             method !== 'Page.javascriptDialogOpening')
             return;
-        if (!sessionContext.currentDebuggerTabId || source.tabId !== sessionContext.currentDebuggerTabId)
+        // Accept events from ANY attached tab and keep the tab on the record, so
+        // two agents' traffic stays separable. The old filter compared against a
+        // single global tab id and threw away everything else.
+        const sourceTabId = source.tabId;
+        if (sourceTabId === undefined || !sessionContext.isDebuggerAttached(sourceTabId))
             return;
         try {
             if (method === 'Network.requestWillBeSent') {
@@ -191,6 +193,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
                 }
                 cdpNetworkRequests.set(params.requestId, {
                     requestId: params.requestId,
+                    tabId: sourceTabId,
                     url: params.request.url,
                     method: params.request.method,
                     type: params.type || 'other',
@@ -214,10 +217,14 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
                     req.completed = true;
             }
             else if (method === 'Page.javascriptDialogOpening') {
-                // CDP holds the dialog open until we call Page.handleJavaScriptDialog.
-                // Record it, flag the session, and wake any in-flight command's race.
-                dialogHandler.onDialogOpening(params);
-                sessionContext.dialogPending = true;
+                // CDP holds the dialog open until Page.handleJavaScriptDialog. Record it
+                // against its tab and flag ONLY the sessions attached to that tab: Chrome
+                // freezes one renderer, and the harness must not be coarser than that.
+                dialogHandler.onDialogOpening(sourceTabId, params);
+                for (const [, s] of sessionContext.sessionEntries()) {
+                    if (s.attachedTabId === sourceTabId)
+                        s.dialogPendingTabs.add(sourceTabId);
+                }
                 wsConnection.notifyDialogOpened();
             }
         }
@@ -226,13 +233,15 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         }
     });
     chromeDebugger.onDetach.addListener((source) => {
-        if (source.tabId === sessionContext.currentDebuggerTabId) {
-            sessionContext.debuggerAttached = false;
-            sessionContext.currentDebuggerTabId = null;
-            dialogHandler.clearPending();
-            sessionContext.dialogPending = false;
-            logger.log('[Background] Debugger detached');
-        }
+        // Fires per tab — clear only that tab's attachment and pending dialog,
+        // never every tab. clearDialogForTab sweeps dialogPendingTabs across all
+        // sessions by tab id (rather than a global flag), so tab B detaching
+        // can't clear a dialog still held on tab A.
+        if (source.tabId === undefined || !sessionContext.isDebuggerAttached(source.tabId))
+            return;
+        sessionContext.markDebuggerDetached(source.tabId);
+        clearDialogForTab(dialogHandler, sessionContext, source.tabId);
+        logger.log('[Background] Debugger detached from tab', source.tabId);
     });
     // Listen for tech stack info and profile registration from content script
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -269,23 +278,16 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         }
     });
     /**
-     * Attach the CDP debugger to a tab, enabling required domains.
-     * If already attached to a different tab, detaches first (single-debugger constraint).
-     * Enables Network, DOM, CSS, Runtime, and Page domains for full automation support.
-     * @param tabId - The Chrome tab ID to attach the debugger to
+     * Attach the CDP debugger to a tab, enabling the domains automation needs.
+     * Attaches PER TAB and never detaches another tab: Chrome permits many
+     * simultaneous attachments, and detaching was killing a concurrent agent's
+     * in-flight network capture.
      */
     async function ensureDebugger(tabId) {
-        if (sessionContext.debuggerAttached && sessionContext.currentDebuggerTabId === tabId)
+        if (sessionContext.isDebuggerAttached(tabId))
             return;
-        if (sessionContext.debuggerAttached && sessionContext.currentDebuggerTabId !== tabId) {
-            try {
-                await chromeDebugger.detach({ tabId: sessionContext.currentDebuggerTabId });
-            }
-            catch { /* ignore */ }
-        }
         await chromeDebugger.attach({ tabId }, '1.3');
-        sessionContext.debuggerAttached = true;
-        sessionContext.currentDebuggerTabId = tabId;
+        sessionContext.markDebuggerAttached(tabId);
         await chromeDebugger.sendCommand({ tabId }, 'Network.enable', {});
         await chromeDebugger.sendCommand({ tabId }, 'DOM.enable', {});
         await chromeDebugger.sendCommand({ tabId }, 'CSS.enable', {});
@@ -315,12 +317,14 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     wsConnection.setRecoveryNoteProvider(() => tabHandlers.consumeRecoveryNote(), () => tabHandlers.clearRecoveryNote());
     // Every response carries the currently-held native dialog (if any) in
     // `_dialogs`, so the triggering tool's own result surfaces it.
-    wsConnection.setDialogEventProvider(() => {
-        const held = dialogHandler.getPending();
+    wsConnection.setDialogEventProvider((sessionId) => {
+        const tabId = tabHandlers.getAttachedTabId(sessionId);
+        const held = tabId === null ? null : dialogHandler.getPending(tabId);
         return held ? [held] : [];
     });
-    // Short-circuit page-touching commands while a dialog blocks the renderer.
-    wsConnection.setDialogPendingChecker(() => sessionContext.dialogPending);
+    // Short-circuit page-touching commands only for the session whose own tab is
+    // frozen. A dialog in another agent's tab never blocked this one in Chrome.
+    wsConnection.setDialogPendingChecker((sessionId) => sessionContext.getSession(sessionId).dialogPendingTabs.size > 0);
     // ── Register command handlers ──
     // Each handler corresponds to a JSON-RPC method the server can invoke.
     // Handlers receive params from the server and return results or throw errors.
@@ -352,7 +356,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         // Honor an explicit tabId from the caller so concurrent callers don't
         // collide on the shared attached-tab global. The resolver falls back to
         // the attached tab (with recovery) when no tabId is given.
-        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+        const sid = params?._sessionId ?? null;
+        const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
         const action = params.action || 'url';
         if (action === 'url') {
             await chrome.tabs.update(tabId, { url: params.url });
@@ -421,7 +426,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // forwardCDPCommand — Generic CDP passthrough for server-side tools
     // that need direct CDP access (e.g., CSS inspection, accessibility tree).
     wsConnection.registerCommandHandler('forwardCDPCommand', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+        const sid = params?._sessionId ?? null;
+        const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
         return await cdp(tabId, params.method, params.params || {});
     });
     // evaluate — Execute JavaScript in the page via CDP Runtime.evaluate.
@@ -430,7 +436,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // Bot-detection bypass: shouldUnwrap/wrapWithUnwrap temporarily restores native
     // DOM methods that pages may have overridden to detect automation.
     wsConnection.registerCommandHandler('evaluate', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+        const sid = params?._sessionId ?? null;
+        const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
         const code = params.function || params.expression || '';
         let expression;
         if (params.prewrapped) {
@@ -462,12 +469,14 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // snapshot (accessible DOM)
     wsConnection.registerCommandHandler('snapshot', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+        const sid = params?._sessionId ?? null;
+        const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
         return await cdp(tabId, 'Accessibility.getFullAXTree', {});
     });
     // screenshot
     wsConnection.registerCommandHandler('screenshot', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+        const sid = params?._sessionId ?? null;
+        const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
         const captureParams = {
             format: params.type || 'jpeg',
             quality: params.quality || 70,
@@ -485,43 +494,65 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // consoleMessages
     wsConnection.registerCommandHandler('consoleMessages', async (params) => {
-        const tabId = tabHandlers.getAttachedTabId();
-        return { messages: consoleHandler.getMessages(tabId || undefined) };
+        const sid = params?._sessionId ?? null;
+        // requireAttachedTabId, not getAttachedTabId: `undefined` is getMessages'
+        // every-tab value, so a session with no tab would read every other
+        // session's console output.
+        const tabId = tabHandlers.requireAttachedTabId(sid);
+        return { messages: consoleHandler.getMessages(tabId) };
     });
-    // networkRequests
+    // networkRequests — a session reads its own tab's traffic and nothing else:
+    // request and response headers and bodies are in these records.
     wsConnection.registerCommandHandler('networkRequests', async (params) => {
-        return { requests: networkTracker.getRequests() };
+        const sid = params?._sessionId ?? null;
+        // Body lives in handlers/network.ts so a regression lock can drive it —
+        // this file is not importable under Vitest. It resolves the tab with
+        // requireAttachedTabId, not getAttachedTabId, because null is getRequests'
+        // every-tab diagnostics sentinel.
+        return { requests: getRequestsForSession(networkTracker, tabHandlers, sid) };
     });
     // clearNetwork
-    wsConnection.registerCommandHandler('clearNetwork', async () => {
-        networkTracker.clearRequests();
-        cdpNetworkRequests.clear();
+    wsConnection.registerCommandHandler('clearNetwork', async (params) => {
+        const sid = params?._sessionId ?? null;
+        // requireAttachedTabId, not getAttachedTabId: null wipes every tab's log in
+        // both stores below, so a session with no tab would destroy another
+        // session's capture.
+        const tabId = tabHandlers.requireAttachedTabId(sid);
+        networkTracker.clearRequests(tabId);
+        // CDP records now carry the source tabId (Task 5), so this scopes the
+        // clear to the caller's tab instead of wiping every session's capture.
+        for (const [id, r] of cdpNetworkRequests) {
+            if (r.tabId === tabId)
+                cdpNetworkRequests.delete(id);
+        }
         return { success: true };
     });
     // dialog
     wsConnection.registerCommandHandler('dialog', async (params) => {
+        const sid = params?._sessionId ?? null;
         // action defaults: explicit `action` wins; else legacy `accept` maps
         // (true→accept, false→dismiss); else `view`.
         const action = params.action ??
             (params.accept === undefined ? 'view' : params.accept ? 'accept' : 'dismiss');
-        const pending = dialogHandler.getPending();
-        // `view` is a pure state read — answer before any tab work. A held dialog
-        // freezes the renderer, so ensureAttachedTab can hang exactly when the
-        // agent most needs to see what dialog is blocking.
-        if (action === 'view') {
+        // Resolve the tab WITHOUT ensureAttachedTab: a held dialog freezes the
+        // renderer, so tab work can hang exactly when the agent most needs to see
+        // what is blocking. This was already true of `view`; it is true of the
+        // resolve path too.
+        const tabId = tabHandlers.getAttachedTabId(sid);
+        const pending = tabId === null ? null : dialogHandler.getPending(tabId);
+        if (action === 'view')
             return { dialog: pending };
-        }
-        if (!pending) {
+        if (!pending)
             return { dialog: null, note: 'No native dialog is currently open.' };
-        }
-        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
-        await dialogHandler.handle(tabId, action === 'accept', params.text ?? '');
-        sessionContext.dialogPending = false;
+        await dialogHandler.handle(pending.tabId, action === 'accept', params.text ?? '');
+        for (const [, s] of sessionContext.sessionEntries())
+            s.dialogPendingTabs.delete(pending.tabId);
         return { dialog: { ...pending, resolved: action } };
     });
     // window management
     wsConnection.registerCommandHandler('window', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+        const sid = params?._sessionId ?? null;
+        const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
         const tab = await chrome.tabs.get(tabId);
         const windowId = tab.windowId;
         switch (params.action) {
@@ -548,7 +579,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // performance metrics
     wsConnection.registerCommandHandler('performanceMetrics', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+        const sid = params?._sessionId ?? null;
+        const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
         const result = await cdp(tabId, 'Performance.getMetrics', {});
         return { metrics: result.metrics };
     });
@@ -560,7 +592,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // Runs in MAIN world (not isolated) so it can interact with page-level input frameworks.
     // Types character-by-character with randomized delays to mimic human input.
     wsConnection.registerCommandHandler('secure_fill', async (params) => {
-        const tabId = (await tabHandlers.ensureAttachedTab(params.tabId)).tabId;
+        const sid = params?._sessionId ?? null;
+        const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
         const results = await chrome.scripting.executeScript({
             target: { tabId },
             world: 'MAIN',
@@ -601,7 +634,8 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // drainSpawnedTabs — returns and clears tabs created since a given timestamp
     wsConnection.registerCommandHandler('drainSpawnedTabs', async (params) => {
         const since = params?.since || 0;
-        const attachedTabId = tabHandlers.getAttachedTabId();
+        const sid = params?._sessionId ?? null;
+        const attachedTabId = tabHandlers.getAttachedTabId(sid);
         const spawned = [];
         const remaining = [];
         for (const entry of spawnedTabBuffer) {
@@ -632,10 +666,9 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // whitelist toggling). Each handler returns true to indicate async sendResponse.
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (message.type === 'getStatus') {
-            const attachedTabId = tabHandlers.getAttachedTabId();
             sendResponse({
                 connected: wsConnection.isConnected,
-                currentTabConnected: attachedTabId !== null,
+                currentTabConnected: tabHandlers.hasAnyAttachedTab(),
                 stealthMode: null,
                 projectName: wsConnection.projectName,
                 versionError: wsConnection.versionError,
@@ -652,8 +685,11 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         if (message.type === 'disableExtension') {
             chrome.storage.local.set({ extensionEnabled: false });
             wsConnection.disconnect();
-            dialogHandler.clearPending();
-            sessionContext.dialogPending = false;
+            // Global teardown — clear every tab's held dialog and every session's flag.
+            for (const tabId of sessionContext.attachedDebuggerTabs())
+                dialogHandler.clearPending(tabId);
+            for (const [, s] of sessionContext.sessionEntries())
+                s.dialogPendingTabs.clear();
             sessionContext.clearStorage();
             sendResponse({ ok: true });
             return true;

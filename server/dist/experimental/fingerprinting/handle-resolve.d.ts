@@ -118,5 +118,5 @@ export interface SelectorOrHandle {
  * hand the CSS path a syntactically invalid selector (`@foo`) instead of a clean
  * (if pointless) query for `foo`.
  */
-export declare function resolveSelectorOrHandle(url: string | undefined, selector: string): SelectorOrHandle;
+export declare function resolveSelectorOrHandle(url: string | undefined, selector: string, sessionId: string | null): SelectorOrHandle;
 //# sourceMappingURL=handle-resolve.d.ts.map

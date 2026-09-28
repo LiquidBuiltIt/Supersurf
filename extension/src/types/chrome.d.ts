@@ -146,6 +146,8 @@ declare namespace chrome {
       type: string;
       timeStamp: number;
       requestBody?: any;
+      /** Owning tab, or -1 for requests with no tab (extension, service worker). */
+      tabId: number;
     }
     interface WebRequestHeadersDetails {
       requestId: string;

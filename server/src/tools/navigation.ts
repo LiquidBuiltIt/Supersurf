@@ -121,7 +121,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
 
   switch (action) {
     case 'url': {
-      const smartWait = experimentRegistry.isEnabled('smart_waiting');
+      const smartWait = experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null);
       // Forward the explicit tabId (if any) so a concurrent caller can't
       // redirect this navigation by flipping the extension's shared
       // attached-tab between calls. The extension resolves the fallback —
@@ -153,7 +153,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
     case 'back':
       await ctx.eval('window.history.back()');
       // === EXPERIMENTAL: smart waiting ===
-      if (experimentRegistry.isEnabled('smart_waiting')) {
+      if (experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null)) {
         try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
         catch { await ctx.sleep(1500); }
       } else {
@@ -164,7 +164,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
     case 'forward':
       await ctx.eval('window.history.forward()');
       // === EXPERIMENTAL: smart waiting ===
-      if (experimentRegistry.isEnabled('smart_waiting')) {
+      if (experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null)) {
         try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
         catch { await ctx.sleep(1500); }
       } else {
@@ -175,7 +175,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
     case 'reload': {
       result = await ctx.ext.sendCmd('navigate', { action: 'reload', tabId: ctx.tabId });
       // === EXPERIMENTAL: smart waiting ===
-      if (experimentRegistry.isEnabled('smart_waiting')) {
+      if (experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null)) {
         try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
         catch { /* fall through */ }
       } else {

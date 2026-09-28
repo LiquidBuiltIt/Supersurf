@@ -47,7 +47,7 @@ export declare function captureOnResolve(evalFn: EvalFn, url: string | undefined
  * so `getCenterInFrame`'s frame-walk fallback calls this with an `evalFn` already bound to
  * the child frame's execution context. Gated + fire-and-forget; never throws.
  */
-export declare function captureInContext(evalInContext: EvalFn, url: string | undefined, selector: string, meta?: HandleMeta, emitHandle?: HandleEmit): Promise<void>;
+export declare function captureInContext(evalInContext: EvalFn, url: string | undefined, selector: string, getSessionId: () => string | undefined, meta?: HandleMeta, emitHandle?: HandleEmit): Promise<void>;
 /** Outcome of a heal attempt, with enough detail for telemetry on every branch. */
 export interface HealAttempt {
     hadRecord: boolean;
@@ -66,7 +66,7 @@ export declare function healOnMiss(evalFn: EvalFn, url: string | undefined, sele
  * top-frame coords), or null when there's no record / the gate fails. Gated;
  * never throws.
  */
-export declare function healInContext(evalInContext: EvalFn, url: string | undefined, selector: string): Promise<ScoreHit | null>;
+export declare function healInContext(evalInContext: EvalFn, url: string | undefined, selector: string, getSessionId: () => string | undefined): Promise<ScoreHit | null>;
 /** Telemetry event emitted per resolve when the experiment is on (written to the usage-metrics trail). */
 export interface HealEvent {
     event: 'fingerprint';
@@ -90,7 +90,7 @@ export type HealEmit = (ev: HealEvent) => void;
  * to getElementCenter. When ON: captures on success, heals on miss, escalates (rethrows)
  * if healing fails.
  */
-export declare function resolveWithHealing(evalFn: EvalFn, selector: string, getUrl: () => string | undefined, emit?: HealEmit, meta?: HandleMeta, emitHandle?: HandleEmit, getSessionId?: () => string | undefined): Promise<{
+export declare function resolveWithHealing(evalFn: EvalFn, selector: string, getUrl: () => string | undefined, getSessionId: () => string | undefined, emit?: HealEmit, meta?: HandleMeta, emitHandle?: HandleEmit): Promise<{
     x: number;
     y: number;
     text: string;

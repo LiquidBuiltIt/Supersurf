@@ -30,12 +30,11 @@ import type { Config } from 'shared';
  * 'Session ID already in use'). Two ConnectionManagers in one process
  * therefore get two slots and cannot clobber each other.
  *
- * `isEnabled(feature)` / `getStates()` with no session id fall back to a
- * union across all bound sessions. That fallback exists only for the ~15
- * reader call sites in tools/ and experimental/fingerprinting/ that have no
- * session handle yet; threading it through is BACKLOG #20. In practice the
- * union and the per-session answer agree, because every session pre-enables
- * from the same `~/.supersurf/config.json` snapshot via `applyInitialState`.
+ * `isEnabled(feature, null)` / `getStates()` union across all bound sessions.
+ * That union is now spelled out at the call site (BACKLOG #20) rather than
+ * granted by omitting the argument — in practice the union and the
+ * per-session answer usually agree, because every session pre-enables from
+ * the same `~/.supersurf/config.json` snapshot via `applyInitialState`.
  */
 declare class ExperimentRegistry {
     private _sessions;
@@ -67,11 +66,15 @@ declare class ExperimentRegistry {
      */
     disable(sessionId: string, feature: string): void;
     /**
-     * Returns true only if the experiment is enabled in the cache. Sync — no IPC.
-     * With `sessionId`, reads that session alone. Without it, returns true when
-     * any bound session has the flag on.
+     * Whether the experiment is on for one session. Sync — no IPC.
+     *
+     * `sessionId: null` unions across every bound session. That is almost never
+     * what a tool wants: a playbook run that enables `fingerprinting` for its own
+     * sub-session would turn it on for the calling agent too, which
+     * `playbooks/runner.ts` documents it must not do. The parameter is required
+     * so the union is a decision at the call site rather than a default.
      */
-    isEnabled(feature: string, sessionId?: string): boolean;
+    isEnabled(feature: string, sessionId: string | null): boolean;
     /** Clear every session slot. Test hook and process-wide reset. */
     reset(): void;
     /** Return a copy of all recognized experiment names. */

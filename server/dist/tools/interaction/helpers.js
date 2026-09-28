@@ -25,7 +25,7 @@ function humanizationSessionId(ctx) {
     return typeof id === 'string' && id.length > 0 ? id : '_default';
 }
 async function moveCursorTo(ctx, x, y) {
-    if (index_1.experimentRegistry.isEnabled('mouse_humanization')) {
+    if (index_1.experimentRegistry.isEnabled('mouse_humanization', ctx.connectionManager?.clientId ?? null)) {
         try {
             const viewport = await getViewportSize(ctx);
             const waypoints = (0, index_2.generateMovement)(humanizationSessionId(ctx), x, y, viewport);

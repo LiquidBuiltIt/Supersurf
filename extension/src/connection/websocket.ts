@@ -93,10 +93,10 @@ export class WebSocketConnection {
    * call (or since the previous call). Returns an array of events, or
    * empty if none.
    */
-  private dialogEventProvider: (() => HeldDialog[]) | null = null;
+  private dialogEventProvider: ((sessionId: string | null) => HeldDialog[]) | null = null;
 
-  /** Returns true while a native dialog is held open (renderer frozen). */
-  private dialogPendingChecker: (() => boolean) | null = null;
+  /** Returns true while a native dialog is held open (renderer frozen) for the given session. */
+  private dialogPendingChecker: ((sessionId: string | null) => boolean) | null = null;
   /**
    * Single-slot resolver for the current in-flight command's dialog race.
    *
@@ -112,12 +112,12 @@ export class WebSocketConnection {
   private _dialogRaceResolve: (() => void) | null = null;
 
   /** Register the dialog event provider (see `dialogEventProvider`). */
-  setDialogEventProvider(provider: (() => HeldDialog[]) | null): void {
+  setDialogEventProvider(provider: ((sessionId: string | null) => HeldDialog[]) | null): void {
     this.dialogEventProvider = provider;
   }
 
   /** Register the predicate used to short-circuit page commands while a dialog is held. */
-  setDialogPendingChecker(fn: (() => boolean) | null): void {
+  setDialogPendingChecker(fn: ((sessionId: string | null) => boolean) | null): void {
     this.dialogPendingChecker = fn;
   }
 
@@ -395,7 +395,7 @@ export class WebSocketConnection {
 
       if (this.dialogEventProvider) {
         try {
-          const events = this.dialogEventProvider();
+          const events = this.dialogEventProvider(message.params?._sessionId ?? null);
           if (events && events.length > 0) {
             if (finalResponse && typeof finalResponse === 'object') {
               finalResponse = { ...finalResponse, _dialogs: events };
@@ -433,7 +433,7 @@ export class WebSocketConnection {
 
   private async _routeCommand(message: any): Promise<any> {
     const { method, params } = message;
-    if (this.dialogPendingChecker?.() && !DIALOG_SAFE_METHODS.has(method)) {
+    if (this.dialogPendingChecker?.(params?._sessionId ?? null) && !DIALOG_SAFE_METHODS.has(method)) {
       throw new Error(
         'A native dialog is blocking the page. Inspect it with ' +
         'browser_handle_dialog {action:"view"}, then resolve it with ' +

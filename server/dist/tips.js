@@ -71,8 +71,8 @@ const PLAYBOOKS_REPEAT_ON = 'Tip: the last few actions repeat an earlier sequenc
     'that worked — save them once as a `<name>.playbook.js` script and replay with `playbooks run`.';
 const PLAYBOOKS_GATE_OFF = "Tip: this session's actions could be replayed as a playbook script. Enable the `fingerprinting` " +
     'experiment in ~/.supersurf/config.json and restart the daemon to unlock `playbooks run`.';
-function playbooksTipMessage(onMessage) {
-    return index_1.experimentRegistry.isEnabled('fingerprinting') ? onMessage : PLAYBOOKS_GATE_OFF;
+function playbooksTipMessage(onMessage, sessionId) {
+    return index_1.experimentRegistry.isEnabled('fingerprinting', sessionId ?? null) ? onMessage : PLAYBOOKS_GATE_OFF;
 }
 function getEvalCode(params) {
     return String(params.expression ?? params.script ?? params.function ?? '');
@@ -231,14 +231,14 @@ const TIPS = [
         priority: 1,
         tool: '*',
         match: () => trail_1.actionTrail.size() >= 8,
-        message: () => playbooksTipMessage(PLAYBOOKS_MILESTONE_ON),
+        message: (sessionId) => playbooksTipMessage(PLAYBOOKS_MILESTONE_ON, sessionId),
     },
     {
         id: 'playbooks-repeat',
         priority: 2,
         tool: '*',
         match: () => hasRepeatedWindow(),
-        message: () => playbooksTipMessage(PLAYBOOKS_REPEAT_ON),
+        message: (sessionId) => playbooksTipMessage(PLAYBOOKS_REPEAT_ON, sessionId),
     },
 ];
 /** True if `rule` applies to `tool` — wildcard rules match every tool except `playbooks`. */
@@ -263,7 +263,7 @@ function getTip(tool, params, result, error, sessionId) {
             }
         }
     }
-    const resolve = (rule) => (typeof rule.message === 'function' ? rule.message() : rule.message);
+    const resolve = (rule) => (typeof rule.message === 'function' ? rule.message(sessionId) : rule.message);
     // Without a session context, behave as a pure function (no suppression).
     if (!sessionId)
         return best ? resolve(best) : null;

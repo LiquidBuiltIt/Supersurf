@@ -97,9 +97,46 @@ export class TabHandlers {
     this.dialogInjector = fn;
   }
 
-  /** Returns the currently attached tab ID, or null if no tab is attached. */
-  getAttachedTabId(): number | null {
-    return this.ctx.attachedTabId;
+  /** Returns the currently attached tab ID for this session, or null if no tab is attached. */
+  getAttachedTabId(sessionId: string | null): number | null {
+    return this.ctx.getSession(sessionId).attachedTabId;
+  }
+
+  /**
+   * The calling session's attached tab id, or throw if it has none.
+   *
+   * For the per-tab data readers (network log, console messages): their
+   * underlying stores treat "no tab" as *every* tab, so handing them a plain
+   * `getAttachedTabId()` null lets a session with no tab read — or clear —
+   * another session's capture. Throws rather than auto-resolving a tab:
+   * picking a tab on the agent's behalf is smart-mode, and rather than
+   * returning an empty list, because "you have no traffic" is a different and
+   * false statement from "you have no tab".
+   */
+  requireAttachedTabId(sessionId: string | null): number {
+    const tabId = this.ctx.getSession(sessionId).attachedTabId;
+    if (tabId === null) {
+      throw new Error(
+        'No tab is attached to this session. Attach one first — call browser_tabs with action="new", or action="select" to take an existing tab.'
+      );
+    }
+    return tabId;
+  }
+
+  /** True if any live session currently has this tab attached. For broadcast-style
+   *  listeners (tab URL updates, navigation guard) that have no calling session
+   *  to scope to — a tab event names a tab, not a session. */
+  isTabAttachedByAnySession(tabId: number): boolean {
+    for (const [, s] of this.ctx.sessionEntries()) {
+      if (s.attachedTabId === tabId) return true;
+    }
+    return false;
+  }
+
+  /** True if any live session has a tab attached. Used by the popup UI, which
+   *  is one global surface with no calling session of its own. */
+  hasAnyAttachedTab(): boolean {
+    return this.ctx.sessionEntries().some(([, s]) => s.attachedTabId !== null);
   }
 
   /**
@@ -116,7 +153,7 @@ export class TabHandlers {
    *
    * @returns `{ tabId, recovery? }` — `recovery` is undefined when no recovery was needed.
    */
-  async ensureAttachedTab(explicitTabId?: number): Promise<{
+  async ensureAttachedTab(sessionId: string | null, explicitTabId?: number): Promise<{
     tabId: number;
     recovery?: {
       reason: 'no-attached-tab' | 'stale-attached-tab';
@@ -135,7 +172,8 @@ export class TabHandlers {
       return { tabId: explicitTabId };
     }
 
-    const previousTabId = this.ctx.attachedTabId;
+    const s = this.ctx.getSession(sessionId);
+    const previousTabId = s.attachedTabId;
 
     // Path 1: attached tab exists — verify it is still alive
     if (previousTabId !== null) {
@@ -144,7 +182,8 @@ export class TabHandlers {
         return { tabId: previousTabId };
       } catch {
         // Stale — fall through to recovery
-        this.ctx.attachedTabId = null;
+        s.attachedTabId = null;
+        this.ctx.persistSession();
         this.iconManager.setAttachedTab(null);
       }
     }
@@ -188,7 +227,7 @@ export class TabHandlers {
     if (!target) target = candidates.find((t) => t.active);
     if (!target) target = candidates[candidates.length - 1];
 
-    this.ctx.attachedTabId = target.id!;
+    s.attachedTabId = target.id!;
     this.ctx.persistSession();
     this.iconManager.setAttachedTab(target.id!);
 
@@ -379,6 +418,8 @@ export class TabHandlers {
     if (sessionId) {
       await this.findGroupByClientId(sessionId);
     }
+    const sid = sessionId ?? null;
+    const s = this.ctx.getSession(sid);
 
     const allTabs = await this.browser.tabs.query({});
 
@@ -414,15 +455,15 @@ export class TabHandlers {
           title: tab.title || 'Untitled',
           url,
           automatable,
-          attached: tab.id === this.ctx.attachedTabId,
+          attached: tab.id === s.attachedTabId,
           groupId: tab.groupId ?? -1,
-          stealthMode: this.ctx.stealthTabs.get(tab.id!) ?? null,
+          stealthMode: s.stealthTabs.get(tab.id!) ?? null,
           windowType,
           techStack: this.techStackInfo.get(tab.id!) || null,
         };
       });
 
-    return { tabs, attachedTabId: this.ctx.attachedTabId };
+    return { tabs, attachedTabId: s.attachedTabId };
   }
 
   /**
@@ -430,15 +471,17 @@ export class TabHandlers {
    * and inject console/dialog handlers.
    */
   async createTab(params: { url?: string; activate?: boolean; stealth?: boolean; _sessionId?: string }): Promise<any> {
+    const sid = params._sessionId ?? null;
+    const s = this.ctx.getSession(sid);
     const url = params.url || 'about:blank';
     const activate = params.activate !== false;
     const stealth = params.stealth || false;
 
     const tab = await this.browser.tabs.create({ url, active: activate });
 
-    this.ctx.attachedTabId = tab.id!;
-    this.ctx.stealthMode = stealth;
-    this.ctx.stealthTabs.set(tab.id!, stealth);
+    s.attachedTabId = tab.id!;
+    s.stealthMode = stealth;
+    s.stealthTabs.set(tab.id!, stealth);
     this.ctx.persistSession();
 
     this.iconManager.setAttachedTab(tab.id!);
@@ -472,6 +515,8 @@ export class TabHandlers {
    * claimed by adding them to the requesting session's group.
    */
   async selectTab(params: { index?: number; tabId?: number; activate?: boolean; stealth?: boolean; _sessionId?: string }): Promise<any> {
+    const sid = params._sessionId ?? null;
+    const s = this.ctx.getSession(sid);
     let tab: chrome.tabs.Tab;
 
     if (params.tabId !== undefined) {
@@ -513,11 +558,11 @@ export class TabHandlers {
       }
     }
 
-    const stealth = params.stealth ?? this.ctx.stealthTabs.get(tab.id!) ?? false;
+    const stealth = params.stealth ?? s.stealthTabs.get(tab.id!) ?? false;
 
-    this.ctx.attachedTabId = tab.id!;
-    this.ctx.stealthMode = stealth;
-    this.ctx.stealthTabs.set(tab.id!, stealth);
+    s.attachedTabId = tab.id!;
+    s.stealthMode = stealth;
+    s.stealthTabs.set(tab.id!, stealth);
     this.ctx.persistSession();
 
     this.iconManager.setAttachedTab(tab.id!);
@@ -546,6 +591,8 @@ export class TabHandlers {
 
   /** Close a tab by index, or close the currently attached tab if no index given. */
   async closeTab(params?: { index?: number; _sessionId?: string }): Promise<{ success: boolean; message: string }> {
+    const sid = params?._sessionId ?? null;
+    const s = this.ctx.getSession(sid);
     const index = params?.index;
     let tabId: number;
 
@@ -573,8 +620,8 @@ export class TabHandlers {
       }
 
       tabId = tab.id!;
-    } else if (this.ctx.attachedTabId) {
-      tabId = this.ctx.attachedTabId;
+    } else if (s.attachedTabId) {
+      tabId = s.attachedTabId;
     } else {
       const available = await this.browser.tabs.query({ windowType: 'normal' });
       const count = available.length;
@@ -587,29 +634,34 @@ export class TabHandlers {
     return { success: true, message: `Tab closed` };
   }
 
-  /** Clean up attachment state, stealth tracking, and tech stack info for a closed tab. */
+  /** Clean up attachment, stealth tracking and tech-stack info for a closed tab.
+   *  A close event names a tab, not a session, so every session that pointed at
+   *  it has to be cleared — not just the one that happened to be current. */
   handleTabClosed(tabId: number): void {
-    const wasAttached = tabId === this.ctx.attachedTabId;
-
-    if (wasAttached) {
-      this.ctx.attachedTabId = null;
-      this.iconManager.setAttachedTab(null);
+    const orphaned: (string | null)[] = [];
+    for (const [sessionId, s] of this.ctx.sessionEntries()) {
+      if (s.attachedTabId === tabId) {
+        s.attachedTabId = null;
+        orphaned.push(sessionId);
+      }
+      s.stealthTabs.delete(tabId);
+      s.cursorPositions.delete(tabId);
     }
-    this.ctx.stealthTabs.delete(tabId);
     this.ctx.persistSession();
     this.techStackInfo.delete(tabId);
+    if (orphaned.length > 0) this.iconManager.setAttachedTab(null);
 
-    // Auto-reattach to another tab if the attached tab was closed
-    if (wasAttached) {
-      this.autoReattach().catch(() => {});
+    for (const sessionId of orphaned) {
+      this.autoReattach(sessionId).catch(() => {});
     }
   }
 
   /**
-   * Attempt to reattach to the most recent normal-window tab after the
-   * attached tab is closed. Silently does nothing if no candidates exist.
+   * Attempt to reattach one session to the most recent normal-window tab
+   * after its attached tab is closed. Silently does nothing if no
+   * candidates exist.
    */
-  private async autoReattach(): Promise<void> {
+  private async autoReattach(sessionId: string | null): Promise<void> {
     try {
       const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
       // Filter to automatable tabs (not chrome://, not chrome-extension://)
@@ -623,7 +675,7 @@ export class TabHandlers {
       const active = candidates.find(t => t.active);
       const target = active || candidates[candidates.length - 1];
 
-      this.ctx.attachedTabId = target.id!;
+      this.ctx.getSession(sessionId).attachedTabId = target.id!;
       this.ctx.persistSession();
       this.iconManager.setAttachedTab(target.id!);
       this.logger.log(`Auto-reattached to tab ${target.id} (${target.url})`);

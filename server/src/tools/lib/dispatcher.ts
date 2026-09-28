@@ -128,7 +128,7 @@ export async function dispatchTool(
     const sessionId = env.clientId ?? 'unknown';
     const tipsEnabled = ctx.config?.get().tips ?? true;
     const tip = (!options.rawResult && tipsEnabled)
-      ? getTip(name, args, callResult, callError, sessionId)
+      ? getTip(name, args, callResult, callError, env.clientId ?? null)
       : null;
 
     env.metricsLogger?.write({

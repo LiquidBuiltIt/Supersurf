@@ -36,12 +36,22 @@ export class NetworkTracker {
         this.browser.webRequest.onCompleted.addListener((details) => this._handleCompleted(details), filter, ['responseHeaders']);
         this.browser.webRequest.onErrorOccurred.addListener((details) => this._handleError(details), filter);
     }
-    /** Return all tracked requests as an array, ordered oldest-first. */
-    getRequests() {
-        return Array.from(this.requests.values());
+    /** Tracked requests for one tab, oldest-first. `null` returns every tab's —
+     *  reserved for diagnostics, never for a session-facing response. */
+    getRequests(tabId) {
+        const all = Array.from(this.requests.values());
+        return tabId === null ? all : all.filter((r) => r.tabId === tabId);
     }
-    clearRequests() {
-        this.requests.clear();
+    /** Drop one tab's requests. `null` drops every tab's. */
+    clearRequests(tabId) {
+        if (tabId === null) {
+            this.requests.clear();
+            return;
+        }
+        for (const [id, req] of this.requests) {
+            if (req.tabId === tabId)
+                this.requests.delete(id);
+        }
     }
     /** Create initial entry on request start, evicting oldest if at capacity. */
     _handleBeforeRequest(details) {
@@ -53,6 +63,7 @@ export class NetworkTracker {
         }
         this.requests.set(details.requestId, {
             requestId: details.requestId,
+            tabId: details.tabId,
             url: details.url,
             method: details.method,
             type: details.type,
@@ -95,4 +106,16 @@ export class NetworkTracker {
             req.error = details.error;
         }
     }
+}
+/**
+ * The whole body of background.ts's `networkRequests` command handler.
+ *
+ * Extracted for the same reason `clearDialogForTab` was: background.ts
+ * installs top-level Chrome listeners and connects on import, so Vitest
+ * cannot drive its handlers, and a leak this file cannot fail on is a leak
+ * that ships. Resolves via `requireAttachedTabId`, never `getAttachedTabId`,
+ * because `getRequests(null)` is the every-tab diagnostics sentinel.
+ */
+export function getRequestsForSession(tracker, tabs, sessionId) {
+    return tracker.getRequests(tabs.requireAttachedTabId(sessionId));
 }

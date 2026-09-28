@@ -87,7 +87,7 @@ export class BrowserBridge {
     // costs one regex test. Gate + store access live in the experimental module —
     // this is the thin delegation hook.
     const resolveSelectorSync = (selector: string): string =>
-      resolveSelectorOrHandle(this.connectionManager?.getAttachedTab()?.url, selector).selector;
+      resolveSelectorOrHandle(this.connectionManager?.getAttachedTab()?.url, selector, this.connectionManager?.clientId ?? null).selector;
     const emitHandle = (ev: import('./experimental/fingerprinting/index').AnyHandleEvent) =>
       this.metricsLogger?.write({
         session_id: this.connectionManager?.clientId ?? 'unknown',
@@ -110,6 +110,7 @@ export class BrowserBridge {
           evalFnBound,
           selector,
           () => this.connectionManager?.getAttachedTab()?.url,
+          () => this.connectionManager?.clientId,
           (ev) =>
             this.metricsLogger?.write({
               session_id: this.connectionManager?.clientId ?? 'unknown',
@@ -120,7 +121,6 @@ export class BrowserBridge {
             }),
           meta,
           emitHandle,
-          () => this.connectionManager?.clientId,
         ),
       captureFingerprintInContext: (contextId: number | null, selector: string, meta?: import('./experimental/fingerprinting/handle-meta').HandleMeta) =>
         void captureInContext(
@@ -131,6 +131,7 @@ export class BrowserBridge {
           },
           this.connectionManager?.getAttachedTab()?.url,
           selector,
+          () => this.connectionManager?.clientId,
           meta,
           emitHandle,
         ),
@@ -143,6 +144,7 @@ export class BrowserBridge {
           },
           this.connectionManager?.getAttachedTab()?.url,
           selector,
+          () => this.connectionManager?.clientId,
         ).then(async (hit) => {
           if (!hit) return null;
           const url = this.connectionManager?.getAttachedTab()?.url;
@@ -178,7 +180,7 @@ export class BrowserBridge {
             : { cx: hit.cx, cy: hit.cy, score: hit.score };
         }),
       resolveSelector: resolveSelectorSync,
-      getHandleIndex: () => buildHandleIndex(this.connectionManager?.getAttachedTab()?.url),
+      getHandleIndex: () => buildHandleIndex(this.connectionManager?.getAttachedTab()?.url, this.connectionManager?.clientId ?? null),
       getSelectorExpression: (selector: string) => getSelectorExpression(resolveSelectorSync(selector)),
       getAllSelectorExpression: (selector: string) => getAllSelectorExpression(resolveSelectorSync(selector)),
       findAlternativeSelectors: (selector: string) =>

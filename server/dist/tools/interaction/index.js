@@ -50,7 +50,7 @@ async function onInteract(ctx, args, options) {
     let beforeState = null;
     const isOnlyScrollActions = actions.every((a) => ['scroll_to', 'scroll_by', 'scroll_into_view'].includes(a.type));
     const captureMode = isOnlyScrollActions ? 'viewport' : 'document';
-    if (index_1.experimentRegistry.isEnabled('page_diffing')) {
+    if (index_1.experimentRegistry.isEnabled('page_diffing', ctx.connectionManager?.clientId ?? null)) {
         try {
             beforeState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode, tabId: ctx.tabId });
         }

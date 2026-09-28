@@ -21,7 +21,7 @@ const index_1 = require("../../experimental/index");
       const el = document.elementFromPoint(${action.x}, ${action.y});
       if (el && (el.closest('a[href]') || el.onclick)) el.click();
     })()`).catch(() => { });
-        if (index_1.experimentRegistry.isEnabled('smart_waiting')) {
+        if (index_1.experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null)) {
             try {
                 await ctx.ext.sendCmd('waitForReady', { timeout: 3000, stabilityMs: 300, tabId: ctx.tabId });
             }

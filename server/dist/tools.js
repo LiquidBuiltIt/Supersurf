@@ -66,7 +66,7 @@ class BrowserBridge {
         // Handle→selector translation. Synchronous and idempotent; a plain CSS selector
         // costs one regex test. Gate + store access live in the experimental module —
         // this is the thin delegation hook.
-        const resolveSelectorSync = (selector) => (0, handle_resolve_1.resolveSelectorOrHandle)(this.connectionManager?.getAttachedTab()?.url, selector).selector;
+        const resolveSelectorSync = (selector) => (0, handle_resolve_1.resolveSelectorOrHandle)(this.connectionManager?.getAttachedTab()?.url, selector, this.connectionManager?.clientId ?? null).selector;
         const emitHandle = (ev) => this.metricsLogger?.write({
             session_id: this.connectionManager?.clientId ?? 'unknown',
             tool: 'handle',
@@ -83,25 +83,25 @@ class BrowserBridge {
             cdp: (method, params) => (0, cdp_1.cdp)(ext, method, params, tabId),
             eval: evalFnBound,
             sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
-            getElementCenter: (selector, meta) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.connectionManager?.getAttachedTab()?.url, (ev) => this.metricsLogger?.write({
+            getElementCenter: (selector, meta) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.connectionManager?.getAttachedTab()?.url, () => this.connectionManager?.clientId, (ev) => this.metricsLogger?.write({
                 session_id: this.connectionManager?.clientId ?? 'unknown',
                 tool: 'fingerprint',
                 params: ev,
                 result: 'ok',
                 duration_ms: 0,
-            }), meta, emitHandle, () => this.connectionManager?.clientId),
+            }), meta, emitHandle),
             captureFingerprintInContext: (contextId, selector, meta) => void (0, index_2.captureInContext)((expr) => {
                 const params = { expression: expr, returnByValue: true };
                 if (contextId != null)
                     params.contextId = contextId; // null => top-frame default context
                 return (0, cdp_1.cdp)(ext, 'Runtime.evaluate', params, tabId).then((r) => r.result?.value);
-            }, this.connectionManager?.getAttachedTab()?.url, selector, meta, emitHandle),
+            }, this.connectionManager?.getAttachedTab()?.url, selector, () => this.connectionManager?.clientId, meta, emitHandle),
             healFingerprintInContext: (contextId, selector) => (0, index_2.healInContext)((expr) => {
                 const params = { expression: expr, returnByValue: true };
                 if (contextId != null)
                     params.contextId = contextId; // null => top-frame default context
                 return (0, cdp_1.cdp)(ext, 'Runtime.evaluate', params, tabId).then((r) => r.result?.value);
-            }, this.connectionManager?.getAttachedTab()?.url, selector).then(async (hit) => {
+            }, this.connectionManager?.getAttachedTab()?.url, selector, () => this.connectionManager?.clientId).then(async (hit) => {
                 if (!hit)
                     return null;
                 const url = this.connectionManager?.getAttachedTab()?.url;
@@ -139,7 +139,7 @@ class BrowserBridge {
                     : { cx: hit.cx, cy: hit.cy, score: hit.score };
             }),
             resolveSelector: resolveSelectorSync,
-            getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.connectionManager?.getAttachedTab()?.url),
+            getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.connectionManager?.getAttachedTab()?.url, this.connectionManager?.clientId ?? null),
             getSelectorExpression: (selector) => (0, element_resolver_1.getSelectorExpression)(resolveSelectorSync(selector)),
             getAllSelectorExpression: (selector) => (0, element_resolver_1.getAllSelectorExpression)(resolveSelectorSync(selector)),
             findAlternativeSelectors: (selector) => (0, element_resolver_1.findAlternativeSelectors)(evalFnBound, selector, this.connectionManager?.clientId),

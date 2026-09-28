@@ -30,6 +30,10 @@ export interface SessionState {
   /** Last known cursor position per tab, used by mouse humanization for path continuity. */
   cursorPositions: Map<number, { x: number; y: number }>;
   humanizationConfig: HumanizationConfig;
+  /** Tabs of THIS session that currently have a held dialog. In-memory only —
+   *  deliberately not persisted, so a service-worker restart clears it rather
+   *  than wedging the session with a stale true. */
+  dialogPendingTabs: Set<number>;
 }
 
 /** JSON-serializable shape for a SessionState (Maps become entry arrays). */
@@ -44,8 +48,7 @@ interface SerializedSessionState {
 /** JSON-serializable shape for the full persisted state. */
 interface SerializedState {
   connected: boolean;
-  debuggerAttached: boolean;
-  currentDebuggerTabId: number | null;
+  attachedDebuggerTabs: number[];
   sessions: Record<string, SerializedSessionState>;
 }
 
@@ -57,6 +60,7 @@ function createSessionState(): SessionState {
     stealthTabs: new Map(),
     cursorPositions: new Map(),
     humanizationConfig: { enabled: false },
+    dialogPendingTabs: new Set(),
   };
 }
 
@@ -77,6 +81,8 @@ function deserializeSession(s: SerializedSessionState): SessionState {
     stealthTabs: new Map(s.stealthTabs || []),
     cursorPositions: new Map(s.cursorPositions || []),
     humanizationConfig: s.humanizationConfig || { enabled: false },
+    // Not persisted — see the field's doc comment on SessionState.
+    dialogPendingTabs: new Set(),
   };
 }
 
@@ -90,20 +96,17 @@ function deserializeSession(s: SerializedSessionState): SessionState {
  * State is written through to chrome.storage.session on every mutation
  * so it survives MV3 service worker suspension cycles.
  *
- * The convenience accessors (attachedTabId, stealthMode, etc.) delegate to
- * the null-key session for backwards compatibility with single-client usage.
+ * There are no no-arg convenience accessors — callers must go through
+ * `getSession(sessionId)` so the compiler names anyone who forgets which
+ * session they're acting for.
  */
 export class SessionContext {
   /** Whether the WebSocket connection to the MCP server is active. */
   private _connected: boolean = false;
-  /** Whether the CDP debugger is currently attached to any tab. */
-  private _debuggerAttached: boolean = false;
-  /** The tab ID the CDP debugger is attached to, if any. */
-  private _currentDebuggerTabId: number | null = null;
-  /** True while a native dialog is held open and blocking the renderer.
-   *  In-memory only — deliberately NOT persisted so a service-worker restart
-   *  clears it (a stale-true flag would wedge the session). */
-  private _dialogPending: boolean = false;
+  /** Tabs the CDP debugger is currently attached to. Chrome allows several at
+   *  once; the previous single-tab global made agent B's screenshot detach
+   *  agent A's tab and silently kill A's network capture. */
+  private _attachedDebuggerTabs: Set<number> = new Set();
 
   // Per-session state. null key = single-client mode (backwards compat).
   private sessions: Map<string | null, SessionState> = new Map();
@@ -130,20 +133,11 @@ export class SessionContext {
     this.persist();
   }
 
-  get debuggerAttached(): boolean { return this._debuggerAttached; }
-  set debuggerAttached(value: boolean) {
-    this._debuggerAttached = value;
-    this.persist();
-  }
-
-  get currentDebuggerTabId(): number | null { return this._currentDebuggerTabId; }
-  set currentDebuggerTabId(value: number | null) {
-    this._currentDebuggerTabId = value;
-    this.persist();
-  }
-
-  get dialogPending(): boolean { return this._dialogPending; }
-  set dialogPending(value: boolean) { this._dialogPending = value; }
+  isDebuggerAttached(tabId: number): boolean { return this._attachedDebuggerTabs.has(tabId); }
+  markDebuggerAttached(tabId: number): void { this._attachedDebuggerTabs.add(tabId); this.persist(); }
+  markDebuggerDetached(tabId: number): void { this._attachedDebuggerTabs.delete(tabId); this.persist(); }
+  /** Every tab currently attached — for the CDP event filter. */
+  attachedDebuggerTabs(): number[] { return [...this._attachedDebuggerTabs]; }
 
   /**
    * Get or lazily create the session state for a given session ID.
@@ -171,43 +165,19 @@ export class SessionContext {
     this.persist();
   }
 
-  // Convenience accessors for single-client backwards compat
-  // These delegate to the null-key session.
-
-  get attachedTabId(): number | null {
-    return this.getSession().attachedTabId;
+  /**
+   * Every live session's state, for operations that are not attributable to a
+   * caller — a tab-close event names a tab, not a session, so cleanup has to
+   * sweep all of them.
+   */
+  sessionEntries(): [string | null, SessionState][] {
+    return [...this.sessions.entries()];
   }
 
-  set attachedTabId(value: number | null) {
-    this.getSession().attachedTabId = value;
-    this.persist();
-  }
-
-  get stealthMode(): boolean {
-    return this.getSession().stealthMode;
-  }
-
-  set stealthMode(value: boolean) {
-    this.getSession().stealthMode = value;
-    this.persist();
-  }
-
-  get stealthTabs(): Map<number, boolean> {
-    return this.getSession().stealthTabs;
-  }
-
-  get cursorPositions(): Map<number, { x: number; y: number }> {
-    return this.getSession().cursorPositions;
-  }
-
-  get humanizationConfig(): HumanizationConfig {
-    return this.getSession().humanizationConfig;
-  }
-
-  set humanizationConfig(value: HumanizationConfig) {
-    this.getSession().humanizationConfig = value;
-    this.persist();
-  }
+  // No no-arg accessors. A no-arg read resolved the `null` map key, so every
+  // caller that omitted the session id shared one global tab pointer across
+  // concurrent agents (D1). Callers use `getSession(sessionId)` and the
+  // compiler now names anyone who forgets. Do not add them back.
 
   /**
    * Clear all persisted session state from chrome.storage.session.
@@ -227,8 +197,7 @@ export class SessionContext {
 
     const serialized: SerializedState = {
       connected: this._connected,
-      debuggerAttached: this._debuggerAttached,
-      currentDebuggerTabId: this._currentDebuggerTabId,
+      attachedDebuggerTabs: [...this._attachedDebuggerTabs],
       sessions: {},
     };
 
@@ -250,8 +219,10 @@ export class SessionContext {
       if (!data) return;
 
       this._connected = data.connected ?? false;
-      this._debuggerAttached = data.debuggerAttached ?? false;
-      this._currentDebuggerTabId = data.currentDebuggerTabId ?? null;
+      // Deliberately not rehydrated: the service worker restarting tears down
+      // every real CDP attachment, so a restored set would claim attachments
+      // that no longer exist. ensureDebugger re-attaches on first use.
+      this._attachedDebuggerTabs = new Set();
 
       if (data.sessions) {
         this.sessions.clear();

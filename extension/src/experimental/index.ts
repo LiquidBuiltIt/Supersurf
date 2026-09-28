@@ -37,7 +37,8 @@ export class ExperimentalFeatures {
 
     // capturePageState — injects DOM capture into the page, returns PageState
     wsConnection.registerCommandHandler('capturePageState', async (params) => {
-      const tabId = (await tabHandlers.ensureAttachedTab(params?.tabId)).tabId;
+      const sid = (params?._sessionId as string | undefined) ?? null;
+      const tabId = (await tabHandlers.ensureAttachedTab(sid, params?.tabId)).tabId;
 
       const mode = params?.mode || 'document';
       const results = await chrome.scripting.executeScript({
@@ -62,7 +63,8 @@ export class ExperimentalFeatures {
     // waitForReady — races DOM stability + network idle against an overall timeout.
     // The 500ms initial delay gives the DOM time to start mutating after navigation.
     wsConnection.registerCommandHandler('waitForReady', async (params) => {
-      const tabId = (await tabHandlers.ensureAttachedTab(params?.tabId)).tabId;
+      const sid = (params?._sessionId as string | undefined) ?? null;
+      const tabId = (await tabHandlers.ensureAttachedTab(sid, params?.tabId)).tabId;
 
       const timeout = params?.timeout || 10000;
       const stabilityMs = params?.stabilityMs || 300;
@@ -79,7 +81,7 @@ export class ExperimentalFeatures {
       });
 
       // Network idle polling
-      const networkIdlePromise = pollNetworkIdle(networkTracker, 500, timeout);
+      const networkIdlePromise = pollNetworkIdle(networkTracker, tabId, 500, timeout);
 
       // Race: both signals vs overall timeout
       await Promise.race([
@@ -93,16 +95,20 @@ export class ExperimentalFeatures {
 }
 
 /**
- * Poll networkTracker for 0 pending requests over idleMs.
+ * Poll networkTracker for 0 pending requests over idleMs, on ONE tab.
  * A request is "pending" if it has no statusCode and no error.
+ *
+ * The tab scope is load-bearing, not tidiness: unscoped, a session's wait
+ * hangs on another session's slow page, which is a wait that never settles
+ * for a reason the waiting agent cannot see.
  */
-function pollNetworkIdle(tracker: NetworkTracker, idleMs: number, timeout: number): Promise<void> {
+function pollNetworkIdle(tracker: NetworkTracker, tabId: number, idleMs: number, timeout: number): Promise<void> {
   return new Promise((resolve) => {
     const startTime = Date.now();
     let idleSince: number | null = null;
 
     const interval = setInterval(() => {
-      const requests = tracker.getRequests();
+      const requests = tracker.getRequests(tabId);
       const pending = requests.filter(r => !r.statusCode && !r.error);
 
       if (pending.length === 0) {

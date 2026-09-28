@@ -18,9 +18,11 @@
 export function registerMouseHandlers(wsConnection, sessionContext, cdp) {
     // humanizedMouseMove — replay waypoints via CDP with delays
     wsConnection.registerCommandHandler('humanizedMouseMove', async (params) => {
+        const sid = params?._sessionId ?? null;
+        const s = sessionContext.getSession(sid);
         // Honor an explicit tabId (concurrency isolation) — falls back to the
         // shared attached tab when the caller didn't pin one.
-        const tabId = params.tabId ?? sessionContext.attachedTabId;
+        const tabId = params.tabId ?? s.attachedTabId;
         if (!tabId)
             throw new Error('No tab attached');
         const waypoints = params.waypoints || [];
@@ -39,15 +41,17 @@ export function registerMouseHandlers(wsConnection, sessionContext, cdp) {
         }
         // Update cursor position in session context
         const last = waypoints[waypoints.length - 1];
-        sessionContext.cursorPositions.set(tabId, { x: last.x, y: last.y });
+        s.cursorPositions.set(tabId, { x: last.x, y: last.y });
         sessionContext.persistSession();
         return { success: true, waypointCount: waypoints.length };
     });
     // setHumanizationConfig — store config, start/stop idle drift alarms
     wsConnection.registerCommandHandler('setHumanizationConfig', async (params) => {
-        sessionContext.humanizationConfig = {
+        const sid = params?._sessionId ?? null;
+        sessionContext.getSession(sid).humanizationConfig = {
             enabled: !!params.enabled,
         };
+        sessionContext.persistSession();
         if (params.enabled) {
             // Start idle drift alarm with random interval (10-30s)
             const intervalSec = 10 + Math.random() * 20;
@@ -61,7 +65,8 @@ export function registerMouseHandlers(wsConnection, sessionContext, cdp) {
     });
     // getViewportDimensions — returns current viewport size
     wsConnection.registerCommandHandler('getViewportDimensions', async (params) => {
-        const tabId = params?.tabId ?? sessionContext.attachedTabId;
+        const sid = params?._sessionId ?? null;
+        const tabId = params?.tabId ?? sessionContext.getSession(sid).attachedTabId;
         if (!tabId)
             throw new Error('No tab attached');
         const result = await cdp(tabId, 'Runtime.evaluate', {
@@ -78,33 +83,45 @@ export function registerMouseHandlers(wsConnection, sessionContext, cdp) {
 }
 /**
  * Handle the mouse-idle-drift alarm.
- * Dispatches a small random drift from the current cursor position.
- * Called from the alarm listener in background.ts.
+ * Dispatches a small random drift from the current cursor position, for
+ * every live session that has humanization enabled and a tab attached.
+ * Called from the alarm listener in background.ts — the alarm fires
+ * globally, with no calling session, so it sweeps sessionEntries() rather
+ * than acting on one global pointer.
  */
 export async function handleIdleDrift(sessionContext, cdp) {
-    if (!sessionContext.humanizationConfig.enabled)
-        return;
-    const tabId = sessionContext.attachedTabId;
-    if (!tabId)
-        return;
-    const pos = sessionContext.cursorPositions.get(tabId) || { x: 0, y: 0 };
-    // Small random drift: 2-5px in random direction
-    const driftMagnitude = 2 + Math.random() * 3;
-    const angle = Math.random() * 2 * Math.PI;
-    const newX = Math.max(0, Math.round(pos.x + Math.cos(angle) * driftMagnitude));
-    const newY = Math.max(0, Math.round(pos.y + Math.sin(angle) * driftMagnitude));
-    try {
-        await cdp(tabId, 'Input.dispatchMouseEvent', {
-            type: 'mouseMoved',
-            x: newX,
-            y: newY,
-        });
-        sessionContext.cursorPositions.set(tabId, { x: newX, y: newY });
-        sessionContext.persistSession();
+    let anyDrifted = false;
+    for (const [, s] of sessionContext.sessionEntries()) {
+        if (!s.humanizationConfig.enabled)
+            continue;
+        const tabId = s.attachedTabId;
+        if (!tabId)
+            continue;
+        anyDrifted = true;
+        const pos = s.cursorPositions.get(tabId) || { x: 0, y: 0 };
+        // Small random drift: 2-5px in random direction
+        const driftMagnitude = 2 + Math.random() * 3;
+        const angle = Math.random() * 2 * Math.PI;
+        const newX = Math.max(0, Math.round(pos.x + Math.cos(angle) * driftMagnitude));
+        const newY = Math.max(0, Math.round(pos.y + Math.sin(angle) * driftMagnitude));
+        try {
+            await cdp(tabId, 'Input.dispatchMouseEvent', {
+                type: 'mouseMoved',
+                x: newX,
+                y: newY,
+            });
+            s.cursorPositions.set(tabId, { x: newX, y: newY });
+            sessionContext.persistSession();
+        }
+        catch {
+            // Silently skip — tab may have been closed
+        }
     }
-    catch {
-        // Silently skip — tab may have been closed
-    }
+    // No session is drift-eligible, so stop: otherwise the alarm reschedules
+    // itself forever. The pre-fan-out version returned early for the same
+    // reason, before the loop existed to return early from.
+    if (!anyDrifted)
+        return;
     // Schedule next drift with random interval (10-30s)
     const nextIntervalSec = 10 + Math.random() * 20;
     chrome.alarms.create('mouse-idle-drift', { delayInMinutes: nextIntervalSec / 60 });
