@@ -192,7 +192,11 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
       !method.startsWith('Runtime.') &&
       method !== 'Page.javascriptDialogOpening'
     ) return;
-    if (!sessionContext.currentDebuggerTabId || source.tabId !== sessionContext.currentDebuggerTabId) return;
+    // Accept events from ANY attached tab and keep the tab on the record, so
+    // two agents' traffic stays separable. The old filter compared against a
+    // single global tab id and threw away everything else.
+    const sourceTabId = source.tabId;
+    if (sourceTabId === undefined || !sessionContext.isDebuggerAttached(sourceTabId)) return;
 
     try {
       if (method === 'Network.requestWillBeSent') {
@@ -202,6 +206,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
         }
         cdpNetworkRequests.set(params.requestId, {
           requestId: params.requestId,
+          tabId: sourceTabId,
           url: params.request.url,
           method: params.request.method,
           type: params.type || 'other',
@@ -233,13 +238,12 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   });
 
   chromeDebugger.onDetach.addListener((source) => {
-    if (source.tabId === sessionContext.currentDebuggerTabId) {
-      sessionContext.debuggerAttached = false;
-      sessionContext.currentDebuggerTabId = null;
-      dialogHandler.clearPending();
-      sessionContext.dialogPending = false;
-      logger.log('[Background] Debugger detached');
-    }
+    // Fires per tab — clear only that tab's attachment, never every tab.
+    if (source.tabId === undefined || !sessionContext.isDebuggerAttached(source.tabId)) return;
+    sessionContext.markDebuggerDetached(source.tabId);
+    dialogHandler.clearPending();
+    sessionContext.dialogPending = false;
+    logger.log('[Background] Debugger detached from tab', source.tabId);
   });
 
   // Listen for tech stack info and profile registration from content script
@@ -282,23 +286,16 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   });
 
   /**
-   * Attach the CDP debugger to a tab, enabling required domains.
-   * If already attached to a different tab, detaches first (single-debugger constraint).
-   * Enables Network, DOM, CSS, Runtime, and Page domains for full automation support.
-   * @param tabId - The Chrome tab ID to attach the debugger to
+   * Attach the CDP debugger to a tab, enabling the domains automation needs.
+   * Attaches PER TAB and never detaches another tab: Chrome permits many
+   * simultaneous attachments, and detaching was killing a concurrent agent's
+   * in-flight network capture.
    */
   async function ensureDebugger(tabId: number): Promise<void> {
-    if (sessionContext.debuggerAttached && sessionContext.currentDebuggerTabId === tabId) return;
-
-    if (sessionContext.debuggerAttached && sessionContext.currentDebuggerTabId !== tabId) {
-      try {
-        await chromeDebugger.detach({ tabId: sessionContext.currentDebuggerTabId! });
-      } catch { /* ignore */ }
-    }
+    if (sessionContext.isDebuggerAttached(tabId)) return;
 
     await chromeDebugger.attach({ tabId }, '1.3');
-    sessionContext.debuggerAttached = true;
-    sessionContext.currentDebuggerTabId = tabId;
+    sessionContext.markDebuggerAttached(tabId);
     await chromeDebugger.sendCommand({ tabId }, 'Network.enable', {});
     await chromeDebugger.sendCommand({ tabId }, 'DOM.enable', {});
     await chromeDebugger.sendCommand({ tabId }, 'CSS.enable', {});
@@ -547,12 +544,10 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     const sid = (params?._sessionId as string | undefined) ?? null;
     const tabId = tabHandlers.getAttachedTabId(sid);
     networkTracker.clearRequests(tabId);
-    // CDP records carry no tabId yet (Task 5 adds it), so this filter is a
-    // no-op today — it deletes nothing for any real session tab. That is
-    // deliberate: it stops the unconditional cross-session wipe now without
-    // inventing a tabId this code doesn't have.
+    // CDP records now carry the source tabId (Task 5), so this scopes the
+    // clear to the caller's tab instead of wiping every session's capture.
     for (const [id, r] of cdpNetworkRequests) {
-      if (tabId === null || (r as any).tabId === tabId) cdpNetworkRequests.delete(id);
+      if (tabId === null || r.tabId === tabId) cdpNetworkRequests.delete(id);
     }
     return { success: true };
   });

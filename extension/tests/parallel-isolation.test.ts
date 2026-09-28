@@ -88,3 +88,22 @@ describe('TabHandlers — two sessions own different tabs', () => {
     expect(handlers.getAttachedTabId('sm-b')).toBeNull();
   });
 });
+
+describe('SessionContext — CDP attachment is per tab', () => {
+  it('tracks two attached tabs at once', () => {
+    const ctx = new SessionContext();
+    ctx.markDebuggerAttached(101);
+    ctx.markDebuggerAttached(202);
+    expect(ctx.isDebuggerAttached(101)).toBe(true);
+    expect(ctx.isDebuggerAttached(202)).toBe(true);
+  });
+
+  it('detaching one tab leaves the other attached', () => {
+    const ctx = new SessionContext();
+    ctx.markDebuggerAttached(101);
+    ctx.markDebuggerAttached(202);
+    ctx.markDebuggerDetached(202);
+    expect(ctx.isDebuggerAttached(101)).toBe(true);
+    expect(ctx.isDebuggerAttached(202)).toBe(false);
+  });
+});

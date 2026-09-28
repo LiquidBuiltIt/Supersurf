@@ -54,10 +54,10 @@ function deserializeSession(s) {
 export class SessionContext {
     /** Whether the WebSocket connection to the MCP server is active. */
     _connected = false;
-    /** Whether the CDP debugger is currently attached to any tab. */
-    _debuggerAttached = false;
-    /** The tab ID the CDP debugger is attached to, if any. */
-    _currentDebuggerTabId = null;
+    /** Tabs the CDP debugger is currently attached to. Chrome allows several at
+     *  once; the previous single-tab global made agent B's screenshot detach
+     *  agent A's tab and silently kill A's network capture. */
+    _attachedDebuggerTabs = new Set();
     /** True while a native dialog is held open and blocking the renderer.
      *  In-memory only — deliberately NOT persisted so a service-worker restart
      *  clears it (a stale-true flag would wedge the session). */
@@ -83,16 +83,11 @@ export class SessionContext {
         this._connected = value;
         this.persist();
     }
-    get debuggerAttached() { return this._debuggerAttached; }
-    set debuggerAttached(value) {
-        this._debuggerAttached = value;
-        this.persist();
-    }
-    get currentDebuggerTabId() { return this._currentDebuggerTabId; }
-    set currentDebuggerTabId(value) {
-        this._currentDebuggerTabId = value;
-        this.persist();
-    }
+    isDebuggerAttached(tabId) { return this._attachedDebuggerTabs.has(tabId); }
+    markDebuggerAttached(tabId) { this._attachedDebuggerTabs.add(tabId); this.persist(); }
+    markDebuggerDetached(tabId) { this._attachedDebuggerTabs.delete(tabId); this.persist(); }
+    /** Every tab currently attached — for the CDP event filter. */
+    attachedDebuggerTabs() { return [...this._attachedDebuggerTabs]; }
     get dialogPending() { return this._dialogPending; }
     set dialogPending(value) { this._dialogPending = value; }
     /**
@@ -149,8 +144,7 @@ export class SessionContext {
             return;
         const serialized = {
             connected: this._connected,
-            debuggerAttached: this._debuggerAttached,
-            currentDebuggerTabId: this._currentDebuggerTabId,
+            attachedDebuggerTabs: [...this._attachedDebuggerTabs],
             sessions: {},
         };
         for (const [key, session] of this.sessions) {
@@ -170,8 +164,10 @@ export class SessionContext {
             if (!data)
                 return;
             this._connected = data.connected ?? false;
-            this._debuggerAttached = data.debuggerAttached ?? false;
-            this._currentDebuggerTabId = data.currentDebuggerTabId ?? null;
+            // Deliberately not rehydrated: the service worker restarting tears down
+            // every real CDP attachment, so a restored set would claim attachments
+            // that no longer exist. ensureDebugger re-attaches on first use.
+            this._attachedDebuggerTabs = new Set();
             if (data.sessions) {
                 this.sessions.clear();
                 for (const [key, serialized] of Object.entries(data.sessions)) {

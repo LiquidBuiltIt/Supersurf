@@ -30,22 +30,18 @@ describe('SessionContext', () => {
       expect(ctx.connected).toBe(false);
     });
 
-    it('defaults debuggerAttached to false', () => {
-      expect(ctx.debuggerAttached).toBe(false);
-    });
-
-    it('defaults currentDebuggerTabId to null', () => {
-      expect(ctx.currentDebuggerTabId).toBeNull();
+    it('defaults to no attached debugger tabs', () => {
+      expect(ctx.isDebuggerAttached(42)).toBe(false);
+      expect(ctx.attachedDebuggerTabs()).toEqual([]);
     });
 
     it('allows setting global state', () => {
       ctx.connected = true;
-      ctx.debuggerAttached = true;
-      ctx.currentDebuggerTabId = 42;
+      ctx.markDebuggerAttached(42);
 
       expect(ctx.connected).toBe(true);
-      expect(ctx.debuggerAttached).toBe(true);
-      expect(ctx.currentDebuggerTabId).toBe(42);
+      expect(ctx.isDebuggerAttached(42)).toBe(true);
+      expect(ctx.attachedDebuggerTabs()).toEqual([42]);
     });
   });
 
@@ -105,8 +101,7 @@ describe('SessionContext', () => {
       await pCtx.init(mockChrome);
 
       pCtx.connected = true;
-      pCtx.debuggerAttached = true;
-      pCtx.currentDebuggerTabId = 42;
+      pCtx.markDebuggerAttached(42);
       pCtx.getSession().attachedTabId = 7;
       pCtx.persistSession();
 
@@ -117,17 +112,15 @@ describe('SessionContext', () => {
       const stored = mockChrome._store['__supersurf_session_state'];
       expect(stored).toBeDefined();
       expect(stored.connected).toBe(true);
-      expect(stored.debuggerAttached).toBe(true);
-      expect(stored.currentDebuggerTabId).toBe(42);
+      expect(stored.attachedDebuggerTabs).toEqual([42]);
       expect(stored.sessions['__null__'].attachedTabId).toBe(7);
     });
 
-    it('rehydrates state from chrome.storage.session', async () => {
+    it('rehydrates connected state but NOT debugger attachments (a restart drops real CDP attachments)', async () => {
       const mockChrome = createMockChrome();
       mockChrome._store['__supersurf_session_state'] = {
         connected: true,
-        debuggerAttached: true,
-        currentDebuggerTabId: 55,
+        attachedDebuggerTabs: [55],
         sessions: {
           '__null__': {
             attachedTabId: 12,
@@ -143,8 +136,8 @@ describe('SessionContext', () => {
       await pCtx.init(mockChrome);
 
       expect(pCtx.connected).toBe(true);
-      expect(pCtx.debuggerAttached).toBe(true);
-      expect(pCtx.currentDebuggerTabId).toBe(55);
+      expect(pCtx.isDebuggerAttached(55)).toBe(false);
+      expect(pCtx.attachedDebuggerTabs()).toEqual([]);
       const session = pCtx.getSession();
       expect(session.attachedTabId).toBe(12);
       expect(session.stealthMode).toBe(true);
