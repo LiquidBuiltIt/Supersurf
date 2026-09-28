@@ -160,3 +160,25 @@ export class NetworkTracker {
     }
   }
 }
+
+/** Minimal view of TabHandlers — structural so this module stays leaf-level. */
+interface SessionTabResolver {
+  requireAttachedTabId(sessionId: string | null): number;
+}
+
+/**
+ * The whole body of background.ts's `networkRequests` command handler.
+ *
+ * Extracted for the same reason `clearDialogForTab` was: background.ts
+ * installs top-level Chrome listeners and connects on import, so Vitest
+ * cannot drive its handlers, and a leak this file cannot fail on is a leak
+ * that ships. Resolves via `requireAttachedTabId`, never `getAttachedTabId`,
+ * because `getRequests(null)` is the every-tab diagnostics sentinel.
+ */
+export function getRequestsForSession(
+  tracker: NetworkTracker,
+  tabs: SessionTabResolver,
+  sessionId: string | null
+): NetworkRequest[] {
+  return tracker.getRequests(tabs.requireAttachedTabId(sessionId));
+}

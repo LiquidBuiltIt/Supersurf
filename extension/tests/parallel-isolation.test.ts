@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { SessionContext } from '../src/session-context.js';
 import { TabHandlers } from '../src/handlers/tabs.js';
 import { DialogHandler, clearDialogForTab } from '../src/handlers/dialogs.js';
+import { NetworkTracker, getRequestsForSession } from '../src/handlers/network.js';
 import { createMockChrome } from './__mocks__/chrome.js';
 
 // Construction copied from tests/handlers/tabs.test.ts — do not invent a
@@ -157,5 +158,41 @@ describe('clearDialogForTab — detaching one tab does not clear another tab\'s 
     expect(h.getPending(202)).toBeNull();
     expect(ctx.getSession('sm-a').dialogPendingTabs.has(101)).toBe(true);
     expect(ctx.getSession('sm-b').dialogPendingTabs.has(202)).toBe(false);
+  });
+});
+
+describe('networkRequests — a session with no attached tab reads nobody else\'s log', () => {
+  // The scoping added by this branch had a hole: getAttachedTabId returns null
+  // for a session that has not attached yet, and null is getRequests' every-tab
+  // diagnostics sentinel — so session B calling browser_network_requests before
+  // attaching was handed session A's entire capture, headers and bodies
+  // included. getRequestsForSession IS the command handler's body.
+  function setup() {
+    const chrome = createMockChrome();
+    const ctx = new SessionContext();
+    const tabs = makeTabHandlers(chrome, ctx);
+    const tracker = new NetworkTracker(chrome, createMockLogger());
+    tracker.init();
+    for (const [tabId, requestId, url] of [[7, 'a', 'https://a.test/'], [9, 'b', 'https://b.test/']] as const) {
+      chrome.webRequest.onBeforeRequest._fire({
+        requestId, tabId, url, method: 'GET', type: 'main_frame', timeStamp: 1,
+      });
+    }
+    ctx.getSession('sm-a').attachedTabId = 7;
+    return { tabs, tracker };
+  }
+
+  it('gives an attached session only its own tab\'s requests', () => {
+    const { tabs, tracker } = setup();
+    expect(getRequestsForSession(tracker, tabs, 'sm-a').map((r) => r.url)).toEqual(['https://a.test/']);
+  });
+
+  it('throws for a session with no attached tab instead of returning the other session\'s', () => {
+    const { tabs, tracker } = setup();
+    expect(() => getRequestsForSession(tracker, tabs, 'sm-b')).toThrow(/No tab is attached/);
+    // Belt and braces: the failure mode was silently receiving A's records.
+    let leaked: unknown[] = [];
+    try { leaked = getRequestsForSession(tracker, tabs, 'sm-b'); } catch { /* expected */ }
+    expect(leaked).toEqual([]);
   });
 });

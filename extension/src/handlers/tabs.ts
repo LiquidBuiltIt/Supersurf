@@ -102,6 +102,27 @@ export class TabHandlers {
     return this.ctx.getSession(sessionId).attachedTabId;
   }
 
+  /**
+   * The calling session's attached tab id, or throw if it has none.
+   *
+   * For the per-tab data readers (network log, console messages): their
+   * underlying stores treat "no tab" as *every* tab, so handing them a plain
+   * `getAttachedTabId()` null lets a session with no tab read — or clear —
+   * another session's capture. Throws rather than auto-resolving a tab:
+   * picking a tab on the agent's behalf is smart-mode, and rather than
+   * returning an empty list, because "you have no traffic" is a different and
+   * false statement from "you have no tab".
+   */
+  requireAttachedTabId(sessionId: string | null): number {
+    const tabId = this.ctx.getSession(sessionId).attachedTabId;
+    if (tabId === null) {
+      throw new Error(
+        'No tab is attached to this session. Attach one first — call browser_tabs with action="new", or action="select" to take an existing tab.'
+      );
+    }
+    return tabId;
+  }
+
   /** True if any live session currently has this tab attached. For broadcast-style
    *  listeners (tab URL updates, navigation guard) that have no calling session
    *  to scope to — a tab event names a tab, not a session. */

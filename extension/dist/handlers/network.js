@@ -107,3 +107,15 @@ export class NetworkTracker {
         }
     }
 }
+/**
+ * The whole body of background.ts's `networkRequests` command handler.
+ *
+ * Extracted for the same reason `clearDialogForTab` was: background.ts
+ * installs top-level Chrome listeners and connects on import, so Vitest
+ * cannot drive its handlers, and a leak this file cannot fail on is a leak
+ * that ships. Resolves via `requireAttachedTabId`, never `getAttachedTabId`,
+ * because `getRequests(null)` is the every-tab diagnostics sentinel.
+ */
+export function getRequestsForSession(tracker, tabs, sessionId) {
+    return tracker.getRequests(tabs.requireAttachedTabId(sessionId));
+}

@@ -18,7 +18,7 @@ import { Logger } from './utils/logger.js';
 import { IconManager } from './utils/icons.js';
 import { WebSocketConnection } from './connection/websocket.js';
 import { TabHandlers } from './handlers/tabs.js';
-import { NetworkTracker } from './handlers/network.js';
+import { NetworkTracker, getRequestsForSession } from './handlers/network.js';
 import { DialogHandler, clearDialogForTab } from './handlers/dialogs.js';
 import { ConsoleHandler } from './handlers/console.js';
 import { DownloadHandler } from './handlers/downloads.js';
@@ -495,25 +495,34 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     // consoleMessages
     wsConnection.registerCommandHandler('consoleMessages', async (params) => {
         const sid = params?._sessionId ?? null;
-        const tabId = tabHandlers.getAttachedTabId(sid);
-        return { messages: consoleHandler.getMessages(tabId ?? undefined) };
+        // requireAttachedTabId, not getAttachedTabId: `undefined` is getMessages'
+        // every-tab value, so a session with no tab would read every other
+        // session's console output.
+        const tabId = tabHandlers.requireAttachedTabId(sid);
+        return { messages: consoleHandler.getMessages(tabId) };
     });
     // networkRequests — a session reads its own tab's traffic and nothing else:
     // request and response headers and bodies are in these records.
     wsConnection.registerCommandHandler('networkRequests', async (params) => {
         const sid = params?._sessionId ?? null;
-        const tabId = tabHandlers.getAttachedTabId(sid);
-        return { requests: networkTracker.getRequests(tabId) };
+        // Body lives in handlers/network.ts so a regression lock can drive it —
+        // this file is not importable under Vitest. It resolves the tab with
+        // requireAttachedTabId, not getAttachedTabId, because null is getRequests'
+        // every-tab diagnostics sentinel.
+        return { requests: getRequestsForSession(networkTracker, tabHandlers, sid) };
     });
     // clearNetwork
     wsConnection.registerCommandHandler('clearNetwork', async (params) => {
         const sid = params?._sessionId ?? null;
-        const tabId = tabHandlers.getAttachedTabId(sid);
+        // requireAttachedTabId, not getAttachedTabId: null wipes every tab's log in
+        // both stores below, so a session with no tab would destroy another
+        // session's capture.
+        const tabId = tabHandlers.requireAttachedTabId(sid);
         networkTracker.clearRequests(tabId);
         // CDP records now carry the source tabId (Task 5), so this scopes the
         // clear to the caller's tab instead of wiping every session's capture.
         for (const [id, r] of cdpNetworkRequests) {
-            if (tabId === null || r.tabId === tabId)
+            if (r.tabId === tabId)
                 cdpNetworkRequests.delete(id);
         }
         return { success: true };
