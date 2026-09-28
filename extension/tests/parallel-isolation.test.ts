@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SessionContext } from '../src/session-context.js';
 import { TabHandlers } from '../src/handlers/tabs.js';
-import { DialogHandler } from '../src/handlers/dialogs.js';
+import { DialogHandler, clearDialogForTab } from '../src/handlers/dialogs.js';
 import { createMockChrome } from './__mocks__/chrome.js';
 
 // Construction copied from tests/handlers/tabs.test.ts — do not invent a
@@ -139,7 +139,7 @@ describe('SessionContext — a dialog blocks only its own session', () => {
   });
 });
 
-describe('DialogHandler + SessionContext — detaching one tab does not clear another tab\'s pending dialog', () => {
+describe('clearDialogForTab — detaching one tab does not clear another tab\'s pending dialog', () => {
   it('sweeping tab B\'s dialog off every session leaves tab A\'s session flagged', () => {
     const h = new DialogHandler({} as any, { log: () => {} } as any);
     const ctx = new SessionContext();
@@ -148,10 +148,10 @@ describe('DialogHandler + SessionContext — detaching one tab does not clear an
     ctx.getSession('sm-a').dialogPendingTabs.add(101);
     ctx.getSession('sm-b').dialogPendingTabs.add(202);
 
-    // Mirrors background.ts's onDetach cleanup for tab 202 only — the site
-    // that used to clear a single global flag for every session.
-    h.clearPending(202);
-    for (const [, s] of ctx.sessionEntries()) s.dialogPendingTabs.delete(202);
+    // Calls the SAME function background.ts's onDetach listener delegates
+    // to for tab 202 only — the site that used to clear a single global flag
+    // for every session.
+    clearDialogForTab(h, ctx, 202);
 
     expect(h.getPending(101)?.message).toBe('A');
     expect(h.getPending(202)).toBeNull();

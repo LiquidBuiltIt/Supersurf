@@ -19,7 +19,7 @@ import { IconManager } from './utils/icons.js';
 import { WebSocketConnection } from './connection/websocket.js';
 import { TabHandlers } from './handlers/tabs.js';
 import { NetworkTracker } from './handlers/network.js';
-import { DialogHandler } from './handlers/dialogs.js';
+import { DialogHandler, clearDialogForTab } from './handlers/dialogs.js';
 import { ConsoleHandler } from './handlers/console.js';
 import { DownloadHandler } from './handlers/downloads.js';
 import { wrapWithUnwrap, shouldUnwrap } from './utils/unwrap.js';
@@ -234,15 +234,13 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     chromeDebugger.onDetach.addListener((source) => {
         // Fires per tab — clear only that tab's attachment and pending dialog,
-        // never every tab. Sweeping dialogPendingTabs across all sessions (rather
-        // than a global flag) means tab B detaching can't clear a dialog still
-        // held on tab A.
+        // never every tab. clearDialogForTab sweeps dialogPendingTabs across all
+        // sessions by tab id (rather than a global flag), so tab B detaching
+        // can't clear a dialog still held on tab A.
         if (source.tabId === undefined || !sessionContext.isDebuggerAttached(source.tabId))
             return;
         sessionContext.markDebuggerDetached(source.tabId);
-        dialogHandler.clearPending(source.tabId);
-        for (const [, s] of sessionContext.sessionEntries())
-            s.dialogPendingTabs.delete(source.tabId);
+        clearDialogForTab(dialogHandler, sessionContext, source.tabId);
         logger.log('[Background] Debugger detached from tab', source.tabId);
     });
     // Listen for tech stack info and profile registration from content script

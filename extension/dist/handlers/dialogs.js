@@ -63,3 +63,14 @@ export class DialogHandler {
         this.pending.delete(tabId);
     }
 }
+/**
+ * Forget a tab's held dialog, and sweep that tab id out of every session's
+ * `dialogPendingTabs`. Used when a tab's debugger detaches — that event names
+ * a tab, not a session, and this must clear ONLY that tab: sessions holding a
+ * dialog on some other tab are untouched.
+ */
+export function clearDialogForTab(dialogHandler, sessionContext, tabId) {
+    dialogHandler.clearPending(tabId);
+    for (const [, s] of sessionContext.sessionEntries())
+        s.dialogPendingTabs.delete(tabId);
+}
