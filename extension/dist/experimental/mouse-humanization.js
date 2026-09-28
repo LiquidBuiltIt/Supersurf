@@ -90,12 +90,14 @@ export function registerMouseHandlers(wsConnection, sessionContext, cdp) {
  * than acting on one global pointer.
  */
 export async function handleIdleDrift(sessionContext, cdp) {
+    let anyDrifted = false;
     for (const [, s] of sessionContext.sessionEntries()) {
         if (!s.humanizationConfig.enabled)
             continue;
         const tabId = s.attachedTabId;
         if (!tabId)
             continue;
+        anyDrifted = true;
         const pos = s.cursorPositions.get(tabId) || { x: 0, y: 0 };
         // Small random drift: 2-5px in random direction
         const driftMagnitude = 2 + Math.random() * 3;
@@ -115,6 +117,11 @@ export async function handleIdleDrift(sessionContext, cdp) {
             // Silently skip — tab may have been closed
         }
     }
+    // No session is drift-eligible, so stop: otherwise the alarm reschedules
+    // itself forever. The pre-fan-out version returned early for the same
+    // reason, before the loop existed to return early from.
+    if (!anyDrifted)
+        return;
     // Schedule next drift with random interval (10-30s)
     const nextIntervalSec = 10 + Math.random() * 20;
     chrome.alarms.create('mouse-idle-drift', { delayInMinutes: nextIntervalSec / 60 });

@@ -122,11 +122,15 @@ export async function handleIdleDrift(
   sessionContext: SessionContext,
   cdp: CdpFn
 ): Promise<void> {
+  let anyDrifted = false;
+
   for (const [, s] of sessionContext.sessionEntries()) {
     if (!s.humanizationConfig.enabled) continue;
 
     const tabId = s.attachedTabId;
     if (!tabId) continue;
+
+    anyDrifted = true;
 
     const pos = s.cursorPositions.get(tabId) || { x: 0, y: 0 };
 
@@ -148,6 +152,11 @@ export async function handleIdleDrift(
       // Silently skip — tab may have been closed
     }
   }
+
+  // No session is drift-eligible, so stop: otherwise the alarm reschedules
+  // itself forever. The pre-fan-out version returned early for the same
+  // reason, before the loop existed to return early from.
+  if (!anyDrifted) return;
 
   // Schedule next drift with random interval (10-30s)
   const nextIntervalSec = 10 + Math.random() * 20;
