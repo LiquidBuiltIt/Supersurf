@@ -26,6 +26,8 @@ import { ConnectionManager } from './backend';
 import { getLogger, getRegistry, type DebugMode } from 'shared';
 import { startScriptMode } from './stdio';
 import { loadDotenv } from './dotenv';
+import { setSkillsInstalled } from './tips';
+import { detectPluginSkills } from './plugin-detect';
 import {
   checkAndTouchVersionState,
   UPGRADE_NOTICE_MESSAGE,
@@ -150,6 +152,7 @@ function setupExitWatchdog(backend: ConnectionManager, server: Server): void {
 async function main(options: any): Promise<void> {
   // Load .env from cwd before anything reads process.env
   loadDotenv(process.cwd());
+  setSkillsInstalled(detectPluginSkills());
 
   // This process is always a JSON-RPC transport over stdout (MCP protocol) —
   // the upgrade notice MUST go to stderr, never stdout, or it corrupts the

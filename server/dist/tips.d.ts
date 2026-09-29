@@ -7,6 +7,7 @@
  *
  * @module tips
  */
+export declare function setSkillsInstalled(v: boolean): void;
 export declare function clearTipCounters(sessionId: string): void;
 export declare function getTip(tool: string, params: Record<string, unknown>, result: 'ok' | 'error', error?: string, sessionId?: string | null): string | null;
 //# sourceMappingURL=tips.d.ts.map

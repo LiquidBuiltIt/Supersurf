@@ -59,6 +59,8 @@ const backend_1 = require("./backend");
 const shared_1 = require("./shared");
 const stdio_1 = require("./stdio");
 const dotenv_1 = require("./dotenv");
+const tips_1 = require("./tips");
+const plugin_detect_1 = require("./plugin-detect");
 const shared_2 = require("./shared");
 const backend_config_1 = require("./backend-config");
 const { version: VERSION } = require('../package.json');
@@ -160,6 +162,7 @@ function setupExitWatchdog(backend, server) {
 async function main(options) {
     // Load .env from cwd before anything reads process.env
     (0, dotenv_1.loadDotenv)(process.cwd());
+    (0, tips_1.setSkillsInstalled)((0, plugin_detect_1.detectPluginSkills)());
     // This process is always a JSON-RPC transport over stdout (MCP protocol) —
     // the upgrade notice MUST go to stderr, never stdout, or it corrupts the
     // protocol stream. Checked/recorded before any other output.

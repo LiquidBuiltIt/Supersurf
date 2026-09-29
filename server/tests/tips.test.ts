@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getTip, clearTipCounters } from '../src/tips';
+import { getTip, clearTipCounters, setSkillsInstalled } from '../src/tips';
 import { actionTrail } from '../src/playbooks/trail';
 import { experimentRegistry } from '../src/experimental/index';
+import { renderAlternatives } from '../src/tools/lib/element-resolver';
 
 // The playbooks tips read actionTrail.size()/tail() and experimentRegistry's
 // fingerprinting flag. Both are module-level singletons — reset before every
@@ -9,6 +10,7 @@ import { experimentRegistry } from '../src/experimental/index';
 beforeEach(() => {
   actionTrail._resetForTest();
   experimentRegistry.reset();
+  setSkillsInstalled(false);
 });
 
 describe('getTip', () => {
@@ -419,5 +421,78 @@ describe('getTip — wildcard tips do not disturb per-tool tips', () => {
     }, 'ok');
     expect(tip).toContain('browser_interact');
     expect(tip).toContain(':has-text(');
+  });
+});
+
+describe('skill-linked tips', () => {
+  const miss = () => getTip('browser_interact', { action: 'click', selector: '#nope' }, 'error', 'Element not found: `#nope`');
+
+  it('point to the skill when the plugin is installed', () => {
+    setSkillsInstalled(true);
+    const tip = miss();
+    expect(tip).toContain('`supersurf:navigation`');
+    expect(tip).not.toContain('/plugin install');
+  });
+
+  it('carry the install-the-plugin line when it is not', () => {
+    setSkillsInstalled(false);
+    const tip = miss();
+    expect(tip).toContain('/plugin install supersurf@supersurf');
+    expect(tip).not.toContain('`supersurf:navigation`');
+  });
+
+  it('leave untagged tips unchanged', () => {
+    setSkillsInstalled(false);
+    const tip = getTip('browser_take_screenshot', {}, 'ok');
+    expect(tip).not.toContain('/plugin');
+  });
+});
+
+describe('navigation tips', () => {
+  const act = (selector: string) => ({ actions: [{ type: 'click', selector }] });
+  const alt = (tag: string) => ({ selector: `${tag}.x`, visible: true, text: 'Next', tag, x: 1, y: 1, width: 10, height: 10, score: 0 });
+  const missWith = (selector: string, tag?: string) =>
+    `Element not found: \`${selector}\`` + (tag ? `\n\n${renderAlternatives([alt(tag)])}` : '');
+
+  it('flags Playwright selector syntax', () => {
+    const tip = getTip('browser_interact', act('text=Sign in'), 'error', 'Element not found: `text=Sign in`');
+    expect(tip).toContain('not Playwright');
+  });
+  it('flags :visible and >> too', () => {
+    expect(getTip('browser_interact', act('button:visible'), 'error', 'x')).toContain('not Playwright');
+    expect(getTip('browser_interact', act('div >> text=Go'), 'error', 'x')).toContain('not Playwright');
+  });
+  it('does not fire the Playwright tip on success', () => {
+    expect(getTip('browser_interact', act('text=Sign in'), 'ok')).toBeNull();
+  });
+
+  it('flags an unescaped bracket in an id', () => {
+    expect(getTip('browser_interact', act('#answers[0]'), 'error', 'x')).toContain('[id="');
+  });
+  it('does not flag a valid id + attribute selector', () => {
+    expect(getTip('browser_interact', act('#save[disabled]'), 'error', missWith('#save[disabled]'))).not.toContain('must be escaped');
+  });
+
+  it('flags a :has-text miss whose first suggestion has another tag', () => {
+    const sel = 'button:has-text("Next")';
+    expect(getTip('browser_interact', act(sel), 'error', missWith(sel, 'a'))).toContain('copy the tag');
+  });
+  it('stays quiet when the suggested tag matches', () => {
+    const sel = 'button:has-text("Next")';
+    expect(getTip('browser_interact', act(sel), 'error', missWith(sel, 'button'))).not.toContain('copy the tag');
+  });
+  it('stays quiet with no Did you mean block', () => {
+    const sel = 'button:has-text("Next")';
+    expect(getTip('browser_interact', act(sel), 'error', missWith(sel))).not.toContain('copy the tag');
+  });
+
+  it('calls a CAPTCHA check passive unless the challenge is on screen', () => {
+    const tip = getTip('browser_evaluate', { expression: `!!document.querySelector('.grecaptcha-badge')`, purpose: 'check for reCAPTCHA' }, 'ok');
+    expect(tip).toContain('not a block');
+  });
+
+  it('all four are tagged to the navigation skill', () => {
+    setSkillsInstalled(true);
+    expect(getTip('browser_interact', act('text=Go'), 'error', 'x')).toContain('`supersurf:navigation`');
   });
 });
