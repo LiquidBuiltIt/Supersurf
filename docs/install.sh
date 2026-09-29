@@ -16,6 +16,12 @@
 #
 # Re-running the script is the upgrade path.
 #
+# Pass --latest to run the tip of main instead of a release: the script clones
+# the repo into ~/.supersurf/dev/src and installs a small shim as `supersurf` that
+# sets SUPERSURF_DEV_ENVIRONMENT, so the MCP server, the daemon and the
+# managed-profile extension all run the clone's code. Re-run --latest to pull.
+# Re-run without it to go back to the release binary.
+#
 # POSIX sh on purpose. The documented command pipes into `sh`, which is dash on
 # most Debian and Ubuntu systems, so nothing here may assume bash.
 
@@ -29,6 +35,10 @@ ASSUME_YES=0
 CLIENT=""
 CLIENT_EXPLICIT=0
 REGISTERED=0
+LATEST=0
+SRC_DIR="${SUPERSURF_SRC_DIR:-$HOME/.supersurf/dev/src}"
+# Overridable so --latest can be tested against a local clone before a push.
+SRC_URL="${SUPERSURF_SRC_URL:-https://github.com/$REPO.git}"
 
 # How long interactive mode waits for the extension to connect. Installing from
 # the Web Store is a multi-step human action; a short timeout would fire while
@@ -63,11 +73,14 @@ Options:
   --yes              Never prompt. Install the binary, print the extension URL, exit.
   --client <name>    Register SuperSurf with an MCP client. Supported: claude.
   --version <ver>    Install a specific release (e.g. 3.5.0) instead of the latest.
+  --latest           Run the tip of main instead of a release. Clones the repo
+                     into ~/.supersurf/dev/src. Re-run --latest to update.
   --dir <path>       Install into <path> instead of ~/.local/bin.
   -h, --help         Show this message.
 
 Environment:
   SUPERSURF_INSTALL_DIR   Same as --dir.
+  SUPERSURF_SRC_DIR       Where --latest keeps its clone (default ~/.supersurf/dev/src).
   NO_COLOR                Disable colored output.
 EOF
 }
@@ -84,6 +97,7 @@ while [ $# -gt 0 ]; do
                   VERSION="$2"; shift ;;
     --dir)        [ $# -ge 2 ] || die "--dir needs a path"
                   INSTALL_DIR="$2"; shift ;;
+    --latest)     LATEST=1 ;;
     -h|--help)    usage; exit 0 ;;
     *)            die "Unknown option: $1. Run with --help for usage." ;;
   esac
@@ -97,6 +111,10 @@ case "$CLIENT" in
   ""|claude) ;;
   *) die "Unsupported --client value: '$CLIENT'. Supported values: claude" ;;
 esac
+
+if [ "$LATEST" -eq 1 ] && [ "$VERSION" != "latest" ]; then
+  die "--latest and --version cannot be combined. --latest installs the tip of main."
+fi
 
 # ------------------------------------------------------------- platform ----
 
@@ -249,6 +267,85 @@ https://github.com/$REPO/issues with the output of: uname -sm"
   else
     ok "supersurf -> $BIN"
   fi
+}
+
+# Clone (or update) main and install a shim in place of the release binary.
+# The shim is what makes every component follow the clone: it exports
+# SUPERSURF_DEV_ENVIRONMENT, and the CLI and daemon route to that root.
+install_latest() {
+  command -v git >/dev/null 2>&1 || die "--latest needs git on your PATH."
+  command -v npm >/dev/null 2>&1 || die "--latest needs npm on your PATH."
+
+  if [ -d "$SRC_DIR/.git" ]; then
+    # Only ever delete a clone this script made: its origin must be SRC_URL.
+    origin=$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null)
+    [ "$origin" = "$SRC_URL" ] \
+      || die "$SRC_DIR is a clone of '$origin', not $SRC_URL. Move it aside, or set SUPERSURF_SRC_DIR."
+    step "Updating $SRC_DIR"
+    if [ -n "$(git -C "$SRC_DIR" status --porcelain)" ] || ! git -C "$SRC_DIR" pull --ff-only; then
+      warn "$SRC_DIR has local changes or has diverged from main. Cloning it again."
+      rm -rf "$SRC_DIR"
+    fi
+  elif [ -e "$SRC_DIR" ]; then
+    die "$SRC_DIR exists but is not a git clone. Move it aside, or set SUPERSURF_SRC_DIR."
+  fi
+  if [ ! -d "$SRC_DIR" ]; then
+    step "Cloning $SRC_URL into $SRC_DIR"
+    git clone "$SRC_URL" "$SRC_DIR" || die "git clone failed."
+  fi
+
+  # `npm install`, not `npm ci`: package-lock.json is gitignored upstream.
+  step "Installing dependencies"
+  ( cd "$SRC_DIR" && npm install --no-audit --no-fund --loglevel=error ) \
+    || die "npm install failed in $SRC_DIR."
+
+  # tsx is a server devDependency; npm may or may not hoist it, so ask node.
+  loader=$(cd "$SRC_DIR/server" && node -p \
+    "require('path').join(require('path').dirname(require.resolve('tsx/package.json')), 'dist', 'loader.mjs')" \
+    2>/dev/null) || loader=""
+  [ -n "$loader" ] && [ -f "$loader" ] || die "tsx is missing in $SRC_DIR. Run npm install there, then re-run."
+
+  mkdir -p "$INSTALL_DIR" || die "Could not create $INSTALL_DIR."
+  [ -w "$INSTALL_DIR" ] || die "$INSTALL_DIR is not writable. Pass --dir <path> to install elsewhere."
+
+  # ponytail: paths are single-quoted into the shim; a clone path containing ' breaks it.
+  tmp="$INSTALL_DIR/.supersurf.download.$$"
+  trap 'rm -f "$tmp"' EXIT INT TERM
+  cat > "$tmp" <<EOF
+#!/bin/sh
+# Written by the SuperSurf installer (--latest). Runs the CLI from $SRC_DIR
+# and routes the MCP server, the daemon and the extension there too.
+SUPERSURF_DEV_ENVIRONMENT='$SRC_DIR'
+export SUPERSURF_DEV_ENVIRONMENT
+exec node --import 'file://$loader' '$SRC_DIR/cli/src/supersurf.ts' "\$@"
+EOF
+  chmod +x "$tmp"
+  mv -f "$tmp" "$INSTALL_DIR/supersurf"
+  trap - EXIT INT TERM
+  BIN="$INSTALL_DIR/supersurf"
+
+  "$BIN" --help >/dev/null 2>&1 \
+    || die "The shim at $BIN does not run. --latest needs Node.js 20.6+ or 18.19+ (for node --import). Found $(node --version 2>/dev/null)."
+  ok "supersurf from main @ $(git -C "$SRC_DIR" rev-parse --short HEAD) -> $BIN"
+}
+
+# --latest never stops a running daemon: it may be serving live sessions. A
+# daemon from another build under a dev CLI can misbehave, so say so and hand
+# over the commands instead.
+warn_stale_daemon() {
+  pid=$(cat "$HOME/.supersurf/daemon.pid" 2>/dev/null) || return 0
+  kill -0 "$pid" 2>/dev/null || return 0
+  src_real=$(cd "$SRC_DIR" && pwd -P)
+  case "$(ps -o args= -p "$pid" 2>/dev/null)" in
+    *"$src_real/daemon/dist/main.js"*) return 0 ;;
+  esac
+  say ""
+  warn "A SuperSurf daemon (pid $pid) is still running, and it is not the build in $SRC_DIR."
+  say  "    It runs a different version than the CLI you just installed, so things may break."
+  say  "    It was left running because it may be serving live sessions."
+  say  "    Restart it on main:  ${BOLD}supersurf daemon restart${RESET}"
+  say  "    Or stop it:          ${BOLD}supersurf daemon stop${RESET}"
+  say  "    If stop hangs:       ${BOLD}kill $pid${RESET}"
 }
 
 # ------------------------------------------------------------------ PATH ----
@@ -445,7 +542,7 @@ say "${BOLD}SuperSurf installer${RESET}"
 say ""
 
 preflight_node
-install_binary
+if [ "$LATEST" -eq 1 ]; then install_latest; else install_binary; fi
 ensure_on_path
 
 # Interactive is the default. `--yes` opts out, and so does the absence of a
@@ -462,6 +559,7 @@ if [ "$ASSUME_YES" -eq 1 ] || ! { [ -r /dev/tty ] && [ -c /dev/tty ]; }; then
     say "Point your MCP client at SuperSurf:"
     say "  ${BOLD}claude mcp add supersurf -- supersurf mcp${RESET}"
   fi
+  if [ "$LATEST" -eq 1 ]; then warn_stale_daemon; fi
   say ""
   exit 0
 fi
@@ -504,4 +602,5 @@ else
   say "${BOLD}Done.${RESET} Point your MCP client at SuperSurf:"
   say "  ${BOLD}claude mcp add supersurf -- supersurf mcp${RESET}"
 fi
+if [ "$LATEST" -eq 1 ]; then warn_stale_daemon; fi
 say ""
