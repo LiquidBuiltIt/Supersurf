@@ -8,9 +8,9 @@
  *
  * @module profiles/extension-source
  */
-/** Get the cached extension directory path. */
+/** The extension dir managed profiles load: a dev clone's, else the cached release. */
 export declare function getExtensionDir(): string;
-/** Check if the extension is already cached (manifest.json exists). */
+/** Check if the extension is present (manifest.json exists). */
 export declare function isExtensionCached(): boolean;
 /** Fetch the latest tag name from the GitHub repo. */
 export declare function getLatestTag(): Promise<string>;

@@ -15,6 +15,7 @@ import os from 'os';
 import https from 'https';
 import { execSync } from 'child_process';
 import type { FileLogger } from 'shared';
+import { devSource } from 'shared';
 
 const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
 const EXTENSION_DIR = path.join(SUPERSURF_DIR, 'extension');
@@ -26,14 +27,14 @@ const debugLog = (...args: unknown[]) => {
   else if ((global as any).DAEMON_DEBUG) console.error('[ExtSrc]', ...args);
 };
 
-/** Get the cached extension directory path. */
+/** The extension dir managed profiles load: a dev clone's, else the cached release. */
 export function getExtensionDir(): string {
-  return EXTENSION_DIR;
+  return devSource('extension') ?? EXTENSION_DIR;
 }
 
-/** Check if the extension is already cached (manifest.json exists). */
+/** Check if the extension is present (manifest.json exists). */
 export function isExtensionCached(): boolean {
-  return fs.existsSync(path.join(EXTENSION_DIR, 'manifest.json'));
+  return fs.existsSync(path.join(getExtensionDir(), 'manifest.json'));
 }
 
 /** Read the version from the cached extension's manifest.json, or null if not present. */
@@ -173,6 +174,9 @@ export async function pullExtension(tag?: string): Promise<void> {
  *   fails, the cached version is used)
  */
 export async function ensureExtension(): Promise<void> {
+  // A dev clone serves the extension straight from its checkout — no download.
+  if (devSource('extension')) return;
+
   if (!isExtensionCached()) {
     debugLog('Extension not cached, pulling from GitHub...');
     await pullExtension();

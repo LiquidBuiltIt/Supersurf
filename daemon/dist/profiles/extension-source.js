@@ -23,6 +23,7 @@ const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
 const https_1 = __importDefault(require("https"));
 const child_process_1 = require("child_process");
+const shared_1 = require("../shared");
 const SUPERSURF_DIR = path_1.default.join(os_1.default.homedir(), '.supersurf');
 const EXTENSION_DIR = path_1.default.join(SUPERSURF_DIR, 'extension');
 const GITHUB_REPO = 'LiquidBuiltIt/Supersurf';
@@ -33,13 +34,13 @@ const debugLog = (...args) => {
     else if (global.DAEMON_DEBUG)
         console.error('[ExtSrc]', ...args);
 };
-/** Get the cached extension directory path. */
+/** The extension dir managed profiles load: a dev clone's, else the cached release. */
 function getExtensionDir() {
-    return EXTENSION_DIR;
+    return (0, shared_1.devSource)('extension') ?? EXTENSION_DIR;
 }
-/** Check if the extension is already cached (manifest.json exists). */
+/** Check if the extension is present (manifest.json exists). */
 function isExtensionCached() {
-    return fs_1.default.existsSync(path_1.default.join(EXTENSION_DIR, 'manifest.json'));
+    return fs_1.default.existsSync(path_1.default.join(getExtensionDir(), 'manifest.json'));
 }
 /** Read the version from the cached extension's manifest.json, or null if not present. */
 function getCachedVersion() {
@@ -175,6 +176,9 @@ async function pullExtension(tag) {
  *   fails, the cached version is used)
  */
 async function ensureExtension() {
+    // A dev clone serves the extension straight from its checkout — no download.
+    if ((0, shared_1.devSource)('extension'))
+        return;
     if (!isExtensionCached()) {
         debugLog('Extension not cached, pulling from GitHub...');
         await pullExtension();
