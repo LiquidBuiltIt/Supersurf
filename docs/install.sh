@@ -278,7 +278,7 @@ install_latest() {
 
   if [ -d "$SRC_DIR/.git" ]; then
     # Only ever delete a clone this script made: its origin must be SRC_URL.
-    origin=$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null)
+    origin=$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null) || origin=""
     [ "$origin" = "$SRC_URL" ] \
       || die "$SRC_DIR is a clone of '$origin', not $SRC_URL. Move it aside, or set SUPERSURF_SRC_DIR."
     step "Updating $SRC_DIR"
