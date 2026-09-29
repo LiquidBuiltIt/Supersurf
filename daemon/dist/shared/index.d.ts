@@ -11,4 +11,6 @@ export type { KeychainBackend, CredentialEntry } from './keychain/index';
 export { DaemonClient } from './daemon-ipc/client';
 export type { IExtensionTransport, DialogEvent } from './daemon-ipc/types';
 export { LoggerRegistry, getLogger, getRegistry, createLog } from './logger/registry';
+export { devSource } from './dev-source';
+export type { DevComponent } from './dev-source';
 //# sourceMappingURL=index.d.ts.map
