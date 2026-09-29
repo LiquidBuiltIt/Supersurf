@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { resolve, join } from 'path';
+import { METHODS } from '../server/src/security/sandbox/methods';
 
 /**
  * Every plugin skill must (a) carry frontmatter whose `name` matches its
@@ -48,5 +49,18 @@ describe('base skill', () => {
     for (const s of SKILLS.filter((s) => s !== 'supersurf')) {
       expect(base).toContain(`plugin/skills/${s}/SKILL.md`);
     }
+  });
+});
+
+describe('creating-playbooks skill', () => {
+  const text = readFileSync(join(skillsDir, 'creating-playbooks/SKILL.md'), 'utf8');
+  it('names only supersurf.* methods that exist', () => {
+    const used = [...new Set([...text.matchAll(/\bsupersurf\.([a-zA-Z_.]+?)\s*\(/g)].map((m) => m[1]))];
+    expect(used.length).toBeGreaterThan(0);
+    expect(used.filter((m) => !(m in METHODS))).toEqual([]);
+  });
+  it('does not document handles or access levels (in flight elsewhere)', () => {
+    expect(text).not.toMatch(/@[a-z_]+['"]\)/);
+    expect(text).not.toMatch(/access level/i);
   });
 });
