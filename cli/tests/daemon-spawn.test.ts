@@ -128,4 +128,23 @@ describe('ensureDaemon', () => {
     expect(message).toContain('ENOENT');
     expect(message).not.toContain('exited with status');
   });
+
+  it('starts the clone\'s daemon under node when SUPERSURF_DEV_ENVIRONMENT routes it', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-spawn-dev-'));
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'supersurf' }));
+    fs.mkdirSync(path.join(root, 'daemon/dist'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'daemon/dist/main.js'), '');
+    process.env.SUPERSURF_DEV_ENVIRONMENT = root;
+    try {
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      await expect(ensureDaemon(5555)).resolves.toBeUndefined();
+      expect(spawned[0]).toEqual({
+        cmd: 'node',
+        args: [path.join(root, 'daemon/dist/main.js'), 'start', '--port', '5555'],
+      });
+    } finally {
+      delete process.env.SUPERSURF_DEV_ENVIRONMENT;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

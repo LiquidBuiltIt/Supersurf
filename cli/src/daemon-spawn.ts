@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { npxTarget } from './shell-out';
+import { packageCommand } from './shell-out';
 
 const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
 const PID_FILE = path.join(SUPERSURF_DIR, 'daemon.pid');
@@ -46,12 +46,13 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
   try { if (fs.existsSync(SOCK_FILE)) fs.unlinkSync(SOCK_FILE); } catch { /* stale */ }
   if (!fs.existsSync(SUPERSURF_DIR)) fs.mkdirSync(SUPERSURF_DIR, { recursive: true });
 
-  const res = spawnSync('npx', ['--yes', npxTarget('supersurf-daemon'), 'start', '--port', String(port)], {
+  const run = packageCommand('supersurf-daemon');
+  const res = spawnSync(run.cmd, [...run.args, 'start', '--port', String(port)], {
     stdio: 'inherit',
   });
   if (res.error) {
     throw new Error(
-      `Could not run \`npx ${npxTarget('supersurf-daemon')} start\`: ${res.error.message}. ` +
+      `Could not run \`${run.label} start\`: ${res.error.message}. ` +
       'Node.js and npx must be on PATH.',
     );
   }
@@ -62,7 +63,7 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
   // watched scroll past on the inherited stderr.
   if (res.status !== 0) {
     throw new Error(
-      `\`npx ${npxTarget('supersurf-daemon')} start\` exited with status ${res.status}` +
+      `\`${run.label} start\` exited with status ${res.status}` +
       `${res.signal ? ` (signal ${res.signal})` : ''}. See the output above.`,
     );
   }
