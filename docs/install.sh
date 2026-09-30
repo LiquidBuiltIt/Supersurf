@@ -386,16 +386,46 @@ register_claude() {
   case "$out" in
     *[Aa]lready*) ok "supersurf is already registered with the claude CLI"
                   REGISTERED=1
+                  install_claude_plugin
                   return 0 ;;
   esac
 
   if [ "$rc" -eq 0 ]; then
     ok "Registered supersurf with the claude CLI"
     REGISTERED=1
+    install_claude_plugin
     return 0
   fi
 
   warn "Could not register with the claude CLI: $out"
+}
+
+# The plugin carries the SuperSurf skills. Same rules as `claude mcp add`:
+# never fail the install, and a second run is the expected idempotent case.
+install_claude_plugin() {
+  if ! claude --help </dev/null 2>/dev/null | grep -qE '^[[:space:]]*plugin'; then
+    warn "This claude CLI has no plugin support — skipping the SuperSurf skills"
+    say "  To add them later, run in Claude Code:"
+    say "    /plugin marketplace add LiquidBuiltIt/Supersurf"
+    say "    /plugin install supersurf@supersurf"
+    return 0
+  fi
+
+  out=$(claude plugin marketplace add LiquidBuiltIt/Supersurf </dev/null 2>&1) || case "$out" in
+    *[Aa]lready*) ;;
+    *) warn "Could not add the SuperSurf plugin marketplace: $out"; return 0 ;;
+  esac
+
+  out=$(claude plugin install supersurf@supersurf </dev/null 2>&1) && rc=0 || rc=$?
+  case "$out" in
+    *[Aa]lready*) ok "SuperSurf plugin is already installed" ;;
+    *) if [ "$rc" -eq 0 ]; then ok "Installed the SuperSurf plugin (skills)"
+       else warn "Could not install the SuperSurf plugin: $out"; return 0; fi ;;
+  esac
+
+  if [ -d "$HOME/.claude/skills/supersurf" ]; then
+    warn "A hand-copied skill exists at ~/.claude/skills/supersurf — remove it; the plugin now provides the skill"
+  fi
 }
 
 # One-line change to add a second client later: a new case arm here.

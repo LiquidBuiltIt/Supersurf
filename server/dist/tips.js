@@ -9,6 +9,7 @@
  * @module tips
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.setSkillsInstalled = setSkillsInstalled;
 exports.clearTipCounters = clearTipCounters;
 exports.getTip = getTip;
 const trail_1 = require("./playbooks/trail");
@@ -22,6 +23,16 @@ const ONCE_PER_SESSION_IDS = new Set(['playbooks-milestone', 'playbooks-repeat']
 const tipCounters = new Map();
 // session_id -> set of once-per-session tip ids already fired this session.
 const firedOnce = new Map();
+// Set once at startup from plugin-detect; false until then (and in tests).
+let skillsInstalled = false;
+function setSkillsInstalled(v) {
+    skillsInstalled = v;
+}
+const PLUGIN_INSTALL_HINT = 'Having problems? Install the SuperSurf plugin for further help: ' +
+    '`/plugin marketplace add LiquidBuiltIt/Supersurf` then `/plugin install supersurf@supersurf`.';
+function skillSuffix(skill) {
+    return skillsInstalled ? ` More in the \`supersurf:${skill}\` skill.` : ` ${PLUGIN_INSTALL_HINT}`;
+}
 function getSessionCounters(sessionId) {
     let s = tipCounters.get(sessionId);
     if (!s) {
@@ -84,6 +95,23 @@ function hasMutation(code) {
         c.includes('.focus()') || c.includes('.select()') || c.includes('dispatchevent') ||
         c.includes('window.location') || c.includes('document.location') ||
         c.includes('getboundingclientrect');
+}
+/** Every selector in a browser_interact call: `{ actions: [{ selector }] }`, or the params themselves. */
+function selectorsOf(p) {
+    const items = Array.isArray(p.actions) ? p.actions : [p];
+    return items.map((a) => String(a?.selector ?? ''));
+}
+const PLAYWRIGHT_SYNTAX = /^(text|css|xpath|role|id)=|>>|:visible\b|:near\(|:text\(|:text-is\(|:nth-match\(/;
+// ponytail: only digit-or-empty brackets (`#answers[0]`) — `#a[name]` is valid CSS and can't be told apart from a bad id.
+const UNESCAPED_ID_BRACKET = /#[\w-]+\[\d*\]/;
+/** Tag of the first "Did you mean?" suggestion, per `renderAlternatives`' `… · tag · visible|hidden · …` line. */
+function firstSuggestionTag(error) {
+    const line = /Did you mean\?\n\s+1\. ([^\n]+)/.exec(error)?.[1];
+    if (!line)
+        return null;
+    const parts = line.split(' · ');
+    const i = parts.findIndex((p) => p === 'visible' || p === 'hidden');
+    return i > 0 ? parts[i - 1].toLowerCase() : null;
 }
 const TIPS = [
     {
@@ -176,11 +204,55 @@ const TIPS = [
     },
     {
         id: 'interact-element-not-found',
+        skill: 'navigation',
         priority: 15,
         tool: 'browser_interact',
         match: (_params, _result, error) => !!error && /element not found/i.test(error),
         message: 'Tip: Element not found by CSS selector. Use browser_lookup to find elements by visible text — it returns ' +
             'selectors you can pass to browser_interact. You can also use :has-text("...") in selectors, e.g. button:has-text("Next").',
+    },
+    // ── navigation tips (usage audit 2026-09-28) ──
+    {
+        id: 'selector-playwright-syntax',
+        priority: 11,
+        tool: 'browser_interact',
+        match: (params, _result, error) => !!error && selectorsOf(params).some((s) => PLAYWRIGHT_SYNTAX.test(s)),
+        message: 'Tip: SuperSurf selectors are CSS, not Playwright — `text=`, `>>`, `:visible` and `:near()` never match. ' +
+            'Use `tag:has-text("…")` or browser_lookup.',
+        skill: 'navigation',
+    },
+    {
+        id: 'selector-unescaped-id-bracket',
+        priority: 12,
+        tool: 'browser_interact',
+        match: (params, _result, error) => !!error && selectorsOf(params).some((s) => UNESCAPED_ID_BRACKET.test(s)),
+        message: 'Tip: `[` and `]` inside an id must be escaped (`#answers\\[0\\]`), or match the id as an attribute: `[id="answers[0]"]`.',
+        skill: 'navigation',
+    },
+    {
+        id: 'has-text-wrong-tag',
+        priority: 13,
+        tool: 'browser_interact',
+        match: (params, _result, error) => {
+            if (!error)
+                return false;
+            const tag = firstSuggestionTag(error);
+            return !!tag && selectorsOf(params).some((s) => {
+                const m = /^([a-z][a-z0-9-]*)[^\s,>+~]*:has-text\(/i.exec(s);
+                return !!m && tag !== m[1].toLowerCase();
+            });
+        },
+        message: 'Tip: the text exists, but on a different element type — copy the tag and selector from "Did you mean?" instead of your own tag.',
+        skill: 'navigation',
+    },
+    {
+        id: 'captcha-passive',
+        priority: 8,
+        tool: 'browser_evaluate',
+        match: (params) => /captcha|turnstile/i.test(`${getEvalCode(params)} ${String(params.purpose ?? '')}`),
+        message: 'Tip: a CAPTCHA badge or script on the page is not a block. You are blocked only when the challenge frame ' +
+            '(reCAPTCHA `bframe`, "hCaptcha challenge" iframe) is on screen or an action fails — otherwise keep going.',
+        skill: 'navigation',
     },
     // ── screenshot tip ──
     {
@@ -228,6 +300,7 @@ const TIPS = [
     // ── playbooks tips (wildcard — any tool except `playbooks` itself) ──
     {
         id: 'playbooks-milestone',
+        skill: 'creating-playbooks',
         priority: 1,
         tool: '*',
         match: () => trail_1.actionTrail.size() >= 8,
@@ -235,6 +308,7 @@ const TIPS = [
     },
     {
         id: 'playbooks-repeat',
+        skill: 'creating-playbooks',
         priority: 2,
         tool: '*',
         match: () => hasRepeatedWindow(),
@@ -263,7 +337,10 @@ function getTip(tool, params, result, error, sessionId) {
             }
         }
     }
-    const resolve = (rule) => (typeof rule.message === 'function' ? rule.message(sessionId) : rule.message);
+    const resolve = (rule) => {
+        const base = typeof rule.message === 'function' ? rule.message(sessionId) : rule.message;
+        return rule.skill ? base + skillSuffix(rule.skill) : base;
+    };
     // Without a session context, behave as a pure function (no suppression).
     if (!sessionId)
         return best ? resolve(best) : null;
