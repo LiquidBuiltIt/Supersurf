@@ -272,26 +272,52 @@ https://github.com/$REPO/issues with the output of: uname -sm"
 # Clone (or update) main and install a shim in place of the release binary.
 # The shim is what makes every component follow the clone: it exports
 # SUPERSURF_DEV_ENVIRONMENT, and the CLI and daemon route to that root.
+# The only folder --latest ever deletes is a clone it made itself. The marker
+# keeps it off any other checkout; the path test keeps it off the rest of
+# ~/.supersurf (profiles, playbooks, config, logs).
+assert_installer_clone() {
+  [ -f "$SRC_DIR/.git/supersurf-installer" ] \
+    || die "$SRC_DIR was not cloned by this installer, so it will not delete it. Commit or discard its changes, or move it aside."
+  real=$(cd "$SRC_DIR" && pwd -P) || die "Could not resolve $SRC_DIR."
+  ss=$(cd "$HOME/.supersurf" 2>/dev/null && pwd -P) || ss="$HOME/.supersurf"
+  case "$ss/" in "$real"/*) die "Refusing to delete $SRC_DIR: it holds ~/.supersurf." ;; esac
+  case "$real/" in
+    "$ss"/dev/?*) ;;
+    "$ss"/*) die "Refusing to delete $SRC_DIR: inside ~/.supersurf, only ~/.supersurf/dev may be cleared." ;;
+  esac
+}
+
+# Clone next to SRC_DIR, then swap, so a failed clone never costs the old one.
+fresh_clone() {
+  if [ -e "$SRC_DIR" ]; then assert_installer_clone; fi
+  step "Cloning $SRC_URL into $SRC_DIR"
+  new="$SRC_DIR.new.$$"
+  git clone "$SRC_URL" "$new" || die "git clone failed. $SRC_DIR is unchanged."
+  : > "$new/.git/supersurf-installer"
+  if [ -e "$SRC_DIR" ]; then rm -rf "$SRC_DIR"; fi
+  mv "$new" "$SRC_DIR" || die "Could not move the new clone into $SRC_DIR."
+}
+
 install_latest() {
   command -v git >/dev/null 2>&1 || die "--latest needs git on your PATH."
   command -v npm >/dev/null 2>&1 || die "--latest needs npm on your PATH."
 
   if [ -d "$SRC_DIR/.git" ]; then
-    # Only ever delete a clone this script made: its origin must be SRC_URL.
     origin=$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null) || origin=""
     [ "$origin" = "$SRC_URL" ] \
       || die "$SRC_DIR is a clone of '$origin', not $SRC_URL. Move it aside, or set SUPERSURF_SRC_DIR."
     step "Updating $SRC_DIR"
-    if [ -n "$(git -C "$SRC_DIR" status --porcelain)" ] || ! git -C "$SRC_DIR" pull --ff-only; then
+    # Fetch first: offline, keep the clone rather than delete what cannot be replaced.
+    git -C "$SRC_DIR" fetch --quiet origin \
+      || die "Could not fetch $SRC_URL. $SRC_DIR is unchanged; re-run when you are online."
+    if [ -n "$(git -C "$SRC_DIR" status --porcelain)" ] || ! git -C "$SRC_DIR" merge --ff-only --quiet '@{u}'; then
       warn "$SRC_DIR has local changes or has diverged from main. Cloning it again."
-      rm -rf "$SRC_DIR"
+      fresh_clone
     fi
   elif [ -e "$SRC_DIR" ]; then
     die "$SRC_DIR exists but is not a git clone. Move it aside, or set SUPERSURF_SRC_DIR."
-  fi
-  if [ ! -d "$SRC_DIR" ]; then
-    step "Cloning $SRC_URL into $SRC_DIR"
-    git clone "$SRC_URL" "$SRC_DIR" || die "git clone failed."
+  else
+    fresh_clone
   fi
 
   # `npm install`, not `npm ci`: package-lock.json is gitignored upstream.
