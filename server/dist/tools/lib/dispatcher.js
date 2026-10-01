@@ -99,7 +99,7 @@ async function dispatchTool(ctx, name, args, options, env) {
             result: callResult,
             error: callError,
             url,
-            experiments: index_1.experimentRegistry.getStates(),
+            experiments: index_1.experimentRegistry.getStates(env.clientId ?? null),
             duration_ms: Date.now() - start,
             ...(tip ? { tip } : {}),
         });

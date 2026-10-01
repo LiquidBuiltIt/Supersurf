@@ -66,7 +66,7 @@ describe('ExperimentRegistry', () => {
   describe('getStates()', () => {
     it('returns state map for all experiments', () => {
       experimentRegistry.enable('s1', 'smart_waiting');
-      const states = experimentRegistry.getStates();
+      const states = experimentRegistry.getStates('s1');
       expect(states).toEqual({ page_diffing: false, smart_waiting: true, mouse_humanization: false, fingerprinting: false });
     });
 
@@ -75,6 +75,17 @@ describe('ExperimentRegistry', () => {
       expect(experimentRegistry.getStates('s2')).toEqual({
         page_diffing: false, smart_waiting: false, mouse_humanization: false, fingerprinting: false,
       });
+    });
+
+    it('does not report a flag only another session enabled', () => {
+      experimentRegistry.enable('B', 'fingerprinting');
+      expect(experimentRegistry.getStates('A').fingerprinting).toBe(false);
+      expect(experimentRegistry.getStates('B').fingerprinting).toBe(true);
+    });
+
+    it('reports all false for a null session id', () => {
+      experimentRegistry.enable('s1', 'smart_waiting');
+      expect(Object.values(experimentRegistry.getStates(null))).toEqual([false, false, false, false]);
     });
   });
 
@@ -185,11 +196,11 @@ describe('ExperimentRegistry (IPC proxy)', () => {
       expect(b.sendCmd).not.toHaveBeenCalled();
     });
 
-    it('isEnabled with a null session id reports true when any session has it on', () => {
+    it('isEnabled with a null session id is false even when a session has it on', () => {
       experimentRegistry.bind('session-a', mockTransport());
       experimentRegistry.enable('session-a', 'fingerprinting');
 
-      expect(experimentRegistry.isEnabled('fingerprinting', null)).toBe(true);
+      expect(experimentRegistry.isEnabled('fingerprinting', null)).toBe(false);
       expect(experimentRegistry.isEnabled('fingerprinting', 'session-b')).toBe(false);
     });
 
@@ -200,8 +211,7 @@ describe('ExperimentRegistry (IPC proxy)', () => {
 
       expect(experimentRegistry.isEnabled('fingerprinting', 'run-session')).toBe(true);
       expect(experimentRegistry.isEnabled('fingerprinting', 'agent-session')).toBe(false);
-      // The union is still reachable, but only by asking for it explicitly.
-      expect(experimentRegistry.isEnabled('fingerprinting', null)).toBe(true);
+      expect(experimentRegistry.isEnabled('fingerprinting', null)).toBe(false);
     });
 
     it('a playbook run\'s fingerprinting activation does not leak through an omitted session id', () => {

@@ -205,10 +205,10 @@ export function bindEphemeral(
 }
 
 /**
- * Look up an ephemeral name. Unions across every bound session, for the same
- * reason `ExperimentRegistry.isEnabled` does with no session id: the sole
- * caller (`resolveSelectorOrHandle`) has no session handle and threading one
- * through its ~15 call sites is BACKLOG #20.
+ * Look up an ephemeral name. Unions across every bound session: the sole
+ * caller (`resolveSelectorOrHandle`) does not pass a session handle to this
+ * lookup, and threading one through is BACKLOG #20. (Experiment flags no longer
+ * union; this binding lookup is a separate store and still does.)
  *
  * The union is safe here specifically because this is the LAST resolution tier —
  * it only ever runs after the persistent store has already missed, so a

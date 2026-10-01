@@ -217,7 +217,7 @@ export class BrowserBridge {
         params: args,
         result: 'error',
         error: 'Extension not connected',
-        experiments: experimentRegistry.getStates(),
+        experiments: experimentRegistry.getStates(this.connectionManager?.clientId ?? null),
         duration_ms: 0,
       });
       return response;

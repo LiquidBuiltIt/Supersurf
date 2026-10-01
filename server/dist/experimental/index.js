@@ -37,11 +37,9 @@ const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'mouse_humanizat
  * 'Session ID already in use'). Two ConnectionManagers in one process
  * therefore get two slots and cannot clobber each other.
  *
- * `isEnabled(feature, null)` / `getStates()` union across all bound sessions.
- * That union is now spelled out at the call site (BACKLOG #20) rather than
- * granted by omitting the argument — in practice the union and the
- * per-session answer usually agree, because every session pre-enables from
- * the same `~/.supersurf/config.json` snapshot via `applyInitialState`.
+ * Every read is per-session. A `null` session id (no session bound yet) answers
+ * `false`; there is no cross-session union, so one session's flags never show
+ * up in another's answer or in its usage-metrics lines.
  */
 class ExperimentRegistry {
     _sessions = new Map();
@@ -110,21 +108,15 @@ class ExperimentRegistry {
     /**
      * Whether the experiment is on for one session. Sync — no IPC.
      *
-     * `sessionId: null` unions across every bound session. That is almost never
-     * what a tool wants: a playbook run that enables `fingerprinting` for its own
-     * sub-session would turn it on for the calling agent too, which
-     * `playbooks/runner.ts` documents it must not do. The parameter is required
-     * so the union is a decision at the call site rather than a default.
+     * `sessionId: null` is always `false` — no union across sessions. A playbook
+     * run that enables `fingerprinting` for its own sub-session must not turn it
+     * on for the calling agent (`playbooks/runner.ts`). The type stays
+     * `string | null` so `clientId ?? null` call sites compile unchanged.
      */
     isEnabled(feature, sessionId) {
-        if (sessionId !== null) {
-            return this._sessions.get(sessionId)?.cache.get(feature) === true;
-        }
-        for (const slot of this._sessions.values()) {
-            if (slot.cache.get(feature) === true)
-                return true;
-        }
-        return false;
+        if (sessionId === null)
+            return false;
+        return this._sessions.get(sessionId)?.cache.get(feature) === true;
     }
     /** Clear every session slot. Test hook and process-wide reset. */
     reset() {
@@ -134,11 +126,11 @@ class ExperimentRegistry {
     listAvailable() {
         return [...AVAILABLE_EXPERIMENTS];
     }
-    /** Snapshot of all experiments for one session, or the union across sessions. */
+    /** Snapshot of all experiments for one session. */
     getStates(sessionId) {
         const states = {};
         for (const exp of AVAILABLE_EXPERIMENTS) {
-            states[exp] = this.isEnabled(exp, sessionId ?? null);
+            states[exp] = this.isEnabled(exp, sessionId);
         }
         return states;
     }
