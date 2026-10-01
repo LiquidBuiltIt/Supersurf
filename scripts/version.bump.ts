@@ -161,6 +161,8 @@ for (const rel of targets) {
   const file = join(root, rel);
   const pkg = JSON.parse(readFileSync(file, 'utf8'));
   pkg.version = next;
+  // supersurf-mcp ships with exactly the daemon cut in the same release.
+  if (pkg.dependencies?.['supersurf-daemon']) pkg.dependencies['supersurf-daemon'] = next;
   writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
   console.log(`  ${rel}: ${current} -> ${next}`);
 }

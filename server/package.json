@@ -66,7 +66,7 @@
     "image-size": "^2.0.2",
     "jsonpath-plus": "^10.3.0",
     "sharp": "^0.34.5",
-    "supersurf-daemon": "^3.0.0",
+    "supersurf-daemon": "4.0.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {

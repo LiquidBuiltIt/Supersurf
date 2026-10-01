@@ -41,6 +41,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- fix: **`supersurf-mcp` now installs exactly the daemon released with it.** It asked for `supersurf-daemon ^3.0.0`, so `supersurf-mcp@4.0.0` ran with a 3.x daemon, and a dev-mode clone downloaded that 3.x daemon from npm in place of its own. The pin is now the exact release version, and `npm run version.bump` updates it on every release.
 - feat: **The installer adds the SuperSurf plugin.** When the installer registers SuperSurf with the claude CLI, it now adds the `LiquidBuiltIt/Supersurf` marketplace and installs `supersurf@supersurf` after registering the MCP server. A failure only warns; it never fails the install.
 - feat: **Four new navigation tips.** Playwright-style selectors (`text=`, `>>`, `:visible`), unescaped `[`/`]` in ids, `:has-text` misses where the text sits on another tag, and CAPTCHA checks (a badge alone is not a block) each get a one-line tip.
 - feat: **Tips know about the SuperSurf plugin.** When the plugin is installed, selector-miss and playbook tips point to the matching `supersurf:*` skill; when it is not, they carry a one-line install hint instead.
