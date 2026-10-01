@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { npxTarget, shellOut } from '../src/shell-out';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { npxTarget, npmTag, shellOut } from '../src/shell-out';
 import { VERSION } from '../src/version';
 
 describe('npxTarget', () => {
@@ -78,5 +81,57 @@ describe('shellOut', () => {
   it('forwards the extra args after the pinned target', async () => {
     await shellOut('supersurf-daemon', ['start', '--port', '5555']);
     expect(spawned[0].args).toEqual(['--yes', `supersurf-daemon@${VERSION}`, 'start', '--port', '5555']);
+  });
+});
+
+describe('shellOut under SUPERSURF_DEV_ENVIRONMENT', () => {
+  let root: string;
+
+  beforeEach(() => {
+    spawned.length = 0;
+    childExit.code = 0;
+    childExit.signal = null;
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'shell-out-dev-'));
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'supersurf' }));
+    for (const f of ['server/dist/cli.js', 'daemon/dist/main.js']) {
+      fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true });
+      fs.writeFileSync(path.join(root, f), '');
+    }
+    process.env.SUPERSURF_DEV_ENVIRONMENT = root;
+  });
+  afterEach(() => {
+    delete process.env.SUPERSURF_DEV_ENVIRONMENT;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('runs the clone\'s server under node instead of npx', async () => {
+    await shellOut('supersurf-mcp', ['--debug']);
+    expect(spawned[0].cmd).toBe('node');
+    expect(spawned[0].args).toEqual([path.join(root, 'server/dist/cli.js'), '--debug']);
+    expect(spawned[0].opts).toMatchObject({ stdio: 'inherit' });
+  });
+
+  it('runs the clone\'s daemon under node instead of npx', async () => {
+    await shellOut('supersurf-daemon', ['status']);
+    expect(spawned[0].args).toEqual([path.join(root, 'daemon/dist/main.js'), 'status']);
+  });
+
+  it('falls back to the pinned npx package when the root is not a SuperSurf repo', async () => {
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'nope' }));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await shellOut('supersurf-mcp', []);
+    expect(spawned[0].cmd).toBe('npx');
+    expect(spawned[0].args).toEqual(['--yes', `supersurf-mcp@${VERSION}`]);
+    err.mockRestore();
+  });
+});
+
+describe('npmTag', () => {
+  it('pins a release binary to its own version', () => {
+    expect(npmTag('4.0.0')).toBe('4.0.0');
+  });
+
+  it('sends a dev build (no published version) to @latest', () => {
+    expect(npmTag('0.0.0-dev')).toBe('latest');
   });
 });
