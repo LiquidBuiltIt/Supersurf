@@ -160,7 +160,7 @@ interface Session {
 /** Start one `cli.js --script-mode` process and give it a request/response channel. */
 function startSession(name: string, home: string): Session {
   const child = spawn(process.execPath, [path.join(REPO_ROOT, 'server', 'dist', 'cli.js'), '--script-mode'], {
-    env: { ...process.env, HOME: home },
+    env: { ...process.env, HOME: home, SUPERSURF_EXPERIMENTS: "" },
     stdio: ['pipe', 'pipe', 'inherit'],
   });
 
@@ -208,9 +208,29 @@ async function main(): Promise<void> {
   const deadline = setTimeout(() => fail(`deadline exceeded (${DEADLINE_MS}ms)`), DEADLINE_MS);
 
   const home = makeSandboxHome();
+  // Assertion 4 needs usage metrics on, `fingerprinting` on (it clears the
+  // `playbooks run` gate) and `page_diffing` OFF so a run can turn it on.
+  fs.writeFileSync(
+    path.join(home, '.supersurf', 'config.json'),
+    JSON.stringify({
+      experiments: { fingerprinting: true, page_diffing: false },
+      logging: { usage_metrics: true },
+    })
+  );
   const userDataDir = path.join(home, 'chrome-data');
   const pageA = await servePage('a');
   const pageB = await servePage('b');
+  // Slow on purpose: session A must make a call while the run's session is alive.
+  const playbooksDir = path.join(home, '.supersurf', 'playbooks');
+  fs.mkdirSync(playbooksDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(playbooksDir, 'smoke_flags.playbook.js'),
+    `export const meta = { description: 'smoke: hold an experiments-enabled session open', experiments: true };\n` +
+    `export default async function ({ supersurf }) {\n` +
+    `  await supersurf.goto('http://127.0.0.1:${pageB.port}/');\n` +
+    `  await supersurf.wait(6000);\n` +
+    `  return 'done';\n}\n`
+  );
 
   let chromium: ChildProcess | null = null;
   const sessions: Session[] = [];
@@ -295,6 +315,42 @@ async function main(): Promise<void> {
     fail('A lost network capture after B took a screenshot (CDP detach)');
   }
   ok('A keeps its CDP capture while B uses the debugger');
+
+  // ── Assertion 4 (BACKLOG #65): usage-metrics lines carry THEIR session's flags.
+  // `meta.experiments: true` turns every experiment on for the run's own
+  // session, and the registry is one per process — so while the run is alive,
+  // A's own tool calls share a process with a session where page_diffing is on.
+  // The two `getStates(...)` call sites once omitted the session id and
+  // unioned, so A's line claimed page_diffing: true. (A cross-PROCESS check
+  // cannot show this: B has its own registry.)
+  const FLAG = 'page_diffing';
+  const run = A.send('playbooks', { action: 'run', name: 'smoke_flags' });
+  await sleep(3500); // connect + tab + goto done, script now inside wait(6000)
+  await A.send('browser_tabs', { action: 'list' });
+  const runRes = await run;
+  probe('A playbook run', runRes);
+  if (runRes?.isError) fail(`playbook run failed: ${JSON.stringify(runRes).slice(0, 400)}`);
+
+  const sessDir = path.join(home, '.supersurf', 'logs', 'sessions');
+  const metricLines = (prefix: string): any[] =>
+    fs.readdirSync(sessDir)
+      .filter((f) => f.startsWith(`metrics-${prefix}`) && f.endsWith('.ndjson'))
+      .flatMap((f) => fs.readFileSync(path.join(sessDir, f), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)));
+
+  // Positive control: the run's own session really had the flag on, so a pass
+  // below cannot be vacuous.
+  if (!metricLines('playbook-').some((l) => l.experiments?.[FLAG] === true)) {
+    fail(`run session never logged ${FLAG}=true — meta.experiments was not activated, assertion 4 would be vacuous`);
+  }
+  for (const who of ['sm-a', 'sm-b']) {
+    const lines = metricLines(`${who}-`);
+    if (lines.length === 0) fail(`${who} wrote no usage-metrics lines`);
+    const leaked = lines.filter((l) => l.experiments?.[FLAG] === true);
+    if (leaked.length) {
+      fail(`${who}'s metrics lines show ${FLAG}=true (leaked from the playbook run's session): ${leaked.map((l) => l.tool).join(', ')}`);
+    }
+  }
+  ok(`${FLAG} enabled by a run stays out of the calling session's usage-metrics lines`);
 
   teardown();
   process.stdout.write('\n✓ smoke.parallel — two sessions stayed isolated\n');

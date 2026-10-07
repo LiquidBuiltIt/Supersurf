@@ -138,7 +138,7 @@ export async function dispatchTool(
       result: callResult,
       error: callError,
       url,
-      experiments: experimentRegistry.getStates(),
+      experiments: experimentRegistry.getStates(env.clientId ?? null),
       duration_ms: Date.now() - start,
       ...(tip ? { tip } : {}),
     });

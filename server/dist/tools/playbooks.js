@@ -42,16 +42,15 @@ function text(body, isError = false) {
  * experiment off, it just never captures or heals.
  *
  * The load-bearing reason is `@` handle translation. `resolveSelectorOrHandle`
- * (`experimental/fingerprinting/handle-resolve.ts`) reads the SAME flag, and reads
- * it with no `sessionId`, which unions across every bound session. A caller has to
- * enable `fingerprinting` to get past this gate — and that is precisely what puts a
- * `true` into the union that lets `click('@submit_review')` resolve inside a run.
+ * (`experimental/fingerprinting/handle-resolve.ts`) reads the SAME flag for the
+ * run's own session id. That session takes its flags from the same config as the
+ * caller, so a caller with `fingerprinting` off has a run with it off too. Without
+ * this gate such a run starts anyway and `click('@submit_review')` degrades
+ * silently to a CSS lookup for a tag named `@submit_review` — no error, no match.
  *
- * So the coupling is real but accidental. Drop this gate as-is and handles break
- * silently: `@submit_review` degrades to a CSS lookup for a tag named
- * `@submit_review`, no error, no match. Whoever removes the gate must first give
- * the run session its own `fingerprinting` activation (`runner.ts` already does
- * this for `meta.experiments`). Tracked as BACKLOG #21.
+ * So the gate stops runs whose `@handle` refs could not resolve. Whoever removes
+ * it must first give the run session its own `fingerprinting` activation
+ * (`runner.ts` already does this for `meta.experiments`). Tracked as BACKLOG #21.
  */
 function gate(sessionId) {
     if (index_1.experimentRegistry.isEnabled('fingerprinting', sessionId))
