@@ -321,8 +321,10 @@ install_latest() {
   fi
 
   # `npm install`, not `npm ci`: package-lock.json is gitignored upstream.
+  # --legacy-peer-deps: with no lockfile, npm's peer resolver crashes on this
+  # tree ("Cannot read properties of null (reading 'edgesOut')").
   step "Installing dependencies"
-  ( cd "$SRC_DIR" && npm install --no-audit --no-fund --loglevel=error ) \
+  ( cd "$SRC_DIR" && npm install --legacy-peer-deps --no-audit --no-fund --loglevel=error ) \
     || die "npm install failed in $SRC_DIR."
 
   # tsx is a server devDependency; npm may or may not hoist it, so ask node.

@@ -59,7 +59,7 @@ describe('install.sh --latest clone safety', () => {
     src = join(t, 'src');
     fs.mkdirSync(home);
     fs.mkdirSync(join(t, 'stub'));
-    fs.writeFileSync(join(t, 'stub', 'npm'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    fs.writeFileSync(join(t, 'stub', 'npm'), '#!/bin/sh\necho "$@" >> "$(dirname "$0")/npm-args"\n', { mode: 0o755 });
     fs.mkdirSync(src);
     git(src, 'init', '-q', '-b', 'main');
     fs.writeFileSync(join(src, 'README.md'), 'x\n');
@@ -69,6 +69,13 @@ describe('install.sh --latest clone safety', () => {
 
   afterEach(() => {
     fs.rmSync(t, { recursive: true, force: true });
+  });
+
+  // A clone has no lockfile, and npm's peer resolver crashes on a fresh tree
+  // (`Cannot read properties of null (reading 'edgesOut')`).
+  it('installs dependencies with --legacy-peer-deps', () => {
+    latest();
+    expect(fs.readFileSync(join(t, 'stub', 'npm-args'), 'utf8')).toContain('install --legacy-peer-deps');
   });
 
   it('clones a dirty default clone again', () => {
