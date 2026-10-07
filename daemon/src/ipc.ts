@@ -18,6 +18,7 @@
 import net from 'net';
 import crypto from 'crypto';
 import type { FileLogger } from 'shared';
+import { daemonCommand } from 'shared';
 import type { ExtensionBridge } from './extension-bridge';
 import type { SessionRegistry } from './session';
 import type { RequestScheduler } from './scheduler';
@@ -536,7 +537,7 @@ export class IPCServer {
       throw new Error(
         `SuperSurf could not download the browser extension, so profile '${profile}' cannot ` +
         `start: ${this.meta.extensionPullError}. Check your network connection and restart ` +
-        'the daemon with `npx supersurf daemon restart`.',
+        `the daemon with \`${daemonCommand('restart')}\`.`,
       );
     }
 
