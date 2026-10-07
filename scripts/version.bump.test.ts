@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { cutUnreleased } from './changelog-cut';
 
 describe('cutUnreleased', () => {
@@ -152,5 +154,14 @@ describe('cutUnreleased', () => {
     ].join('\n');
 
     expect(() => cutUnreleased(content, '1.1.0', '2026-08-05')).toThrow(/already has a "## 1\.1\.0" section/);
+  });
+});
+
+// version.bump writes this pin. A range here let a fresh clone, and the
+// published supersurf-mcp, install an older daemon from npm (^3.0.0 at 4.0.0).
+describe('server daemon pin', () => {
+  it('pins supersurf-daemon to exactly the daemon workspace version', () => {
+    const read = (rel: string) => JSON.parse(readFileSync(join(__dirname, '..', rel), 'utf8'));
+    expect(read('server/package.json').dependencies['supersurf-daemon']).toBe(read('daemon/package.json').version);
   });
 });
