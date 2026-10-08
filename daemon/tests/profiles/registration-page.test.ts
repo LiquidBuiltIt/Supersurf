@@ -252,7 +252,7 @@ describe('registrationHtml', () => {
     const html = registrationHtml('dev');
     expect(html).toContain('class="failed"');
     expect(html).toContain('chrome://extensions');
-    expect(html).toContain('npx supersurf daemon restart');
+    expect(html).toContain('npx supersurf-daemon@latest restart');
   });
 
   it('blames neither cause exclusively in the failure copy', () => {
