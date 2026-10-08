@@ -21,6 +21,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.IPCServer = void 0;
 const net_1 = __importDefault(require("net"));
+const shared_1 = require("./shared");
 const types_1 = require("./experiments/types");
 const types_2 = require("./profiles/types");
 const chrome_1 = require("./profiles/chrome");
@@ -444,7 +445,7 @@ class IPCServer {
         if (this.meta.extensionPullError && !(0, extension_source_1.isExtensionCached)()) {
             throw new Error(`SuperSurf could not download the browser extension, so profile '${profile}' cannot ` +
                 `start: ${this.meta.extensionPullError}. Check your network connection and restart ` +
-                'the daemon with `npx supersurf daemon restart`.');
+                `the daemon with \`${(0, shared_1.daemonCommand)('restart')}\`.`);
         }
         await matchmaker.enqueueBootstrap(async () => {
             if (registry.isRunning(profile))

@@ -4,6 +4,8 @@
  * @module profiles/registration-page
  */
 
+import { daemonCommand } from 'shared';
+
 /** Escape text for safe interpolation into HTML text / attributes. */
 function escapeHtml(value: string): string {
   return value
@@ -216,7 +218,7 @@ export function registrationHtml(profileName: string): string {
       <p>The SuperSurf extension either did not respond or could not save the binding.
       Check that it is installed and enabled at chrome://extensions, then reload this page.
       If it is enabled, restart the daemon with
-      <strong>npx supersurf daemon restart</strong> and open this page again.</p>
+      <strong>${daemonCommand('restart')}</strong> and open this page again.</p>
     </section>
   </main>
   <script>
