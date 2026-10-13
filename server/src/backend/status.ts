@@ -37,6 +37,8 @@ interface StatusInput {
    *  null when every script validates. Placed ABOVE the hint so a broken file
    *  is never hidden behind a suggestion. */
   playbookWarning?: string | null;
+  /** The agent's own username (`AgentSession.clientId`), echoed so it can read its name back. */
+  username?: string | null;
 }
 
 /**
@@ -58,7 +60,8 @@ export function buildStatusHeader(input: StatusInput): string {
     // state, so a broken script must be reportable before `connect`.
     const passiveWarn = playbookWarning ? `\n${playbookWarning}` : '';
     const passiveHint = playbookHint ? `\n${playbookHint}` : '';
-    return `${driftLine}${failLine}🔴 v${version} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
+    const who = input.username ? ` | 👤 you are ${input.username}` : '';
+    return `${driftLine}${failLine}🔴 v${version}${who} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
   }
 
   const parts: string[] = [];
@@ -80,6 +83,7 @@ export function buildStatusHeader(input: StatusInput): string {
     buildTime && debugMode ? `v${version} [${buildTime}]` : `v${version}`;
   const noExtension = extensionConnected === false;
   parts.push(`${noExtension ? '⚠️' : '✅'} ${versionStr}`);
+  if (input.username) parts.push(`👤 you are ${input.username}`);
   if (noExtension) {
     parts.push(`No extension connected — open the SuperSurf popup, or connect with profile:'<name>' to spawn a managed browser`);
   }

@@ -170,6 +170,7 @@ export class AgentSession implements AgentSessionAPI {
       lastConnectError: this.lastConnectError,
       playbookHint: this.playbookHint(),
       playbookWarning: this.playbookWarning(),
+      username: this.clientId,
     });
   }
 

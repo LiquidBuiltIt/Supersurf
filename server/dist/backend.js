@@ -191,6 +191,7 @@ class AgentSession {
             lastConnectError: this.lastConnectError,
             playbookHint: this.playbookHint(),
             playbookWarning: this.playbookWarning(),
+            username: this.clientId,
         });
     }
     // ─── Tool listing ──────────────────────────────────────────

@@ -29,7 +29,8 @@ function buildStatusHeader(input) {
         // state, so a broken script must be reportable before `connect`.
         const passiveWarn = playbookWarning ? `\n${playbookWarning}` : '';
         const passiveHint = playbookHint ? `\n${playbookHint}` : '';
-        return `${driftLine}${failLine}🔴 v${version} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
+        const who = input.username ? ` | 👤 you are ${input.username}` : '';
+        return `${driftLine}${failLine}🔴 v${version}${who} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
     }
     const parts = [];
     let buildTime = null;
@@ -48,6 +49,8 @@ function buildStatusHeader(input) {
     const versionStr = buildTime && debugMode ? `v${version} [${buildTime}]` : `v${version}`;
     const noExtension = extensionConnected === false;
     parts.push(`${noExtension ? '⚠️' : '✅'} ${versionStr}`);
+    if (input.username)
+        parts.push(`👤 you are ${input.username}`);
     if (noExtension) {
         parts.push(`No extension connected — open the SuperSurf popup, or connect with profile:'<name>' to spawn a managed browser`);
     }
