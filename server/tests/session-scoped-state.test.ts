@@ -1,7 +1,7 @@
 /**
  * Cross-manager isolation lock.
  *
- * Two ConnectionManager instances in one Node process must not share
+ * Two AgentSession instances in one Node process must not share
  * session-scoped state. Disconnecting one must leave the other's experiment
  * flags, humanized cursor state, bridge and metrics logger untouched.
  *
@@ -10,7 +10,7 @@
  * module are deliberately NOT mocked — they are what is under test.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ConnectionManager, BackendConfig } from '../src/backend';
+import { AgentSession, BackendConfig } from '../src/backend';
 import { ConfigService } from 'shared';
 import { experimentRegistry } from '../src/experimental/index';
 import { initSession, getSession, destroySession } from '../src/experimental/mouse-humanization/index';
@@ -102,8 +102,8 @@ function makeMockServer() {
   return { sendToolsListChanged: vi.fn().mockResolvedValue(undefined) } as any;
 }
 
-async function connectManager(clientId: string): Promise<ConnectionManager> {
-  const mgr = new ConnectionManager(makeConfig());
+async function connectManager(clientId: string): Promise<AgentSession> {
+  const mgr = new AgentSession(makeConfig());
   await mgr.initialize(makeMockServer(), {});
   const res = await mgr.callTool('connect', { client_id: clientId }, { rawResult: true });
   expect(res.success).toBe(true);
@@ -112,9 +112,9 @@ async function connectManager(clientId: string): Promise<ConnectionManager> {
 
 // ---- Tests ----
 
-describe('two ConnectionManagers in one process', () => {
-  let a: ConnectionManager;
-  let b: ConnectionManager;
+describe('two AgentSessions in one process', () => {
+  let a: AgentSession;
+  let b: AgentSession;
 
   beforeEach(async () => {
     vi.clearAllMocks();

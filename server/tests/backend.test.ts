@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ConnectionManager, BackendConfig } from '../src/backend';
+import { AgentSession, BackendConfig } from '../src/backend';
 import { ConfigService } from 'shared';
 import { setPlaybooksDirForTests, playbookFile } from '../src/playbooks/paths';
 import { refreshRegistry, resetRegistryForTests, setValidatorForTests } from '../src/playbooks/registry';
@@ -130,8 +130,8 @@ function makeMockServer() {
 
 // ---- Tests ----
 
-describe('ConnectionManager', () => {
-  let backend: ConnectionManager;
+describe('AgentSession', () => {
+  let backend: AgentSession;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -149,7 +149,7 @@ describe('ConnectionManager', () => {
     mockDaemonClientInstance.getPeerSessions.mockReturnValue([]);
     mockMetricsWrite.mockClear();
 
-    backend = new ConnectionManager(makeConfig());
+    backend = new AgentSession(makeConfig());
   });
 
   afterEach(() => {
@@ -285,7 +285,7 @@ describe('ConnectionManager', () => {
     });
 
     it('includes the upgrade notice in the response text when the startup flag is set', async () => {
-      const noticeBackend = new ConnectionManager(makeConfig({ showUpgradeNotice: true }));
+      const noticeBackend = new AgentSession(makeConfig({ showUpgradeNotice: true }));
       await noticeBackend.initialize(makeMockServer(), {});
 
       const result = await noticeBackend.callTool('connect', { client_id: 'test' });
@@ -807,7 +807,7 @@ describe('ConnectionManager', () => {
     });
 
     it('triggers reload in debug mode', async () => {
-      const debugBackend = new ConnectionManager(makeConfig({ debug: true }));
+      const debugBackend = new AgentSession(makeConfig({ debug: true }));
       const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
       vi.useFakeTimers();
 
@@ -823,7 +823,7 @@ describe('ConnectionManager', () => {
     });
 
     it('returns MCP-formatted reload message in debug mode', async () => {
-      const debugBackend = new ConnectionManager(makeConfig({ debug: true }));
+      const debugBackend = new AgentSession(makeConfig({ debug: true }));
       const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
       vi.useFakeTimers();
 
@@ -927,7 +927,7 @@ describe('ConnectionManager', () => {
     });
 
     it('includes build timestamp in debug mode', async () => {
-      const debugBackend = new ConnectionManager(makeConfig({ debug: true }));
+      const debugBackend = new AgentSession(makeConfig({ debug: true }));
       await debugBackend.initialize(makeMockServer(), {});
 
       mockDaemonClientInstance.buildTime = '2026-01-15T10:30:00.000Z';
@@ -1416,7 +1416,7 @@ describe('ConnectionManager', () => {
     });
 
     it('includes reload_mcp in debug mode', async () => {
-      const debugBackend = new ConnectionManager(makeConfig({ debug: true }));
+      const debugBackend = new AgentSession(makeConfig({ debug: true }));
       const tools = await debugBackend.listTools();
       const names = tools.map((t: any) => t.name);
       expect(names).toContain('reload_mcp');

@@ -3,7 +3,7 @@
  *
  * Deliberately dependency-light. This module exists so the compiled `supersurf`
  * binary can run `playbook ls|inspect|validate` without pulling `tools/playbooks.ts`,
- * whose top-level imports of `../playbooks/runner` drag in the ConnectionManager
+ * whose top-level imports of `../playbooks/runner` drag in the AgentSession
  * stack and, through the screenshot tool, the `sharp` native addon. Nothing in
  * this file's import closure reaches a native addon.
  *

@@ -6,7 +6,7 @@
  * pipe until the script finishes, fails, or runs out of time.
  *
  * `onCommand` is forwarded VERBATIM (spec Addendum A): this module holds no
- * ConnectionManager and does no client-method → MCP-tool translation. That map
+ * AgentSession and does no client-method → MCP-tool translation. That map
  * is a Plan 3 deliverable.
  *
  * Lockdown is `spawn`, not `fork`: `fork` opens an IPC channel and gives the
@@ -85,7 +85,7 @@ export interface PlaybookRunResult {
  *
  * THE TWO DELIBERATE EXCEPTIONS: a `cmd` frame's `method` and `params`, AS
  * FORWARDED TO `onCommand`. Spec Addendum A requires that forward to be
- * VERBATIM — this module holds no ConnectionManager and does no client-method
+ * VERBATIM — this module holds no AgentSession and does no client-method
  * → MCP-tool translation, so this pipe boundary itself imposes no per-field
  * cap on `method`/`params` before the forward. They are NOT unbounded,
  * though: the whole frame still has to survive as one line within

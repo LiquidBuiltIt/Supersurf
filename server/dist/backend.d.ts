@@ -1,5 +1,8 @@
 /**
- * ConnectionManager — central state machine for the server's connection lifecycle.
+ * AgentSession — one agent's session: its connection state machine and tool dispatch.
+ *
+ * One AgentSession per agent. A process may hold several; each is keyed by its own
+ * `client_id` and keeps its own daemon connection, experiment flags and logs.
  *
  * States:
  *   - **passive** — server is idle, only connection tools (connect/disconnect/status) are available
@@ -14,19 +17,19 @@
  * BrowserBridge is lazy-imported to break a circular dependency (tools.ts imports backend types).
  *
  * @module backend
- * @exports ConnectionManager
+ * @exports AgentSession
  * @exports BackendConfig, TabInfo, BackendState, ToolSchema (re-exported from backend/types)
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { IExtensionTransport } from './bridge';
 import { UsageMetricsLogger } from './usage-metrics-logger';
 export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend/types';
-import type { BackendConfig, TabInfo, BackendState, ToolSchema, ConnectionManagerAPI } from './backend/types';
+import type { BackendConfig, TabInfo, BackendState, ToolSchema, AgentSessionAPI } from './backend/types';
 /**
  * Core state machine for managing the extension connection lifecycle.
- * Implements ConnectionManagerAPI so handler functions can read/write state.
+ * Implements AgentSessionAPI so handler functions can read/write state.
  */
-export declare class ConnectionManager implements ConnectionManagerAPI {
+export declare class AgentSession implements AgentSessionAPI {
     config: BackendConfig;
     state: BackendState;
     bridge: any;

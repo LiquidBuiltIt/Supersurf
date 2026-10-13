@@ -3,7 +3,7 @@
  *
  * Implements `browser_tabs` (list/new/attach/close) and `browser_navigate`
  * (url/back/forward/reload). Tab operations sync metadata (attached tab,
- * stealth mode) with the ConnectionManager. Navigation integrates with
+ * stealth mode) with the AgentSession. Navigation integrates with
  * the `smart_waiting` experiment for adaptive DOM-stability waits instead
  * of fixed 1500ms delays.
  *
@@ -61,7 +61,7 @@ async function checkChromeError(ctx: ToolContext): Promise<string | null> {
 
 /**
  * Manage browser tabs: list, create, attach (with optional stealth), or close.
- * Updates ConnectionManager metadata on attach/close to keep status headers accurate.
+ * Updates AgentSession metadata on attach/close to keep status headers accurate.
  *
  * @param args - `{ action: 'list'|'new'|'attach'|'close', url?, index?, activate?, stealth? }`
  */
@@ -93,12 +93,12 @@ export async function onBrowserTabs(ctx: ToolContext, args: any, options: any): 
       return ctx.error(`Unknown tab action: ${action}`, options);
   }
 
-  if (result && ctx.connectionManager) {
+  if (result && ctx.agentSession) {
     if (action === 'new' || action === 'attach') {
-      ctx.connectionManager.setAttachedTab(result);
-      if (args.stealth) ctx.connectionManager.setStealthMode(true);
+      ctx.agentSession.setAttachedTab(result);
+      if (args.stealth) ctx.agentSession.setStealthMode(true);
     } else if (action === 'close') {
-      ctx.connectionManager.clearAttachedTab();
+      ctx.agentSession.clearAttachedTab();
     }
   }
 
@@ -121,7 +121,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
 
   switch (action) {
     case 'url': {
-      const smartWait = experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null);
+      const smartWait = experimentRegistry.isEnabled('smart_waiting', ctx.agentSession?.clientId ?? null);
       // Forward the explicit tabId (if any) so a concurrent caller can't
       // redirect this navigation by flipping the extension's shared
       // attached-tab between calls. The extension resolves the fallback —
@@ -134,8 +134,8 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
         smartWait,
         smartWaitStabilityMs: 500,
       });
-      if (ctx.connectionManager?.attachedTab) {
-        ctx.connectionManager.attachedTab.url = args.url;
+      if (ctx.agentSession?.attachedTab) {
+        ctx.agentSession.attachedTab.url = args.url;
       }
       // If extension didn't handle waiting (no screenshot path), wait server-side
       if (!args.screenshot) {
@@ -153,7 +153,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
     case 'back':
       await ctx.eval('window.history.back()');
       // === EXPERIMENTAL: smart waiting ===
-      if (experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null)) {
+      if (experimentRegistry.isEnabled('smart_waiting', ctx.agentSession?.clientId ?? null)) {
         try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
         catch { await ctx.sleep(1500); }
       } else {
@@ -164,7 +164,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
     case 'forward':
       await ctx.eval('window.history.forward()');
       // === EXPERIMENTAL: smart waiting ===
-      if (experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null)) {
+      if (experimentRegistry.isEnabled('smart_waiting', ctx.agentSession?.clientId ?? null)) {
         try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
         catch { await ctx.sleep(1500); }
       } else {
@@ -175,7 +175,7 @@ export async function onNavigate(ctx: ToolContext, args: any, options: any): Pro
     case 'reload': {
       result = await ctx.ext.sendCmd('navigate', { action: 'reload', tabId: ctx.tabId });
       // === EXPERIMENTAL: smart waiting ===
-      if (experimentRegistry.isEnabled('smart_waiting', ctx.connectionManager?.clientId ?? null)) {
+      if (experimentRegistry.isEnabled('smart_waiting', ctx.agentSession?.clientId ?? null)) {
         try { await ctx.ext.sendCmd('waitForReady', { timeout: 10000, stabilityMs: 500, tabId: ctx.tabId }); }
         catch { /* fall through */ }
       } else {

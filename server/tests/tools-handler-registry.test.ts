@@ -12,7 +12,7 @@ vi.mock('../src/tips', () => ({
 }));
 
 function makeCtx(url = 'https://example.com/'): any {
-  const connectionManager = {
+  const agentSession = {
     getAttachedTab: () => ({ url, id: 1 }),
     statusHeader: () => '',
   };
@@ -22,7 +22,7 @@ function makeCtx(url = 'https://example.com/'): any {
       sendCmd: vi.fn().mockResolvedValue({ tabs: [{ id: 1, url, attached: true }], attachedTabId: 1 }),
       consumeDialogEvents: vi.fn().mockReturnValue([]),
     },
-    connectionManager,
+    agentSession,
     config: { get: () => ({ tips: false }) },
     sleep: vi.fn(),
     formatResult: (name: string, result: any, options: any) => {

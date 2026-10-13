@@ -28,7 +28,7 @@ export interface PlaybookMeta {
      *  a behavioral dependency. A boolean, never a list of names: a list rots when
      *  an experiment graduates and its toggle leaves AVAILABLE_EXPERIMENTS.
      *  Plan 2 only parses and type-checks it. ACTIVATION is Plan 3's — that is
-     *  where the ConnectionManager lives. Do not build it here. */
+     *  where the AgentSession lives. Do not build it here. */
     experiments?: boolean;
     /** PERMISSION GATE, not an exemption. Default (absent/false) is STRICT: every
      *  element target must be a handle (`@name`) and a raw CSS selector is

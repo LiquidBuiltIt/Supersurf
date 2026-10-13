@@ -12,7 +12,7 @@ vi.mock('../src/experimental/index', () => ({
 function createMockCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({ success: true }) } as any,
-    connectionManager: {
+    agentSession: {
       setAttachedTab: vi.fn(),
       setStealthMode: vi.fn(),
       clearAttachedTab: vi.fn(),

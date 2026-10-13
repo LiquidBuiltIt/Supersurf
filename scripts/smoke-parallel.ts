@@ -9,7 +9,7 @@
  * asserted in the real runtime.
  *
  * WHY TWO PROCESSES. Subagents of one MCP client share one server process and
- * therefore one ConnectionManager — they cannot be two SuperSurf sessions. Only
+ * therefore one AgentSession — they cannot be two SuperSurf sessions. Only
  * two `cli.js --script-mode` processes are genuinely independent.
  *
  * Run after `npm run build`:  npm run smoke.parallel

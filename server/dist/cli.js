@@ -158,7 +158,7 @@ function setupExitWatchdog(backend, server) {
 }
 // No server-side idle timeout — connection stays alive until the agent
 // disconnects or the daemon shuts itself down (10-min idle after all sessions gone).
-/** Boot the MCP server: init logging, create ConnectionManager, wire MCP handlers, start stdio transport. */
+/** Boot the MCP server: init logging, create AgentSession, wire MCP handlers, start stdio transport. */
 async function main(options) {
     // Load .env from cwd before anything reads process.env
     (0, dotenv_1.loadDotenv)(process.cwd());
@@ -192,7 +192,7 @@ async function main(options) {
         }
     }
     const config = (0, backend_config_1.backendConfigFrom)(configService, VERSION, versionCheck.shouldNotify);
-    const backend = new backend_1.ConnectionManager(config);
+    const backend = new backend_1.AgentSession(config);
     if (global.DEBUG_MODE) {
         console.error(`[cli] Creating MCP Server v${VERSION}...`);
     }
@@ -255,7 +255,7 @@ program
 });
 // `supersurf playbook run` at a terminal shells out to THIS program. The
 // compiled `supersurf` binary cannot carry `playbooks/runner.ts` — it pulls the
-// ConnectionManager, the daemon and, through `tools/`, the `sharp` native
+// AgentSession, the daemon and, through `tools/`, the `sharp` native
 // addon. So `run` is the ONLY playbook subcommand registered here; `ls`,
 // `inspect`, `validate` and `migrate` stay in the binary and never reach the
 // server. Do not grow this into a second playbook CLI.

@@ -122,7 +122,7 @@ function makeRealEval(doc: FakeDocument) {
 function createMockCtx(handleIndex?: HandleIndex): ToolContext {
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
-    connectionManager: null,
+    agentSession: null,
     cdp: vi.fn().mockResolvedValue({}),
     eval: vi.fn().mockResolvedValue(undefined),
     sleep: vi.fn().mockResolvedValue(undefined),

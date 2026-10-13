@@ -22,10 +22,10 @@ export declare class BrowserBridge {
     private ext;
     private server;
     private clientInfo;
-    private connectionManager;
+    private agentSession;
     private metricsLogger;
     constructor(config: any, ext: IExtensionTransport | null);
-    initialize(server: any, clientInfo: any, connectionManager?: any, metricsLogger?: UsageMetricsLogger | null): Promise<void>;
+    initialize(server: any, clientInfo: any, agentSession?: any, metricsLogger?: UsageMetricsLogger | null): Promise<void>;
     serverClosed(): void;
     /** Return all registered tool schemas (core + experimental). */
     listTools(): Promise<ToolSchema[]>;

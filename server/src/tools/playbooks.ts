@@ -104,7 +104,7 @@ function doHistory(args: any): any {
 }
 
 async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<any> {
-  const blocked = gate(ctx.connectionManager?.clientId ?? null);
+  const blocked = gate(ctx.agentSession?.clientId ?? null);
   if (blocked) return text(blocked, true);
 
   const name = normalizeName(String(args.name ?? ''));
@@ -118,7 +118,7 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
 
   // Caller-based eval gate. This path is always an agent.
   if (rec.meta.permissions?.includes('eval')) {
-    const allowed = (ctx as any).connectionManager?.config?.configService?.get?.().security?.playbook_eval;
+    const allowed = (ctx as any).agentSession?.config?.configService?.get?.().security?.playbook_eval;
     if (allowed === false) {
       return text(
         `\`${name}\` declares the \`eval\` permission and \`security.playbook_eval\` is false, ` +

@@ -2,7 +2,7 @@
 /**
  * Connection-level tool handlers — connect, disconnect, status, experimental features, reload.
  *
- * Each handler receives the ConnectionManagerAPI (mutable state), the tool arguments,
+ * Each handler receives the AgentSessionAPI (mutable state), the tool arguments,
  * and an options object. Handlers return either MCP content responses (for MCP mode)
  * or raw JSON objects (for script mode via `rawResult: true`).
  *
@@ -447,8 +447,8 @@ async function onDisconnect(mgr, options = {}) {
         mgr.extensionServer = null;
     }
     // Close session log, clear tip suppression counters, drop session-scoped
-    // experiment + cursor state. All keyed by client_id so a second
-    // ConnectionManager in this process keeps its own.
+    // experiment + cursor state. All keyed by client_id so another
+    // agent's AgentSession in this process keeps its own.
     if (mgr.clientId) {
         (0, shared_2.getRegistry)().clearSessionLog(mgr.clientId);
         (0, tips_1.clearTipCounters)(mgr.clientId);

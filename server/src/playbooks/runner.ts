@@ -5,7 +5,7 @@
  * the end. `client_id` IS the daemon session id — `daemon/src/ipc.ts:144-151`
  * rejects a duplicate with `Session ID already in use` — so the run's id must
  * differ from the parent's. The parent is whichever process holds a
- * `ConnectionManager`: the MCP server or the CLI. Never the daemon.
+ * `AgentSession`: the MCP server or the CLI. Never the daemon.
  *
  * Because the tab dies at exit (spec §10 risk 2), a `SelectorMiss` failure
  * captures a ranked candidate-selector list BEFORE teardown and stores it as
@@ -15,7 +15,7 @@
  * @module playbooks/runner
  */
 
-import { ConnectionManager } from '../backend';
+import { AgentSession } from '../backend';
 import { buildConfigService, backendConfigFrom } from '../backend-config';
 import { mapCommand } from './command-map';
 import { experimentRegistry } from '../experimental';
@@ -41,7 +41,7 @@ const { version: PACKAGE_VERSION } = require('../../package.json');
 /** The sandbox-host entrypoint, seam-able for unit tests. */
 type RunScript = (opts: PlaybookRunOptions) => Promise<PlaybookRunResult>;
 
-/** The slice of `ConnectionManager` a run needs. Narrow so tests can fake it. */
+/** The slice of `AgentSession` a run needs. Narrow so tests can fake it. */
 export interface RunnerBackend {
   callTool(name: string, args: Record<string, unknown>, options?: { rawResult?: boolean }): Promise<any>;
 }
@@ -81,7 +81,7 @@ export interface RunOutcome {
 }
 
 function defaultBackend(): RunnerBackend {
-  return new ConnectionManager(backendConfigFrom(buildConfigService({}), PACKAGE_VERSION));
+  return new AgentSession(backendConfigFrom(buildConfigService({}), PACKAGE_VERSION));
 }
 
 /**
@@ -186,7 +186,7 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
 
   // Addendum B. `meta.experiments === true` opts this run into every experiment.
   // Plan 2 parses and validates the field; activation is ours because the
-  // ConnectionManager is ours.
+  // AgentSession is ours.
   const wantsExperiments = record.meta?.experiments === true;
 
   const finish = (out: Omit<RunOutcome, 'logs'>): RunOutcome => {

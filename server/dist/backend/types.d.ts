@@ -2,7 +2,7 @@
  * Shared types for the backend module.
  *
  * Defines the configuration, state, and interface contracts used across
- * the ConnectionManager, handlers, and status builder. Kept in a separate
+ * the AgentSession, handlers, and status builder. Kept in a separate
  * file to avoid circular imports between backend.ts and handlers.ts.
  *
  * @module backend/types
@@ -43,10 +43,10 @@ export interface ToolSchema {
     annotations?: Record<string, unknown>;
 }
 /**
- * Public interface of ConnectionManager exposed to handler functions.
+ * Public interface of AgentSession exposed to handler functions.
  * Handlers need both read and write access to manage state transitions.
  */
-export interface ConnectionManagerAPI {
+export interface AgentSessionAPI {
     config: BackendConfig;
     debugMode: boolean;
     state: BackendState;

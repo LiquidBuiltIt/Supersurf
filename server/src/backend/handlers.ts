@@ -1,7 +1,7 @@
 /**
  * Connection-level tool handlers — connect, disconnect, status, experimental features, reload.
  *
- * Each handler receives the ConnectionManagerAPI (mutable state), the tool arguments,
+ * Each handler receives the AgentSessionAPI (mutable state), the tool arguments,
  * and an options object. Handlers return either MCP content responses (for MCP mode)
  * or raw JSON objects (for script mode via `rawResult: true`).
  *
@@ -13,7 +13,7 @@
  * @module backend/handlers
  */
 
-import type { ConnectionManagerAPI } from './types';
+import type { AgentSessionAPI } from './types';
 import { DaemonClient } from 'shared';
 import { ensureDaemon, stopDaemon, getSockPath } from '../daemon-spawn';
 import { createLog, getRegistry } from 'shared';
@@ -73,7 +73,7 @@ function compareVersions(a: string, b: string): number {
  * the stale side.
  */
 function versionMismatchFailure(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   daemonVersion: string | null,
   serverVersion: string,
   reason: string,
@@ -107,7 +107,7 @@ function versionMismatchFailure(
  * Transitions state from passive to active.
  */
 export async function onConnect(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
@@ -402,7 +402,7 @@ export async function onConnect(
  * nulls the tab) and mis-filed fingerprint captures into the 'unknown' bucket. Exported
  * for testing.
  */
-export function applyTabInfoUpdate(mgr: ConnectionManagerAPI, tabInfo: any): void {
+export function applyTabInfoUpdate(mgr: AgentSessionAPI, tabInfo: any): void {
   if (tabInfo === null) {
     mgr.attachedTab = null;
     return;
@@ -428,7 +428,7 @@ interface TabQueryClient {
  * navigation fires a `tab_info_update`, so any fingerprint capture in between has no
  * live URL and gets dropped. Best-effort: any failure falls back to null. Exported for testing.
  */
-export async function rehydrateAttachedTab(mgr: ConnectionManagerAPI, client: TabQueryClient): Promise<void> {
+export async function rehydrateAttachedTab(mgr: AgentSessionAPI, client: TabQueryClient): Promise<void> {
   try {
     const res: any = await client.sendCmd('getTabs', {}, 10000);
     const tabs: any[] = res?.tabs || [];
@@ -455,7 +455,7 @@ export async function rehydrateAttachedTab(mgr: ConnectionManagerAPI, client: Ta
  * The daemon stays alive for other sessions.
  */
 export async function onDisconnect(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
   if (mgr.state === 'passive') {
@@ -492,8 +492,8 @@ export async function onDisconnect(
   }
 
   // Close session log, clear tip suppression counters, drop session-scoped
-  // experiment + cursor state. All keyed by client_id so a second
-  // ConnectionManager in this process keeps its own.
+  // experiment + cursor state. All keyed by client_id so another
+  // agent's AgentSession in this process keeps its own.
   if (mgr.clientId) {
     getRegistry().clearSessionLog(mgr.clientId);
     clearTipCounters(mgr.clientId);
@@ -540,7 +540,7 @@ export async function onDisconnect(
 
 /** Return current connection state, browser info, and attached tab details. */
 export async function onStatus(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
   const statusData: Record<string, unknown> = {
@@ -605,7 +605,7 @@ interface DaemonHandle {
  * passive state without a full connect/disconnect cycle.
  */
 async function withDaemonConnection(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   fn: (client: DaemonHandle) => Promise<any>
 ): Promise<any> {
   // Reuse existing connection if available
@@ -631,7 +631,7 @@ async function withDaemonConnection(
 
 /** Create a new managed Chromium profile. */
 export async function onProfileCreate(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
@@ -662,7 +662,7 @@ export async function onProfileCreate(
 
 /** List all managed Chromium profiles. */
 export async function onProfileList(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
   try {
@@ -698,7 +698,7 @@ export async function onProfileList(
 
 /** Delete a managed Chromium profile. */
 export async function onProfileDelete(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
@@ -726,7 +726,7 @@ export async function onProfileDelete(
 
 /** Trigger hot reload by exiting with code 42. The debug wrapper catches this and respawns. */
 export function onReloadMCP(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   options: { rawResult?: boolean } = {}
 ): any {
   if (!mgr.debugMode) {

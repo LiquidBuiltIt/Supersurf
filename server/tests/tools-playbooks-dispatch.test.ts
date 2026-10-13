@@ -5,7 +5,7 @@ import { actionTrail } from '../src/playbooks/trail';
 function makeCtx(): any {
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({ tabs: [], attachedTabId: 1 }) },
-    connectionManager: { getAttachedTab: () => ({ url: 'https://example.com/page' }), clientId: 'test' },
+    agentSession: { getAttachedTab: () => ({ url: 'https://example.com/page' }), clientId: 'test' },
     config: { get: () => ({ tips: false }) },
     cdp: vi.fn(),
     eval: vi.fn(),

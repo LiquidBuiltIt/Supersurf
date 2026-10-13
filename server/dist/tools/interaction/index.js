@@ -50,13 +50,13 @@ async function onInteract(ctx, args, options) {
     let beforeState = null;
     const isOnlyScrollActions = actions.every((a) => ['scroll_to', 'scroll_by', 'scroll_into_view'].includes(a.type));
     const captureMode = isOnlyScrollActions ? 'viewport' : 'document';
-    if (index_1.experimentRegistry.isEnabled('page_diffing', ctx.connectionManager?.clientId ?? null)) {
+    if (index_1.experimentRegistry.isEnabled('page_diffing', ctx.agentSession?.clientId ?? null)) {
         try {
             beforeState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode, tabId: ctx.tabId });
         }
         catch { /* silently skip — extension may not support it yet */ }
     }
-    const currentUrl = ctx.connectionManager?.getAttachedTab()?.url;
+    const currentUrl = ctx.agentSession?.getAttachedTab()?.url;
     for (const action of actions) {
         try {
             const msg = await (0, registry_1.executeAction)(ctx, action);

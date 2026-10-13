@@ -15,7 +15,7 @@ import type { ValidationRecord } from '../src/security/validate';
 function makeCtx(url = 'https://linkedin.com/jobs/1234'): any {
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({ tabs: [{ id: 1, url, attached: true }], attachedTabId: 1 }) },
-    connectionManager: { getAttachedTab: () => ({ url }), clientId: 'test' },
+    agentSession: { getAttachedTab: () => ({ url }), clientId: 'test' },
     config: { get: () => ({ tips: false }) },
     sleep: vi.fn(),
     error: (m: string) => ({ content: [{ type: 'text', text: m }], isError: true }),
@@ -141,7 +141,7 @@ describe('playbooks — script surface', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  const ctx: any = { connectionManager: { clientId: 'test', config: { configService: { get: () => ({ security: { playbook_eval: true } }) } } } };
+  const ctx: any = { agentSession: { clientId: 'test', config: { configService: { get: () => ({ security: { playbook_eval: true } }) } } } };
 
   it('list shows the signature, description and starting point', async () => {
     const out = await onPlaybooks(ctx, { action: 'list' }, {});
@@ -230,7 +230,7 @@ describe('playbooks — script surface', () => {
     setValidatorForTests(async () => rec('post_tweet', { meta: { description: 'x', permissions: ['eval'] } }));
     resetRegistryForTests();
     await refreshRegistry();
-    const offCtx: any = { connectionManager: { clientId: 'test', config: { configService: { get: () => ({ security: { playbook_eval: false } }) } } } };
+    const offCtx: any = { agentSession: { clientId: 'test', config: { configService: { get: () => ({ security: { playbook_eval: false } }) } } } };
     let called = false;
     const out = await onPlaybooks(offCtx, { action: 'run', name: 'post_tweet' }, {},
       { runPlaybook: async () => { called = true; return { ok: true, durationMs: 1, logs: [] }; } });
