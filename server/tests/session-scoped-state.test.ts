@@ -105,7 +105,7 @@ function makeMockServer() {
 async function connectManager(clientId: string): Promise<AgentSession> {
   const mgr = new AgentSession(makeConfig());
   await mgr.initialize(makeMockServer(), {});
-  const res = await mgr.callTool('connect', { client_id: clientId }, { rawResult: true });
+  const res = await mgr.callTool('connect', { username: clientId }, { rawResult: true });
   expect(res.success).toBe(true);
   return mgr;
 }
@@ -176,7 +176,7 @@ describe('two AgentSessions in one process', () => {
     const statusB = await b.callTool('status', {}, { rawResult: true });
 
     expect(statusA.state).toBe('active');
-    expect(statusA.client_id).toBe('session-a');
+    expect(statusA.username).toBe('session-a');
     expect(statusB.state).toBe('passive');
   });
 

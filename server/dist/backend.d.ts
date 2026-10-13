@@ -2,7 +2,7 @@
  * AgentSession — one agent's session: its connection state machine and tool dispatch.
  *
  * One AgentSession per agent. A process may hold several; each is keyed by its own
- * `client_id` and keeps its own daemon connection, experiment flags and logs.
+ * `username` and keeps its own daemon connection, experiment flags and logs.
  *
  * States:
  *   - **passive** — server is idle, only connection tools (connect/disconnect/status) are available

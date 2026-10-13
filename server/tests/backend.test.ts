@@ -179,7 +179,7 @@ describe('AgentSession', () => {
       await backend.initialize(server, clientInfo);
 
       // Verify server is stored by connecting — it should call sendToolsListChanged
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       expect(server.sendToolsListChanged).toHaveBeenCalled();
     });
   });
@@ -192,11 +192,11 @@ describe('AgentSession', () => {
     });
 
     it('transitions to active state', async () => {
-      const result = await backend.callTool('connect', { client_id: 'my-project' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'my-project' }, { rawResult: true });
 
       expect(result.success).toBe(true);
       expect(result.state).toBe('active');
-      expect(result.client_id).toBe('my-project');
+      expect(result.username).toBe('my-project');
       expect(result.port).toBe(5555);
     });
 
@@ -204,49 +204,72 @@ describe('AgentSession', () => {
       const { ensureDaemon } = await import('../src/daemon-spawn');
       const { DaemonClient } = await import('shared');
 
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       expect(ensureDaemon).toHaveBeenCalled();
       expect(DaemonClient).toHaveBeenCalled();
       expect(mockDaemonClientInstance.start).toHaveBeenCalled();
     });
 
-    it('returns error without client_id', async () => {
+    it('returns error without username', async () => {
       const result = await backend.callTool('connect', {}, { rawResult: true });
       expect(result.success).toBe(false);
-      expect(result.error).toBe('missing_client_id');
+      expect(result.error).toBe('missing_username');
     });
 
-    it('returns error with empty client_id', async () => {
-      const result = await backend.callTool('connect', { client_id: '   ' }, { rawResult: true });
+    it('returns error with empty username', async () => {
+      const result = await backend.callTool('connect', { username: '   ' }, { rawResult: true });
       expect(result.success).toBe(false);
-      expect(result.error).toBe('missing_client_id');
+      expect(result.error).toBe('missing_username');
     });
 
-    it('returns MCP-formatted error without client_id when rawResult is false', async () => {
+    it('returns MCP-formatted error without username when rawResult is false', async () => {
       const result = await backend.callTool('connect', {});
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('client_id');
+      expect(result.content[0].text).toContain('username');
+    });
+
+    it('connect requires username and rejects a malformed one', async () => {
+      const mgr = new AgentSession(makeConfig());
+      expect(await mgr.callTool('connect', {}, { rawResult: true }))
+        .toMatchObject({ success: false, error: 'missing_username' });
+      expect(await mgr.callTool('connect', { username: '../etc' }, { rawResult: true }))
+        .toMatchObject({ success: false, error: 'invalid_username' });
+    });
+
+    it('invalid username reports the exact bad-name text, in both result shapes', async () => {
+      const { BAD_NAME_TEXT, USERNAME_RE } = await import('../src/backend/handlers');
+      expect(BAD_NAME_TEXT).toBe(
+        '`username` must be 1-64 characters: letters, digits, dot, dash or underscore, starting with a letter or digit (e.g. `claudebox-geo-research`).'
+      );
+      expect(USERNAME_RE.test('a'.repeat(64))).toBe(true);
+      expect(USERNAME_RE.test('a'.repeat(65))).toBe(false);
+      const mgr = new AgentSession(makeConfig());
+      const raw = await mgr.callTool('connect', { username: '-bad' }, { rawResult: true });
+      expect(raw.message).toBe(BAD_NAME_TEXT);
+      const mcp = await mgr.callTool('connect', { username: 'a b' });
+      expect(mcp.isError).toBe(true);
+      expect(mcp.content[0].text).toContain(BAD_NAME_TEXT);
     });
 
     it('returns "already connected" when already active', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
-      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
       expect(result.already_connected).toBe(true);
       expect(result.state).toBe('active');
     });
 
     it('returns MCP-formatted "already connected" when rawResult is false', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
-      const result = await backend.callTool('connect', { client_id: 'other' });
+      const result = await backend.callTool('connect', { username: 'other' });
       expect(result.content[0].text).toContain('Already Connected');
     });
 
     it('initializes BrowserBridge with correct args', async () => {
       const { BrowserBridge } = await import('../src/tools');
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       expect(BrowserBridge).toHaveBeenCalled();
       expect(mockBridgeInstance.initialize).toHaveBeenCalled();
     });
@@ -254,7 +277,7 @@ describe('AgentSession', () => {
     it('handles daemon connection failure gracefully', async () => {
       mockDaemonClientInstance.start.mockRejectedValueOnce(new Error('Connection refused'));
 
-      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
       expect(result.success).toBe(false);
       expect(result.error).toBe('connection_failed');
     });
@@ -262,7 +285,7 @@ describe('AgentSession', () => {
     it('refuses to connect when the daemon version mismatches', async () => {
       mockDaemonClientInstance.version = '0.0.1'; // stale daemon still running, older than the mocked server's 0.1.0
 
-      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('version_mismatch');
@@ -273,22 +296,22 @@ describe('AgentSession', () => {
     it('refuses to connect when the daemon reports no version (pre-v3)', async () => {
       mockDaemonClientInstance.version = null;
 
-      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('version_mismatch');
     });
 
-    it('trims whitespace from client_id', async () => {
-      const result = await backend.callTool('connect', { client_id: '  trimmed  ' }, { rawResult: true });
-      expect(result.client_id).toBe('trimmed');
+    it('trims whitespace from username', async () => {
+      const result = await backend.callTool('connect', { username: '  trimmed  ' }, { rawResult: true });
+      expect(result.username).toBe('trimmed');
     });
 
     it('includes the upgrade notice in the response text when the startup flag is set', async () => {
       const noticeBackend = new AgentSession(makeConfig({ showUpgradeNotice: true }));
       await noticeBackend.initialize(makeMockServer(), {});
 
-      const result = await noticeBackend.callTool('connect', { client_id: 'test' });
+      const result = await noticeBackend.callTool('connect', { username: 'test' });
       expect(result.content[0].text).toContain(
         "Hey! It looks like it's been a while since you've used this tool!",
       );
@@ -298,7 +321,7 @@ describe('AgentSession', () => {
     });
 
     it('omits the upgrade notice when the startup flag is not set', async () => {
-      const result = await backend.callTool('connect', { client_id: 'test' });
+      const result = await backend.callTool('connect', { username: 'test' });
       expect(result.content[0].text).not.toContain("it's been a while");
     });
 
@@ -306,7 +329,7 @@ describe('AgentSession', () => {
       mockDaemonClientInstance.extensionVersionError =
         'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
 
-      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('extension_version_mismatch');
@@ -321,7 +344,7 @@ describe('AgentSession', () => {
       mockDaemonClientInstance.extensionVersionError =
         'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
 
-      const result = await backend.callTool('connect', { client_id: 'test' });
+      const result = await backend.callTool('connect', { username: 'test' });
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Extension Version Mismatch');
@@ -332,7 +355,7 @@ describe('AgentSession', () => {
     it('connects normally when extensionVersionError is null', async () => {
       mockDaemonClientInstance.extensionVersionError = null;
 
-      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
       expect(result.success).not.toBe(false);
       expect(backend.state).toBe('active');
@@ -348,7 +371,7 @@ describe('AgentSession', () => {
 
       const result = await backend.callTool(
         'connect',
-        { client_id: 'test', profile: 'work' },
+        { username: 'test', profile: 'work' },
         { rawResult: true },
       );
 
@@ -363,7 +386,7 @@ describe('AgentSession', () => {
         'Extension version 2.9.0 is not compatible with SuperSurf 3.4.0.';
       mockDaemonClientInstance.extensionConnected = true;
 
-      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
       expect(result.error).not.toBe('extension_version_mismatch');
       expect(backend.state).toBe('active');
@@ -380,7 +403,7 @@ describe('AgentSession', () => {
       });
 
       await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { client_id: 'test' });
+      const result = await backend.callTool('connect', { username: 'test' });
 
       expect(stopDaemon).toHaveBeenCalledTimes(1);
       expect(ensureDaemon).toHaveBeenCalledTimes(2);
@@ -392,7 +415,7 @@ describe('AgentSession', () => {
       mockDaemonClientInstance.version = '0.0.1-stale';
 
       await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { client_id: 'test' });
+      const result = await backend.callTool('connect', { username: 'test' });
 
       expect(stopDaemon).toHaveBeenCalledTimes(1);
       expect(result.isError).toBe(true);
@@ -405,7 +428,7 @@ describe('AgentSession', () => {
       mockDaemonClientInstance.activeSessionCount = 2; // this session + 1 other
 
       await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
       expect(stopDaemon).not.toHaveBeenCalled();
       expect(result.success).toBe(false);
@@ -426,7 +449,7 @@ describe('AgentSession', () => {
       });
 
       await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { client_id: 'test' });
+      const result = await backend.callTool('connect', { username: 'test' });
 
       expect(stopDaemon).toHaveBeenCalledTimes(1);
       expect(result.isError).toBeUndefined();
@@ -441,7 +464,7 @@ describe('AgentSession', () => {
       });
 
       await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { client_id: 'test' });
+      const result = await backend.callTool('connect', { username: 'test' });
 
       expect(stopDaemon).toHaveBeenCalledTimes(1);
       expect(result.isError).toBeUndefined();
@@ -456,7 +479,7 @@ describe('AgentSession', () => {
       mockDaemonClientInstance.version = '5.0.0'; // newer than the mocked server's 0.1.0
 
       await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { client_id: 'test' }, { rawResult: true });
+      const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('version_mismatch');
@@ -473,7 +496,7 @@ describe('AgentSession', () => {
     });
 
     it('transitions back to passive from active', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       const result = await backend.callTool('disconnect', {}, { rawResult: true });
 
       expect(result.success).toBe(true);
@@ -481,13 +504,13 @@ describe('AgentSession', () => {
     });
 
     it('stops DaemonClient on disconnect', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       await backend.callTool('disconnect');
       expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
     });
 
     it('calls serverClosed on bridge', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       await backend.callTool('disconnect');
       expect(mockBridgeInstance.serverClosed).toHaveBeenCalled();
     });
@@ -504,7 +527,7 @@ describe('AgentSession', () => {
     });
 
     it('clears attached tab and browser name', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       backend.setAttachedTab({ id: 1, index: 0, title: 'Test', url: 'http://test.com' });
       backend.setConnectedBrowserName('Chrome');
 
@@ -516,7 +539,7 @@ describe('AgentSession', () => {
     });
 
     it('reports disconnect as a release and names the remaining agents', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.getPeerSessions.mockReturnValue(['sm-hn']);
 
       const out = await backend.callTool('disconnect', {}, { rawResult: true });
@@ -528,7 +551,7 @@ describe('AgentSession', () => {
     });
 
     it('does not fail when another session holds the browser', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.getPeerSessions.mockReturnValue(['sm-hn']);
 
       // toMatchObject on both success AND peers — asserting success alone
@@ -550,7 +573,7 @@ describe('AgentSession', () => {
       const result = await backend.callTool('status', {}, { rawResult: true });
       expect(result.state).toBe('passive');
       expect(result.browser).toBeNull();
-      expect(result.client_id).toBeNull();
+      expect(result.username).toBeNull();
       expect(result.attached_tab).toBeNull();
     });
 
@@ -560,16 +583,16 @@ describe('AgentSession', () => {
     });
 
     it('returns correct state info for active', async () => {
-      await backend.callTool('connect', { client_id: 'my-project' });
+      await backend.callTool('connect', { username: 'my-project' });
 
       const result = await backend.callTool('status', {}, { rawResult: true });
       expect(result.state).toBe('active');
       expect(result.browser).toBe('chrome');
-      expect(result.client_id).toBe('my-project');
+      expect(result.username).toBe('my-project');
     });
 
     it('includes attached tab info when available', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       backend.setAttachedTab({ id: 1, index: 3, title: 'Google', url: 'https://google.com' });
 
       const result = await backend.callTool('status', {}, { rawResult: true });
@@ -581,7 +604,7 @@ describe('AgentSession', () => {
     });
 
     it('shows "No tab attached" in MCP format when no tab', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       const result = await backend.callTool('status');
       expect(result.content[0].text).toContain('No tab attached');
@@ -630,7 +653,7 @@ describe('AgentSession', () => {
   describe('callTool with browser tool when active', () => {
     beforeEach(async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
     });
 
     it('forwards to bridge', async () => {
@@ -722,7 +745,7 @@ describe('AgentSession', () => {
     });
 
     it('active state: `list`/`inspect` still route through the bridge as before', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockBridgeInstance.callTool.mockClear();
       mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'listed' }] });
 
@@ -733,7 +756,7 @@ describe('AgentSession', () => {
     });
 
     it('active state: `run` routes through the bridge without a profile-mismatch check', async () => {
-      await backend.callTool('connect', { client_id: 'test', profile: 'proj-a' });
+      await backend.callTool('connect', { username: 'test', profile: 'proj-a' });
       mockBridgeInstance.callTool.mockClear();
       mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ran ok' }] });
 
@@ -752,7 +775,7 @@ describe('AgentSession', () => {
     });
 
     it('forwards profile_create to daemon', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.sendCmd.mockResolvedValueOnce({
         success: true,
         profile: { name: 'test', created: '2026-01-01' },
@@ -768,7 +791,7 @@ describe('AgentSession', () => {
     });
 
     it('forwards profile_list to daemon', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.sendCmd.mockResolvedValueOnce({
         profiles: [{ name: 'test', created: '2026-01-01', running: false }],
       });
@@ -778,7 +801,7 @@ describe('AgentSession', () => {
     });
 
     it('forwards profile_delete to daemon', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.sendCmd.mockResolvedValueOnce({ success: true });
 
       const result = await backend.callTool('profile_delete', { name: 'test' }, { rawResult: true });
@@ -786,7 +809,7 @@ describe('AgentSession', () => {
     });
 
     it('handles profile create errors', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.sendCmd.mockRejectedValueOnce(new Error('Profile already exists'));
 
       const result = await backend.callTool('profile_create', { name: 'test' }, { rawResult: true });
@@ -848,7 +871,7 @@ describe('AgentSession', () => {
 
     it('returns correct format for active state without tab', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       const header = backend.statusHeader();
       expect(header).toContain('v0.1.0');
@@ -857,7 +880,7 @@ describe('AgentSession', () => {
 
     it('includes tab info when attached', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       backend.setAttachedTab({
         id: 1,
         index: 2,
@@ -872,7 +895,7 @@ describe('AgentSession', () => {
 
     it('truncates long URLs', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       backend.setAttachedTab({
         id: 1,
         index: 0,
@@ -885,7 +908,7 @@ describe('AgentSession', () => {
 
     it('includes tech stack info when present', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       backend.setAttachedTab({
         id: 1,
         index: 0,
@@ -905,7 +928,7 @@ describe('AgentSession', () => {
 
     it('includes obfuscated CSS warning', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       backend.setAttachedTab({
         id: 1,
         index: 0,
@@ -919,7 +942,7 @@ describe('AgentSession', () => {
 
     it('includes stealth indicator when stealth mode is on', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       backend.setStealthMode(true);
 
       const header = backend.statusHeader();
@@ -931,7 +954,7 @@ describe('AgentSession', () => {
       await debugBackend.initialize(makeMockServer(), {});
 
       mockDaemonClientInstance.buildTime = '2026-01-15T10:30:00.000Z';
-      await debugBackend.callTool('connect', { client_id: 'test' });
+      await debugBackend.callTool('connect', { username: 'test' });
 
       const header = debugBackend.statusHeader();
       expect(header).toContain('[');
@@ -941,7 +964,7 @@ describe('AgentSession', () => {
     it('shows a warning header, not a green check, when connected with no extension', async () => {
       mockDaemonClientInstance.extensionConnected = false;
       await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { client_id: 'test' });
+      const result = await backend.callTool('connect', { username: 'test' });
 
       const text = result.content[0].text;
       expect(text).not.toContain('✅');
@@ -956,7 +979,7 @@ describe('AgentSession', () => {
     it('shows the green check when the daemon reports an extension', async () => {
       mockDaemonClientInstance.extensionConnected = true;
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       const header = backend.statusHeader();
       expect(header).toContain('✅');
@@ -966,7 +989,7 @@ describe('AgentSession', () => {
     it('flips extensionConnected false when a tool fails with Extension not connected', async () => {
       mockDaemonClientInstance.extensionConnected = true;
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       mockBridgeInstance.callTool.mockRejectedValueOnce(new Error('Extension not connected'));
       await expect(backend.callTool('browser_tabs', { action: 'list' })).rejects.toThrow('Extension not connected');
@@ -978,7 +1001,7 @@ describe('AgentSession', () => {
     it('flips extensionConnected true after a successful bridge tool call', async () => {
       mockDaemonClientInstance.extensionConnected = false;
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'tabs' }] });
       await backend.callTool('browser_tabs', { action: 'list' });
@@ -990,7 +1013,7 @@ describe('AgentSession', () => {
     it('does not flip extensionConnected true on a successful playbooks call (local read, no extension involved)', async () => {
       mockDaemonClientInstance.extensionConnected = false;
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       mockBridgeInstance.callTool.mockResolvedValueOnce({ content: [{ type: 'text', text: 'listed' }] });
       await backend.callTool('playbooks', { action: 'list' });
@@ -1008,7 +1031,7 @@ describe('AgentSession', () => {
 
     it('omits drift warning when daemon reports no drift', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.isConfigDrifted.mockReturnValue(false);
 
       const header = backend.statusHeader();
@@ -1017,7 +1040,7 @@ describe('AgentSession', () => {
 
     it('surfaces drift warning on first call when daemon reports drift', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.isConfigDrifted.mockReturnValue(true);
 
       const header = backend.statusHeader();
@@ -1027,7 +1050,7 @@ describe('AgentSession', () => {
 
     it('suppresses drift warning on subsequent calls (one-shot per session)', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.isConfigDrifted.mockReturnValue(true);
 
       const first = backend.statusHeader();
@@ -1060,7 +1083,7 @@ describe('AgentSession', () => {
         } as any;
       });
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
     });
 
     afterEach(() => {
@@ -1165,7 +1188,7 @@ describe('AgentSession', () => {
     });
 
     it('places the warning above the discovery hint', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       fs.writeFileSync(playbookFile('gh_login'), '// gh');
       setValidatorForTests(async (f: string) => {
         const name = path.basename(f).replace('.playbook.js', '');
@@ -1207,7 +1230,7 @@ describe('AgentSession', () => {
   describe('setConnectedBrowserName', () => {
     it('updates the browser name shown in status', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       backend.setConnectedBrowserName('Firefox');
 
       const header = backend.statusHeader();
@@ -1218,7 +1241,7 @@ describe('AgentSession', () => {
   describe('setStealthMode', () => {
     it('toggles stealth indicator in header', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       backend.setStealthMode(true);
       expect(backend.statusHeader()).toContain('Stealth');
@@ -1233,7 +1256,7 @@ describe('AgentSession', () => {
   describe('serverClosed()', () => {
     it('cleans up and returns to passive', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       await backend.serverClosed();
 
@@ -1243,7 +1266,7 @@ describe('AgentSession', () => {
 
     it('calls serverClosed on bridge', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       await backend.serverClosed();
       expect(mockBridgeInstance.serverClosed).toHaveBeenCalled();
@@ -1251,7 +1274,7 @@ describe('AgentSession', () => {
 
     it('stops DaemonClient', async () => {
       await backend.initialize(makeMockServer(), {});
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
 
       await backend.serverClosed();
       expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
@@ -1274,7 +1297,7 @@ describe('AgentSession', () => {
     it('connect creates a metrics logger and logs the connect call', async () => {
       const { UsageMetricsLogger } = await import('../src/usage-metrics-logger');
 
-      await backend.callTool('connect', { client_id: 'audit-test' });
+      await backend.callTool('connect', { username: 'audit-test' });
 
       expect(UsageMetricsLogger).toHaveBeenCalledWith('audit-test');
       expect(mockMetricsWrite).toHaveBeenCalledWith(
@@ -1287,7 +1310,7 @@ describe('AgentSession', () => {
     });
 
     it('disconnect logs to the audit logger', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockMetricsWrite.mockClear();
 
       await backend.callTool('disconnect');
@@ -1301,7 +1324,7 @@ describe('AgentSession', () => {
     });
 
     it('status logs to the audit logger', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockMetricsWrite.mockClear();
 
       await backend.callTool('status');
@@ -1315,7 +1338,7 @@ describe('AgentSession', () => {
     });
 
     it('status includes attached tab url when available', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       backend.setAttachedTab({ id: 1, index: 0, title: 'Ex', url: 'https://example.com/page' });
       mockMetricsWrite.mockClear();
 
@@ -1330,7 +1353,7 @@ describe('AgentSession', () => {
     });
 
     it('status omits url when no tab attached', async () => {
-      await backend.callTool('connect', { client_id: 'test' });
+      await backend.callTool('connect', { username: 'test' });
       mockMetricsWrite.mockClear();
 
       await backend.callTool('status');
@@ -1344,7 +1367,7 @@ describe('AgentSession', () => {
     it('connect includes client metadata when clientInfo has name/version', async () => {
       await backend.initialize(makeMockServer(), { name: 'claude-desktop', version: '2.1.0' });
 
-      await backend.callTool('connect', { client_id: 'meta-test' });
+      await backend.callTool('connect', { username: 'meta-test' });
 
       expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1356,17 +1379,17 @@ describe('AgentSession', () => {
 
     it('failed connect still creates logger and logs the error', async () => {
       const { UsageMetricsLogger } = await import('../src/usage-metrics-logger');
-      // Missing client_id triggers a validation error (not a throw)
+      // Missing username triggers a validation error (not a throw)
       const result = await backend.callTool('connect', {}, { rawResult: true });
 
       expect(result.success).toBe(false);
-      // Logger is NOT created when client_id is missing (no session to bind to)
-      // But if client_id is present and the daemon fails:
+      // Logger is NOT created when username is missing (no session to bind to)
+      // But if username is present and the daemon fails:
       mockMetricsWrite.mockClear();
       (UsageMetricsLogger as any).mockClear();
       mockDaemonClientInstance.start.mockRejectedValueOnce(new Error('Connection refused'));
 
-      const result2 = await backend.callTool('connect', { client_id: 'fail-test' }, { rawResult: true });
+      const result2 = await backend.callTool('connect', { username: 'fail-test' }, { rawResult: true });
       expect(result2.success).toBe(false);
       expect(UsageMetricsLogger).toHaveBeenCalledWith('fail-test');
       expect(mockMetricsWrite).toHaveBeenCalledWith(

@@ -3,7 +3,7 @@
  * The playbook run lifecycle.
  *
  * A run gets its OWN daemon session and its OWN tab, and the tab is CLOSED at
- * the end. `client_id` IS the daemon session id — `daemon/src/ipc.ts:144-151`
+ * the end. The connect `username` IS the daemon session id — `daemon/src/ipc.ts:144-151`
  * rejects a duplicate with `Session ID already in use` — so the run's id must
  * differ from the parent's. The parent is whichever process holds a
  * `AgentSession`: the MCP server or the CLI. Never the daemon.
@@ -169,9 +169,12 @@ async function runPlaybook(opts) {
     const runScript = opts.runScript ?? host_1.runPlaybookScript;
     const backend = (opts.createBackend ?? defaultBackend)();
     // Own session. The daemon rejects a duplicate id, so this must not collide
-    // with the parent MCP session's client_id.
-    const clientId = `playbook-${record.name}-${process.pid}-${Date.now()}`;
-    const connectArgs = { client_id: clientId };
+    // with the parent MCP session's username.
+    // The id is a connect username, so it must fit USERNAME_RE (64 chars): cut
+    // the name part, never the pid or timestamp that make it unique.
+    const tail = `-${process.pid}-${Date.now()}`;
+    const clientId = `playbook-${record.name.slice(0, 64 - 'playbook-'.length - tail.length)}${tail}`;
+    const connectArgs = { username: clientId };
     if (profile)
         connectArgs.profile = profile;
     const connectRes = await backend.callTool('connect', connectArgs, { rawResult: true });

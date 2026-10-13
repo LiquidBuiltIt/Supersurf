@@ -2,7 +2,7 @@
  * AgentSession — one agent's session: its connection state machine and tool dispatch.
  *
  * One AgentSession per agent. A process may hold several; each is keyed by its own
- * `client_id` and keeps its own daemon connection, experiment flags and logs.
+ * `username` and keeps its own daemon connection, experiment flags and logs.
  *
  * States:
  *   - **passive** — server is idle, only connection tools (connect/disconnect/status) are available
@@ -247,8 +247,8 @@ export class AgentSession implements AgentSessionAPI {
       // Create metrics logger on connect, gated by config.logging.usage_metrics.
       // The logger captures the connect call itself, so this must run before the handler.
       const metricsEnabled = this.config.configService?.get().logging.usage_metrics ?? false;
-      if (name === 'connect' && !this.metricsLogger && rawArguments.client_id && metricsEnabled) {
-        this.metricsLogger = new UsageMetricsLogger(String(rawArguments.client_id));
+      if (name === 'connect' && !this.metricsLogger && rawArguments.username && metricsEnabled) {
+        this.metricsLogger = new UsageMetricsLogger(String(rawArguments.username));
       }
 
       let result: any;

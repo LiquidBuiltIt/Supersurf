@@ -22,20 +22,20 @@ function getConnectionToolSchemas() {
     return [
         {
             name: 'connect',
-            description: 'Connect to the SuperSurf service and start browser automation. Pass a client_id to identify this session. Read the skill guide for best practices: https://liquidbuiltit.github.io/Supersurf/skill.md',
+            description: 'Connect to the SuperSurf service and start browser automation. Pass a username to identify this agent. Read the skill guide for best practices: https://liquidbuiltit.github.io/Supersurf/skill.md',
             inputSchema: {
                 type: 'object',
                 properties: {
-                    client_id: {
+                    username: {
                         type: 'string',
-                        description: 'Human-readable identifier for this MCP client (e.g., "my-project").',
+                        description: 'Your agent name, 1-64 chars `[A-Za-z0-9._-]`. Every later SuperSurf call must pass the same `username`. Child agents pick their own.',
                     },
                     profile: {
                         type: 'string',
                         description: 'Profile name for isolated Chromium instance, or omit for unmanaged connection to user\'s own browser.',
                     },
                 },
-                required: ['client_id'],
+                required: ['username'],
             },
             annotations: {
                 title: 'Connect to service',

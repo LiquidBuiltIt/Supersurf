@@ -101,8 +101,13 @@ function versionMismatchFailure(
 
 // ─── Connect ──────────────────────────────────────────────────
 
+/** A username ends up in the `metrics-<username>-…` log filename, so keep it filename-safe. */
+export const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export const BAD_NAME_TEXT =
+  '`username` must be 1-64 characters: letters, digits, dot, dash or underscore, starting with a letter or digit (e.g. `claudebox-geo-research`).';
+
 /**
- * Connect to the SuperSurf daemon: validate client_id, spawn daemon if needed,
+ * Connect to the SuperSurf daemon: validate username, spawn daemon if needed,
  * connect via DaemonClient, create BrowserBridge, apply pre-enabled experiments.
  * Transitions state from passive to active.
  */
@@ -111,21 +116,27 @@ export async function onConnect(
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
-  if (
-    !args.client_id ||
-    typeof args.client_id !== 'string' ||
-    (args.client_id as string).trim().length === 0
-  ) {
+  const raw = typeof args.username === 'string' ? args.username.trim() : '';
+  if (!raw) {
     if (options.rawResult) {
-      return { success: false, error: 'missing_client_id', message: 'client_id is required' };
+      return { success: false, error: 'missing_username', message: 'username is required' };
     }
     return {
       content: [
         {
           type: 'text',
-          text: `### Missing Required Parameter\n\n\`client_id\` is required.\n\n**Example:**\n\`\`\`\nconnect client_id='my-project'\n\`\`\``,
+          text: "### Missing Required Parameter\n\n`username` is required.\n\n**Example:**\n```\nconnect username='geo-research'\n```",
         },
       ],
+      isError: true,
+    };
+  }
+  if (!USERNAME_RE.test(raw)) {
+    if (options.rawResult) {
+      return { success: false, error: 'invalid_username', message: BAD_NAME_TEXT };
+    }
+    return {
+      content: [{ type: 'text', text: `### Invalid username\n\n${BAD_NAME_TEXT}` }],
       isError: true,
     };
   }
@@ -137,7 +148,7 @@ export async function onConnect(
         already_connected: true,
         state: mgr.state,
         browser: mgr.connectedBrowserName,
-        client_id: mgr.clientId,
+        username: mgr.clientId,
       };
     }
     return {
@@ -152,7 +163,7 @@ export async function onConnect(
     };
   }
 
-  mgr.clientId = (args.client_id as string).trim();
+  mgr.clientId = raw;
   log('Client ID set to:', mgr.clientId);
 
   // Start session log file
@@ -337,7 +348,7 @@ export async function onConnect(
         success: true,
         state: mgr.state,
         browser: mgr.connectedBrowserName,
-        client_id: mgr.clientId,
+        username: mgr.clientId,
         port,
       };
     }
@@ -546,7 +557,7 @@ export async function onStatus(
   const statusData: Record<string, unknown> = {
     state: mgr.state,
     browser: mgr.connectedBrowserName,
-    client_id: mgr.clientId,
+    username: mgr.clientId,
     attached_tab: mgr.attachedTab
       ? {
           index: mgr.attachedTab.index,
@@ -650,7 +661,7 @@ export async function onProfileCreate(
             `### Profile Created\n\n` +
             `**Name:** ${(result as any).profile?.name}\n` +
             `**Created:** ${(result as any).profile?.created}\n\n` +
-            `Use \`connect client_id='...' profile='${(result as any).profile?.name}'\` to connect.`,
+            `Use \`connect username='...' profile='${(result as any).profile?.name}'\` to connect.`,
         }],
       };
     });

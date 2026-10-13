@@ -2,7 +2,7 @@
  * The playbook run lifecycle.
  *
  * A run gets its OWN daemon session and its OWN tab, and the tab is CLOSED at
- * the end. `client_id` IS the daemon session id — `daemon/src/ipc.ts:144-151`
+ * the end. The connect `username` IS the daemon session id — `daemon/src/ipc.ts:144-151`
  * rejects a duplicate with `Session ID already in use` — so the run's id must
  * differ from the parent's. The parent is whichever process holds a
  * `AgentSession`: the MCP server or the CLI. Never the daemon.
@@ -37,7 +37,7 @@ export interface RunPlaybookOptions {
     /** Test seams. */
     createBackend?: () => RunnerBackend;
     runScript?: RunScript;
-    /** Test seam for Addendum B activation. Receives this run's `client_id`. */
+    /** Test seam for Addendum B activation. Receives this run's connect `username`. */
     enableExperiments?: (clientId: string) => void;
 }
 export interface RunOutcome {

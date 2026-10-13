@@ -80,7 +80,7 @@ describe('validateParams', () => {
 });
 
 describe('runPlaybook', () => {
-  it('connects with its own client_id, opens its own tab, closes it, disconnects', async () => {
+  it('connects with its own username, opens its own tab, closes it, disconnects', async () => {
     const { backend, calls } = fakeBackend();
     await runPlaybook({
       record: record(), params: { text: 'hi' }, caller: 'agent',
@@ -89,11 +89,25 @@ describe('runPlaybook', () => {
     });
     const names = calls.map(c => c.name);
     expect(names[0]).toBe('connect');
-    expect(String(calls[0].args.client_id)).toMatch(/^playbook-post_tweet-/);
+    expect(String(calls[0].args.username)).toMatch(/^playbook-post_tweet-/);
     expect(names).toContain('browser_tabs');
     expect(calls.filter(c => c.name === 'browser_tabs' && c.args.action === 'new').length).toBe(1);
     expect(calls.filter(c => c.name === 'browser_tabs' && c.args.action === 'close').length).toBe(1);
     expect(names[names.length - 1]).toBe('disconnect');
+  });
+
+  it('keeps the connect username within USERNAME_RE for a very long playbook name', async () => {
+    const { USERNAME_RE } = await import('../src/backend/handlers');
+    const { backend, calls } = fakeBackend();
+    await runPlaybook({
+      record: record({ name: 'n'.repeat(70) }), params: { text: 'hi' }, caller: 'agent',
+      createBackend: () => backend,
+      runScript: async () => ({ ok: true, result: 'done', durationMs: 5 }),
+    });
+    const username = String(calls[0].args.username);
+    expect(username).toMatch(/^playbook-n+-\d+-\d+$/);
+    expect(username).toMatch(USERNAME_RE);
+    expect(username.length).toBeLessThanOrEqual(64);
   });
 
   it('passes the profile through to connect', async () => {

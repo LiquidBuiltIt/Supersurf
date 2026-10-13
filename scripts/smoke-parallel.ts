@@ -252,8 +252,8 @@ async function main(): Promise<void> {
   const B = startSession('sm-b', home); sessions.push(B);
 
   // Distinct client ids: the daemon session id IS the client_id.
-  const connA = await A.send('connect', { client_id: 'sm-a' });
-  const connB = await B.send('connect', { client_id: 'sm-b' });
+  const connA = await A.send('connect', { username: 'sm-a' });
+  const connB = await B.send('connect', { username: 'sm-b' });
   probe('A connect', connA); probe('B connect', connB);
   if (connA?.success === false) fail(`A connect failed: ${connA.message ?? connA.error}`);
   if (connB?.success === false) fail(`B connect failed: ${connB.message ?? connB.error}`);
