@@ -21,6 +21,7 @@ exports.HARDCODED_DEFAULTS = {
         port: 5555,
         idle_timeout_ms: 10 * 60 * 1000,
     },
+    agents: { idle_timeout_ms: 600_000 },
     logging: {
         debug: false,
         usage_metrics: false,
@@ -44,6 +45,7 @@ exports.SCAFFOLD_DEFAULTS = {
         domain_whitelist: { ...exports.HARDCODED_DEFAULTS.security.domain_whitelist, custom: [] },
     },
     daemon: { ...exports.HARDCODED_DEFAULTS.daemon },
+    agents: { ...exports.HARDCODED_DEFAULTS.agents },
     logging: { ...exports.HARDCODED_DEFAULTS.logging, usage_metrics: true },
     profiles: {
         chrome_path: exports.HARDCODED_DEFAULTS.profiles.chrome_path,
