@@ -55,7 +55,7 @@ const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
 const commander_1 = require("commander");
 const child_process_1 = require("child_process");
 const stream_1 = require("stream");
-const backend_1 = require("./backend");
+const agent_session_manager_1 = require("./agent-session-manager");
 const shared_1 = require("./shared");
 const stdio_1 = require("./stdio");
 const dotenv_1 = require("./dotenv");
@@ -156,9 +156,8 @@ function setupExitWatchdog(backend, server) {
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
 }
-// No server-side idle timeout — connection stays alive until the agent
-// disconnects or the daemon shuts itself down (10-min idle after all sessions gone).
-/** Boot the MCP server: init logging, create AgentSession, wire MCP handlers, start stdio transport. */
+// Idle expiry is per agent: AgentSessionManager disconnects a username after agents.idle_timeout_ms.
+/** Boot the MCP server: init logging, create AgentSessionManager, wire MCP handlers, start stdio transport. */
 async function main(options) {
     // Load .env from cwd before anything reads process.env
     (0, dotenv_1.loadDotenv)(process.cwd());
@@ -192,7 +191,7 @@ async function main(options) {
         }
     }
     const config = (0, backend_config_1.backendConfigFrom)(configService, VERSION, versionCheck.shouldNotify);
-    const backend = new backend_1.AgentSession(config);
+    const backend = new agent_session_manager_1.AgentSessionManager(config);
     if (global.DEBUG_MODE) {
         console.error(`[cli] Creating MCP Server v${VERSION}...`);
     }

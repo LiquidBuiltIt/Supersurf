@@ -1,0 +1,205 @@
+/**
+ * AgentSessionManager — routing by username, exact error texts, identity
+ * decoration. The daemon transport, daemon spawn, BrowserBridge, logger and
+ * metrics logger are mocked; AgentSession and the manager are real.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ConfigService } from 'shared';
+import { AgentSessionManager } from '../src/agent-session-manager';
+import type { BackendConfig } from '../src/backend';
+
+// ---- Mocks ----
+
+const behavior = vi.hoisted(() => ({
+  connect: 'ok' as 'ok' | 'fail',
+  call: 'ok' as 'ok' | 'error' | 'throw',
+  callDelayMs: 0,
+}));
+const mocks = vi.hoisted(() => ({ queryDaemonStatus: vi.fn() }));
+
+vi.mock('shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('shared')>();
+  return {
+    ...actual,
+    getLogger: () => ({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
+    getRegistry: () => ({
+      debugMode: false,
+      setSessionLog: vi.fn().mockReturnValue({ logFilePath: '/tmp/test.log', enable: vi.fn(), log: vi.fn() }),
+      clearSessionLog: vi.fn(),
+      getLogger: vi.fn().mockReturnValue({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
+    }),
+    createLog: () => (..._args: unknown[]) => {},
+    DaemonClient: vi.fn(function (this: any, _sock: string, clientId: string) {
+      this.clientId = clientId;
+      this.start = vi.fn(async () => {
+        if (behavior.connect === 'fail') throw new Error('daemon down');
+      });
+      this.stop = vi.fn().mockResolvedValue(undefined);
+      this.notifyClientId = vi.fn();
+      this.sendCmd = vi.fn().mockResolvedValue({});
+      this.connected = true;
+      this.browser = 'chrome';
+      this.buildTime = null;
+      this.version = '0.1.0';
+      this.extensionConnected = true;
+      this.onReconnect = null;
+      this.onTabInfoUpdate = null;
+      this.isConfigDrifted = vi.fn(() => false);
+      return this;
+    }),
+  };
+});
+
+vi.mock('../src/daemon-spawn', () => ({
+  ensureDaemon: vi.fn().mockResolvedValue(undefined),
+  stopDaemon: vi.fn().mockResolvedValue(undefined),
+  getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
+  queryDaemonStatus: mocks.queryDaemonStatus,
+}));
+
+vi.mock('../src/usage-metrics-logger', () => ({
+  UsageMetricsLogger: vi.fn(function (this: any) {
+    this.filePath = '/tmp/metrics.ndjson';
+    this.write = vi.fn();
+    this.getPath = vi.fn().mockReturnValue('/tmp/metrics.ndjson');
+    return this;
+  }),
+  redactParams: vi.fn((p: any) => p),
+}));
+
+// The fake captures the AgentSession passed to initialize() so 'ok' can carry its header.
+vi.mock('../src/tools', () => ({
+  BrowserBridge: vi.fn(function (this: any) {
+    let session: any = null;
+    this.initialize = vi.fn(async (_server: any, _ci: any, mgr: any) => { session = mgr; });
+    this.listTools = vi.fn().mockResolvedValue([
+      { name: 'browser_navigate', description: 'nav', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
+      { name: 'browser_tabs', description: 'tabs', inputSchema: { type: 'object', properties: { action: { type: 'string' } } } },
+    ]);
+    this.callTool = vi.fn(async () => {
+      if (behavior.callDelayMs) await new Promise(r => setTimeout(r, behavior.callDelayMs));
+      if (behavior.call === 'throw') throw new Error('boom');
+      if (behavior.call === 'error') return { content: [{ type: 'text', text: 'boom' }], isError: true };
+      return { content: [{ type: 'text', text: session.statusHeader() + 'ok' }] };
+    });
+    this.serverClosed = vi.fn();
+    return this;
+  }),
+}));
+
+// ---- Helpers ----
+
+function makeConfig(fileOverrides: Record<string, unknown> = {}): BackendConfig {
+  return {
+    debug: false,
+    port: 5555,
+    server: { name: 'supersurf', version: '0.1.0' },
+    configService: new ConfigService({
+      cli: {},
+      env: {},
+      file: { logging: { usage_metrics: true }, ...fileOverrides } as any,
+    }),
+  };
+}
+
+const fakeServer = { sendToolsListChanged: vi.fn().mockResolvedValue(undefined) } as any;
+
+async function managerWith(names: string[], fileOverrides: Record<string, unknown> = {}): Promise<AgentSessionManager> {
+  const m = new AgentSessionManager(makeConfig(fileOverrides));
+  await m.initialize(fakeServer, {});
+  for (const username of names) await m.callTool('connect', { username });
+  return m;
+}
+
+// ---- Tests ----
+
+describe('AgentSessionManager', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    behavior.connect = 'ok';
+    behavior.call = 'ok';
+    behavior.callDelayMs = 0;
+    mocks.queryDaemonStatus.mockResolvedValue(null);
+  });
+
+  it('injects a required username into every non-exempt schema', async () => {
+    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const tools = await m.listTools();
+    const nav = tools.find(t => t.name === 'browser_navigate')!;
+    expect(nav.inputSchema.required).toContain('username');
+    expect((tools.find(t => t.name === 'status')!.inputSchema.required as string[] | undefined) ?? []).not.toContain('username');
+    expect((tools.find(t => t.name === 'profile_list')!.inputSchema.required as string[] | undefined) ?? []).not.toContain('username');
+  });
+
+  it('two usernames get two sessions with two daemon ids', async () => {
+    const m = await managerWith(['sm-a', 'sm-b']);
+    expect(m.get('sm-a')!.clientId).toBe('sm-a');
+    expect(m.get('sm-b')!.clientId).toBe('sm-b');
+    expect(m.get('sm-a')).not.toBe(m.get('sm-b'));
+  });
+
+  it('rejects a duplicate username', async () => {
+    const m = await managerWith(['sm-a']);
+    const r = await m.callTool('connect', { username: 'sm-a' });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain('Username "sm-a" is already in use by a live agent.');
+  });
+
+  it('does not keep a name whose connect failed', async () => {
+    behavior.connect = 'fail';
+    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    await m.callTool('connect', { username: 'sm-a' });
+    expect(m.get('sm-a')).toBeUndefined();
+  });
+
+  it('missing username: exact text, with the connect-first hint when nobody is live', async () => {
+    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const r = await m.callTool('browser_navigate', { url: 'x' });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain('username required — your username is in the status line of your earlier SuperSurf results.');
+    expect(r.content[0].text).toContain('call `connect` with your own username first');
+  });
+
+  it('missing username with a live session: no connect-first hint', async () => {
+    const m = await managerWith(['sm-a']);
+    const r = await m.callTool('browser_navigate', { url: 'x' });
+    expect(r.content[0].text).toContain('username required');
+    expect(r.content[0].text).not.toContain('call `connect` with your own username first');
+  });
+
+  it('unknown username: exact text with the idle minutes', async () => {
+    const m = await managerWith(['sm-a']);
+    const r = await m.callTool('browser_navigate', { username: 'nope', url: 'x' });
+    expect(r.content[0].text).toBe('No live session for username "nope". Check the status line of your earlier SuperSurf results for your exact username. If it expired after 10 min idle, its tabs are closed — call `connect` to start again.');
+  });
+
+  it('success and error results carry the caller\'s identity', async () => {
+    const m = await managerWith(['sm-a']);
+    behavior.call = 'ok';    expect((await m.callTool('browser_tabs', { username: 'sm-a', action: 'list' })).content[0].text).toContain('👤 you are sm-a');
+    behavior.call = 'error'; expect((await m.callTool('browser_tabs', { username: 'sm-a', action: 'list' })).content[0].text).toContain('👤 you are sm-a');
+    behavior.call = 'throw';
+    const r = await m.callTool('browser_tabs', { username: 'sm-a', action: 'list' });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain('👤 you are sm-a');
+    expect(r.content[0].text).toContain('boom');
+  });
+
+  it('raw mode rethrows and is not decorated', async () => {
+    const m = await managerWith(['sm-a']);
+    behavior.call = 'throw';
+    await expect(m.callTool('browser_tabs', { username: 'sm-a', action: 'list' }, { rawResult: true })).rejects.toThrow('boom');
+  });
+
+  it('strips username before the session sees the args', async () => {
+    const m = await managerWith(['sm-a']);
+    const spy = vi.spyOn(m.get('sm-a')!, 'callTool');
+    await m.callTool('browser_tabs', { username: 'sm-a', action: 'list' });
+    expect(spy).toHaveBeenCalledWith('browser_tabs', { action: 'list' }, {});
+  });
+
+  it('disconnect removes the name', async () => {
+    const m = await managerWith(['sm-a']);
+    await m.callTool('disconnect', { username: 'sm-a' });
+    expect(m.get('sm-a')).toBeUndefined();
+  });
+});

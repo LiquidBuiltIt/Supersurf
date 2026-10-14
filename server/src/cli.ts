@@ -22,7 +22,7 @@ import { Command } from 'commander';
 import { spawn } from 'child_process';
 import { PassThrough } from 'stream';
 
-import { AgentSession } from './backend';
+import { AgentSessionManager } from './agent-session-manager';
 import { getLogger, getRegistry, type DebugMode } from 'shared';
 import { startScriptMode } from './stdio';
 import { loadDotenv } from './dotenv';
@@ -110,7 +110,7 @@ function runAsWrapper(): void {
  * Registers signal/close handlers that properly tear down the WebSocket server
  * before exiting. Force-exits after 5s if graceful shutdown hangs.
  */
-function setupExitWatchdog(backend: AgentSession, server: Server): void {
+function setupExitWatchdog(backend: AgentSessionManager, server: Server): void {
   let cleanupDone = false;
 
   const cleanup = async (): Promise<void> => {
@@ -145,10 +145,9 @@ function setupExitWatchdog(backend: AgentSession, server: Server): void {
   process.on('SIGTERM', cleanup);
 }
 
-// No server-side idle timeout — connection stays alive until the agent
-// disconnects or the daemon shuts itself down (10-min idle after all sessions gone).
+// Idle expiry is per agent: AgentSessionManager disconnects a username after agents.idle_timeout_ms.
 
-/** Boot the MCP server: init logging, create AgentSession, wire MCP handlers, start stdio transport. */
+/** Boot the MCP server: init logging, create AgentSessionManager, wire MCP handlers, start stdio transport. */
 async function main(options: any): Promise<void> {
   // Load .env from cwd before anything reads process.env
   loadDotenv(process.cwd());
@@ -187,7 +186,7 @@ async function main(options: any): Promise<void> {
   }
 
   const config = backendConfigFrom(configService, VERSION, versionCheck.shouldNotify);
-  const backend = new AgentSession(config);
+  const backend = new AgentSessionManager(config);
 
   if ((global as any).DEBUG_MODE) {
     console.error(`[cli] Creating MCP Server v${VERSION}...`);

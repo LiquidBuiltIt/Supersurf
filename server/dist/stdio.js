@@ -3,7 +3,7 @@
  * Script Mode -- JSON-RPC 2.0 over stdin/stdout.
  *
  * A lightweight alternative to full MCP for automation scripts. Reads newline-delimited
- * JSON-RPC 2.0 requests from stdin, dispatches them through AgentSession with
+ * JSON-RPC 2.0 requests from stdin, dispatches them through AgentSessionManager with
  * `rawResult: true` (plain JSON, no MCP content wrappers), and writes responses to stdout.
  *
  * Supports batch requests (JSON arrays) per the JSON-RPC 2.0 spec.
@@ -18,10 +18,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startScriptMode = startScriptMode;
 const readline_1 = __importDefault(require("readline"));
-const backend_1 = require("./backend");
+const agent_session_manager_1 = require("./agent-session-manager");
 /** Initialize script mode: create backend, wire up readline for JSON-RPC, register signal handlers. */
 async function startScriptMode(config) {
-    const backend = new backend_1.AgentSession(config);
+    const backend = new agent_session_manager_1.AgentSessionManager(config);
     await backend.initialize(null, {});
     const rl = readline_1.default.createInterface({
         input: process.stdin,
@@ -70,7 +70,7 @@ async function startScriptMode(config) {
 }
 /**
  * Process a single JSON-RPC 2.0 request.
- * Validates protocol version and method, then delegates to AgentSession.callTool.
+ * Validates protocol version and method, then delegates to AgentSessionManager.callTool.
  * @returns JSON-RPC 2.0 response object with result or error
  */
 async function handleRequest(request, backend) {
