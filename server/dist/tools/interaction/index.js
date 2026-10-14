@@ -68,7 +68,7 @@ async function onInteract(ctx, args, options) {
             // Trail recording lives here rather than inside executeAction: that
             // function returns a bare string and has several callers, so threading an
             // id back out of it would ripple. The loop that owns the sequence records.
-            const id = trail_1.actionTrail.record({
+            const id = (0, trail_1.trailFor)(ctx.agentSession?.clientId).record({
                 tool: 'browser_interact',
                 type: action.type,
                 outcome: isWarn ? 'warn' : 'ok',
@@ -79,7 +79,7 @@ async function onInteract(ctx, args, options) {
             results.push(`${options.rawResult ? '' : `#${id} `}${isWarn ? '⚠' : '✓'} ${action.type}: ${body}`);
         }
         catch (error) {
-            const id = trail_1.actionTrail.record({
+            const id = (0, trail_1.trailFor)(ctx.agentSession?.clientId).record({
                 tool: 'browser_interact',
                 type: action.type,
                 outcome: 'error',

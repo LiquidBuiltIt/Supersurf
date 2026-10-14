@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { onPlaybooks } from '../src/tools/playbooks';
 import { getToolSchemas } from '../src/tools/schemas';
-import { actionTrail } from '../src/playbooks/trail';
+import { trailFor, _resetTrailsForTest } from '../src/playbooks/trail';
 import { experimentRegistry } from '../src/experimental/index';
 import { setPlaybooksDirForTests, playbookFile } from '../src/playbooks/paths';
 import {
@@ -23,13 +23,13 @@ function makeCtx(url = 'https://linkedin.com/jobs/1234'): any {
 }
 
 function seedTrail() {
-  actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'ok', message: 'Clicked', params: { type: 'click', selector: '#a', name: 'apply_button' }, url: 'https://linkedin.com/jobs/1234' });
-  actionTrail.record({ tool: 'browser_interact', type: 'type', outcome: 'ok', message: 'Typed', params: { type: 'type', selector: '#b' }, url: 'https://linkedin.com/jobs/1234' });
-  actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'error', message: 'not found', params: { type: 'click', selector: '#ghost' }, url: 'https://linkedin.com/jobs/1234' });
+  trailFor('test').record({ tool: 'browser_interact', type: 'click', outcome: 'ok', message: 'Clicked', params: { type: 'click', selector: '#a', name: 'apply_button' }, url: 'https://linkedin.com/jobs/1234' });
+  trailFor('test').record({ tool: 'browser_interact', type: 'type', outcome: 'ok', message: 'Typed', params: { type: 'type', selector: '#b' }, url: 'https://linkedin.com/jobs/1234' });
+  trailFor('test').record({ tool: 'browser_interact', type: 'click', outcome: 'error', message: 'not found', params: { type: 'click', selector: '#ghost' }, url: 'https://linkedin.com/jobs/1234' });
 }
 
 beforeEach(() => {
-  actionTrail._resetForTest();
+  _resetTrailsForTest();
   experimentRegistry.enable('test', 'fingerprinting');
 });
 afterEach(() => {
@@ -71,7 +71,7 @@ describe('playbooks — history', () => {
 
   it('honors limit and offset', async () => {
     for (let i = 0; i < 100; i++) {
-      actionTrail.record({ tool: 't', type: 'click', outcome: 'ok', message: 'm', params: {}, url: 'https://x.com/' });
+      trailFor('test').record({ tool: 't', type: 'click', outcome: 'ok', message: 'm', params: {}, url: 'https://x.com/' });
     }
     const res = await onPlaybooks(makeCtx(), { action: 'history', limit: 5, offset: 10 }, {});
     expect(res.content[0].text).toContain('#86');

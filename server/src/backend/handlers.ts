@@ -27,6 +27,7 @@ import {
   dropSession as dropEphemeralSession,
 } from '../experimental/fingerprinting/ephemeral-handles';
 import { clearTipCounters } from '../tips';
+import { dropTrail } from '../playbooks/trail';
 import { UPGRADE_NOTICE_MESSAGE } from 'shared';
 
 const log = createLog('[Conn]');
@@ -472,6 +473,7 @@ export async function rehydrateAttachedTab(mgr: AgentSessionAPI, client: TabQuer
 function releaseSessionState(id: string): void {
   getRegistry().clearSessionLog(id);
   clearTipCounters(id);
+  dropTrail(id);
   experimentRegistry.unbind(id);
   dropEphemeralSession(id);
   destroyHumanization(id);

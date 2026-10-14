@@ -11,7 +11,7 @@ import { createLog } from 'shared';
 import { UsageMetricsLogger } from '../../usage-metrics-logger';
 import { callExperimentalTool, experimentRegistry } from '../../experimental/index';
 import { getTip } from '../../tips';
-import { actionTrail } from '../../playbooks/trail';
+import { trailFor } from '../../playbooks/trail';
 
 import { onScreenshot } from '../screenshot';
 import { onPlaybooks } from '../playbooks';
@@ -154,7 +154,7 @@ export async function dispatchTool(
     // text-prefix mutation is skipped in rawResult mode, matching the
     // untouched-result contract script-mode consumers rely on.
     if (name !== 'browser_interact' && name !== 'playbooks') {
-      const id = actionTrail.record({
+      const id = trailFor(env.clientId).record({
         tool: name,
         type: name,
         outcome: callResult === 'error' ? 'error' : 'ok',

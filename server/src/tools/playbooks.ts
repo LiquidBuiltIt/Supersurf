@@ -16,7 +16,7 @@
  */
 
 import type { ToolContext } from './lib/types';
-import { actionTrail } from '../playbooks/trail';
+import { trailFor } from '../playbooks/trail';
 import { formatHistory } from '../playbooks/trail-format';
 import { normalizeName } from '../playbooks/paths';
 import { getRecord } from '../playbooks/registry';
@@ -73,7 +73,7 @@ export async function onPlaybooks(
   deps: PlaybookDeps = {},
 ): Promise<any> {
   switch (args.action) {
-    case 'history':  return doHistory(args);
+    case 'history':  return doHistory(ctx, args);
     case 'list':     return doList(args);
     case 'inspect':  return doInspect(args);
     case 'validate': return doValidate(args);
@@ -96,10 +96,10 @@ export async function onPlaybooks(
   }
 }
 
-function doHistory(args: any): any {
+function doHistory(ctx: ToolContext, args: any): any {
   const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.min(args.limit, 500) : DEFAULT_LIMIT;
   const offset = typeof args.offset === 'number' && args.offset > 0 ? args.offset : 0;
-  const { entries, total } = actionTrail.tail(limit, offset);
+  const { entries, total } = trailFor(ctx.agentSession?.clientId).tail(limit, offset);
   return text(formatHistory(entries, total, offset));
 }
 

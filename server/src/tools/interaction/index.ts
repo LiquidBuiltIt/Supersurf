@@ -15,7 +15,7 @@
 import type { ToolContext } from '../lib/types';
 import { experimentRegistry, diffSnapshots, calculateConfidence, formatDiffSection } from '../../experimental/index';
 import { executeAction } from './registry';
-import { actionTrail } from '../../playbooks/trail';
+import { trailFor } from '../../playbooks/trail';
 
 // Side-effect: each module calls registerAction() at load time.
 import './mouse-move';
@@ -72,7 +72,7 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
       // Trail recording lives here rather than inside executeAction: that
       // function returns a bare string and has several callers, so threading an
       // id back out of it would ripple. The loop that owns the sequence records.
-      const id = actionTrail.record({
+      const id = trailFor(ctx.agentSession?.clientId).record({
         tool: 'browser_interact',
         type: action.type,
         outcome: isWarn ? 'warn' : 'ok',
@@ -82,7 +82,7 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
       });
       results.push(`${options.rawResult ? '' : `#${id} `}${isWarn ? '⚠' : '✓'} ${action.type}: ${body}`);
     } catch (error: any) {
-      const id = actionTrail.record({
+      const id = trailFor(ctx.agentSession?.clientId).record({
         tool: 'browser_interact',
         type: action.type,
         outcome: 'error',

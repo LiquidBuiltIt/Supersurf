@@ -64,6 +64,7 @@ const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const ephemeral_handles_1 = require("../experimental/fingerprinting/ephemeral-handles");
 const tips_1 = require("../tips");
+const trail_1 = require("../playbooks/trail");
 const shared_3 = require("../shared");
 const log = (0, shared_2.createLog)('[Conn]');
 // Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
@@ -438,6 +439,7 @@ async function rehydrateAttachedTab(mgr, client) {
 function releaseSessionState(id) {
     (0, shared_2.getRegistry)().clearSessionLog(id);
     (0, tips_1.clearTipCounters)(id);
+    (0, trail_1.dropTrail)(id);
     index_1.experimentRegistry.unbind(id);
     (0, ephemeral_handles_1.dropSession)(id);
     (0, index_2.destroySession)(id);

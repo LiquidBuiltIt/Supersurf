@@ -63,7 +63,7 @@ function gate(sessionId) {
 }
 async function onPlaybooks(ctx, args, options, deps = {}) {
     switch (args.action) {
-        case 'history': return doHistory(args);
+        case 'history': return doHistory(ctx, args);
         case 'list': return (0, report_1.doList)(args);
         case 'inspect': return (0, report_1.doInspect)(args);
         case 'validate': return (0, report_1.doValidate)(args);
@@ -79,10 +79,10 @@ async function onPlaybooks(ctx, args, options, deps = {}) {
                 'Expected one of: history, list, inspect, validate, run.', true);
     }
 }
-function doHistory(args) {
+function doHistory(ctx, args) {
     const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.min(args.limit, 500) : DEFAULT_LIMIT;
     const offset = typeof args.offset === 'number' && args.offset > 0 ? args.offset : 0;
-    const { entries, total } = trail_1.actionTrail.tail(limit, offset);
+    const { entries, total } = (0, trail_1.trailFor)(ctx.agentSession?.clientId).tail(limit, offset);
     return text((0, trail_format_1.formatHistory)(entries, total, offset));
 }
 async function doRun(ctx, args, deps) {

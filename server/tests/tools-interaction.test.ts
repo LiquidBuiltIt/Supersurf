@@ -1080,8 +1080,8 @@ describe('onInteract()', () => {
 
   describe('browser_interact — action ids', () => {
     beforeEach(async () => {
-      const { actionTrail } = await import('../src/playbooks/trail');
-      actionTrail._resetForTest();
+      const { _resetTrailsForTest } = await import('../src/playbooks/trail');
+      _resetTrailsForTest();
     });
 
     it('prefixes each result line with a monotonic action id', async () => {
@@ -1097,18 +1097,18 @@ describe('onInteract()', () => {
     });
 
     it('records failed actions in the trail and prefixes them too', async () => {
-      const { actionTrail } = await import('../src/playbooks/trail');
+      const { trailFor } = await import('../src/playbooks/trail');
       const localCtx = createMockCtx({ clickError: 'Element not found: #ghost' });
       const res = await onInteract(localCtx, { actions: [{ type: 'click', selector: '#ghost' }] }, {});
       expect(res.content[0].text).toMatch(/^#1 ✗ click: /);
-      expect(actionTrail.get(1)!.outcome).toBe('error');
+      expect(trailFor(null).get(1)!.outcome).toBe('error');
     });
 
     it('stores the action params so a run can re-issue them', async () => {
-      const { actionTrail } = await import('../src/playbooks/trail');
+      const { trailFor } = await import('../src/playbooks/trail');
       const localCtx = createMockCtx({ clickResult: 'Clicked' });
       await onInteract(localCtx, { actions: [{ type: 'click', selector: '#login', name: 'login_button' }] }, {});
-      const entry = actionTrail.get(1)!;
+      const entry = trailFor(null).get(1)!;
       expect(entry.params).toEqual({ type: 'click', selector: '#login', name: 'login_button' });
       expect(entry.tool).toBe('browser_interact');
     });
