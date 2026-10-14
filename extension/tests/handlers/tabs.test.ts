@@ -679,29 +679,42 @@ describe('TabHandlers', () => {
   });
 
   describe('session tab groups (client_id persist)', () => {
-    it('disconnect greys group and does not ungroup', async () => {
-      mockChrome.tabs.group.mockResolvedValue(42);
+    it('disconnect closes created tabs, ungroups the rest and drops session state', async () => {
+      sessionContext.getSession('proj-abc12');
       mockChrome.tabGroups.query.mockResolvedValue([
         { id: 42, title: 'proj-abc12', color: 'blue', collapsed: false, windowId: 1 },
       ]);
-      mockChrome.tabs.create.mockResolvedValue({
-        id: 100, index: 0, title: 't', url: 'https://example.com', groupId: -1, windowId: 1,
-      });
-
-      await tabs.createTab({ url: 'https://example.com', _sessionId: 'proj-abc12' });
       mockChrome.tabs.query.mockResolvedValue([
-        { id: 100, index: 0, title: 't', url: 'https://example.com', groupId: 42, windowId: 1 },
+        { id: 100, groupId: 42, windowId: 1 }, // created
+        { id: 200, groupId: 42, windowId: 1 }, // attached
       ]);
-      await tabs.handleSessionDisconnect('proj-abc12');
 
-      expect(mockChrome.tabs.ungroup).not.toHaveBeenCalled();
-      expect(mockChrome.tabGroups.update).toHaveBeenCalledWith(
-        42,
-        expect.objectContaining({ color: 'grey' }),
-      );
-      const stored = mockChrome.storage._data['supersurf.sessionGroupColors'];
-      expect(stored?.['proj-abc12']).toBe('blue');
-      expect(stored?.['proj-abc12']).not.toBe('grey');
+      await tabs.handleSessionDisconnect('proj-abc12', [100]);
+
+      expect(mockChrome.tabs.remove).toHaveBeenCalledWith(100);
+      expect(mockChrome.tabs.ungroup).toHaveBeenCalledWith([200]);
+      expect(sessionContext.sessionEntries().map(([id]) => id)).not.toContain('proj-abc12');
+    });
+
+    it('a created tab that is already gone does not stop teardown', async () => {
+      mockChrome.tabs.remove.mockRejectedValueOnce(new Error('No tab with id: 100'));
+      mockChrome.tabGroups.query.mockResolvedValue([
+        { id: 42, title: 'p', color: 'blue', collapsed: false, windowId: 1 },
+      ]);
+      mockChrome.tabs.query.mockResolvedValue([{ id: 200, groupId: 42, windowId: 1 }]);
+
+      await expect(tabs.handleSessionDisconnect('p', [100])).resolves.toMatchObject({ success: true });
+      expect(mockChrome.tabs.ungroup).toHaveBeenCalledWith([200]);
+    });
+
+    it('with no tab group, still closes created tabs and drops session state', async () => {
+      sessionContext.getSession('nogroup');
+      mockChrome.tabGroups.query.mockResolvedValue([]);
+
+      await tabs.handleSessionDisconnect('nogroup', [100]);
+
+      expect(mockChrome.tabs.remove).toHaveBeenCalledWith(100);
+      expect(sessionContext.sessionEntries().map(([id]) => id)).not.toContain('nogroup');
     });
 
     it('reclaim by title restores stored color after cold cache', async () => {

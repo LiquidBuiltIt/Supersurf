@@ -74,6 +74,16 @@ describe('RequestScheduler', () => {
     });
   });
 
+  it('createTab marks the tab created; selectTab does not', async () => {
+    sessions.add('s1', mockSocket());
+    scheduler.addSession('s1');
+    (bridge.sendCmd as any).mockResolvedValueOnce({ attachedTab: { id: 99, groupId: 5 } });
+    await scheduler.enqueue('s1', 'createTab', { url: 'https://example.com' });
+    (bridge.sendCmd as any).mockResolvedValueOnce({ attachedTab: { id: 7, groupId: 5 } });
+    await scheduler.enqueue('s1', 'selectTab', { tabId: 7 });
+    expect([...sessions.get('s1')!.createdTabs]).toEqual([99]);
+  });
+
   describe('enqueue', () => {
     it('executes a single request', async () => {
       sessions.add('s1', mockSocket());
