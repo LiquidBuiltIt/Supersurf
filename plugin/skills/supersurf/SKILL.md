@@ -11,11 +11,11 @@ Start every session like this:
 
 ```
 connect username='my-task'
-browser_tabs action='list'
-browser_tabs action='attach' tabId=123
-browser_snapshot
+browser_tabs username='my-task' action='list'
+browser_tabs username='my-task' action='attach' tabId=123
+browser_snapshot username='my-task'
 ...
-disconnect
+disconnect username='my-task'
 ```
 
 Every response starts with a status header: connection state, attached tab, detected tech stack.
