@@ -308,25 +308,38 @@ export class TabHandlers {
         this.groupSessions.set(groupId, clientId);
     }
     /**
-     * Called when a session disconnects. Greys its tab group without ungrouping.
+     * Called when a session ends. Closes the tabs it created, ungroups the tabs it
+     * only attached to (they belong to the human), and drops its state (#67).
      */
-    async handleSessionDisconnect(sessionId) {
-        const group = await this.findGroupByClientId(sessionId);
-        if (!group) {
-            return { success: true, message: `No tab group for session "${sessionId}"` };
-        }
-        try {
-            // Persist active color before greying (no-op if already grey / missing)
-            if (group.color && group.color !== 'grey') {
-                await this.saveStoredColor(sessionId, group.color);
+    async handleSessionDisconnect(sessionId, closeTabIds = []) {
+        for (const id of closeTabIds) {
+            try {
+                await this.browser.tabs.remove(id);
             }
-            await this.browser.tabGroups.update(group.id, { color: 'grey' });
+            catch (err) {
+                this.logger.log(`Tab ${id} already gone:`, err);
+            }
         }
-        catch (err) {
-            this.logger.log(`Error greying group for session "${sessionId}":`, err);
+        const group = await this.findGroupByClientId(sessionId);
+        if (group) {
+            try {
+                // Persist active color so a reclaimed group keeps it (no-op if grey / missing)
+                if (group.color && group.color !== 'grey') {
+                    await this.saveStoredColor(sessionId, group.color);
+                }
+                const left = (await this.browser.tabs.query({})).filter((t) => t.groupId === group.id && !closeTabIds.includes(t.id));
+                if (left.length)
+                    await this.browser.tabs.ungroup(left.map((t) => t.id));
+            }
+            catch (err) {
+                this.logger.log(`Error releasing group for session "${sessionId}":`, err);
+            }
+            this.groupSessions.delete(group.id);
         }
-        this.logger.log(`Session "${sessionId}" disconnected — group ${group.id} set to grey (tabs kept)`);
-        return { success: true, message: `Greyed tab group for session "${sessionId}"` };
+        this.sessionGroups.delete(sessionId);
+        this.ctx.deleteSession(sessionId);
+        this.logger.log(`Session "${sessionId}" ended — closed ${closeTabIds.length} tab(s), released the rest`);
+        return { success: true, message: `Released session "${sessionId}": closed ${closeTabIds.length} tab(s)` };
     }
     // ─── Core Tab Operations ───────────────────────────────────────
     /**
