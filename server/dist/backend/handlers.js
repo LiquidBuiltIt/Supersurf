@@ -487,12 +487,13 @@ async function onDisconnect(mgr, options = {}) {
     mgr.notifyToolsListChanged().catch((err) => log('Error sending notification:', err));
     // Report, do not decide. A second agent holding the browser is not this
     // agent's fault, so this is a release with a truthful note — never an error.
-    const message = peers.length === 0
-        ? 'Session released. No other agents connected.'
-        : `Session released. Browser stays open — ${peers.length} other agent` +
-            `${peers.length === 1 ? '' : 's'} still connected (${peers.join(', ')}).`;
+    const peerCount = peers.length;
+    const released = 'Session released. Your tabs are closed and tabs you attached to are released.';
+    const message = peerCount === 0
+        ? `${released} No other agents connected.`
+        : `${released} Browser stays open — ${peerCount} other agent(s) still connected.`;
     if (options.rawResult) {
-        return { success: true, state: 'passive', peers, message };
+        return { success: true, state: 'passive', peer_count: peerCount, message };
     }
     return {
         content: [

@@ -538,27 +538,37 @@ describe('AgentSession', () => {
       expect(status.browser).toBeNull();
     });
 
-    it('reports disconnect as a release and names the remaining agents', async () => {
+    it('reports disconnect as a release and counts the remaining agents', async () => {
       await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.getPeerSessions.mockReturnValue(['sm-hn']);
 
       const out = await backend.callTool('disconnect', {}, { rawResult: true });
 
-      expect(out.success).toBe(true);
-      expect(out.peers).toEqual(['sm-hn']);
-      expect(out.message).toContain('Session released');
-      expect(out.message).toContain('sm-hn');
+      expect(out).toMatchObject({ success: true, peer_count: 1 });
+      expect(out).not.toHaveProperty('peers');
+      expect(out.message).toBe('Session released. Your tabs are closed and tabs you attached to are released. Browser stays open — 1 other agent(s) still connected.');
+      expect(out.message).not.toContain('sm-hn');
+    });
+
+    it('reports no other agents when there are no peers', async () => {
+      await backend.callTool('connect', { username: 'test' });
+      mockDaemonClientInstance.getPeerSessions.mockReturnValue([]);
+
+      const out = await backend.callTool('disconnect', {}, { rawResult: true });
+
+      expect(out).toMatchObject({ success: true, peer_count: 0 });
+      expect(out.message).toBe('Session released. Your tabs are closed and tabs you attached to are released. No other agents connected.');
     });
 
     it('does not fail when another session holds the browser', async () => {
       await backend.callTool('connect', { username: 'test' });
       mockDaemonClientInstance.getPeerSessions.mockReturnValue(['sm-hn']);
 
-      // toMatchObject on both success AND peers — asserting success alone
+      // toMatchObject on both success AND peer_count — asserting success alone
       // passes even against the unmodified handler, which never reads
       // peers and never throws either way.
       await expect(backend.callTool('disconnect', {}, { rawResult: true }))
-        .resolves.toMatchObject({ success: true, peers: ['sm-hn'] });
+        .resolves.toMatchObject({ success: true, peer_count: 1 });
     });
   });
 
