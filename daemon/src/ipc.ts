@@ -156,8 +156,8 @@ export class IPCServer {
                 this.sendLine(socket, {
                   type: 'session_reject',
                   reason:
-                    `Session ID "${sessionId}" is already in use by a live session. ` +
-                    `Pass a different client_id to \`connect\`.`,
+                    `Username "${sessionId}" is already in use by a live agent. ` +
+                    `Pick another username and call \`connect\` again.`,
                 });
                 socket.end();
                 return;
@@ -221,6 +221,9 @@ export class IPCServer {
       if (sessionId) {
         debugLog(`Session disconnected: "${sessionId}"`);
 
+        // Read before remove(): the extension closes these tabs on disconnect
+        const closeTabIds = [...(this.sessions.get(sessionId)?.createdTabs ?? [])];
+
         // Unbind profile if set
         const profileId = this.sessions.getProfileId(sessionId!);
         if (profileId) {
@@ -233,7 +236,7 @@ export class IPCServer {
 
         // Notify extension to ungroup the session's tabs
         if (profileId) {
-          this.bridge.sendCmdToProfile(profileId, 'sessionDisconnect', { sessionId }, 5000).catch(() => {});
+          this.bridge.sendCmdToProfile(profileId, 'sessionDisconnect', { sessionId, closeTabIds }, 5000).catch(() => {});
 
           // Kill Chromium if no other sessions are using this profile.
           // User-owned browsers (launched via `supersurf profiles open`) are
@@ -259,7 +262,7 @@ export class IPCServer {
             }
           }
         } else {
-          this.bridge.sendCmd('sessionDisconnect', { sessionId }, 5000).catch(() => {});
+          this.bridge.sendCmd('sessionDisconnect', { sessionId, closeTabIds }, 5000).catch(() => {});
         }
 
         if (this.onSessionCountChange) {

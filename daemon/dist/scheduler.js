@@ -189,6 +189,8 @@ class RequestScheduler {
                 const groupId = result?.attachedTab?.groupId;
                 if (tabId) {
                     this.sessions.addOwnedTab(sessionId, tabId);
+                    if (method === 'createTab')
+                        this.sessions.addCreatedTab(sessionId, tabId);
                     this.sessions.setAttachedTabId(sessionId, tabId);
                     this.setCurrentTabId(profileId, tabId);
                 }
