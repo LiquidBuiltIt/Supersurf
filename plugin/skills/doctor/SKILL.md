@@ -13,17 +13,17 @@ Run every check below first. Report one table: `Check | Result | Status (✅/⚠
 
 | Check | How | Healthy when |
 |---|---|---|
-| MCP server version | `status` tool result / status header (`v<version>`) | Matches latest |
+| MCP server version | `status` tool without `username` (first line, `SuperSurf v<version>`) | Matches latest |
 | Latest published | `npm view supersurf-mcp version` | — |
 | Daemon running | `supersurf daemon status` if `command -v supersurf` succeeds (the install.sh binary), otherwise `npx supersurf-daemon@latest status` | Running |
-| Extension connected | `status` tool: the header starts with `⚠️` and contains `No extension connected` when it is missing; the result lists the browser and attached tab | Header shows ✅ and the expected browser |
+| Extension connected | `status` tool without `username` (health only): the `Extension:` line says `connected (<browser>)` or `not connected`. Pass your `username` to also see your own session and attached tab | `Extension: connected` with the expected browser |
 | Profiles | `profile_list` | Each managed profile is listed |
 | Playbooks | `playbooks` action `validate` | Every script validates |
-| Config drift | Status header contains the `config.json changed since daemon start` warning | No warning |
+| Config drift | Status header of a call that passes your `username` contains the `config.json changed since daemon start` warning | No warning |
 | Port 5555 | `lsof -iTCP:5555 -sTCP:LISTEN` (macOS/Linux) or `ss -ltnp 'sport = :5555'` (Linux) | Only the SuperSurf daemon listens |
 | Duplicate skill | `ls ~/.claude/skills/supersurf` | Absent (the plugin provides the skill) |
 
-The `status` tool does not report the daemon version or the profile name. Use `supersurf daemon status` (or `npx supersurf-daemon@latest status` when `command -v supersurf` fails) for the daemon and `profile_list` for profiles.
+`status` without `username` reports health only (server version, daemon version and uptime, extension) and names no agent. It does not report the profile name. Use `supersurf daemon status` (or `npx supersurf-daemon@latest status` when `command -v supersurf` fails) for the daemon and `profile_list` for profiles.
 
 ## Symptoms and Fixes
 
