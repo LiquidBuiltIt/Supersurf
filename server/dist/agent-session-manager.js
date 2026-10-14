@@ -14,6 +14,7 @@ exports.AgentSessionManager = void 0;
  */
 const backend_1 = require("./backend");
 const handlers_1 = require("./backend/handlers");
+const daemon_spawn_1 = require("./daemon-spawn");
 const EXEMPT = new Set(['status', 'profile_create', 'profile_list', 'profile_delete', 'reload_mcp', 'experimental_features']);
 const MARKER = '👤 you are ';
 const MISSING = 'username required — your username is in the status line of your earlier SuperSurf results.';
@@ -66,6 +67,12 @@ class AgentSessionManager {
         const raw = !!options.rawResult;
         const { username: rawName, ...rest } = args;
         const username = typeof rawName === 'string' ? rawName.trim() : '';
+        if (name === 'status') {
+            const s = username ? this._sessions.get(username) : undefined;
+            if (s)
+                return raw ? s.callTool('status', rest, options) : this._decorate(s, await s.callTool('status', rest, options));
+            return this._status(raw);
+        }
         if (EXEMPT.has(name))
             return this._lobby.callTool(name, rest, options);
         if (name === 'connect')
@@ -108,6 +115,23 @@ class AgentSessionManager {
         finally {
             this._connecting.delete(username);
         }
+    }
+    /** Health only. Names and counts of other agents stay hidden until BACKLOG #69. */
+    async _status(raw) {
+        const d = await (0, daemon_spawn_1.queryDaemonStatus)();
+        const version = this._config.server.version;
+        const daemon = d
+            ? { running: true, version: d.version, uptime_seconds: Math.round(d.uptimeSeconds), extension_connected: !!d.extensionConnected, browser: d.extensionBrowser ?? null }
+            : { running: false };
+        if (raw)
+            return { server_version: version, daemon };
+        const lines = [`SuperSurf v${version}`];
+        if (!d)
+            lines.push('Daemon: not running — `connect` starts it.');
+        else
+            lines.push(`Daemon: v${daemon.version}, up ${daemon.uptime_seconds}s`, `Extension: ${daemon.extension_connected ? `connected (${daemon.browser ?? 'unknown browser'})` : 'not connected'}`);
+        lines.push('', 'Pass your `username` to `status` to see your own session.');
+        return { content: [{ type: 'text', text: lines.join('\n') }] };
     }
     /** Prepend the caller's header to the first text block unless it already names them. */
     _decorate(session, result) {

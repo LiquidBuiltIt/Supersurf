@@ -27,6 +27,8 @@ export declare class AgentSessionManager {
         rawResult?: boolean;
     }): Promise<any>;
     private _connect;
+    /** Health only. Names and counts of other agents stay hidden until BACKLOG #69. */
+    private _status;
     /** Prepend the caller's header to the first text block unless it already names them. */
     private _decorate;
     serverClosed(): Promise<void>;

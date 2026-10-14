@@ -57,8 +57,12 @@ function getConnectionToolSchemas() {
         },
         {
             name: 'status',
-            description: 'Show current connection state: passive (idle), active (server up), or connected (extension linked).',
-            inputSchema: { type: 'object', properties: {}, required: [] },
+            description: 'Show server, daemon and extension health. Without `username` it reports health only and names no one; with your `username` it reports your own session.',
+            inputSchema: {
+                type: 'object',
+                properties: { username: { type: 'string', description: 'Your agent name. Omit for a health check that names no one.' } },
+                required: [],
+            },
             annotations: {
                 title: 'Connection status',
                 readOnlyHint: true,

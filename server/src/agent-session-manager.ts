@@ -11,6 +11,7 @@
  */
 import { AgentSession } from './backend';
 import { USERNAME_RE } from './backend/handlers';
+import { queryDaemonStatus } from './daemon-spawn';
 import type { BackendConfig, ToolSchema } from './backend/types';
 
 const EXEMPT = new Set(['status', 'profile_create', 'profile_list', 'profile_delete', 'reload_mcp', 'experimental_features']);
@@ -72,6 +73,12 @@ export class AgentSessionManager {
     const { username: rawName, ...rest } = args;
     const username = typeof rawName === 'string' ? rawName.trim() : '';
 
+    if (name === 'status') {
+      const s = username ? this._sessions.get(username) : undefined;
+      if (s) return raw ? s.callTool('status', rest, options) : this._decorate(s, await s.callTool('status', rest, options));
+      return this._status(raw);
+    }
+
     if (EXEMPT.has(name)) return this._lobby.callTool(name, rest, options);
 
     if (name === 'connect') return this._connect(username, rest, options);
@@ -113,6 +120,21 @@ export class AgentSessionManager {
     } finally {
       this._connecting.delete(username);
     }
+  }
+
+  /** Health only. Names and counts of other agents stay hidden until BACKLOG #69. */
+  private async _status(raw: boolean): Promise<any> {
+    const d = await queryDaemonStatus();
+    const version = this._config.server.version;
+    const daemon: any = d
+      ? { running: true, version: d.version, uptime_seconds: Math.round(d.uptimeSeconds), extension_connected: !!d.extensionConnected, browser: d.extensionBrowser ?? null }
+      : { running: false };
+    if (raw) return { server_version: version, daemon };
+    const lines = [`SuperSurf v${version}`];
+    if (!d) lines.push('Daemon: not running — `connect` starts it.');
+    else lines.push(`Daemon: v${daemon.version}, up ${daemon.uptime_seconds}s`, `Extension: ${daemon.extension_connected ? `connected (${daemon.browser ?? 'unknown browser'})` : 'not connected'}`);
+    lines.push('', 'Pass your `username` to `status` to see your own session.');
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
   }
 
   /** Prepend the caller's header to the first text block unless it already names them. */

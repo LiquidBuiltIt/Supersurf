@@ -8,6 +8,7 @@
  * @exports stopDaemon - Stop the daemon and remove stale socket/PID files
  * @exports getSockPath - Return the daemon socket path
  * @exports getPidPath - Return the daemon PID file path
+ * @exports queryDaemonStatus - One `daemon_status` round trip; null when unreachable
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -15,6 +16,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.explainStartupFailure = explainStartupFailure;
 exports.getSockPath = getSockPath;
+exports.queryDaemonStatus = queryDaemonStatus;
 exports.getPidPath = getPidPath;
 exports.isDaemonRunning = isDaemonRunning;
 exports.stopDaemon = stopDaemon;
@@ -23,6 +25,7 @@ exports.ensureDaemon = ensureDaemon;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
+const net_1 = __importDefault(require("net"));
 const child_process_1 = require("child_process");
 const shared_1 = require("./shared");
 const log = (0, shared_1.createLog)('[Spawn]');
@@ -52,6 +55,31 @@ function explainStartupFailure(raw, port) {
 /** Return the path to the daemon's Unix socket. */
 function getSockPath() {
     return SOCK_FILE;
+}
+/** One `daemon_status` round trip over the socket; null when the daemon is unreachable. */
+function queryDaemonStatus(sockPath = getSockPath()) {
+    return new Promise(resolve => {
+        if (!fs_1.default.existsSync(sockPath))
+            return resolve(null);
+        const socket = net_1.default.createConnection(sockPath);
+        let buf = '';
+        const done = (v) => { clearTimeout(t); socket.destroy(); resolve(v); };
+        const t = setTimeout(() => done(null), 3000);
+        socket.on('connect', () => socket.write(JSON.stringify({ type: 'daemon_status' }) + '\n'));
+        socket.on('data', d => {
+            buf += d.toString();
+            const i = buf.indexOf('\n');
+            if (i === -1)
+                return;
+            try {
+                done(JSON.parse(buf.slice(0, i)));
+            }
+            catch {
+                done(null);
+            }
+        });
+        socket.on('error', () => done(null));
+    });
 }
 /** Return the path to the daemon's PID file. */
 function getPidPath() {

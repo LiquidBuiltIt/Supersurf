@@ -7,6 +7,7 @@
  * @exports stopDaemon - Stop the daemon and remove stale socket/PID files
  * @exports getSockPath - Return the daemon socket path
  * @exports getPidPath - Return the daemon PID file path
+ * @exports queryDaemonStatus - One `daemon_status` round trip; null when unreachable
  */
 /**
  * Turn a captured daemon-startup-stderr blob into a single human-facing reason.
@@ -16,6 +17,8 @@
 export declare function explainStartupFailure(raw: string, port: number): string | null;
 /** Return the path to the daemon's Unix socket. */
 export declare function getSockPath(): string;
+/** One `daemon_status` round trip over the socket; null when the daemon is unreachable. */
+export declare function queryDaemonStatus(sockPath?: string): Promise<any | null>;
 /** Return the path to the daemon's PID file. */
 export declare function getPidPath(): string;
 /**

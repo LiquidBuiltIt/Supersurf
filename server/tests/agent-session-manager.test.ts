@@ -236,4 +236,26 @@ describe('AgentSessionManager', () => {
     await m.callTool('disconnect', { username: 'sm-a' });
     expect(m.get('sm-a')).toBeUndefined();
   });
+
+  it('status without username reports health and names nobody', async () => {
+    mocks.queryDaemonStatus.mockResolvedValue({ version: '9.9.9', uptimeSeconds: 61, extensionConnected: true, extensionBrowser: 'Chromium', sessions: [{ sessionId: 'sm-a' }, { sessionId: 'sm-b' }] });
+    const m = await managerWith(['sm-a', 'sm-b']);
+    const text = (await m.callTool('status', {})).content[0].text;
+    expect(text).toMatch(/^SuperSurf v/);
+    expect(text).not.toMatch(/sm-a|sm-b|2 agents|sessions/);
+    const raw = await m.callTool('status', {}, { rawResult: true });
+    expect(raw).toEqual({ server_version: expect.any(String), daemon: { running: true, version: '9.9.9', uptime_seconds: 61, extension_connected: true, browser: 'Chromium' } });
+  });
+
+  it('status with a live username returns that session\'s status', async () => {
+    const m = await managerWith(['sm-a']);
+    expect((await m.callTool('status', { username: 'sm-a' })).content[0].text).toContain('👤 you are sm-a');
+  });
+
+  it('status lists an optional username property', async () => {
+    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const status = (await m.listTools()).find(t => t.name === 'status')!;
+    expect((status.inputSchema.properties as Record<string, unknown>).username).toBeDefined();
+    expect((status.inputSchema.required as string[] | undefined) ?? []).not.toContain('username');
+  });
 });
