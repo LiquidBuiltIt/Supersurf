@@ -83,7 +83,7 @@ describe('validateFile — invalid files', () => {
     expect(rec.valid).toBe(true);
     expect(rec.meta!.experiments).toBe(true);
     // Plan 2 stops here. Turning the experiments on for the run's session is
-    // Plan 3's job — that is where the ConnectionManager lives.
+    // Plan 3's job — that is where the AgentSession lives.
   });
 
   it('rejects blocked Node constructs', async () => {

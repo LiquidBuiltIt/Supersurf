@@ -55,11 +55,12 @@ function signature(e) {
  * 3-entry window, and that window touches at least 2 distinct tools (so a
  * plain scroll/scroll/scroll streak doesn't count).
  */
-function hasRepeatedWindow() {
-    const size = trail_1.actionTrail.size();
+function hasRepeatedWindow(sessionId) {
+    const trail = (0, trail_1.trailFor)(sessionId);
+    const size = trail.size();
     if (size < 6)
         return false;
-    const { entries } = trail_1.actionTrail.tail(size);
+    const { entries } = trail.tail(size);
     const n = entries.length;
     const last = entries.slice(n - 3, n);
     if (new Set(last.map((e) => e.tool)).size < 2)
@@ -303,7 +304,7 @@ const TIPS = [
         skill: 'creating-playbooks',
         priority: 1,
         tool: '*',
-        match: () => trail_1.actionTrail.size() >= 8,
+        match: (_p, _r, _e, sid) => (0, trail_1.trailFor)(sid).size() >= 8,
         message: (sessionId) => playbooksTipMessage(PLAYBOOKS_MILESTONE_ON, sessionId),
     },
     {
@@ -311,7 +312,7 @@ const TIPS = [
         skill: 'creating-playbooks',
         priority: 2,
         tool: '*',
-        match: () => hasRepeatedWindow(),
+        match: (_p, _r, _e, sid) => hasRepeatedWindow(sid),
         message: (sessionId) => playbooksTipMessage(PLAYBOOKS_REPEAT_ON, sessionId),
     },
 ];
@@ -328,7 +329,7 @@ function getTip(tool, params, result, error, sessionId) {
     for (const rule of TIPS) {
         if (!ruleAppliesTo(rule, tool))
             continue;
-        if (rule.match(params, result, error)) {
+        if (rule.match(params, result, error, sessionId)) {
             matched.push(rule);
             if (ONCE_PER_SESSION_IDS.has(rule.id) && fired?.has(rule.id))
                 continue;

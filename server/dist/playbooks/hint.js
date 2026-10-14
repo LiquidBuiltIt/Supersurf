@@ -16,7 +16,7 @@
  * URLs — it normalizes a bare domain for the `list` filter.
  *
  * Pure helpers. The mutable cache and once-per-session suppression live on
- * `ConnectionManager` (see `backend.ts`).
+ * `AgentSession` (see `backend.ts`).
  *
  * @module playbooks/hint
  */

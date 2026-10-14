@@ -153,4 +153,12 @@ describe('ConfigService', () => {
     expect(warns[0]).toMatch(/daemon\.port/);
     expect(s.get().daemon.port).toBe(HARDCODED_DEFAULTS.daemon.port);
   });
+
+  it('agents.idle_timeout_ms reads from file and rejects non-positive values', () => {
+    const build = (agents: { idle_timeout_ms: number }) =>
+      new ConfigService({ cli: {}, env: {}, file: { agents } });
+    expect(build({ idle_timeout_ms: 1000 }).get().agents.idle_timeout_ms).toBe(1000);
+    expect(build({ idle_timeout_ms: 0 }).get().agents.idle_timeout_ms).toBe(600_000);
+    expect(build({ idle_timeout_ms: -5 }).get().agents.idle_timeout_ms).toBe(600_000);
+  });
 });

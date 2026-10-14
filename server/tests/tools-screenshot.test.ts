@@ -16,7 +16,7 @@ function createMockCtx(omitPath: 'inline' | 'path' | 'both' = 'inline'): ToolCon
   return {
     tabId: 1,
     ext: { sendCmd: vi.fn() } as any,
-    connectionManager: null,
+    agentSession: null,
     config,
     cdp: vi.fn().mockResolvedValue({}),
     eval: vi.fn().mockResolvedValue(undefined),

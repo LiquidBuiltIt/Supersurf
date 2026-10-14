@@ -48,7 +48,7 @@ vi.mock('../src/experimental/index', () => ({
 function createMockCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({ success: true }) } as any,
-    connectionManager: {
+    agentSession: {
       setAttachedTab: vi.fn(),
       setStealthMode: vi.fn(),
       clearAttachedTab: vi.fn(),
@@ -196,7 +196,7 @@ function createMockExt() {
   } as any;
 }
 
-function createMockConnectionManager() {
+function createMockAgentSession() {
   return {
     setAttachedTab: vi.fn(),
     getAttachedTab: vi.fn().mockReturnValue(null),
@@ -211,12 +211,12 @@ function createMockConnectionManager() {
 describe('browser_storage — BrowserBridge dispatch (end-to-end)', () => {
   let bridge: BrowserBridge;
   let mockExt: ReturnType<typeof createMockExt>;
-  let mockCM: ReturnType<typeof createMockConnectionManager>;
+  let mockCM: ReturnType<typeof createMockAgentSession>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockExt = createMockExt();
-    mockCM = createMockConnectionManager();
+    mockCM = createMockAgentSession();
     bridge = new BrowserBridge({}, mockExt);
     bridge.initialize({}, {}, mockCM);
   });

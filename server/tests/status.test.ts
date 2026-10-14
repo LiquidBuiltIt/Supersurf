@@ -86,3 +86,23 @@ describe('buildStatusHeader — invalid playbook warning', () => {
     expect(header).toContain(warn);
   });
 });
+
+describe('buildStatusHeader — agent identity', () => {
+  const active = { ...base, state: 'connected' as const };
+  const passive = { ...base, state: 'passive' as const };
+
+  it('names the agent in the active header', () => {
+    const h = buildStatusHeader({ ...active, username: 'geo-research' });
+    expect(h).toMatch(/v\d[^|]*\| 👤 you are geo-research \|/);
+  });
+
+  it('names the agent in the passive header, before Disabled', () => {
+    expect(buildStatusHeader({ ...passive, username: 'geo-research' }))
+      .toContain('| 👤 you are geo-research | Disabled');
+  });
+
+  it('omits identity when username is null', () => {
+    expect(buildStatusHeader({ ...active, username: null })).not.toContain('👤');
+    expect(buildStatusHeader({ ...passive, username: null })).not.toContain('👤');
+  });
+});

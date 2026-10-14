@@ -29,12 +29,14 @@ interface StatusInput {
     lastConnectError?: string | null;
     /** Pre-rendered `playbooks/hint.ts:formatPlaybookHintLine` output, or null/undefined
      *  when there is nothing to show. Domain matching and once-per-session suppression
-     *  happen in `ConnectionManager` — this function only places the line. */
+     *  happen in `AgentSession` — this function only places the line. */
     playbookHint?: string | null;
     /** Pre-rendered `playbooks/hint.ts:formatInvalidPlaybookWarning` output, or
      *  null when every script validates. Placed ABOVE the hint so a broken file
      *  is never hidden behind a suggestion. */
     playbookWarning?: string | null;
+    /** The agent's own username (`AgentSession.clientId`), echoed so it can read its name back. */
+    username?: string | null;
 }
 /**
  * Build a pipe-delimited status header from current connection state.

@@ -30,6 +30,7 @@ vi.mock('shared', async (importOriginal) => {
 vi.mock('../src/daemon-spawn', () => ({
   ensureDaemon: vi.fn().mockResolvedValue(undefined),
   getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
+  queryDaemonStatus: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock experimental registry

@@ -114,7 +114,7 @@ async function dispatchTool(ctx, name, args, options, env) {
         // text-prefix mutation is skipped in rawResult mode, matching the
         // untouched-result contract script-mode consumers rely on.
         if (name !== 'browser_interact' && name !== 'playbooks') {
-            const id = trail_1.actionTrail.record({
+            const id = (0, trail_1.trailFor)(env.clientId).record({
                 tool: name,
                 type: name,
                 outcome: callResult === 'error' ? 'error' : 'ok',

@@ -43,4 +43,9 @@ describe('config defaults', () => {
   it('HARDCODED_DEFAULTS has playbook_eval on', () => {
     expect(HARDCODED_DEFAULTS.security.playbook_eval).toBe(true);
   });
+
+  it('agents.idle_timeout_ms defaults to 10 minutes and is scaffolded', () => {
+    expect(HARDCODED_DEFAULTS.agents.idle_timeout_ms).toBe(600_000);
+    expect(SCAFFOLD_DEFAULTS.agents.idle_timeout_ms).toBe(600_000);
+  });
 });

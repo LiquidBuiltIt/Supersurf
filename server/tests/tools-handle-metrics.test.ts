@@ -40,13 +40,13 @@ describe('BrowserBridge — handle event emission', () => {
       }),
     };
 
-    const connectionManager: any = {
+    const agentSession: any = {
       clientId: 'test',
       getAttachedTab: () => ({ url: 'https://ashbyhq.com/apply' }),
     };
 
     const bridge = new BrowserBridge({}, ext);
-    await bridge.initialize({}, {}, connectionManager, metricsLogger);
+    await bridge.initialize({}, {}, agentSession, metricsLogger);
 
     const ctx = (bridge as any).buildContext(undefined);
     const center = await ctx.getElementCenter('#fn', { name: 'First Name', purpose: 'enter name' });
@@ -72,13 +72,13 @@ describe('BrowserBridge — handle event emission', () => {
       }),
     };
 
-    const connectionManager: any = {
+    const agentSession: any = {
       clientId: 'test',
       getAttachedTab: () => ({ url: 'https://ashbyhq.com/apply' }),
     };
 
     const bridge = new BrowserBridge({}, ext);
-    await bridge.initialize({}, {}, connectionManager, metricsLogger);
+    await bridge.initialize({}, {}, agentSession, metricsLogger);
 
     const ctx = (bridge as any).buildContext(undefined);
     await ctx.getElementCenter('#fn');
@@ -105,13 +105,13 @@ describe('BrowserBridge — ctx.getHandleIndex wiring', () => {
     };
     putRecord('ashbyhq.com', '/apply', '#post', rec);
 
-    const connectionManager: any = {
+    const agentSession: any = {
       clientId: 'test',
       getAttachedTab: () => ({ url: 'https://ashbyhq.com/apply' }),
     };
 
     const bridge = new BrowserBridge({}, {} as any);
-    (bridge as any).connectionManager = connectionManager;
+    (bridge as any).agentSession = agentSession;
     const ctx = (bridge as any).buildContext(undefined);
 
     expect(typeof ctx.getHandleIndex).toBe('function');

@@ -4,7 +4,7 @@ import { recordAction } from '../src/recorder/action-recorder';
 function ctx(enabled: boolean) {
   return {
     config: { get: () => ({ logging: { usage_metrics: enabled } }) },
-    connectionManager: { clientId: 'sid', getAttachedTab: () => ({ url: 'https://ex.com/jobs' }) },
+    agentSession: { clientId: 'sid', getAttachedTab: () => ({ url: 'https://ex.com/jobs' }) },
     metricsLogger: { write: vi.fn() },
   } as any;
 }

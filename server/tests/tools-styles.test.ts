@@ -5,7 +5,7 @@ import type { ToolContext } from '../src/tools/lib/types';
 function createMockCtx(): ToolContext {
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
-    connectionManager: null,
+    agentSession: null,
     cdp: vi.fn().mockResolvedValue({}),
     eval: vi.fn().mockResolvedValue([]),
     sleep: vi.fn().mockResolvedValue(undefined),

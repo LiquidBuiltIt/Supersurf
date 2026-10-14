@@ -3,7 +3,7 @@
  *
  * Implements `browser_tabs` (list/new/attach/close) and `browser_navigate`
  * (url/back/forward/reload). Tab operations sync metadata (attached tab,
- * stealth mode) with the ConnectionManager. Navigation integrates with
+ * stealth mode) with the AgentSession. Navigation integrates with
  * the `smart_waiting` experiment for adaptive DOM-stability waits instead
  * of fixed 1500ms delays.
  *
@@ -25,7 +25,7 @@ import type { ToolContext } from './lib/types';
 export declare function getAttachedUrl(ctx: ToolContext): Promise<string | null>;
 /**
  * Manage browser tabs: list, create, attach (with optional stealth), or close.
- * Updates ConnectionManager metadata on attach/close to keep status headers accurate.
+ * Updates AgentSession metadata on attach/close to keep status headers accurate.
  *
  * @param args - `{ action: 'list'|'new'|'attach'|'close', url?, index?, activate?, stealth? }`
  */

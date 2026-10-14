@@ -50,13 +50,13 @@ async function onInteract(ctx, args, options) {
     let beforeState = null;
     const isOnlyScrollActions = actions.every((a) => ['scroll_to', 'scroll_by', 'scroll_into_view'].includes(a.type));
     const captureMode = isOnlyScrollActions ? 'viewport' : 'document';
-    if (index_1.experimentRegistry.isEnabled('page_diffing', ctx.connectionManager?.clientId ?? null)) {
+    if (index_1.experimentRegistry.isEnabled('page_diffing', ctx.agentSession?.clientId ?? null)) {
         try {
             beforeState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode, tabId: ctx.tabId });
         }
         catch { /* silently skip — extension may not support it yet */ }
     }
-    const currentUrl = ctx.connectionManager?.getAttachedTab()?.url;
+    const currentUrl = ctx.agentSession?.getAttachedTab()?.url;
     for (const action of actions) {
         try {
             const msg = await (0, registry_1.executeAction)(ctx, action);
@@ -68,7 +68,7 @@ async function onInteract(ctx, args, options) {
             // Trail recording lives here rather than inside executeAction: that
             // function returns a bare string and has several callers, so threading an
             // id back out of it would ripple. The loop that owns the sequence records.
-            const id = trail_1.actionTrail.record({
+            const id = (0, trail_1.trailFor)(ctx.agentSession?.clientId).record({
                 tool: 'browser_interact',
                 type: action.type,
                 outcome: isWarn ? 'warn' : 'ok',
@@ -79,7 +79,7 @@ async function onInteract(ctx, args, options) {
             results.push(`${options.rawResult ? '' : `#${id} `}${isWarn ? '⚠' : '✓'} ${action.type}: ${body}`);
         }
         catch (error) {
-            const id = trail_1.actionTrail.record({
+            const id = (0, trail_1.trailFor)(ctx.agentSession?.clientId).record({
                 tool: 'browser_interact',
                 type: action.type,
                 outcome: 'error',

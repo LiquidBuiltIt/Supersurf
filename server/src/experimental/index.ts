@@ -40,7 +40,7 @@ interface SessionSlot {
  *
  * The session id is the `client_id` passed to `connect`, which the daemon
  * already enforces as unique (`daemon/src/ipc.ts` rejects duplicates with
- * 'Session ID already in use'). Two ConnectionManagers in one process
+ * 'Session ID already in use'). Two AgentSessions in one process
  * therefore get two slots and cannot clobber each other.
  *
  * Every read is per-session. A `null` session id (no session bound yet) answers

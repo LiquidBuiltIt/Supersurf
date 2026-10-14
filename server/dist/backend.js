@@ -1,6 +1,9 @@
 "use strict";
 /**
- * ConnectionManager — central state machine for the server's connection lifecycle.
+ * AgentSession — one agent's session: its connection state machine and tool dispatch.
+ *
+ * One AgentSession per agent. A process may hold several; each is keyed by its own
+ * `username` and keeps its own daemon connection, experiment flags and logs.
  *
  * States:
  *   - **passive** — server is idle, only connection tools (connect/disconnect/status) are available
@@ -15,7 +18,7 @@
  * BrowserBridge is lazy-imported to break a circular dependency (tools.ts imports backend types).
  *
  * @module backend
- * @exports ConnectionManager
+ * @exports AgentSession
  * @exports BackendConfig, TabInfo, BackendState, ToolSchema (re-exported from backend/types)
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
@@ -52,7 +55,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ConnectionManager = void 0;
+exports.AgentSession = void 0;
 const usage_metrics_logger_1 = require("./usage-metrics-logger");
 const shared_1 = require("./shared");
 const status_1 = require("./backend/status");
@@ -74,9 +77,9 @@ async function getBrowserBridge() {
 }
 /**
  * Core state machine for managing the extension connection lifecycle.
- * Implements ConnectionManagerAPI so handler functions can read/write state.
+ * Implements AgentSessionAPI so handler functions can read/write state.
  */
-class ConnectionManager {
+class AgentSession {
     config;
     state = 'passive';
     bridge = null;
@@ -188,6 +191,7 @@ class ConnectionManager {
             lastConnectError: this.lastConnectError,
             playbookHint: this.playbookHint(),
             playbookWarning: this.playbookWarning(),
+            username: this.clientId,
         });
     }
     // ─── Tool listing ──────────────────────────────────────────
@@ -246,8 +250,8 @@ class ConnectionManager {
             // Create metrics logger on connect, gated by config.logging.usage_metrics.
             // The logger captures the connect call itself, so this must run before the handler.
             const metricsEnabled = this.config.configService?.get().logging.usage_metrics ?? false;
-            if (name === 'connect' && !this.metricsLogger && rawArguments.client_id && metricsEnabled) {
-                this.metricsLogger = new usage_metrics_logger_1.UsageMetricsLogger(String(rawArguments.client_id));
+            if (name === 'connect' && !this.metricsLogger && rawArguments.username && metricsEnabled) {
+                this.metricsLogger = new usage_metrics_logger_1.UsageMetricsLogger(String(rawArguments.username));
             }
             let result;
             try {
@@ -451,5 +455,5 @@ class ConnectionManager {
         this.extensionConnected = false;
     }
 }
-exports.ConnectionManager = ConnectionManager;
+exports.AgentSession = AgentSession;
 //# sourceMappingURL=backend.js.map

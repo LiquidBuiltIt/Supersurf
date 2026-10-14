@@ -7,11 +7,13 @@
  * @exports stopDaemon - Stop the daemon and remove stale socket/PID files
  * @exports getSockPath - Return the daemon socket path
  * @exports getPidPath - Return the daemon PID file path
+ * @exports queryDaemonStatus - One `daemon_status` round trip; null when unreachable
  */
 
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import net from 'net';
 import { spawn } from 'child_process';
 import { createLog } from 'shared';
 
@@ -46,6 +48,25 @@ export function explainStartupFailure(raw: string, port: number): string | null 
 /** Return the path to the daemon's Unix socket. */
 export function getSockPath(): string {
   return SOCK_FILE;
+}
+
+/** One `daemon_status` round trip over the socket; null when the daemon is unreachable. */
+export function queryDaemonStatus(sockPath: string = getSockPath()): Promise<any | null> {
+  return new Promise(resolve => {
+    if (!fs.existsSync(sockPath)) return resolve(null);
+    const socket = net.createConnection(sockPath);
+    let buf = '';
+    const done = (v: any) => { clearTimeout(t); socket.destroy(); resolve(v); };
+    const t = setTimeout(() => done(null), 3000);
+    socket.on('connect', () => socket.write(JSON.stringify({ type: 'daemon_status' }) + '\n'));
+    socket.on('data', d => {
+      buf += d.toString();
+      const i = buf.indexOf('\n');
+      if (i === -1) return;
+      try { done(JSON.parse(buf.slice(0, i))); } catch { done(null); }
+    });
+    socket.on('error', () => done(null));
+  });
 }
 
 /** Return the path to the daemon's PID file. */

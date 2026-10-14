@@ -2,10 +2,10 @@
  * The playbook run lifecycle.
  *
  * A run gets its OWN daemon session and its OWN tab, and the tab is CLOSED at
- * the end. `client_id` IS the daemon session id — `daemon/src/ipc.ts:144-151`
+ * the end. The connect `username` IS the daemon session id — `daemon/src/ipc.ts:144-151`
  * rejects a duplicate with `Session ID already in use` — so the run's id must
  * differ from the parent's. The parent is whichever process holds a
- * `ConnectionManager`: the MCP server or the CLI. Never the daemon.
+ * `AgentSession`: the MCP server or the CLI. Never the daemon.
  *
  * Because the tab dies at exit (spec §10 risk 2), a `SelectorMiss` failure
  * captures a ranked candidate-selector list BEFORE teardown and stores it as
@@ -21,7 +21,7 @@ import { type PlaybookErrorType, type FailureAt } from './errors';
 import { type Candidate } from './candidates';
 /** The sandbox-host entrypoint, seam-able for unit tests. */
 type RunScript = (opts: PlaybookRunOptions) => Promise<PlaybookRunResult>;
-/** The slice of `ConnectionManager` a run needs. Narrow so tests can fake it. */
+/** The slice of `AgentSession` a run needs. Narrow so tests can fake it. */
 export interface RunnerBackend {
     callTool(name: string, args: Record<string, unknown>, options?: {
         rawResult?: boolean;
@@ -37,7 +37,7 @@ export interface RunPlaybookOptions {
     /** Test seams. */
     createBackend?: () => RunnerBackend;
     runScript?: RunScript;
-    /** Test seam for Addendum B activation. Receives this run's `client_id`. */
+    /** Test seam for Addendum B activation. Receives this run's connect `username`. */
     enableExperiments?: (clientId: string) => void;
 }
 export interface RunOutcome {

@@ -2,7 +2,7 @@
 /**
  * Connection-level tool handlers — connect, disconnect, status, experimental features, reload.
  *
- * Each handler receives the ConnectionManagerAPI (mutable state), the tool arguments,
+ * Each handler receives the AgentSessionAPI (mutable state), the tool arguments,
  * and an options object. Handlers return either MCP content responses (for MCP mode)
  * or raw JSON objects (for script mode via `rawResult: true`).
  *
@@ -47,6 +47,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.BAD_NAME_TEXT = exports.USERNAME_RE = void 0;
 exports.onConnect = onConnect;
 exports.applyTabInfoUpdate = applyTabInfoUpdate;
 exports.rehydrateAttachedTab = rehydrateAttachedTab;
@@ -63,6 +64,7 @@ const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const ephemeral_handles_1 = require("../experimental/fingerprinting/ephemeral-handles");
 const tips_1 = require("../tips");
+const trail_1 = require("../playbooks/trail");
 const shared_3 = require("../shared");
 const log = (0, shared_2.createLog)('[Conn]');
 // Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
@@ -124,25 +126,36 @@ function versionMismatchFailure(mgr, daemonVersion, serverVersion, reason, optio
     };
 }
 // ─── Connect ──────────────────────────────────────────────────
+/** A username ends up in the `metrics-<username>-…` log filename, so keep it filename-safe. */
+exports.USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+exports.BAD_NAME_TEXT = '`username` must be 1-64 characters: letters, digits, dot, dash or underscore, starting with a letter or digit (e.g. `claudebox-geo-research`).';
 /**
- * Connect to the SuperSurf daemon: validate client_id, spawn daemon if needed,
+ * Connect to the SuperSurf daemon: validate username, spawn daemon if needed,
  * connect via DaemonClient, create BrowserBridge, apply pre-enabled experiments.
  * Transitions state from passive to active.
  */
 async function onConnect(mgr, args = {}, options = {}) {
-    if (!args.client_id ||
-        typeof args.client_id !== 'string' ||
-        args.client_id.trim().length === 0) {
+    const raw = typeof args.username === 'string' ? args.username.trim() : '';
+    if (!raw) {
         if (options.rawResult) {
-            return { success: false, error: 'missing_client_id', message: 'client_id is required' };
+            return { success: false, error: 'missing_username', message: 'username is required' };
         }
         return {
             content: [
                 {
                     type: 'text',
-                    text: `### Missing Required Parameter\n\n\`client_id\` is required.\n\n**Example:**\n\`\`\`\nconnect client_id='my-project'\n\`\`\``,
+                    text: "### Missing Required Parameter\n\n`username` is required.\n\n**Example:**\n```\nconnect username='geo-research'\n```",
                 },
             ],
+            isError: true,
+        };
+    }
+    if (!exports.USERNAME_RE.test(raw)) {
+        if (options.rawResult) {
+            return { success: false, error: 'invalid_username', message: exports.BAD_NAME_TEXT };
+        }
+        return {
+            content: [{ type: 'text', text: `### Invalid username\n\n${exports.BAD_NAME_TEXT}` }],
             isError: true,
         };
     }
@@ -153,7 +166,7 @@ async function onConnect(mgr, args = {}, options = {}) {
                 already_connected: true,
                 state: mgr.state,
                 browser: mgr.connectedBrowserName,
-                client_id: mgr.clientId,
+                username: mgr.clientId,
             };
         }
         return {
@@ -166,7 +179,7 @@ async function onConnect(mgr, args = {}, options = {}) {
             ],
         };
     }
-    mgr.clientId = args.client_id.trim();
+    mgr.clientId = raw;
     log('Client ID set to:', mgr.clientId);
     // Start session log file
     const reg = (0, shared_2.getRegistry)();
@@ -313,7 +326,7 @@ async function onConnect(mgr, args = {}, options = {}) {
                 success: true,
                 state: mgr.state,
                 browser: mgr.connectedBrowserName,
-                client_id: mgr.clientId,
+                username: mgr.clientId,
                 port,
             };
         }
@@ -344,6 +357,10 @@ async function onConnect(mgr, args = {}, options = {}) {
             await mgr.extensionServer.stop().catch(() => { });
             mgr.extensionServer = null;
         }
+        // Nothing else releases what the attempt bound before it threw: onDisconnect
+        // returns early when passive.
+        if (mgr.clientId)
+            releaseSessionState(mgr.clientId);
         mgr.state = 'passive';
         mgr.profile = null;
         mgr.extensionConnected = false;
@@ -414,6 +431,20 @@ async function rehydrateAttachedTab(mgr, client) {
 }
 // ─── Disconnect ─────────────────────────────────────────────────
 /**
+ * Close the session log, clear tip suppression counters, drop session-scoped
+ * experiment + cursor state. All keyed by client_id so another agent's
+ * AgentSession in this process keeps its own. Safe for an id that never got
+ * bound — every callee ignores unknown ids.
+ */
+function releaseSessionState(id) {
+    (0, shared_2.getRegistry)().clearSessionLog(id);
+    (0, tips_1.clearTipCounters)(id);
+    (0, trail_1.dropTrail)(id);
+    index_1.experimentRegistry.unbind(id);
+    (0, ephemeral_handles_1.dropSession)(id);
+    (0, index_2.destroySession)(id);
+}
+/**
  * Disconnect from the daemon: tear down bridge, close DaemonClient session,
  * reset experiments and mouse humanization, transition back to passive.
  * The daemon stays alive for other sessions.
@@ -446,16 +477,8 @@ async function onDisconnect(mgr, options = {}) {
         await mgr.extensionServer.stop();
         mgr.extensionServer = null;
     }
-    // Close session log, clear tip suppression counters, drop session-scoped
-    // experiment + cursor state. All keyed by client_id so a second
-    // ConnectionManager in this process keeps its own.
-    if (mgr.clientId) {
-        (0, shared_2.getRegistry)().clearSessionLog(mgr.clientId);
-        (0, tips_1.clearTipCounters)(mgr.clientId);
-        index_1.experimentRegistry.unbind(mgr.clientId);
-        (0, ephemeral_handles_1.dropSession)(mgr.clientId);
-        (0, index_2.destroySession)(mgr.clientId);
-    }
+    if (mgr.clientId)
+        releaseSessionState(mgr.clientId);
     mgr.state = 'passive';
     mgr.connectedBrowserName = null;
     mgr.attachedTab = null;
@@ -464,12 +487,13 @@ async function onDisconnect(mgr, options = {}) {
     mgr.notifyToolsListChanged().catch((err) => log('Error sending notification:', err));
     // Report, do not decide. A second agent holding the browser is not this
     // agent's fault, so this is a release with a truthful note — never an error.
-    const message = peers.length === 0
-        ? 'Session released. No other agents connected.'
-        : `Session released. Browser stays open — ${peers.length} other agent` +
-            `${peers.length === 1 ? '' : 's'} still connected (${peers.join(', ')}).`;
+    const peerCount = peers.length;
+    const released = 'Session released. Your tabs are closed and tabs you attached to are released.';
+    const message = peerCount === 0
+        ? `${released} No other agents connected.`
+        : `${released} Browser stays open — ${peerCount} other agent(s) still connected.`;
     if (options.rawResult) {
-        return { success: true, state: 'passive', peers, message };
+        return { success: true, state: 'passive', peer_count: peerCount, message };
     }
     return {
         content: [
@@ -487,7 +511,7 @@ async function onStatus(mgr, options = {}) {
     const statusData = {
         state: mgr.state,
         browser: mgr.connectedBrowserName,
-        client_id: mgr.clientId,
+        username: mgr.clientId,
         attached_tab: mgr.attachedTab
             ? {
                 index: mgr.attachedTab.index,
@@ -570,7 +594,7 @@ async function onProfileCreate(mgr, args = {}, options = {}) {
                             `### Profile Created\n\n` +
                             `**Name:** ${result.profile?.name}\n` +
                             `**Created:** ${result.profile?.created}\n\n` +
-                            `Use \`connect client_id='...' profile='${result.profile?.name}'\` to connect.`,
+                            `Use \`connect username='...' profile='${result.profile?.name}'\` to connect.`,
                     }],
             };
         });

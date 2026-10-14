@@ -68,6 +68,7 @@ export class ConfigService {
     const D = HARDCODED_DEFAULTS;
     const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
     const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+    const isPosNum = (v: unknown): v is number => isNum(v) && v > 0;
     const isStrArr = (v: unknown): v is string[] =>
       Array.isArray(v) && v.every((x) => typeof x === 'string');
     const isMode = (v: unknown): v is 'tranco' | 'custom' | 'both' =>
@@ -128,6 +129,11 @@ export class ConfigService {
         idle_timeout_ms: pick('daemon.idle_timeout_ms',
           inp.cli.daemon?.idle_timeout_ms, inp.env.daemon?.idle_timeout_ms,
           inp.file.daemon?.idle_timeout_ms, D.daemon.idle_timeout_ms, isNum, warn),
+      },
+      agents: {
+        idle_timeout_ms: pick('agents.idle_timeout_ms',
+          inp.cli.agents?.idle_timeout_ms, inp.env.agents?.idle_timeout_ms,
+          inp.file.agents?.idle_timeout_ms, D.agents.idle_timeout_ms, isPosNum, warn),
       },
       logging: {
         debug: pick('logging.debug',

@@ -639,7 +639,7 @@ function createMockExt() {
   } as any;
 }
 
-function createMockConnectionManager() {
+function createMockAgentSession() {
   return {
     setAttachedTab: vi.fn(),
     getAttachedTab: vi.fn().mockReturnValue(null),
@@ -654,14 +654,14 @@ function createMockConnectionManager() {
 describe('browser_evaluate with secure_eval (default-on, opt-out via env)', () => {
   let bridge: BrowserBridge;
   let mockExt: ReturnType<typeof createMockExt>;
-  let mockCM: ReturnType<typeof createMockConnectionManager>;
+  let mockCM: ReturnType<typeof createMockAgentSession>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     experimentRegistry.reset();
     delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
     mockExt = createMockExt();
-    mockCM = createMockConnectionManager();
+    mockCM = createMockAgentSession();
     bridge = new BrowserBridge({}, mockExt);
     bridge.initialize({}, {}, mockCM);
   });
@@ -820,14 +820,14 @@ describe('wrapWithPageProxy', () => {
 describe('three-layer secure_eval flow (default-on)', () => {
   let bridge: BrowserBridge;
   let mockExt: ReturnType<typeof createMockExt>;
-  let mockCM: ReturnType<typeof createMockConnectionManager>;
+  let mockCM: ReturnType<typeof createMockAgentSession>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     experimentRegistry.reset();
     delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
     mockExt = createMockExt();
-    mockCM = createMockConnectionManager();
+    mockCM = createMockAgentSession();
     bridge = new BrowserBridge({}, mockExt);
     bridge.initialize({}, {}, mockCM);
   });

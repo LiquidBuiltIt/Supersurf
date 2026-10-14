@@ -3,10 +3,10 @@
  * The playbook run lifecycle.
  *
  * A run gets its OWN daemon session and its OWN tab, and the tab is CLOSED at
- * the end. `client_id` IS the daemon session id — `daemon/src/ipc.ts:144-151`
+ * the end. The connect `username` IS the daemon session id — `daemon/src/ipc.ts:144-151`
  * rejects a duplicate with `Session ID already in use` — so the run's id must
  * differ from the parent's. The parent is whichever process holds a
- * `ConnectionManager`: the MCP server or the CLI. Never the daemon.
+ * `AgentSession`: the MCP server or the CLI. Never the daemon.
  *
  * Because the tab dies at exit (spec §10 risk 2), a `SelectorMiss` failure
  * captures a ranked candidate-selector list BEFORE teardown and stores it as
@@ -30,7 +30,7 @@ const errors_1 = require("./errors");
 const candidates_1 = require("./candidates");
 const { version: PACKAGE_VERSION } = require('../../package.json');
 function defaultBackend() {
-    return new backend_1.ConnectionManager((0, backend_config_1.backendConfigFrom)((0, backend_config_1.buildConfigService)({}), PACKAGE_VERSION));
+    return new backend_1.AgentSession((0, backend_config_1.backendConfigFrom)((0, backend_config_1.buildConfigService)({}), PACKAGE_VERSION));
 }
 /**
  * Addendum B activation. Enables every name in `AVAILABLE_EXPERIMENTS` for THIS
@@ -128,7 +128,7 @@ async function runPlaybook(opts) {
     const profile = opts.profile ?? record.meta?.profile;
     // Addendum B. `meta.experiments === true` opts this run into every experiment.
     // Plan 2 parses and validates the field; activation is ours because the
-    // ConnectionManager is ours.
+    // AgentSession is ours.
     const wantsExperiments = record.meta?.experiments === true;
     const finish = (out) => {
         const rec = {
@@ -169,9 +169,12 @@ async function runPlaybook(opts) {
     const runScript = opts.runScript ?? host_1.runPlaybookScript;
     const backend = (opts.createBackend ?? defaultBackend)();
     // Own session. The daemon rejects a duplicate id, so this must not collide
-    // with the parent MCP session's client_id.
-    const clientId = `playbook-${record.name}-${process.pid}-${Date.now()}`;
-    const connectArgs = { client_id: clientId };
+    // with the parent MCP session's username.
+    // The id is a connect username, so it must fit USERNAME_RE (64 chars): cut
+    // the name part, never the pid or timestamp that make it unique.
+    const tail = `-${process.pid}-${Date.now()}`;
+    const clientId = `playbook-${record.name.slice(0, 64 - 'playbook-'.length - tail.length)}${tail}`;
+    const connectArgs = { username: clientId };
     if (profile)
         connectArgs.profile = profile;
     const connectRes = await backend.callTool('connect', connectArgs, { rawResult: true });

@@ -11,7 +11,7 @@
 /** Outcome of a single recorded action or tool call. */
 export type TrailOutcome = 'ok' | 'warn' | 'error';
 
-/** What a caller hands to `actionTrail.record()`. The id is minted, not supplied. */
+/** What a caller hands to `trailFor(id).record()`. The id is minted, not supplied. */
 export interface TrailInput {
   /** MCP tool name, e.g. `browser_interact`, `browser_navigate`. */
   tool: string;
