@@ -356,6 +356,10 @@ async function onConnect(mgr, args = {}, options = {}) {
             await mgr.extensionServer.stop().catch(() => { });
             mgr.extensionServer = null;
         }
+        // Nothing else releases what the attempt bound before it threw: onDisconnect
+        // returns early when passive.
+        if (mgr.clientId)
+            releaseSessionState(mgr.clientId);
         mgr.state = 'passive';
         mgr.profile = null;
         mgr.extensionConnected = false;
@@ -426,6 +430,19 @@ async function rehydrateAttachedTab(mgr, client) {
 }
 // ─── Disconnect ─────────────────────────────────────────────────
 /**
+ * Close the session log, clear tip suppression counters, drop session-scoped
+ * experiment + cursor state. All keyed by client_id so another agent's
+ * AgentSession in this process keeps its own. Safe for an id that never got
+ * bound — every callee ignores unknown ids.
+ */
+function releaseSessionState(id) {
+    (0, shared_2.getRegistry)().clearSessionLog(id);
+    (0, tips_1.clearTipCounters)(id);
+    index_1.experimentRegistry.unbind(id);
+    (0, ephemeral_handles_1.dropSession)(id);
+    (0, index_2.destroySession)(id);
+}
+/**
  * Disconnect from the daemon: tear down bridge, close DaemonClient session,
  * reset experiments and mouse humanization, transition back to passive.
  * The daemon stays alive for other sessions.
@@ -458,16 +475,8 @@ async function onDisconnect(mgr, options = {}) {
         await mgr.extensionServer.stop();
         mgr.extensionServer = null;
     }
-    // Close session log, clear tip suppression counters, drop session-scoped
-    // experiment + cursor state. All keyed by client_id so another
-    // agent's AgentSession in this process keeps its own.
-    if (mgr.clientId) {
-        (0, shared_2.getRegistry)().clearSessionLog(mgr.clientId);
-        (0, tips_1.clearTipCounters)(mgr.clientId);
-        index_1.experimentRegistry.unbind(mgr.clientId);
-        (0, ephemeral_handles_1.dropSession)(mgr.clientId);
-        (0, index_2.destroySession)(mgr.clientId);
-    }
+    if (mgr.clientId)
+        releaseSessionState(mgr.clientId);
     mgr.state = 'passive';
     mgr.connectedBrowserName = null;
     mgr.attachedTab = null;

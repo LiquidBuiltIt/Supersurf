@@ -14,6 +14,7 @@ import type { BackendConfig, ToolSchema } from './backend/types';
 export declare class AgentSessionManager {
     private _config;
     private _sessions;
+    private _connecting;
     private _lobby;
     private _server;
     private _clientInfo;

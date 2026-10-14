@@ -25,6 +25,7 @@ function errorResult(text: string, raw: boolean, code: string): any {
 
 export class AgentSessionManager {
   private _sessions = new Map<string, AgentSession>();
+  private _connecting = new Set<string>();
   private _lobby: AgentSession;
   private _server: any = null;
   private _clientInfo: Record<string, unknown> = {};
@@ -98,15 +99,20 @@ export class AgentSessionManager {
   }
 
   private async _connect(username: string, rest: Record<string, unknown>, options: { rawResult?: boolean }): Promise<any> {
-    if (username && USERNAME_RE.test(username) && this._sessions.has(username)) {
+    if (username && USERNAME_RE.test(username) && (this._sessions.has(username) || this._connecting.has(username))) {
       return errorResult(`Username "${username}" is already in use by a live agent. Pick another username and call \`connect\` again.`, !!options.rawResult, 'username_in_use');
     }
     // Validation of empty / malformed names stays in onConnect (Task 4) — one copy of those texts.
-    const session = new AgentSession(this._config);
-    await session.initialize(this._server, this._clientInfo);
-    const result = await session.callTool('connect', { ...rest, username }, options);
-    if (session.state !== 'passive') this._sessions.set(username, session);
-    return result;
+    this._connecting.add(username);
+    try {
+      const session = new AgentSession(this._config);
+      await session.initialize(this._server, this._clientInfo);
+      const result = await session.callTool('connect', { ...rest, username }, options);
+      if (session.state !== 'passive') this._sessions.set(username, session);
+      return result;
+    } finally {
+      this._connecting.delete(username);
+    }
   }
 
   /** Prepend the caller's header to the first text block unless it already names them. */

@@ -380,6 +380,9 @@ export async function onConnect(
       await mgr.extensionServer.stop().catch(() => {});
       mgr.extensionServer = null;
     }
+    // Nothing else releases what the attempt bound before it threw: onDisconnect
+    // returns early when passive.
+    if (mgr.clientId) releaseSessionState(mgr.clientId);
     mgr.state = 'passive';
     mgr.profile = null;
     mgr.extensionConnected = false;
@@ -461,6 +464,20 @@ export async function rehydrateAttachedTab(mgr: AgentSessionAPI, client: TabQuer
 // ─── Disconnect ─────────────────────────────────────────────────
 
 /**
+ * Close the session log, clear tip suppression counters, drop session-scoped
+ * experiment + cursor state. All keyed by client_id so another agent's
+ * AgentSession in this process keeps its own. Safe for an id that never got
+ * bound — every callee ignores unknown ids.
+ */
+function releaseSessionState(id: string): void {
+  getRegistry().clearSessionLog(id);
+  clearTipCounters(id);
+  experimentRegistry.unbind(id);
+  dropEphemeralSession(id);
+  destroyHumanization(id);
+}
+
+/**
  * Disconnect from the daemon: tear down bridge, close DaemonClient session,
  * reset experiments and mouse humanization, transition back to passive.
  * The daemon stays alive for other sessions.
@@ -502,16 +519,7 @@ export async function onDisconnect(
     mgr.extensionServer = null;
   }
 
-  // Close session log, clear tip suppression counters, drop session-scoped
-  // experiment + cursor state. All keyed by client_id so another
-  // agent's AgentSession in this process keeps its own.
-  if (mgr.clientId) {
-    getRegistry().clearSessionLog(mgr.clientId);
-    clearTipCounters(mgr.clientId);
-    experimentRegistry.unbind(mgr.clientId);
-    dropEphemeralSession(mgr.clientId);
-    destroyHumanization(mgr.clientId);
-  }
+  if (mgr.clientId) releaseSessionState(mgr.clientId);
 
   mgr.state = 'passive';
   mgr.connectedBrowserName = null;

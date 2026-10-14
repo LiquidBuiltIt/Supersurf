@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ConfigService } from 'shared';
 import { AgentSessionManager } from '../src/agent-session-manager';
+import { experimentRegistry } from '../src/experimental/index';
 import type { BackendConfig } from '../src/backend';
 
 // ---- Mocks ----
@@ -14,6 +15,8 @@ const behavior = vi.hoisted(() => ({
   connect: 'ok' as 'ok' | 'fail',
   call: 'ok' as 'ok' | 'error' | 'throw',
   callDelayMs: 0,
+  initialize: 'ok' as 'ok' | 'throw',
+  startDelayMs: 0,
 }));
 const mocks = vi.hoisted(() => ({ queryDaemonStatus: vi.fn() }));
 
@@ -32,6 +35,7 @@ vi.mock('shared', async (importOriginal) => {
     DaemonClient: vi.fn(function (this: any, _sock: string, clientId: string) {
       this.clientId = clientId;
       this.start = vi.fn(async () => {
+        if (behavior.startDelayMs) await new Promise(r => setTimeout(r, behavior.startDelayMs));
         if (behavior.connect === 'fail') throw new Error('daemon down');
       });
       this.stop = vi.fn().mockResolvedValue(undefined);
@@ -71,7 +75,10 @@ vi.mock('../src/usage-metrics-logger', () => ({
 vi.mock('../src/tools', () => ({
   BrowserBridge: vi.fn(function (this: any) {
     let session: any = null;
-    this.initialize = vi.fn(async (_server: any, _ci: any, mgr: any) => { session = mgr; });
+    this.initialize = vi.fn(async (_server: any, _ci: any, mgr: any) => {
+      if (behavior.initialize === 'throw') throw new Error('bridge init failed');
+      session = mgr;
+    });
     this.listTools = vi.fn().mockResolvedValue([
       { name: 'browser_navigate', description: 'nav', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
       { name: 'browser_tabs', description: 'tabs', inputSchema: { type: 'object', properties: { action: { type: 'string' } } } },
@@ -119,6 +126,8 @@ describe('AgentSessionManager', () => {
     behavior.connect = 'ok';
     behavior.call = 'ok';
     behavior.callDelayMs = 0;
+    behavior.initialize = 'ok';
+    behavior.startDelayMs = 0;
     mocks.queryDaemonStatus.mockResolvedValue(null);
   });
 
@@ -150,6 +159,31 @@ describe('AgentSessionManager', () => {
     const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
     await m.callTool('connect', { username: 'sm-a' });
     expect(m.get('sm-a')).toBeUndefined();
+  });
+
+  it('concurrent connects for one name: exactly one wins, the other is rejected as in use', async () => {
+    behavior.startDelayMs = 20;
+    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const [r1, r2] = await Promise.all([
+      m.callTool('connect', { username: 'sm-a' }),
+      m.callTool('connect', { username: 'sm-a' }),
+    ]);
+    const texts = [r1, r2].map(r => r.content[0].text as string);
+    const rejected = texts.filter(t => t.includes('Username "sm-a" is already in use by a live agent. Pick another username and call `connect` again.'));
+    expect(rejected).toHaveLength(1);
+    expect(texts.filter(t => t.includes('Connected to Service'))).toHaveLength(1);
+    expect(m.get('sm-a')).toBeDefined();
+  });
+
+  it('a connect that fails after the experiment bind releases that id\'s per-session state', async () => {
+    experimentRegistry.enable('sm-a', 'page_diffing');
+    expect(experimentRegistry.isEnabled('page_diffing', 'sm-a')).toBe(true);
+    behavior.initialize = 'throw';
+    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const r = await m.callTool('connect', { username: 'sm-a' });
+    expect(r.isError).toBe(true);
+    expect(m.get('sm-a')).toBeUndefined();
+    expect(experimentRegistry.isEnabled('page_diffing', 'sm-a')).toBe(false);
   });
 
   it('missing username: exact text, with the connect-first hint when nobody is live', async () => {
