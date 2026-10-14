@@ -15,6 +15,8 @@ export declare class AgentSessionManager {
     private _config;
     private _sessions;
     private _connecting;
+    private _timers;
+    private _busy;
     private _lobby;
     private _server;
     private _clientInfo;
@@ -27,6 +29,8 @@ export declare class AgentSessionManager {
         rawResult?: boolean;
     }): Promise<any>;
     private _connect;
+    private _touch;
+    private _expire;
     /** Health only. Names and counts of other agents stay hidden until BACKLOG #69. */
     private _status;
     /** Prepend the caller's header to the first text block unless it already names them. */

@@ -26,6 +26,8 @@ class AgentSessionManager {
     _config;
     _sessions = new Map();
     _connecting = new Set();
+    _timers = new Map();
+    _busy = new Map();
     _lobby;
     _server = null;
     _clientInfo = {};
@@ -86,6 +88,8 @@ class AgentSessionManager {
                 `If it expired after ${this._idleMin} min idle, its tabs are closed — call \`connect\` to start again.`, raw, 'unknown_username');
         }
         let result;
+        this._busy.set(username, (this._busy.get(username) ?? 0) + 1);
+        this._touch(username);
         try {
             result = await session.callTool(name, rest, options);
         }
@@ -94,8 +98,23 @@ class AgentSessionManager {
                 throw err;
             result = { content: [{ type: 'text', text: `### Error\n\n${err?.message ?? String(err)}` }], isError: true };
         }
-        if (name === 'disconnect')
-            this._sessions.delete(username);
+        finally {
+            if (name === 'disconnect') {
+                this._sessions.delete(username);
+                clearTimeout(this._timers.get(username));
+                this._timers.delete(username);
+                this._busy.delete(username);
+            }
+            else {
+                const n = (this._busy.get(username) ?? 1) - 1;
+                if (n > 0)
+                    this._busy.set(username, n);
+                else
+                    this._busy.delete(username);
+                if (this._sessions.get(username) === session)
+                    this._touch(username);
+            }
+        }
         return raw ? result : this._decorate(session, result);
     }
     async _connect(username, rest, options) {
@@ -108,13 +127,30 @@ class AgentSessionManager {
             const session = new backend_1.AgentSession(this._config);
             await session.initialize(this._server, this._clientInfo);
             const result = await session.callTool('connect', { ...rest, username }, options);
-            if (session.state !== 'passive')
+            if (session.state !== 'passive') {
                 this._sessions.set(username, session);
+                this._touch(username);
+            }
             return result;
         }
         finally {
             this._connecting.delete(username);
         }
+    }
+    _touch(username) {
+        clearTimeout(this._timers.get(username));
+        const ms = this._config.configService?.get().agents.idle_timeout_ms ?? 600_000;
+        const t = setTimeout(() => { void this._expire(username); }, ms);
+        t.unref?.();
+        this._timers.set(username, t);
+    }
+    async _expire(username) {
+        if ((this._busy.get(username) ?? 0) > 0)
+            return this._touch(username);
+        const s = this._sessions.get(username);
+        this._sessions.delete(username);
+        this._timers.delete(username);
+        await s?.callTool('disconnect', {}, { rawResult: true }).catch(() => { });
     }
     /** Health only. Names and counts of other agents stay hidden until BACKLOG #69. */
     async _status(raw) {
@@ -143,6 +179,10 @@ class AgentSessionManager {
         return result;
     }
     async serverClosed() {
+        for (const t of this._timers.values())
+            clearTimeout(t);
+        this._timers.clear();
+        this._busy.clear();
         for (const s of this._sessions.values())
             await s.serverClosed().catch(() => { });
         this._sessions.clear();

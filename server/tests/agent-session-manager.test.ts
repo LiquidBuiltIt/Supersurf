@@ -3,7 +3,7 @@
  * decoration. The daemon transport, daemon spawn, BrowserBridge, logger and
  * metrics logger are mocked; AgentSession and the manager are real.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConfigService } from 'shared';
 import { AgentSessionManager } from '../src/agent-session-manager';
 import { experimentRegistry } from '../src/experimental/index';
@@ -131,6 +131,8 @@ describe('AgentSessionManager', () => {
     mocks.queryDaemonStatus.mockResolvedValue(null);
   });
 
+  afterEach(() => { vi.useRealTimers(); });
+
   it('injects a required username into every non-exempt schema', async () => {
     const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
     const tools = await m.listTools();
@@ -257,5 +259,56 @@ describe('AgentSessionManager', () => {
     const status = (await m.listTools()).find(t => t.name === 'status')!;
     expect((status.inputSchema.properties as Record<string, unknown>).username).toBeDefined();
     expect((status.inputSchema.required as string[] | undefined) ?? []).not.toContain('username');
+  });
+
+  describe('idle expiry', () => {
+    const idle = { agents: { idle_timeout_ms: 1000 } };
+
+    it('expires an idle username and disconnects its session', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], idle);
+      const s = m.get('sm-a')!; const spy = vi.spyOn(s, 'callTool');
+      await vi.advanceTimersByTimeAsync(1001);
+      expect(m.get('sm-a')).toBeUndefined();
+      expect(spy).toHaveBeenCalledWith('disconnect', {}, { rawResult: true });
+      expect((await m.callTool('browser_tabs', { username: 'sm-a', action: 'list' })).content[0].text).toContain('If it expired after');
+    });
+
+    it('a call resets the clock', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], idle);
+      await vi.advanceTimersByTimeAsync(800);
+      await m.callTool('browser_tabs', { username: 'sm-a', action: 'list' });
+      await vi.advanceTimersByTimeAsync(800);
+      expect(m.get('sm-a')).toBeDefined();
+    });
+
+    it('a long call is not expired under itself', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], idle);
+      behavior.callDelayMs = 5000;
+      const p = m.callTool('browser_tabs', { username: 'sm-a', action: 'list' });
+      await vi.advanceTimersByTimeAsync(5000); await p;
+      expect(m.get('sm-a')).toBeDefined();
+    });
+
+    it('disconnect leaves no timer and no second disconnect', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], idle);
+      const spy = vi.spyOn(m.get('sm-a')!, 'callTool');
+      expect(vi.getTimerCount()).toBe(1);
+      await m.callTool('disconnect', { username: 'sm-a' });
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(spy.mock.calls.filter(c => c[0] === 'disconnect')).toHaveLength(1);
+    });
+
+    it('releases the name even when the expiry disconnect throws', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], idle);
+      vi.spyOn(m.get('sm-a')!, 'callTool').mockRejectedValue(new Error('gone'));
+      await vi.advanceTimersByTimeAsync(1001);
+      expect(m.get('sm-a')).toBeUndefined();
+    });
   });
 });
