@@ -150,18 +150,20 @@ export class IPCServer {
 
             // Expecting session_register handshake
             if (msg.type === 'session_register' && msg.sessionId) {
-              sessionId = msg.sessionId;
-
-              if (this.sessions.has(sessionId!)) {
+              if (this.sessions.has(msg.sessionId)) {
                 this.sendLine(socket, {
                   type: 'session_reject',
                   reason:
-                    `Username "${sessionId}" is already in use by a live agent. ` +
+                    `Username "${msg.sessionId}" is already in use by a live agent. ` +
                     `Pick another username and call \`connect\` again.`,
                 });
                 socket.end();
                 return;
               }
+
+              // Only after the duplicate check: a rejected socket's close handler
+              // must not see a sessionId and tear down the live session.
+              sessionId = msg.sessionId;
 
               // Register the session
               this.sessions.add(sessionId!, socket);
@@ -218,7 +220,8 @@ export class IPCServer {
     });
 
     socket.on('close', () => {
-      if (sessionId) {
+      // A stale close from an old socket must not delete a newer session of the same id.
+      if (sessionId && this.sessions.get(sessionId)?.socket === socket) {
         debugLog(`Session disconnected: "${sessionId}"`);
 
         // Read before remove(): the extension closes these tabs on disconnect

@@ -12,6 +12,7 @@
 import { AgentSession } from './backend';
 import { USERNAME_RE } from './backend/handlers';
 import { queryDaemonStatus } from './daemon-spawn';
+import { dropTrail } from './playbooks/trail';
 import type { BackendConfig, ToolSchema } from './backend/types';
 
 const EXEMPT = new Set(['status', 'profile_create', 'profile_list', 'profile_delete', 'reload_mcp', 'experimental_features']);
@@ -131,6 +132,7 @@ export class AgentSessionManager {
     // Validation of empty / malformed names stays in onConnect (Task 4) — one copy of those texts.
     this._connecting.add(username);
     try {
+      dropTrail(username); // a late call from a previous session may have recreated it
       const session = new AgentSession(this._config);
       await session.initialize(this._server, this._clientInfo);
       const result = await session.callTool('connect', { ...rest, username }, options);
@@ -146,7 +148,8 @@ export class AgentSessionManager {
 
   private _touch(username: string): void {
     clearTimeout(this._timers.get(username));
-    const ms = this._config.configService?.get().agents.idle_timeout_ms ?? 600_000;
+    // Node clamps setTimeout delays above 2^31-1 ms to 1 ms.
+    const ms = Math.min(this._config.configService?.get().agents.idle_timeout_ms ?? 600_000, 2 ** 31 - 1);
     const t = setTimeout(() => { void this._expire(username); }, ms);
     t.unref?.();
     this._timers.set(username, t);

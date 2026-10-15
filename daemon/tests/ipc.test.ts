@@ -313,6 +313,24 @@ describe('IPCServer', () => {
     expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'sm-a', closeTabIds: [99] }, 5000);
   });
 
+  it('a rejected duplicate does not end the live session when its socket closes', async () => {
+    await ipc.start();
+    const live = await connectToSocket(sockPath);
+    writeLine(live, { type: 'session_register', sessionId: 'x' });
+    await readLine(live);
+    sessions.addCreatedTab('x', 7);
+
+    const dup = await connectToSocket(sockPath);
+    writeLine(dup, { type: 'session_register', sessionId: 'x' });
+    expect((await readLine(dup)).type).toBe('session_reject');
+    dup.destroy();
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(sessions.has('x')).toBe(true);
+    expect(bridge.sendCmd).not.toHaveBeenCalledWith('sessionDisconnect', expect.anything(), expect.anything());
+    live.end();
+  });
+
   it('puts the other live session ids on the envelope', async () => {
     const ack = await registerSecondSession('sm-a', 'sm-b');
     expect(ack.peers).toEqual(['sm-a']);

@@ -8,6 +8,7 @@ import { ConfigService } from 'shared';
 import { AgentSessionManager } from '../src/agent-session-manager';
 import { experimentRegistry } from '../src/experimental/index';
 import type { BackendConfig } from '../src/backend';
+import { trailFor } from '../src/playbooks/trail';
 
 // ---- Mocks ----
 
@@ -273,6 +274,15 @@ describe('AgentSessionManager', () => {
     expect((status.inputSchema.required as string[] | undefined) ?? []).not.toContain('username');
   });
 
+  it('a fresh connect starts with an empty action trail', async () => {
+    const m = await managerWith(['x']);
+    await m.callTool('disconnect', { username: 'x' });
+    // an in-flight call finishing after disconnect recreates the trail
+    trailFor('x').record({ tool: 'browser_tabs', type: 'browser_tabs', outcome: 'ok', message: 'late', params: {} } as any);
+    await m.callTool('connect', { username: 'x' });
+    expect(trailFor('x').tail(10).total).toBe(0);
+  });
+
   describe('idle expiry', () => {
     const idle = { agents: { idle_timeout_ms: 1000 } };
 
@@ -284,6 +294,13 @@ describe('AgentSessionManager', () => {
       expect(m.get('sm-a')).toBeUndefined();
       expect(spy).toHaveBeenCalledWith('disconnect', {}, { rawResult: true });
       expect((await m.callTool('browser_tabs', { username: 'sm-a', action: 'list' })).content[0].text).toContain('If it expired after');
+    });
+
+    it('an idle_timeout_ms above the setTimeout limit does not expire at once', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], { agents: { idle_timeout_ms: 1e10 } });
+      await vi.advanceTimersByTimeAsync(1001);
+      expect(m.get('sm-a')).toBeDefined();
     });
 
     it('a call resets the clock', async () => {

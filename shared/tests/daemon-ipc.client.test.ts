@@ -14,8 +14,10 @@ function createMockDaemon(sockPath: string, options: {
   ackResponse?: any;
   rejectReason?: string;
   onRequest?: (msg: any, socket: net.Socket) => void;
+  onConnection?: (socket: net.Socket) => void;
 } = {}): net.Server {
   const server = net.createServer((socket) => {
+    options.onConnection?.(socket);
     let buffer = '';
 
     socket.on('data', (data) => {
@@ -81,6 +83,20 @@ describe('DaemonClient', () => {
       expect(client.buildTime).toBe('2026-01-01T00:00:00Z');
 
       await client.stop();
+    });
+
+    it('stop() resolves only after the daemon side has seen the socket close', async () => {
+      let serverSawClose = false;
+      mockDaemon = createMockDaemon(sockPath, {
+        onConnection: (socket) => { socket.on('close', () => { serverSawClose = true; }); },
+      });
+      await new Promise(r => mockDaemon!.on('listening', r));
+
+      const client = new DaemonClient(sockPath, 'test-session');
+      await client.start();
+      await client.stop();
+
+      expect(serverSawClose).toBe(true);
     });
 
     it('rejects when daemon rejects session', async () => {
@@ -187,10 +203,11 @@ describe('DaemonClient', () => {
       const client = new DaemonClient(sockPath, 'test');
       await client.start();
 
-      const promise = client.sendCmd('slow', {}, 30000);
+      // Attach the handler first: stop() now awaits the socket close, so the drain rejects before it returns.
+      const assertion = expect(client.sendCmd('slow', {}, 30000)).rejects.toThrow('closed');
       await client.stop();
 
-      await expect(promise).rejects.toThrow('closed');
+      await assertion;
     });
   });
 
