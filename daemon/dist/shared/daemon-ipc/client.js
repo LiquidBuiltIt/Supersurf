@@ -230,6 +230,19 @@ class DaemonClient {
     async stop() {
         log('Disconnecting from daemon');
         this.drainInflight();
+        // Let the daemon see the close before the caller frees the username,
+        // or an immediate reconnect under it is rejected as a duplicate.
+        const socket = this.socket;
+        if (socket && !socket.destroyed) {
+            socket.removeAllListeners();
+            await new Promise((resolve) => {
+                const timer = setTimeout(resolve, 1000);
+                timer.unref?.();
+                socket.once('close', () => { clearTimeout(timer); resolve(); });
+                socket.once('error', () => { clearTimeout(timer); resolve(); });
+                socket.end();
+            });
+        }
         this.cleanup();
         this._connected = false;
     }
