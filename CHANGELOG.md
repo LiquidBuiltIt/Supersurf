@@ -41,6 +41,11 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- feat: **Breaking: one server process now serves many agents, each by its own `username`.** `connect` takes `username` (was `client_id`), and every tool except `status`, `profile_*` and `reload_mcp` requires it. Each username is its own session; a name already in use, a missing name and an unknown name are refused with text that says how to fix the call.
+- feat: **Every result's status line names the caller: `👤 you are <name>`, errors included.**
+- feat: **`disconnect` and idle expiry close the tabs the agent created and release the tabs it attached to.** Idle expiry is `agents.idle_timeout_ms` (default 10 minutes); a call in flight keeps the name alive.
+- feat: **`status` without a `username` reports server and daemon health only.** With a username it also resets that agent's idle timer, and it flags a username that has no live session.
+- feat: **The action trail behind `playbooks history` is per agent.**
 - fix: **The extension-download error and the failed-registration page now print a restart command that works.** Both said `npx supersurf daemon restart`, which runs an unrelated npm package. They now print `npx supersurf-daemon@latest restart`, like every other daemon hint.
 - fix: **`install.sh --latest` no longer fails at "Installing dependencies" on a fresh clone.** The clone has no lockfile, and a plain `npm install` crashed in npm's peer resolver (`Cannot read properties of null (reading 'edgesOut')`). The installer now runs `npm install --legacy-peer-deps`.
 - fix: **`supersurf-mcp` now installs exactly the daemon released with it.** It asked for `supersurf-daemon ^3.0.0`, so `supersurf-mcp@4.0.0` ran with a 3.x daemon, and a dev-mode clone downloaded that 3.x daemon from npm in place of its own. The pin is now the exact release version, and `npm run version.bump` updates it on every release.
