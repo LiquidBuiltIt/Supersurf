@@ -286,6 +286,13 @@ describe('AgentSessionManager', () => {
       expect((await m.callTool('browser_tabs', { username: 'sm-a', action: 'list' })).content[0].text).toContain('If it expired after');
     });
 
+    it('an idle_timeout_ms above the setTimeout limit does not expire at once', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], { agents: { idle_timeout_ms: 1e10 } });
+      await vi.advanceTimersByTimeAsync(1001);
+      expect(m.get('sm-a')).toBeDefined();
+    });
+
     it('a call resets the clock', async () => {
       vi.useFakeTimers();
       const m = await managerWith(['sm-a'], idle);

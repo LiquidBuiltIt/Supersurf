@@ -144,7 +144,8 @@ class AgentSessionManager {
     }
     _touch(username) {
         clearTimeout(this._timers.get(username));
-        const ms = this._config.configService?.get().agents.idle_timeout_ms ?? 600_000;
+        // Node clamps setTimeout delays above 2^31-1 ms to 1 ms.
+        const ms = Math.min(this._config.configService?.get().agents.idle_timeout_ms ?? 600_000, 2 ** 31 - 1);
         const t = setTimeout(() => { void this._expire(username); }, ms);
         t.unref?.();
         this._timers.set(username, t);
