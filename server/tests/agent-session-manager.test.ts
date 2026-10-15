@@ -254,6 +254,18 @@ describe('AgentSessionManager', () => {
     expect((await m.callTool('status', { username: 'sm-a' })).content[0].text).toContain('👤 you are sm-a');
   });
 
+  it('status with an unknown username returns health plus the unknown-username hint', async () => {
+    mocks.queryDaemonStatus.mockResolvedValue({ version: '9.9.9', uptimeSeconds: 61, extensionConnected: true, extensionBrowser: 'Chromium' });
+    const m = await managerWith(['sm-a']);
+    const raw = await m.callTool('status', { username: 'ghost' }, { rawResult: true });
+    expect(raw.warning).toMatch(/No live session for username "ghost"/);
+    expect(raw.daemon.running).toBe(true);
+    const text = (await m.callTool('status', { username: 'ghost' })).content[0].text as string;
+    expect(text).toMatch(/^SuperSurf v/);
+    expect(text).toContain('No live session for username "ghost"');
+    expect(text).not.toContain('sm-a');
+  });
+
   it('status lists an optional username property', async () => {
     const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
     const status = (await m.listTools()).find(t => t.name === 'status')!;
@@ -316,6 +328,15 @@ describe('AgentSessionManager', () => {
       expect(r.isError).toBe(true);
       expect(s.state).not.toBe('passive');
       expect(m.get('sm-a')).toBe(s);
+    });
+
+    it('status with a live username resets the idle clock', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], idle);
+      await vi.advanceTimersByTimeAsync(800);
+      await m.callTool('status', { username: 'sm-a' });
+      await vi.advanceTimersByTimeAsync(800); // past the original deadline, under one timeout from status
+      expect(m.get('sm-a')).toBeDefined();
     });
 
     it('disconnect leaves no timer and no second disconnect', async () => {
