@@ -99,7 +99,7 @@ class AgentSessionManager {
             result = { content: [{ type: 'text', text: `### Error\n\n${err?.message ?? String(err)}` }], isError: true };
         }
         finally {
-            if (name === 'disconnect') {
+            if (name === 'disconnect' && session.state === 'passive') {
                 this._sessions.delete(username);
                 clearTimeout(this._timers.get(username));
                 this._timers.delete(username);

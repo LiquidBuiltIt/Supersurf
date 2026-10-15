@@ -308,6 +308,16 @@ describe('AgentSessionManager', () => {
       expect(m.get('sm-a')).toBeDefined();
     });
 
+    it('a failed disconnect keeps the name routable', async () => {
+      const m = await managerWith(['sm-a']);
+      const s = m.get('sm-a')!;
+      vi.spyOn(s, 'callTool').mockRejectedValue(new Error('daemon hung up'));
+      const r = await m.callTool('disconnect', { username: 'sm-a' });
+      expect(r.isError).toBe(true);
+      expect(s.state).not.toBe('passive');
+      expect(m.get('sm-a')).toBe(s);
+    });
+
     it('disconnect leaves no timer and no second disconnect', async () => {
       vi.useFakeTimers();
       const m = await managerWith(['sm-a'], idle);
