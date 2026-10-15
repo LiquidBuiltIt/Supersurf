@@ -63,7 +63,7 @@ function gate(sessionId) {
 }
 async function onPlaybooks(ctx, args, options, deps = {}) {
     switch (args.action) {
-        case 'history': return doHistory(args);
+        case 'history': return doHistory(ctx, args);
         case 'list': return (0, report_1.doList)(args);
         case 'inspect': return (0, report_1.doInspect)(args);
         case 'validate': return (0, report_1.doValidate)(args);
@@ -79,14 +79,14 @@ async function onPlaybooks(ctx, args, options, deps = {}) {
                 'Expected one of: history, list, inspect, validate, run.', true);
     }
 }
-function doHistory(args) {
+function doHistory(ctx, args) {
     const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.min(args.limit, 500) : DEFAULT_LIMIT;
     const offset = typeof args.offset === 'number' && args.offset > 0 ? args.offset : 0;
-    const { entries, total } = trail_1.actionTrail.tail(limit, offset);
+    const { entries, total } = (0, trail_1.trailFor)(ctx.agentSession?.clientId).tail(limit, offset);
     return text((0, trail_format_1.formatHistory)(entries, total, offset));
 }
 async function doRun(ctx, args, deps) {
-    const blocked = gate(ctx.connectionManager?.clientId ?? null);
+    const blocked = gate(ctx.agentSession?.clientId ?? null);
     if (blocked)
         return text(blocked, true);
     const name = (0, paths_1.normalizeName)(String(args.name ?? ''));
@@ -100,7 +100,7 @@ async function doRun(ctx, args, deps) {
     }
     // Caller-based eval gate. This path is always an agent.
     if (rec.meta.permissions?.includes('eval')) {
-        const allowed = ctx.connectionManager?.config?.configService?.get?.().security?.playbook_eval;
+        const allowed = ctx.agentSession?.config?.configService?.get?.().security?.playbook_eval;
         if (allowed === false) {
             return text(`\`${name}\` declares the \`eval\` permission and \`security.playbook_eval\` is false, ` +
                 'so agent-invoked runs are refused.\n\n' +

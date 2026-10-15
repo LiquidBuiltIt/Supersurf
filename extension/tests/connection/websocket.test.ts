@@ -677,6 +677,28 @@ describe('WebSocketConnection', () => {
     });
   });
 
+  describe('session teardown ordering', () => {
+    it('holds a same-session command until its sessionDisconnect finishes, but not other sessions', async () => {
+      const conn = new WebSocketConnection(createMockChrome(), createMockLogger(), createMockIconManager());
+      const order: string[] = [];
+      let finish!: () => void;
+      conn.registerCommandHandler('sessionDisconnect', () => new Promise<void>((r) => {
+        finish = () => { order.push('teardown done'); r(); };
+      }));
+      conn.registerCommandHandler('createTab', async (params: any) => { order.push(`createTab ${params._sessionId}`); });
+
+      const teardown = (conn as any)._routeCommand({ method: 'sessionDisconnect', params: { sessionId: 'x' } });
+      const sameSession = (conn as any)._routeCommand({ method: 'createTab', params: { _sessionId: 'x' } });
+      await (conn as any)._routeCommand({ method: 'createTab', params: { _sessionId: 'y' } });
+      await Promise.resolve();
+      expect(order).toEqual(['createTab y']);
+
+      finish();
+      await Promise.all([teardown, sameSession]);
+      expect(order).toEqual(['createTab y', 'teardown done', 'createTab x']);
+    });
+  });
+
   describe('_handleClose()', () => {
     it('schedules the normal 5s reconnect on a plain close', () => {
       (ws as any)._handleClose({ code: 1006, reason: '' });

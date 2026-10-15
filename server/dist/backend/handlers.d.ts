@@ -1,7 +1,7 @@
 /**
  * Connection-level tool handlers — connect, disconnect, status, experimental features, reload.
  *
- * Each handler receives the ConnectionManagerAPI (mutable state), the tool arguments,
+ * Each handler receives the AgentSessionAPI (mutable state), the tool arguments,
  * and an options object. Handlers return either MCP content responses (for MCP mode)
  * or raw JSON objects (for script mode via `rawResult: true`).
  *
@@ -12,13 +12,16 @@
  *
  * @module backend/handlers
  */
-import type { ConnectionManagerAPI } from './types';
+import type { AgentSessionAPI } from './types';
+/** A username ends up in the `metrics-<username>-…` log filename, so keep it filename-safe. */
+export declare const USERNAME_RE: RegExp;
+export declare const BAD_NAME_TEXT = "`username` must be 1-64 characters: letters, digits, dot, dash or underscore, starting with a letter or digit (e.g. `claudebox-geo-research`).";
 /**
- * Connect to the SuperSurf daemon: validate client_id, spawn daemon if needed,
+ * Connect to the SuperSurf daemon: validate username, spawn daemon if needed,
  * connect via DaemonClient, create BrowserBridge, apply pre-enabled experiments.
  * Transitions state from passive to active.
  */
-export declare function onConnect(mgr: ConnectionManagerAPI, args?: Record<string, unknown>, options?: {
+export declare function onConnect(mgr: AgentSessionAPI, args?: Record<string, unknown>, options?: {
     rawResult?: boolean;
 }): Promise<any>;
 /**
@@ -30,7 +33,7 @@ export declare function onConnect(mgr: ConnectionManagerAPI, args?: Record<strin
  * nulls the tab) and mis-filed fingerprint captures into the 'unknown' bucket. Exported
  * for testing.
  */
-export declare function applyTabInfoUpdate(mgr: ConnectionManagerAPI, tabInfo: any): void;
+export declare function applyTabInfoUpdate(mgr: AgentSessionAPI, tabInfo: any): void;
 /** Minimal daemon-client surface needed to re-query tabs. */
 interface TabQueryClient {
     sendCmd: (method: string, params: Record<string, unknown>, timeout?: number) => Promise<unknown>;
@@ -41,33 +44,33 @@ interface TabQueryClient {
  * navigation fires a `tab_info_update`, so any fingerprint capture in between has no
  * live URL and gets dropped. Best-effort: any failure falls back to null. Exported for testing.
  */
-export declare function rehydrateAttachedTab(mgr: ConnectionManagerAPI, client: TabQueryClient): Promise<void>;
+export declare function rehydrateAttachedTab(mgr: AgentSessionAPI, client: TabQueryClient): Promise<void>;
 /**
  * Disconnect from the daemon: tear down bridge, close DaemonClient session,
  * reset experiments and mouse humanization, transition back to passive.
  * The daemon stays alive for other sessions.
  */
-export declare function onDisconnect(mgr: ConnectionManagerAPI, options?: {
+export declare function onDisconnect(mgr: AgentSessionAPI, options?: {
     rawResult?: boolean;
 }): Promise<any>;
 /** Return current connection state, browser info, and attached tab details. */
-export declare function onStatus(mgr: ConnectionManagerAPI, options?: {
+export declare function onStatus(mgr: AgentSessionAPI, options?: {
     rawResult?: boolean;
 }): Promise<any>;
 /** Create a new managed Chromium profile. */
-export declare function onProfileCreate(mgr: ConnectionManagerAPI, args?: Record<string, unknown>, options?: {
+export declare function onProfileCreate(mgr: AgentSessionAPI, args?: Record<string, unknown>, options?: {
     rawResult?: boolean;
 }): Promise<any>;
 /** List all managed Chromium profiles. */
-export declare function onProfileList(mgr: ConnectionManagerAPI, options?: {
+export declare function onProfileList(mgr: AgentSessionAPI, options?: {
     rawResult?: boolean;
 }): Promise<any>;
 /** Delete a managed Chromium profile. */
-export declare function onProfileDelete(mgr: ConnectionManagerAPI, args?: Record<string, unknown>, options?: {
+export declare function onProfileDelete(mgr: AgentSessionAPI, args?: Record<string, unknown>, options?: {
     rawResult?: boolean;
 }): Promise<any>;
 /** Trigger hot reload by exiting with code 42. The debug wrapper catches this and respawns. */
-export declare function onReloadMCP(mgr: ConnectionManagerAPI, options?: {
+export declare function onReloadMCP(mgr: AgentSessionAPI, options?: {
     rawResult?: boolean;
 }): any;
 export {};

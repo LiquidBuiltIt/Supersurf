@@ -2,7 +2,7 @@
  * The playbook validation cache.
  *
  * Validation is stat-on-tool-call (spec §4): `refreshRegistry()` runs once at
- * the top of `ConnectionManager.callTool()`, and the verdict rides that tool's
+ * the top of `AgentSession.callTool()`, and the verdict rides that tool's
  * result. Two gates keep the cost near zero on the common path —
  *
  *   1. `stat` (mtime + size) decides whether to read the file at all;

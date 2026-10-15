@@ -31,12 +31,14 @@ interface StatusInput {
   lastConnectError?: string | null;
   /** Pre-rendered `playbooks/hint.ts:formatPlaybookHintLine` output, or null/undefined
    *  when there is nothing to show. Domain matching and once-per-session suppression
-   *  happen in `ConnectionManager` — this function only places the line. */
+   *  happen in `AgentSession` — this function only places the line. */
   playbookHint?: string | null;
   /** Pre-rendered `playbooks/hint.ts:formatInvalidPlaybookWarning` output, or
    *  null when every script validates. Placed ABOVE the hint so a broken file
    *  is never hidden behind a suggestion. */
   playbookWarning?: string | null;
+  /** The agent's own username (`AgentSession.clientId`), echoed so it can read its name back. */
+  username?: string | null;
 }
 
 /**
@@ -44,7 +46,7 @@ interface StatusInput {
  * Returns a string ending with `\n---\n\n` for markdown separation.
  */
 export function buildStatusHeader(input: StatusInput): string {
-  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, extensionConnected, configDriftWarning, lastConnectError, playbookHint, playbookWarning } = input;
+  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, extensionConnected, configDriftWarning, lastConnectError, playbookHint, playbookWarning, username } = input;
   const version = config.server.version;
   const driftLine = configDriftWarning
     ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf-daemon@latest restart`\n\n'
@@ -58,7 +60,8 @@ export function buildStatusHeader(input: StatusInput): string {
     // state, so a broken script must be reportable before `connect`.
     const passiveWarn = playbookWarning ? `\n${playbookWarning}` : '';
     const passiveHint = playbookHint ? `\n${playbookHint}` : '';
-    return `${driftLine}${failLine}🔴 v${version} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
+    const who = username ? ` | 👤 you are ${username}` : '';
+    return `${driftLine}${failLine}🔴 v${version}${who} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
   }
 
   const parts: string[] = [];
@@ -80,6 +83,7 @@ export function buildStatusHeader(input: StatusInput): string {
     buildTime && debugMode ? `v${version} [${buildTime}]` : `v${version}`;
   const noExtension = extensionConnected === false;
   parts.push(`${noExtension ? '⚠️' : '✅'} ${versionStr}`);
+  if (username) parts.push(`👤 you are ${username}`);
   if (noExtension) {
     parts.push(`No extension connected — open the SuperSurf popup, or connect with profile:'<name>' to spawn a managed browser`);
   }

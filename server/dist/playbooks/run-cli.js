@@ -5,7 +5,7 @@
  * `ls`, `inspect`, `validate` and `migrate` live in the compiled `supersurf`
  * binary (`cli/`) and stay there: they are daemon-free and dependency-light.
  * `run` cannot follow them. It reaches `playbooks/runner.ts` and therefore the
- * ConnectionManager, the daemon and `tools/` — including `tools/screenshot.ts`,
+ * AgentSession, the daemon and `tools/` — including `tools/screenshot.ts`,
  * the tree's only `sharp` importer. Compiling that into the binary would
  * reinstate the per-platform native-addon build matrix the extraction removed.
  * So the binary shells out to `npx supersurf-mcp@<version> playbook run …`, and

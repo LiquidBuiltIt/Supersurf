@@ -4,7 +4,7 @@
  *
  * Spec §7.6 puts the CLIENT method name on the wire (`{"t":"cmd","method":"click",…}`),
  * and §7.5's `runPlaybookScript` hands it to `onCommand` unchanged. `host.ts` holds
- * no `ConnectionManager`, so the translation to an MCP tool belongs on this side of
+ * no `AgentSession`, so the translation to an MCP tool belongs on this side of
  * the pipe — here.
  *
  * The `params` shapes below are the §7.7 signatures with positional arguments

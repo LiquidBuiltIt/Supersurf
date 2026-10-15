@@ -32,9 +32,9 @@ const AVAILABLE_EXPERIMENTS = ['page_diffing', 'smart_waiting', 'mouse_humanizat
  * Reads are synchronous (from the session's local cache). Writes IPC to the
  * daemon over that session's transport and update its cache on success.
  *
- * The session id is the `client_id` passed to `connect`, which the daemon
+ * The session id is the `username` passed to `connect` (the daemon session id), which the daemon
  * already enforces as unique (`daemon/src/ipc.ts` rejects duplicates with
- * 'Session ID already in use'). Two ConnectionManagers in one process
+ * 'Session ID already in use'). Two AgentSessions in one process
  * therefore get two slots and cannot clobber each other.
  *
  * Every read is per-session. A `null` session id (no session bound yet) answers

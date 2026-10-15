@@ -8,7 +8,7 @@
  * @module tips
  */
 
-import { actionTrail } from './playbooks/trail';
+import { trailFor } from './playbooks/trail';
 import type { TrailEntry } from './playbooks/types';
 import { experimentRegistry } from './experimental/index';
 
@@ -17,7 +17,7 @@ interface TipRule {
   priority: number;
   /** Specific MCP tool name, or `'*'` to match any tool except `playbooks`. */
   tool: string;
-  match: (params: Record<string, unknown>, result: string, error?: string) => boolean;
+  match: (params: Record<string, unknown>, result: string, error?: string, sessionId?: string | null) => boolean;
   /** Static message, or a function resolved at fire time (e.g. gate-dependent copy). */
   message: string | ((sessionId?: string | null) => string);
   /** Plugin skill this tip belongs to (without the `supersurf:` prefix). Adds a
@@ -78,10 +78,11 @@ function signature(e: TrailEntry): string {
  * 3-entry window, and that window touches at least 2 distinct tools (so a
  * plain scroll/scroll/scroll streak doesn't count).
  */
-function hasRepeatedWindow(): boolean {
-  const size = actionTrail.size();
+function hasRepeatedWindow(sessionId?: string | null): boolean {
+  const trail = trailFor(sessionId);
+  const size = trail.size();
   if (size < 6) return false;
-  const { entries } = actionTrail.tail(size);
+  const { entries } = trail.tail(size);
   const n = entries.length;
   const last = entries.slice(n - 3, n);
   if (new Set(last.map((e) => e.tool)).size < 2) return false;
@@ -361,7 +362,7 @@ const TIPS: TipRule[] = [
     skill: 'creating-playbooks',
     priority: 1,
     tool: '*',
-    match: () => actionTrail.size() >= 8,
+    match: (_p, _r, _e, sid) => trailFor(sid).size() >= 8,
     message: (sessionId) => playbooksTipMessage(PLAYBOOKS_MILESTONE_ON, sessionId),
   },
   {
@@ -369,7 +370,7 @@ const TIPS: TipRule[] = [
     skill: 'creating-playbooks',
     priority: 2,
     tool: '*',
-    match: () => hasRepeatedWindow(),
+    match: (_p, _r, _e, sid) => hasRepeatedWindow(sid),
     message: (sessionId) => playbooksTipMessage(PLAYBOOKS_REPEAT_ON, sessionId),
   },
 
@@ -394,7 +395,7 @@ export function getTip(
 
   for (const rule of TIPS) {
     if (!ruleAppliesTo(rule, tool)) continue;
-    if (rule.match(params, result, error)) {
+    if (rule.match(params, result, error, sessionId)) {
       matched.push(rule);
       if (ONCE_PER_SESSION_IDS.has(rule.id) && fired?.has(rule.id)) continue;
       if (!best || rule.priority < best.priority) {

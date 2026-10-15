@@ -10,12 +10,12 @@ description: Drive a real Chrome browser through the SuperSurf MCP server. Use w
 Start every session like this:
 
 ```
-connect client_id='my-task'
-browser_tabs action='list'
-browser_tabs action='attach' tabId=123
-browser_snapshot
+connect username='my-task'
+browser_tabs username='my-task' action='list'
+browser_tabs username='my-task' action='attach' tabId=123
+browser_snapshot username='my-task'
 ...
-disconnect
+disconnect username='my-task'
 ```
 
 Every response starts with a status header: connection state, attached tab, detected tech stack.
@@ -23,6 +23,8 @@ Every response starts with a status header: connection state, attached tab, dete
 ## Hard Rules
 
 1. Call `connect`, then attach a tab (`browser_tabs` action `attach`), before any other browser tool.
+   - **Your username is your session.** Pass the same `username` on every SuperSurf call — it is printed in every status line as `👤 you are <name>`. Starting a child agent? Give it its own username (e.g. `<yours>-child-1`); two agents on one name share one session and fight over its tabs.
+   - **When you finish, `disconnect`.** Your tabs close; tabs you attached to are released. An idle username expires after 10 minutes and its tabs close the same way.
 2. Run `browser_snapshot` or `browser_lookup` before acting. Never guess a selector.
 3. Never type a credential. Use `secure_fill`; if the credential is missing, ask the user.
 4. Do not take a screenshot to read text. Use `browser_snapshot` or `browser_extract_content`.

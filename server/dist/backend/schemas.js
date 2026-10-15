@@ -22,20 +22,20 @@ function getConnectionToolSchemas() {
     return [
         {
             name: 'connect',
-            description: 'Connect to the SuperSurf service and start browser automation. Pass a client_id to identify this session. Read the skill guide for best practices: https://liquidbuiltit.github.io/Supersurf/skill.md',
+            description: 'Register this agent under `username` and connect. Pass the same `username` to every later call. Read the skill guide for best practices: https://liquidbuiltit.github.io/Supersurf/skill.md',
             inputSchema: {
                 type: 'object',
                 properties: {
-                    client_id: {
+                    username: {
                         type: 'string',
-                        description: 'Human-readable identifier for this MCP client (e.g., "my-project").',
+                        description: 'Your agent name, 1-64 chars `[A-Za-z0-9._-]`. Every later SuperSurf call must pass the same `username`. Child agents pick their own.',
                     },
                     profile: {
                         type: 'string',
                         description: 'Profile name for isolated Chromium instance, or omit for unmanaged connection to user\'s own browser.',
                     },
                 },
-                required: ['client_id'],
+                required: ['username'],
             },
             annotations: {
                 title: 'Connect to service',
@@ -46,7 +46,7 @@ function getConnectionToolSchemas() {
         },
         {
             name: 'disconnect',
-            description: 'Disconnect this session from the SuperSurf service.',
+            description: 'End your session: closes the tabs you created, releases tabs you attached to.',
             inputSchema: { type: 'object', properties: {}, required: [] },
             annotations: {
                 title: 'Disconnect from service',
@@ -57,8 +57,12 @@ function getConnectionToolSchemas() {
         },
         {
             name: 'status',
-            description: 'Show current connection state: passive (idle), active (server up), or connected (extension linked).',
-            inputSchema: { type: 'object', properties: {}, required: [] },
+            description: 'Without `username`: server and daemon health. With your `username`: the status of your own session.',
+            inputSchema: {
+                type: 'object',
+                properties: { username: { type: 'string', description: 'Your agent name. Omit for a health check that names no one.' } },
+                required: [],
+            },
             annotations: {
                 title: 'Connection status',
                 readOnlyHint: true,

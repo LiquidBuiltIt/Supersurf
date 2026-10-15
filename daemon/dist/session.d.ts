@@ -35,6 +35,8 @@ export declare class SessionRegistry {
     addOwnedTab(sessionId: string, tabId: number): void;
     /** Remove a tab from a session's ownership set. */
     removeOwnedTab(sessionId: string, tabId: number): void;
+    /** Mark a tab as created by this session — it is closed when the session ends. */
+    addCreatedTab(sessionId: string, tabId: number): void;
     /** Find which session owns a tab by its ID. Returns null if unowned. */
     findTabOwner(tabId: number): string | null;
     /** Set the profile ID for a session. */

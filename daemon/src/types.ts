@@ -11,6 +11,8 @@ export interface DaemonSession {
   sessionId: string;
   socket: net.Socket;
   ownedTabs: Set<number>;
+  /** Tabs this session created (not claimed) — closed when the session ends. */
+  createdTabs: Set<number>;
   attachedTabId: number | null;
   groupId: number | null;
   profileId: string | null;

@@ -15,17 +15,17 @@ async function getViewportSize(ctx) {
 /**
  * Resolve the mouse-humanization session key for a tool call.
  *
- * Keyed by the owning ConnectionManager's `client_id` so two managers in one
+ * Keyed by the owning AgentSession's `username` (the daemon session id) so two AgentSessions in one
  * Node process keep separate cursor state. Falls back to '_default' only for
- * contexts built without a connection manager (unit tests) — BrowserBridge
+ * contexts built without an AgentSession (unit tests) — BrowserBridge
  * always wires one in production.
  */
 function humanizationSessionId(ctx) {
-    const id = ctx.connectionManager?.clientId;
+    const id = ctx.agentSession?.clientId;
     return typeof id === 'string' && id.length > 0 ? id : '_default';
 }
 async function moveCursorTo(ctx, x, y) {
-    if (index_1.experimentRegistry.isEnabled('mouse_humanization', ctx.connectionManager?.clientId ?? null)) {
+    if (index_1.experimentRegistry.isEnabled('mouse_humanization', ctx.agentSession?.clientId ?? null)) {
         try {
             const viewport = await getViewportSize(ctx);
             const waypoints = (0, index_2.generateMovement)(humanizationSessionId(ctx), x, y, viewport);

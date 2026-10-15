@@ -35,7 +35,7 @@ function rec(over: Partial<FingerprintRecord> & { selector: string }): Fingerpri
 /** A built ToolContext from a BrowserBridge with a stub transport and a fixed attached-tab URL. */
 function ctxAt(url: string): any {
   const bridge: any = new BrowserBridge({}, { sendCmd: async () => ({}) } as any);
-  bridge.connectionManager = { clientId: 'test', getAttachedTab: () => ({ url }) };
+  bridge.agentSession = { clientId: 'test', getAttachedTab: () => ({ url }) };
   return bridge.buildContext();
 }
 

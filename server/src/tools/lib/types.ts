@@ -34,7 +34,7 @@ export interface ToolContext {
   /** Transport for sending commands to the Chrome extension. */
   ext: IExtensionTransport;
   /** Tracks connection state, attached tab, stealth mode, etc. */
-  connectionManager: any;
+  agentSession: any;
   /** Resolved ConfigService (CLI + env + file + defaults). Optional for legacy callers. */
   config?: ConfigService;
   /** Usage-metrics logger, when enabled. Used by the action recorder. */

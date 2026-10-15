@@ -95,7 +95,7 @@ describe('cli/ imports server source from exactly one file (BACKLOG #28, ruling 
   });
 
   it('server-imports.ts never reaches the runner, the tools tree or the experiment registry', () => {
-    // Those three are what drag the ConnectionManager and, through
+    // Those three are what drag the AgentSession and, through
     // tools/screenshot.ts, the sharp native addon into the compiled binary.
     const txt = fs.readFileSync(path.join(SRC, ALLOWED), 'utf8');
     const specifiers = [...txt.matchAll(SPECIFIER)];

@@ -1,12 +1,11 @@
 /**
- * ActionTrail — the in-memory record of every browser action this MCP session
+ * ActionTrail — the in-memory record of every browser action this agent session
  * performed, each with a monotonic id the agent can cite when building a playbook.
  *
- * LIFETIME: module-level singleton, so it lives exactly as long as the server
- * process. One server process serves exactly one MCP client for its whole life
- * (`cli.ts` connects a single StdioServerTransport with no accept loop), so
- * module scope IS session scope. Ids therefore never reset mid-conversation —
- * an id the agent saw an hour ago still means the same action.
+ * LIFETIME: one trail per agent session, keyed by its username (`trailFor`),
+ * dropped on disconnect (`dropTrail`). Ids never reset mid-conversation —
+ * an id the agent saw an hour ago still means the same action — and one agent's
+ * ids and tips never see another agent's actions.
  *
  * NOT the usage-metrics logger. That trail is gated by `logging.usage_metrics`
  * (default off) and redacts `value`, which would reconstruct a `select_option`
@@ -74,4 +73,14 @@ class ActionTrail {
   }
 }
 
-export const actionTrail = new ActionTrail();
+const trails = new Map<string, ActionTrail>();
+/** The trail of one agent session. `null` (script mode before connect) gets its own bucket. */
+export function trailFor(sessionId: string | null | undefined): ActionTrail {
+  const key = sessionId ?? '';
+  let t = trails.get(key);
+  if (!t) { t = new ActionTrail(); trails.set(key, t); }
+  return t;
+}
+export function dropTrail(sessionId: string): void { trails.delete(sessionId); }
+/** @internal */
+export function _resetTrailsForTest(): void { trails.clear(); }

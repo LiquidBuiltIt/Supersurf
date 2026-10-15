@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BrowserBridge } from '../src/tools';
-import { actionTrail } from '../src/playbooks/trail';
+import { _resetTrailsForTest } from '../src/playbooks/trail';
 
 // Mock the logger
 vi.mock('shared', async (importOriginal) => {
@@ -60,7 +60,7 @@ function createMockExt() {
   } as any;
 }
 
-function createMockConnectionManager() {
+function createMockAgentSession() {
   return {
     setAttachedTab: vi.fn(),
     getAttachedTab: vi.fn().mockReturnValue(null),
@@ -75,13 +75,13 @@ function createMockConnectionManager() {
 describe('BrowserBridge', () => {
   let bridge: BrowserBridge;
   let mockExt: ReturnType<typeof createMockExt>;
-  let mockCM: ReturnType<typeof createMockConnectionManager>;
+  let mockCM: ReturnType<typeof createMockAgentSession>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    actionTrail._resetForTest();
+    _resetTrailsForTest();
     mockExt = createMockExt();
-    mockCM = createMockConnectionManager();
+    mockCM = createMockAgentSession();
     bridge = new BrowserBridge({}, mockExt);
     bridge.initialize({}, {}, mockCM);
   });
@@ -492,7 +492,7 @@ describe('tool tips integration', () => {
     const ext = createMockExt();
     ext.sendCmd.mockResolvedValue('clicked');
     const bridge = new BrowserBridge({}, ext);
-    await bridge.initialize({}, {}, createMockConnectionManager());
+    await bridge.initialize({}, {}, createMockAgentSession());
 
     const result = await bridge.callTool('browser_evaluate', {
       expression: `document.querySelector('button').click()`,
@@ -507,7 +507,7 @@ describe('tool tips integration', () => {
     const ext = createMockExt();
     ext.sendCmd.mockResolvedValue('42');
     const bridge = new BrowserBridge({}, ext);
-    await bridge.initialize({}, {}, createMockConnectionManager());
+    await bridge.initialize({}, {}, createMockAgentSession());
 
     const result = await bridge.callTool('browser_evaluate', {
       expression: `document.title`,
@@ -521,7 +521,7 @@ describe('tool tips integration', () => {
     const ext = createMockExt();
     ext.sendCmd.mockRejectedValue(new Error('Element not found: `button.missing`'));
     const bridge = new BrowserBridge({}, ext);
-    await bridge.initialize({}, {}, createMockConnectionManager());
+    await bridge.initialize({}, {}, createMockAgentSession());
 
     const result = await bridge.callTool('browser_interact', {
       actions: [{ type: 'click', selector: 'button.missing' }],

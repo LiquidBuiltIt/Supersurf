@@ -2,7 +2,7 @@
  * BrowserBridge — orchestrator for browser tool dispatch.
  *
  * Thin lifecycle wrapper. Builds a ToolContext from the transport,
- * connection manager, and helper modules, then delegates dispatch to
+ * AgentSession, and helper modules, then delegates dispatch to
  * `tools/dispatcher.ts`. The CDP/eval primitives, element resolver, and
  * result formatter live in sibling modules.
  *
@@ -14,18 +14,18 @@ import { UsageMetricsLogger } from './usage-metrics-logger';
 /**
  * Lifecycle wrapper for browser tool execution. Created by
  * `backend/handlers.ts:onConnect` after the daemon transport is up;
- * `initialize()` wires in the MCP server, client metadata, connection
- * manager, and (optional) usage-metrics logger.
+ * `initialize()` wires in the MCP server, client metadata, AgentSession,
+ * and (optional) usage-metrics logger.
  */
 export declare class BrowserBridge {
     private config;
     private ext;
     private server;
     private clientInfo;
-    private connectionManager;
+    private agentSession;
     private metricsLogger;
     constructor(config: any, ext: IExtensionTransport | null);
-    initialize(server: any, clientInfo: any, connectionManager?: any, metricsLogger?: UsageMetricsLogger | null): Promise<void>;
+    initialize(server: any, clientInfo: any, agentSession?: any, metricsLogger?: UsageMetricsLogger | null): Promise<void>;
     serverClosed(): void;
     /** Return all registered tool schemas (core + experimental). */
     listTools(): Promise<ToolSchema[]>;

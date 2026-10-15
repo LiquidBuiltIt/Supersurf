@@ -297,6 +297,40 @@ describe('IPCServer', () => {
     expect(reject.reason).toMatch(/already in use/i);
   });
 
+  it('rejects a duplicate session with the username text', async () => {
+    const reject = await registerTwice('sm-a');
+    expect(reject.reason).toBe('Username "sm-a" is already in use by a live agent. Pick another username and call `connect` again.');
+  });
+
+  it('sends the created tabs on session close', async () => {
+    await ipc.start();
+    const client = await connectToSocket(sockPath);
+    writeLine(client, { type: 'session_register', sessionId: 'sm-a' });
+    await readLine(client);
+    sessions.addCreatedTab('sm-a', 99);
+    client.end();
+    await new Promise(r => setTimeout(r, 50));
+    expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'sm-a', closeTabIds: [99] }, 5000);
+  });
+
+  it('a rejected duplicate does not end the live session when its socket closes', async () => {
+    await ipc.start();
+    const live = await connectToSocket(sockPath);
+    writeLine(live, { type: 'session_register', sessionId: 'x' });
+    await readLine(live);
+    sessions.addCreatedTab('x', 7);
+
+    const dup = await connectToSocket(sockPath);
+    writeLine(dup, { type: 'session_register', sessionId: 'x' });
+    expect((await readLine(dup)).type).toBe('session_reject');
+    dup.destroy();
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(sessions.has('x')).toBe(true);
+    expect(bridge.sendCmd).not.toHaveBeenCalledWith('sessionDisconnect', expect.anything(), expect.anything());
+    live.end();
+  });
+
   it('puts the other live session ids on the envelope', async () => {
     const ack = await registerSecondSession('sm-a', 'sm-b');
     expect(ack.peers).toEqual(['sm-a']);

@@ -2,7 +2,7 @@
  * BrowserBridge — orchestrator for browser tool dispatch.
  *
  * Thin lifecycle wrapper. Builds a ToolContext from the transport,
- * connection manager, and helper modules, then delegates dispatch to
+ * AgentSession, and helper modules, then delegates dispatch to
  * `tools/dispatcher.ts`. The CDP/eval primitives, element resolver, and
  * result formatter live in sibling modules.
  *
@@ -35,15 +35,15 @@ const log = createLog('[Bridge]');
 /**
  * Lifecycle wrapper for browser tool execution. Created by
  * `backend/handlers.ts:onConnect` after the daemon transport is up;
- * `initialize()` wires in the MCP server, client metadata, connection
- * manager, and (optional) usage-metrics logger.
+ * `initialize()` wires in the MCP server, client metadata, AgentSession,
+ * and (optional) usage-metrics logger.
  */
 export class BrowserBridge {
   private config: any;
   private ext: IExtensionTransport | null;
   private server: any = null;
   private clientInfo: any = {};
-  private connectionManager: any = null;
+  private agentSession: any = null;
   private metricsLogger: UsageMetricsLogger | null = null;
 
   constructor(config: any, ext: IExtensionTransport | null) {
@@ -54,12 +54,12 @@ export class BrowserBridge {
   async initialize(
     server: any,
     clientInfo: any,
-    connectionManager?: any,
+    agentSession?: any,
     metricsLogger?: UsageMetricsLogger | null,
   ): Promise<void> {
     this.server = server;
     this.clientInfo = clientInfo;
-    this.connectionManager = connectionManager;
+    this.agentSession = agentSession;
     this.metricsLogger = metricsLogger ?? null;
   }
 
@@ -87,10 +87,10 @@ export class BrowserBridge {
     // costs one regex test. Gate + store access live in the experimental module —
     // this is the thin delegation hook.
     const resolveSelectorSync = (selector: string): string =>
-      resolveSelectorOrHandle(this.connectionManager?.getAttachedTab()?.url, selector, this.connectionManager?.clientId ?? null).selector;
+      resolveSelectorOrHandle(this.agentSession?.getAttachedTab()?.url, selector, this.agentSession?.clientId ?? null).selector;
     const emitHandle = (ev: import('./experimental/fingerprinting/index').AnyHandleEvent) =>
       this.metricsLogger?.write({
-        session_id: this.connectionManager?.clientId ?? 'unknown',
+        session_id: this.agentSession?.clientId ?? 'unknown',
         tool: 'handle',
         params: ev as unknown as Record<string, unknown>,
         result: 'ok',
@@ -98,7 +98,7 @@ export class BrowserBridge {
       });
     return {
       ext,
-      connectionManager: this.connectionManager,
+      agentSession: this.agentSession,
       config: this.config?.configService,
       metricsLogger: this.metricsLogger,
       tabId,
@@ -109,11 +109,11 @@ export class BrowserBridge {
         resolveWithHealing(
           evalFnBound,
           selector,
-          () => this.connectionManager?.getAttachedTab()?.url,
-          () => this.connectionManager?.clientId,
+          () => this.agentSession?.getAttachedTab()?.url,
+          () => this.agentSession?.clientId,
           (ev) =>
             this.metricsLogger?.write({
-              session_id: this.connectionManager?.clientId ?? 'unknown',
+              session_id: this.agentSession?.clientId ?? 'unknown',
               tool: 'fingerprint',
               params: ev as unknown as Record<string, unknown>,
               result: 'ok',
@@ -129,9 +129,9 @@ export class BrowserBridge {
             if (contextId != null) params.contextId = contextId; // null => top-frame default context
             return cdpFn(ext, 'Runtime.evaluate', params, tabId).then((r: any) => r.result?.value);
           },
-          this.connectionManager?.getAttachedTab()?.url,
+          this.agentSession?.getAttachedTab()?.url,
           selector,
-          () => this.connectionManager?.clientId,
+          () => this.agentSession?.clientId,
           meta,
           emitHandle,
         ),
@@ -142,14 +142,14 @@ export class BrowserBridge {
             if (contextId != null) params.contextId = contextId; // null => top-frame default context
             return cdpFn(ext, 'Runtime.evaluate', params, tabId).then((r: any) => r.result?.value);
           },
-          this.connectionManager?.getAttachedTab()?.url,
+          this.agentSession?.getAttachedTab()?.url,
           selector,
-          () => this.connectionManager?.clientId,
+          () => this.agentSession?.clientId,
         ).then(async (hit) => {
           if (!hit) return null;
-          const url = this.connectionManager?.getAttachedTab()?.url;
+          const url = this.agentSession?.getAttachedTab()?.url;
           this.metricsLogger?.write({
-            session_id: this.connectionManager?.clientId ?? 'unknown',
+            session_id: this.agentSession?.clientId ?? 'unknown',
             tool: 'fingerprint',
             params: {
               event: 'fingerprint', outcome: 'healed',
@@ -180,13 +180,13 @@ export class BrowserBridge {
             : { cx: hit.cx, cy: hit.cy, score: hit.score };
         }),
       resolveSelector: resolveSelectorSync,
-      getHandleIndex: () => buildHandleIndex(this.connectionManager?.getAttachedTab()?.url, this.connectionManager?.clientId ?? null),
+      getHandleIndex: () => buildHandleIndex(this.agentSession?.getAttachedTab()?.url, this.agentSession?.clientId ?? null),
       getSelectorExpression: (selector: string) => getSelectorExpression(resolveSelectorSync(selector)),
       getAllSelectorExpression: (selector: string) => getAllSelectorExpression(resolveSelectorSync(selector)),
       findAlternativeSelectors: (selector: string) =>
-        findAlternativeSelectors(evalFnBound, selector, this.connectionManager?.clientId),
+        findAlternativeSelectors(evalFnBound, selector, this.agentSession?.clientId),
       formatResult: (name, result, options) =>
-        formatResult(name, result, options, this.connectionManager),
+        formatResult(name, result, options, this.agentSession),
       error: (message, options) => formatError(message, options),
     };
   }
@@ -212,12 +212,12 @@ export class BrowserBridge {
         options,
       );
       this.metricsLogger?.write({
-        session_id: this.connectionManager?.clientId ?? 'unknown',
+        session_id: this.agentSession?.clientId ?? 'unknown',
         tool: name,
         params: args,
         result: 'error',
         error: 'Extension not connected',
-        experiments: experimentRegistry.getStates(this.connectionManager?.clientId ?? null),
+        experiments: experimentRegistry.getStates(this.agentSession?.clientId ?? null),
         duration_ms: 0,
       });
       return response;
@@ -225,8 +225,8 @@ export class BrowserBridge {
 
     return await dispatchTool(this.buildContext(args.tabId as number | undefined), name, args, options, {
       metricsLogger: this.metricsLogger,
-      clientId: this.connectionManager?.clientId,
-      getCurrentUrl: () => this.connectionManager?.getAttachedTab()?.url,
+      clientId: this.agentSession?.clientId,
+      getCurrentUrl: () => this.agentSession?.getAttachedTab()?.url,
     });
   }
 }

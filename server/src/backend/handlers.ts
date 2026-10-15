@@ -1,7 +1,7 @@
 /**
  * Connection-level tool handlers — connect, disconnect, status, experimental features, reload.
  *
- * Each handler receives the ConnectionManagerAPI (mutable state), the tool arguments,
+ * Each handler receives the AgentSessionAPI (mutable state), the tool arguments,
  * and an options object. Handlers return either MCP content responses (for MCP mode)
  * or raw JSON objects (for script mode via `rawResult: true`).
  *
@@ -13,7 +13,7 @@
  * @module backend/handlers
  */
 
-import type { ConnectionManagerAPI } from './types';
+import type { AgentSessionAPI } from './types';
 import { DaemonClient } from 'shared';
 import { ensureDaemon, stopDaemon, getSockPath } from '../daemon-spawn';
 import { createLog, getRegistry } from 'shared';
@@ -27,6 +27,7 @@ import {
   dropSession as dropEphemeralSession,
 } from '../experimental/fingerprinting/ephemeral-handles';
 import { clearTipCounters } from '../tips';
+import { dropTrail } from '../playbooks/trail';
 import { UPGRADE_NOTICE_MESSAGE } from 'shared';
 
 const log = createLog('[Conn]');
@@ -73,7 +74,7 @@ function compareVersions(a: string, b: string): number {
  * the stale side.
  */
 function versionMismatchFailure(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   daemonVersion: string | null,
   serverVersion: string,
   reason: string,
@@ -101,31 +102,42 @@ function versionMismatchFailure(
 
 // ─── Connect ──────────────────────────────────────────────────
 
+/** A username ends up in the `metrics-<username>-…` log filename, so keep it filename-safe. */
+export const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export const BAD_NAME_TEXT =
+  '`username` must be 1-64 characters: letters, digits, dot, dash or underscore, starting with a letter or digit (e.g. `claudebox-geo-research`).';
+
 /**
- * Connect to the SuperSurf daemon: validate client_id, spawn daemon if needed,
+ * Connect to the SuperSurf daemon: validate username, spawn daemon if needed,
  * connect via DaemonClient, create BrowserBridge, apply pre-enabled experiments.
  * Transitions state from passive to active.
  */
 export async function onConnect(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
-  if (
-    !args.client_id ||
-    typeof args.client_id !== 'string' ||
-    (args.client_id as string).trim().length === 0
-  ) {
+  const raw = typeof args.username === 'string' ? args.username.trim() : '';
+  if (!raw) {
     if (options.rawResult) {
-      return { success: false, error: 'missing_client_id', message: 'client_id is required' };
+      return { success: false, error: 'missing_username', message: 'username is required' };
     }
     return {
       content: [
         {
           type: 'text',
-          text: `### Missing Required Parameter\n\n\`client_id\` is required.\n\n**Example:**\n\`\`\`\nconnect client_id='my-project'\n\`\`\``,
+          text: "### Missing Required Parameter\n\n`username` is required.\n\n**Example:**\n```\nconnect username='geo-research'\n```",
         },
       ],
+      isError: true,
+    };
+  }
+  if (!USERNAME_RE.test(raw)) {
+    if (options.rawResult) {
+      return { success: false, error: 'invalid_username', message: BAD_NAME_TEXT };
+    }
+    return {
+      content: [{ type: 'text', text: `### Invalid username\n\n${BAD_NAME_TEXT}` }],
       isError: true,
     };
   }
@@ -137,7 +149,7 @@ export async function onConnect(
         already_connected: true,
         state: mgr.state,
         browser: mgr.connectedBrowserName,
-        client_id: mgr.clientId,
+        username: mgr.clientId,
       };
     }
     return {
@@ -146,14 +158,14 @@ export async function onConnect(
           type: 'text',
           text:
             mgr.statusHeader() +
-            `### Already Connected\n\n**State:** ${mgr.state}\n**Client ID:** ${mgr.clientId}\n\nTo restart, call \`disconnect\` first.`,
+            `### Already Connected\n\n**State:** ${mgr.state}\n**Username:** ${mgr.clientId}\n\nTo restart, call \`disconnect\` first.`,
         },
       ],
     };
   }
 
-  mgr.clientId = (args.client_id as string).trim();
-  log('Client ID set to:', mgr.clientId);
+  mgr.clientId = raw;
+  log('Username set to:', mgr.clientId);
 
   // Start session log file
   const reg = getRegistry();
@@ -337,7 +349,7 @@ export async function onConnect(
         success: true,
         state: mgr.state,
         browser: mgr.connectedBrowserName,
-        client_id: mgr.clientId,
+        username: mgr.clientId,
         port,
       };
     }
@@ -369,6 +381,9 @@ export async function onConnect(
       await mgr.extensionServer.stop().catch(() => {});
       mgr.extensionServer = null;
     }
+    // Nothing else releases what the attempt bound before it threw: onDisconnect
+    // returns early when passive.
+    if (mgr.clientId) releaseSessionState(mgr.clientId);
     mgr.state = 'passive';
     mgr.profile = null;
     mgr.extensionConnected = false;
@@ -402,7 +417,7 @@ export async function onConnect(
  * nulls the tab) and mis-filed fingerprint captures into the 'unknown' bucket. Exported
  * for testing.
  */
-export function applyTabInfoUpdate(mgr: ConnectionManagerAPI, tabInfo: any): void {
+export function applyTabInfoUpdate(mgr: AgentSessionAPI, tabInfo: any): void {
   if (tabInfo === null) {
     mgr.attachedTab = null;
     return;
@@ -428,7 +443,7 @@ interface TabQueryClient {
  * navigation fires a `tab_info_update`, so any fingerprint capture in between has no
  * live URL and gets dropped. Best-effort: any failure falls back to null. Exported for testing.
  */
-export async function rehydrateAttachedTab(mgr: ConnectionManagerAPI, client: TabQueryClient): Promise<void> {
+export async function rehydrateAttachedTab(mgr: AgentSessionAPI, client: TabQueryClient): Promise<void> {
   try {
     const res: any = await client.sendCmd('getTabs', {}, 10000);
     const tabs: any[] = res?.tabs || [];
@@ -450,12 +465,27 @@ export async function rehydrateAttachedTab(mgr: ConnectionManagerAPI, client: Ta
 // ─── Disconnect ─────────────────────────────────────────────────
 
 /**
+ * Close the session log, clear tip suppression counters, drop session-scoped
+ * experiment + cursor state. All keyed by username (the daemon session id) so another agent's
+ * AgentSession in this process keeps its own. Safe for an id that never got
+ * bound — every callee ignores unknown ids.
+ */
+function releaseSessionState(id: string): void {
+  getRegistry().clearSessionLog(id);
+  clearTipCounters(id);
+  dropTrail(id);
+  experimentRegistry.unbind(id);
+  dropEphemeralSession(id);
+  destroyHumanization(id);
+}
+
+/**
  * Disconnect from the daemon: tear down bridge, close DaemonClient session,
  * reset experiments and mouse humanization, transition back to passive.
  * The daemon stays alive for other sessions.
  */
 export async function onDisconnect(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
   if (mgr.state === 'passive') {
@@ -491,16 +521,7 @@ export async function onDisconnect(
     mgr.extensionServer = null;
   }
 
-  // Close session log, clear tip suppression counters, drop session-scoped
-  // experiment + cursor state. All keyed by client_id so a second
-  // ConnectionManager in this process keeps its own.
-  if (mgr.clientId) {
-    getRegistry().clearSessionLog(mgr.clientId);
-    clearTipCounters(mgr.clientId);
-    experimentRegistry.unbind(mgr.clientId);
-    dropEphemeralSession(mgr.clientId);
-    destroyHumanization(mgr.clientId);
-  }
+  if (mgr.clientId) releaseSessionState(mgr.clientId);
 
   mgr.state = 'passive';
   mgr.connectedBrowserName = null;
@@ -514,14 +535,15 @@ export async function onDisconnect(
 
   // Report, do not decide. A second agent holding the browser is not this
   // agent's fault, so this is a release with a truthful note — never an error.
+  const peerCount = peers.length;
+  const released = 'Session released. Your tabs are closed and tabs you attached to are released.';
   const message =
-    peers.length === 0
-      ? 'Session released. No other agents connected.'
-      : `Session released. Browser stays open — ${peers.length} other agent` +
-        `${peers.length === 1 ? '' : 's'} still connected (${peers.join(', ')}).`;
+    peerCount === 0
+      ? `${released} No other agents connected.`
+      : `${released} Browser stays open — ${peerCount} other agent(s) still connected.`;
 
   if (options.rawResult) {
-    return { success: true, state: 'passive', peers, message };
+    return { success: true, state: 'passive', peer_count: peerCount, message };
   }
 
   return {
@@ -540,13 +562,13 @@ export async function onDisconnect(
 
 /** Return current connection state, browser info, and attached tab details. */
 export async function onStatus(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
   const statusData: Record<string, unknown> = {
     state: mgr.state,
     browser: mgr.connectedBrowserName,
-    client_id: mgr.clientId,
+    username: mgr.clientId,
     attached_tab: mgr.attachedTab
       ? {
           index: mgr.attachedTab.index,
@@ -605,7 +627,7 @@ interface DaemonHandle {
  * passive state without a full connect/disconnect cycle.
  */
 async function withDaemonConnection(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   fn: (client: DaemonHandle) => Promise<any>
 ): Promise<any> {
   // Reuse existing connection if available
@@ -631,7 +653,7 @@ async function withDaemonConnection(
 
 /** Create a new managed Chromium profile. */
 export async function onProfileCreate(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
@@ -650,7 +672,7 @@ export async function onProfileCreate(
             `### Profile Created\n\n` +
             `**Name:** ${(result as any).profile?.name}\n` +
             `**Created:** ${(result as any).profile?.created}\n\n` +
-            `Use \`connect client_id='...' profile='${(result as any).profile?.name}'\` to connect.`,
+            `Use \`connect username='...' profile='${(result as any).profile?.name}'\` to connect.`,
         }],
       };
     });
@@ -662,7 +684,7 @@ export async function onProfileCreate(
 
 /** List all managed Chromium profiles. */
 export async function onProfileList(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
   try {
@@ -698,7 +720,7 @@ export async function onProfileList(
 
 /** Delete a managed Chromium profile. */
 export async function onProfileDelete(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
@@ -726,7 +748,7 @@ export async function onProfileDelete(
 
 /** Trigger hot reload by exiting with code 42. The debug wrapper catches this and respawns. */
 export function onReloadMCP(
-  mgr: ConnectionManagerAPI,
+  mgr: AgentSessionAPI,
   options: { rawResult?: boolean } = {}
 ): any {
   if (!mgr.debugMode) {

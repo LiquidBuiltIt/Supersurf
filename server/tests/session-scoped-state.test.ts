@@ -1,7 +1,7 @@
 /**
- * Cross-manager isolation lock.
+ * Cross-AgentSession isolation lock.
  *
- * Two ConnectionManager instances in one Node process must not share
+ * Two AgentSession instances in one Node process must not share
  * session-scoped state. Disconnecting one must leave the other's experiment
  * flags, humanized cursor state, bridge and metrics logger untouched.
  *
@@ -10,7 +10,7 @@
  * module are deliberately NOT mocked — they are what is under test.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ConnectionManager, BackendConfig } from '../src/backend';
+import { AgentSession, BackendConfig } from '../src/backend';
 import { ConfigService } from 'shared';
 import { experimentRegistry } from '../src/experimental/index';
 import { initSession, getSession, destroySession } from '../src/experimental/mouse-humanization/index';
@@ -72,7 +72,7 @@ vi.mock('../src/usage-metrics-logger', () => ({
   redactParams: vi.fn((p: any) => p),
 }));
 
-// A fresh bridge object per construction, so per-manager instancing is observable.
+// A fresh bridge object per construction, so per-AgentSession instancing is observable.
 vi.mock('../src/tools', () => ({
   BrowserBridge: vi.fn(function (this: any) {
     this.initialize = vi.fn().mockResolvedValue(undefined);
@@ -102,19 +102,19 @@ function makeMockServer() {
   return { sendToolsListChanged: vi.fn().mockResolvedValue(undefined) } as any;
 }
 
-async function connectManager(clientId: string): Promise<ConnectionManager> {
-  const mgr = new ConnectionManager(makeConfig());
+async function connectManager(clientId: string): Promise<AgentSession> {
+  const mgr = new AgentSession(makeConfig());
   await mgr.initialize(makeMockServer(), {});
-  const res = await mgr.callTool('connect', { client_id: clientId }, { rawResult: true });
+  const res = await mgr.callTool('connect', { username: clientId }, { rawResult: true });
   expect(res.success).toBe(true);
   return mgr;
 }
 
 // ---- Tests ----
 
-describe('two ConnectionManagers in one process', () => {
-  let a: ConnectionManager;
-  let b: ConnectionManager;
+describe('two AgentSessions in one process', () => {
+  let a: AgentSession;
+  let b: AgentSession;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -151,7 +151,7 @@ describe('two ConnectionManagers in one process', () => {
     expect(getSession('session-b')).toBeUndefined();
   });
 
-  it('each manager binds its own daemon transport', async () => {
+  it('each AgentSession binds its own daemon transport', async () => {
     experimentRegistry.bind('session-a', (a as any).extensionServer);
     experimentRegistry.bind('session-b', (b as any).extensionServer);
 
@@ -169,14 +169,14 @@ describe('two ConnectionManagers in one process', () => {
     );
   });
 
-  it('the surviving manager stays active after the other disconnects', async () => {
+  it('the surviving AgentSession stays active after the other disconnects', async () => {
     await b.callTool('disconnect', {}, { rawResult: true });
 
     const statusA = await a.callTool('status', {}, { rawResult: true });
     const statusB = await b.callTool('status', {}, { rawResult: true });
 
     expect(statusA.state).toBe('active');
-    expect(statusA.client_id).toBe('session-a');
+    expect(statusA.username).toBe('session-a');
     expect(statusB.state).toBe('passive');
   });
 
@@ -194,7 +194,7 @@ describe('two ConnectionManagers in one process', () => {
     expect(clearTipCounters).not.toHaveBeenCalledWith('session-a');
   });
 
-  it('each manager owns a distinct BrowserBridge and metrics logger', () => {
+  it('each AgentSession owns a distinct BrowserBridge and metrics logger', () => {
     expect((a as any).bridge).toBeTruthy();
     expect((b as any).bridge).toBeTruthy();
     expect((a as any).bridge).not.toBe((b as any).bridge);

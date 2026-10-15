@@ -135,7 +135,7 @@ export function parseParamFlags(
 
 /**
  * `run` is the ONE playbook subcommand that shells out. It reaches
- * playbooks/runner.ts and therefore the ConnectionManager, the daemon and
+ * playbooks/runner.ts and therefore the AgentSession, the daemon and
  * tools/ — including tools/screenshot.ts, the tree's only `sharp` importer.
  * Compiling it in would reinstate the per-platform native-addon build matrix
  * that item 26's shape removed. Accepted cost: an npx cold start per run.

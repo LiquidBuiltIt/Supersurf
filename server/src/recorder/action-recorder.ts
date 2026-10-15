@@ -50,11 +50,11 @@ export function recordAction(
       duration_ms: Date.now() - startedAt,
     };
     ctx?.metricsLogger?.write({
-      session_id: ctx?.connectionManager?.clientId ?? 'unknown',
+      session_id: ctx?.agentSession?.clientId ?? 'unknown',
       tool: 'action',
       params: rec as unknown as Record<string, unknown>,
       result: rec.outcome,
-      url: ctx?.connectionManager?.getAttachedTab?.()?.url,
+      url: ctx?.agentSession?.getAttachedTab?.()?.url,
       duration_ms: rec.duration_ms,
     });
   } catch {

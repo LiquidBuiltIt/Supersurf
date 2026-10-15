@@ -1,13 +1,12 @@
 "use strict";
 /**
- * ActionTrail — the in-memory record of every browser action this MCP session
+ * ActionTrail — the in-memory record of every browser action this agent session
  * performed, each with a monotonic id the agent can cite when building a playbook.
  *
- * LIFETIME: module-level singleton, so it lives exactly as long as the server
- * process. One server process serves exactly one MCP client for its whole life
- * (`cli.ts` connects a single StdioServerTransport with no accept loop), so
- * module scope IS session scope. Ids therefore never reset mid-conversation —
- * an id the agent saw an hour ago still means the same action.
+ * LIFETIME: one trail per agent session, keyed by its username (`trailFor`),
+ * dropped on disconnect (`dropTrail`). Ids never reset mid-conversation —
+ * an id the agent saw an hour ago still means the same action — and one agent's
+ * ids and tips never see another agent's actions.
  *
  * NOT the usage-metrics logger. That trail is gated by `logging.usage_metrics`
  * (default off) and redacts `value`, which would reconstruct a `select_option`
@@ -17,7 +16,9 @@
  * @module playbooks/trail
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.actionTrail = void 0;
+exports.trailFor = trailFor;
+exports.dropTrail = dropTrail;
+exports._resetTrailsForTest = _resetTrailsForTest;
 /** Retained entries. At ~100 bytes each this caps the trail near 1 MB. */
 const MAX_ENTRIES = 10_000;
 /** Message cap. Long messages are display strings, not data — truncation is safe. */
@@ -66,5 +67,18 @@ class ActionTrail {
         this._entries = [];
     }
 }
-exports.actionTrail = new ActionTrail();
+const trails = new Map();
+/** The trail of one agent session. `null` (script mode before connect) gets its own bucket. */
+function trailFor(sessionId) {
+    const key = sessionId ?? '';
+    let t = trails.get(key);
+    if (!t) {
+        t = new ActionTrail();
+        trails.set(key, t);
+    }
+    return t;
+}
+function dropTrail(sessionId) { trails.delete(sessionId); }
+/** @internal */
+function _resetTrailsForTest() { trails.clear(); }
 //# sourceMappingURL=trail.js.map

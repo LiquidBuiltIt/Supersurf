@@ -25,6 +25,9 @@ export interface Config {
         port: number;
         idle_timeout_ms: number;
     };
+    agents: {
+        idle_timeout_ms: number;
+    };
     logging: {
         debug: DebugMode;
         usage_metrics: boolean;
@@ -55,6 +58,7 @@ export type PartialConfig = {
         domain_whitelist?: Partial<Config['security']['domain_whitelist']>;
     };
     daemon?: Partial<Config['daemon']>;
+    agents?: Partial<Config['agents']>;
     logging?: Partial<Config['logging']>;
     profiles?: {
         chrome_path?: string | null;

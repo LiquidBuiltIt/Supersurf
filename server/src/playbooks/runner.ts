@@ -2,10 +2,10 @@
  * The playbook run lifecycle.
  *
  * A run gets its OWN daemon session and its OWN tab, and the tab is CLOSED at
- * the end. `client_id` IS the daemon session id — `daemon/src/ipc.ts:144-151`
+ * the end. The connect `username` IS the daemon session id — `daemon/src/ipc.ts:144-151`
  * rejects a duplicate with `Session ID already in use` — so the run's id must
  * differ from the parent's. The parent is whichever process holds a
- * `ConnectionManager`: the MCP server or the CLI. Never the daemon.
+ * `AgentSession`: the MCP server or the CLI. Never the daemon.
  *
  * Because the tab dies at exit (spec §10 risk 2), a `SelectorMiss` failure
  * captures a ranked candidate-selector list BEFORE teardown and stores it as
@@ -15,7 +15,7 @@
  * @module playbooks/runner
  */
 
-import { ConnectionManager } from '../backend';
+import { AgentSession } from '../backend';
 import { buildConfigService, backendConfigFrom } from '../backend-config';
 import { mapCommand } from './command-map';
 import { experimentRegistry } from '../experimental';
@@ -41,7 +41,7 @@ const { version: PACKAGE_VERSION } = require('../../package.json');
 /** The sandbox-host entrypoint, seam-able for unit tests. */
 type RunScript = (opts: PlaybookRunOptions) => Promise<PlaybookRunResult>;
 
-/** The slice of `ConnectionManager` a run needs. Narrow so tests can fake it. */
+/** The slice of `AgentSession` a run needs. Narrow so tests can fake it. */
 export interface RunnerBackend {
   callTool(name: string, args: Record<string, unknown>, options?: { rawResult?: boolean }): Promise<any>;
 }
@@ -56,7 +56,7 @@ export interface RunPlaybookOptions {
   /** Test seams. */
   createBackend?: () => RunnerBackend;
   runScript?: RunScript;
-  /** Test seam for Addendum B activation. Receives this run's `client_id`. */
+  /** Test seam for Addendum B activation. Receives this run's connect `username`. */
   enableExperiments?: (clientId: string) => void;
 }
 
@@ -81,7 +81,7 @@ export interface RunOutcome {
 }
 
 function defaultBackend(): RunnerBackend {
-  return new ConnectionManager(backendConfigFrom(buildConfigService({}), PACKAGE_VERSION));
+  return new AgentSession(backendConfigFrom(buildConfigService({}), PACKAGE_VERSION));
 }
 
 /**
@@ -186,7 +186,7 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
 
   // Addendum B. `meta.experiments === true` opts this run into every experiment.
   // Plan 2 parses and validates the field; activation is ours because the
-  // ConnectionManager is ours.
+  // AgentSession is ours.
   const wantsExperiments = record.meta?.experiments === true;
 
   const finish = (out: Omit<RunOutcome, 'logs'>): RunOutcome => {
@@ -226,9 +226,12 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
   const backend = (opts.createBackend ?? defaultBackend)();
 
   // Own session. The daemon rejects a duplicate id, so this must not collide
-  // with the parent MCP session's client_id.
-  const clientId = `playbook-${record.name}-${process.pid}-${Date.now()}`;
-  const connectArgs: Record<string, unknown> = { client_id: clientId };
+  // with the parent MCP session's username.
+  // The id is a connect username, so it must fit USERNAME_RE (64 chars): cut
+  // the name part, never the pid or timestamp that make it unique.
+  const tail = `-${process.pid}-${Date.now()}`;
+  const clientId = `playbook-${record.name.slice(0, 64 - 'playbook-'.length - tail.length)}${tail}`;
+  const connectArgs: Record<string, unknown> = { username: clientId };
   if (profile) connectArgs.profile = profile;
 
   const connectRes: any = await backend.callTool('connect', connectArgs, { rawResult: true });

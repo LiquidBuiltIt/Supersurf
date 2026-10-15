@@ -15,7 +15,7 @@
 import type { ToolContext } from '../lib/types';
 import { experimentRegistry, diffSnapshots, calculateConfidence, formatDiffSection } from '../../experimental/index';
 import { executeAction } from './registry';
-import { actionTrail } from '../../playbooks/trail';
+import { trailFor } from '../../playbooks/trail';
 
 // Side-effect: each module calls registerAction() at load time.
 import './mouse-move';
@@ -54,12 +54,12 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
     ['scroll_to', 'scroll_by', 'scroll_into_view'].includes(a.type)
   );
   const captureMode = isOnlyScrollActions ? 'viewport' : 'document';
-  if (experimentRegistry.isEnabled('page_diffing', ctx.connectionManager?.clientId ?? null)) {
+  if (experimentRegistry.isEnabled('page_diffing', ctx.agentSession?.clientId ?? null)) {
     try { beforeState = await ctx.ext.sendCmd('capturePageState', { mode: captureMode, tabId: ctx.tabId }); }
     catch { /* silently skip — extension may not support it yet */ }
   }
 
-  const currentUrl: string | undefined = ctx.connectionManager?.getAttachedTab()?.url;
+  const currentUrl: string | undefined = ctx.agentSession?.getAttachedTab()?.url;
 
   for (const action of actions) {
     try {
@@ -72,7 +72,7 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
       // Trail recording lives here rather than inside executeAction: that
       // function returns a bare string and has several callers, so threading an
       // id back out of it would ripple. The loop that owns the sequence records.
-      const id = actionTrail.record({
+      const id = trailFor(ctx.agentSession?.clientId).record({
         tool: 'browser_interact',
         type: action.type,
         outcome: isWarn ? 'warn' : 'ok',
@@ -82,7 +82,7 @@ export async function onInteract(ctx: ToolContext, args: any, options: any): Pro
       });
       results.push(`${options.rawResult ? '' : `#${id} `}${isWarn ? '⚠' : '✓'} ${action.type}: ${body}`);
     } catch (error: any) {
-      const id = actionTrail.record({
+      const id = trailFor(ctx.agentSession?.clientId).record({
         tool: 'browser_interact',
         type: action.type,
         outcome: 'error',

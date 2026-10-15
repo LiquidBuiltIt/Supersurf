@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { onPlaybooks } from '../src/tools/playbooks';
 import { getToolSchemas } from '../src/tools/schemas';
-import { actionTrail } from '../src/playbooks/trail';
+import { trailFor, _resetTrailsForTest } from '../src/playbooks/trail';
 import { experimentRegistry } from '../src/experimental/index';
 import { setPlaybooksDirForTests, playbookFile } from '../src/playbooks/paths';
 import {
@@ -15,7 +15,7 @@ import type { ValidationRecord } from '../src/security/validate';
 function makeCtx(url = 'https://linkedin.com/jobs/1234'): any {
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({ tabs: [{ id: 1, url, attached: true }], attachedTabId: 1 }) },
-    connectionManager: { getAttachedTab: () => ({ url }), clientId: 'test' },
+    agentSession: { getAttachedTab: () => ({ url }), clientId: 'test' },
     config: { get: () => ({ tips: false }) },
     sleep: vi.fn(),
     error: (m: string) => ({ content: [{ type: 'text', text: m }], isError: true }),
@@ -23,13 +23,13 @@ function makeCtx(url = 'https://linkedin.com/jobs/1234'): any {
 }
 
 function seedTrail() {
-  actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'ok', message: 'Clicked', params: { type: 'click', selector: '#a', name: 'apply_button' }, url: 'https://linkedin.com/jobs/1234' });
-  actionTrail.record({ tool: 'browser_interact', type: 'type', outcome: 'ok', message: 'Typed', params: { type: 'type', selector: '#b' }, url: 'https://linkedin.com/jobs/1234' });
-  actionTrail.record({ tool: 'browser_interact', type: 'click', outcome: 'error', message: 'not found', params: { type: 'click', selector: '#ghost' }, url: 'https://linkedin.com/jobs/1234' });
+  trailFor('test').record({ tool: 'browser_interact', type: 'click', outcome: 'ok', message: 'Clicked', params: { type: 'click', selector: '#a', name: 'apply_button' }, url: 'https://linkedin.com/jobs/1234' });
+  trailFor('test').record({ tool: 'browser_interact', type: 'type', outcome: 'ok', message: 'Typed', params: { type: 'type', selector: '#b' }, url: 'https://linkedin.com/jobs/1234' });
+  trailFor('test').record({ tool: 'browser_interact', type: 'click', outcome: 'error', message: 'not found', params: { type: 'click', selector: '#ghost' }, url: 'https://linkedin.com/jobs/1234' });
 }
 
 beforeEach(() => {
-  actionTrail._resetForTest();
+  _resetTrailsForTest();
   experimentRegistry.enable('test', 'fingerprinting');
 });
 afterEach(() => {
@@ -71,7 +71,7 @@ describe('playbooks — history', () => {
 
   it('honors limit and offset', async () => {
     for (let i = 0; i < 100; i++) {
-      actionTrail.record({ tool: 't', type: 'click', outcome: 'ok', message: 'm', params: {}, url: 'https://x.com/' });
+      trailFor('test').record({ tool: 't', type: 'click', outcome: 'ok', message: 'm', params: {}, url: 'https://x.com/' });
     }
     const res = await onPlaybooks(makeCtx(), { action: 'history', limit: 5, offset: 10 }, {});
     expect(res.content[0].text).toContain('#86');
@@ -141,7 +141,7 @@ describe('playbooks — script surface', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  const ctx: any = { connectionManager: { clientId: 'test', config: { configService: { get: () => ({ security: { playbook_eval: true } }) } } } };
+  const ctx: any = { agentSession: { clientId: 'test', config: { configService: { get: () => ({ security: { playbook_eval: true } }) } } } };
 
   it('list shows the signature, description and starting point', async () => {
     const out = await onPlaybooks(ctx, { action: 'list' }, {});
@@ -230,7 +230,7 @@ describe('playbooks — script surface', () => {
     setValidatorForTests(async () => rec('post_tweet', { meta: { description: 'x', permissions: ['eval'] } }));
     resetRegistryForTests();
     await refreshRegistry();
-    const offCtx: any = { connectionManager: { clientId: 'test', config: { configService: { get: () => ({ security: { playbook_eval: false } }) } } } };
+    const offCtx: any = { agentSession: { clientId: 'test', config: { configService: { get: () => ({ security: { playbook_eval: false } }) } } } };
     let called = false;
     const out = await onPlaybooks(offCtx, { action: 'run', name: 'post_tweet' }, {},
       { runPlaybook: async () => { called = true; return { ok: true, durationMs: 1, logs: [] }; } });

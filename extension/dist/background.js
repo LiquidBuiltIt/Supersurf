@@ -346,7 +346,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     });
     // sessionDisconnect — multiplexer signals a session has left
     wsConnection.registerCommandHandler('sessionDisconnect', async (params) => {
-        return await tabHandlers.handleSessionDisconnect(params.sessionId);
+        return await tabHandlers.handleSessionDisconnect(params.sessionId, params.closeTabIds ?? []);
     });
     // navigate — URL navigation, back/forward history, and reload.
     // When screenshot is requested with a URL navigation, waits for page load

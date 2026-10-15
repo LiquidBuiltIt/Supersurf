@@ -3,7 +3,7 @@
  * BrowserBridge — orchestrator for browser tool dispatch.
  *
  * Thin lifecycle wrapper. Builds a ToolContext from the transport,
- * connection manager, and helper modules, then delegates dispatch to
+ * AgentSession, and helper modules, then delegates dispatch to
  * `tools/dispatcher.ts`. The CDP/eval primitives, element resolver, and
  * result formatter live in sibling modules.
  *
@@ -26,24 +26,24 @@ const log = (0, shared_1.createLog)('[Bridge]');
 /**
  * Lifecycle wrapper for browser tool execution. Created by
  * `backend/handlers.ts:onConnect` after the daemon transport is up;
- * `initialize()` wires in the MCP server, client metadata, connection
- * manager, and (optional) usage-metrics logger.
+ * `initialize()` wires in the MCP server, client metadata, AgentSession,
+ * and (optional) usage-metrics logger.
  */
 class BrowserBridge {
     config;
     ext;
     server = null;
     clientInfo = {};
-    connectionManager = null;
+    agentSession = null;
     metricsLogger = null;
     constructor(config, ext) {
         this.config = config;
         this.ext = ext;
     }
-    async initialize(server, clientInfo, connectionManager, metricsLogger) {
+    async initialize(server, clientInfo, agentSession, metricsLogger) {
         this.server = server;
         this.clientInfo = clientInfo;
-        this.connectionManager = connectionManager;
+        this.agentSession = agentSession;
         this.metricsLogger = metricsLogger ?? null;
     }
     serverClosed() {
@@ -66,9 +66,9 @@ class BrowserBridge {
         // Handle→selector translation. Synchronous and idempotent; a plain CSS selector
         // costs one regex test. Gate + store access live in the experimental module —
         // this is the thin delegation hook.
-        const resolveSelectorSync = (selector) => (0, handle_resolve_1.resolveSelectorOrHandle)(this.connectionManager?.getAttachedTab()?.url, selector, this.connectionManager?.clientId ?? null).selector;
+        const resolveSelectorSync = (selector) => (0, handle_resolve_1.resolveSelectorOrHandle)(this.agentSession?.getAttachedTab()?.url, selector, this.agentSession?.clientId ?? null).selector;
         const emitHandle = (ev) => this.metricsLogger?.write({
-            session_id: this.connectionManager?.clientId ?? 'unknown',
+            session_id: this.agentSession?.clientId ?? 'unknown',
             tool: 'handle',
             params: ev,
             result: 'ok',
@@ -76,15 +76,15 @@ class BrowserBridge {
         });
         return {
             ext,
-            connectionManager: this.connectionManager,
+            agentSession: this.agentSession,
             config: this.config?.configService,
             metricsLogger: this.metricsLogger,
             tabId,
             cdp: (method, params) => (0, cdp_1.cdp)(ext, method, params, tabId),
             eval: evalFnBound,
             sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
-            getElementCenter: (selector, meta) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.connectionManager?.getAttachedTab()?.url, () => this.connectionManager?.clientId, (ev) => this.metricsLogger?.write({
-                session_id: this.connectionManager?.clientId ?? 'unknown',
+            getElementCenter: (selector, meta) => (0, index_2.resolveWithHealing)(evalFnBound, selector, () => this.agentSession?.getAttachedTab()?.url, () => this.agentSession?.clientId, (ev) => this.metricsLogger?.write({
+                session_id: this.agentSession?.clientId ?? 'unknown',
                 tool: 'fingerprint',
                 params: ev,
                 result: 'ok',
@@ -95,18 +95,18 @@ class BrowserBridge {
                 if (contextId != null)
                     params.contextId = contextId; // null => top-frame default context
                 return (0, cdp_1.cdp)(ext, 'Runtime.evaluate', params, tabId).then((r) => r.result?.value);
-            }, this.connectionManager?.getAttachedTab()?.url, selector, () => this.connectionManager?.clientId, meta, emitHandle),
+            }, this.agentSession?.getAttachedTab()?.url, selector, () => this.agentSession?.clientId, meta, emitHandle),
             healFingerprintInContext: (contextId, selector) => (0, index_2.healInContext)((expr) => {
                 const params = { expression: expr, returnByValue: true };
                 if (contextId != null)
                     params.contextId = contextId; // null => top-frame default context
                 return (0, cdp_1.cdp)(ext, 'Runtime.evaluate', params, tabId).then((r) => r.result?.value);
-            }, this.connectionManager?.getAttachedTab()?.url, selector, () => this.connectionManager?.clientId).then(async (hit) => {
+            }, this.agentSession?.getAttachedTab()?.url, selector, () => this.agentSession?.clientId).then(async (hit) => {
                 if (!hit)
                     return null;
-                const url = this.connectionManager?.getAttachedTab()?.url;
+                const url = this.agentSession?.getAttachedTab()?.url;
                 this.metricsLogger?.write({
-                    session_id: this.connectionManager?.clientId ?? 'unknown',
+                    session_id: this.agentSession?.clientId ?? 'unknown',
                     tool: 'fingerprint',
                     params: {
                         event: 'fingerprint', outcome: 'healed',
@@ -139,11 +139,11 @@ class BrowserBridge {
                     : { cx: hit.cx, cy: hit.cy, score: hit.score };
             }),
             resolveSelector: resolveSelectorSync,
-            getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.connectionManager?.getAttachedTab()?.url, this.connectionManager?.clientId ?? null),
+            getHandleIndex: () => (0, handle_annotate_1.buildHandleIndex)(this.agentSession?.getAttachedTab()?.url, this.agentSession?.clientId ?? null),
             getSelectorExpression: (selector) => (0, element_resolver_1.getSelectorExpression)(resolveSelectorSync(selector)),
             getAllSelectorExpression: (selector) => (0, element_resolver_1.getAllSelectorExpression)(resolveSelectorSync(selector)),
-            findAlternativeSelectors: (selector) => (0, element_resolver_1.findAlternativeSelectors)(evalFnBound, selector, this.connectionManager?.clientId),
-            formatResult: (name, result, options) => (0, result_formatter_1.formatResult)(name, result, options, this.connectionManager),
+            findAlternativeSelectors: (selector) => (0, element_resolver_1.findAlternativeSelectors)(evalFnBound, selector, this.agentSession?.clientId),
+            formatResult: (name, result, options) => (0, result_formatter_1.formatResult)(name, result, options, this.agentSession),
             error: (message, options) => (0, result_formatter_1.formatError)(message, options),
         };
     }
@@ -161,20 +161,20 @@ class BrowserBridge {
                 '2. Ensure the SuperSurf extension is loaded in Chrome (`chrome://extensions`)\n' +
                 '3. Open the extension popup and verify it shows "Connected"', options);
             this.metricsLogger?.write({
-                session_id: this.connectionManager?.clientId ?? 'unknown',
+                session_id: this.agentSession?.clientId ?? 'unknown',
                 tool: name,
                 params: args,
                 result: 'error',
                 error: 'Extension not connected',
-                experiments: index_1.experimentRegistry.getStates(this.connectionManager?.clientId ?? null),
+                experiments: index_1.experimentRegistry.getStates(this.agentSession?.clientId ?? null),
                 duration_ms: 0,
             });
             return response;
         }
         return await (0, dispatcher_1.dispatchTool)(this.buildContext(args.tabId), name, args, options, {
             metricsLogger: this.metricsLogger,
-            clientId: this.connectionManager?.clientId,
-            getCurrentUrl: () => this.connectionManager?.getAttachedTab()?.url,
+            clientId: this.agentSession?.clientId,
+            getCurrentUrl: () => this.agentSession?.getAttachedTab()?.url,
         });
     }
 }

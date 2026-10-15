@@ -50,6 +50,7 @@ class ConfigService {
         const D = defaults_1.HARDCODED_DEFAULTS;
         const isBool = (v) => typeof v === 'boolean';
         const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+        const isPosNum = (v) => isNum(v) && v > 0;
         const isStrArr = (v) => Array.isArray(v) && v.every((x) => typeof x === 'string');
         const isMode = (v) => v === 'tranco' || v === 'custom' || v === 'both';
         const isDebugMode = (v) => v === false || v === 'truncate' || v === 'no_truncate';
@@ -75,6 +76,9 @@ class ConfigService {
             daemon: {
                 port: pick('daemon.port', inp.cli.daemon?.port, inp.env.daemon?.port, inp.file.daemon?.port, D.daemon.port, isNum, warn),
                 idle_timeout_ms: pick('daemon.idle_timeout_ms', inp.cli.daemon?.idle_timeout_ms, inp.env.daemon?.idle_timeout_ms, inp.file.daemon?.idle_timeout_ms, D.daemon.idle_timeout_ms, isNum, warn),
+            },
+            agents: {
+                idle_timeout_ms: pick('agents.idle_timeout_ms', inp.cli.agents?.idle_timeout_ms, inp.env.agents?.idle_timeout_ms, inp.file.agents?.idle_timeout_ms, D.agents.idle_timeout_ms, isPosNum, warn),
             },
             logging: {
                 debug: pick('logging.debug', inp.cli.logging?.debug, inp.env.logging?.debug, inp.file.logging?.debug, D.logging.debug, isDebugMode, warn),

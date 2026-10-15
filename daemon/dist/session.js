@@ -20,6 +20,7 @@ class SessionRegistry {
             sessionId,
             socket,
             ownedTabs: new Set(),
+            createdTabs: new Set(),
             attachedTabId: null,
             groupId: null,
             profileId: null,
@@ -79,8 +80,14 @@ class SessionRegistry {
     /** Remove a tab from a session's ownership set. */
     removeOwnedTab(sessionId, tabId) {
         const session = this.sessions.get(sessionId);
-        if (session)
+        if (session) {
             session.ownedTabs.delete(tabId);
+            session.createdTabs.delete(tabId);
+        }
+    }
+    /** Mark a tab as created by this session — it is closed when the session ends. */
+    addCreatedTab(sessionId, tabId) {
+        this.sessions.get(sessionId)?.createdTabs.add(tabId);
     }
     /** Find which session owns a tab by its ID. Returns null if unowned. */
     findTabOwner(tabId) {
