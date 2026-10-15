@@ -373,6 +373,11 @@ async function main(): Promise<void> {
   if (dupA?.error !== 'username_in_use') fail(`same-process duplicate not rejected: ${JSON.stringify(dupA)}`);
   const dupB = await B.send('connect', { username: A.name });
   if (!/already in use/.test(JSON.stringify(dupB))) fail(`cross-process duplicate not rejected: ${JSON.stringify(dupB)}`);
+  // The refusal must not cost the live session anything: its tab is still there.
+  const liveA = await A.send('browser_tabs', { action: 'list' });
+  if (!(liveA?.tabs ?? []).some((t: any) => String(t.url).includes(`:${pageA.port}`))) {
+    fail(`refusing a duplicate ended the live session: ${JSON.stringify(liveA).slice(0, 400)}`);
+  }
   ok('duplicate usernames are refused');
 
   // ── Assertion 6: missing and unknown names get the fix-it text.
