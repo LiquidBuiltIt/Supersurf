@@ -19,6 +19,10 @@ const EXEMPT = new Set(['status', 'profile_create', 'profile_list', 'profile_del
 const MARKER = '👤 you are ';
 const MISSING = 'username required — your username is in the status line of your earlier SuperSurf results.';
 const MISSING_NONE = ' No agent is connected yet — call `connect` with your own username first.';
+function unknownText(username, idleMin) {
+    return `No live session for username "${username}". Check the status line of your earlier SuperSurf results for your exact username. ` +
+        `If it expired after ${idleMin} min idle, its tabs are closed — call \`connect\` to start again.`;
+}
 function errorResult(text, raw, code) {
     return raw ? { success: false, error: code, message: text } : { content: [{ type: 'text', text }], isError: true };
 }
@@ -71,9 +75,11 @@ class AgentSessionManager {
         const username = typeof rawName === 'string' ? rawName.trim() : '';
         if (name === 'status') {
             const s = username ? this._sessions.get(username) : undefined;
-            if (s)
+            if (s) {
+                this._touch(username);
                 return raw ? s.callTool('status', rest, options) : this._decorate(s, await s.callTool('status', rest, options));
-            return this._status(raw);
+            }
+            return this._status(raw, username ? unknownText(username, this._idleMin) : undefined);
         }
         if (EXEMPT.has(name))
             return this._lobby.callTool(name, rest, options);
@@ -84,11 +90,10 @@ class AgentSessionManager {
         }
         const session = this._sessions.get(username);
         if (!session) {
-            return errorResult(`No live session for username "${username}". Check the status line of your earlier SuperSurf results for your exact username. ` +
-                `If it expired after ${this._idleMin} min idle, its tabs are closed — call \`connect\` to start again.`, raw, 'unknown_username');
+            return errorResult(unknownText(username, this._idleMin), raw, 'unknown_username');
         }
         let result;
-        this._busy.set(username, (this._busy.get(username) ?? 0) + 1);
+        this._busy.set(session, (this._busy.get(session) ?? 0) + 1);
         this._touch(username);
         try {
             result = await session.callTool(name, rest, options);
@@ -99,18 +104,18 @@ class AgentSessionManager {
             result = { content: [{ type: 'text', text: `### Error\n\n${err?.message ?? String(err)}` }], isError: true };
         }
         finally {
-            if (name === 'disconnect') {
+            if (name === 'disconnect' && session.state === 'passive') {
                 this._sessions.delete(username);
                 clearTimeout(this._timers.get(username));
                 this._timers.delete(username);
-                this._busy.delete(username);
+                this._busy.delete(session);
             }
             else {
-                const n = (this._busy.get(username) ?? 1) - 1;
+                const n = (this._busy.get(session) ?? 1) - 1;
                 if (n > 0)
-                    this._busy.set(username, n);
+                    this._busy.set(session, n);
                 else
-                    this._busy.delete(username);
+                    this._busy.delete(session);
                 if (this._sessions.get(username) === session)
                     this._touch(username);
             }
@@ -145,28 +150,30 @@ class AgentSessionManager {
         this._timers.set(username, t);
     }
     async _expire(username) {
-        if ((this._busy.get(username) ?? 0) > 0)
-            return this._touch(username);
         const s = this._sessions.get(username);
+        if (s && (this._busy.get(s) ?? 0) > 0)
+            return this._touch(username);
         this._sessions.delete(username);
         this._timers.delete(username);
         await s?.callTool('disconnect', {}, { rawResult: true }).catch(() => { });
     }
     /** Health only. Names and counts of other agents stay hidden until BACKLOG #69. */
-    async _status(raw) {
+    async _status(raw, warning) {
         const d = await (0, daemon_spawn_1.queryDaemonStatus)();
         const version = this._config.server.version;
         const daemon = d
             ? { running: true, version: d.version, uptime_seconds: Math.round(d.uptimeSeconds), extension_connected: !!d.extensionConnected, browser: d.extensionBrowser ?? null }
             : { running: false };
         if (raw)
-            return { server_version: version, daemon };
+            return warning ? { server_version: version, daemon, warning } : { server_version: version, daemon };
         const lines = [`SuperSurf v${version}`];
         if (!d)
             lines.push('Daemon: not running — `connect` starts it.');
         else
             lines.push(`Daemon: v${daemon.version}, up ${daemon.uptime_seconds}s`, `Extension: ${daemon.extension_connected ? `connected (${daemon.browser ?? 'unknown browser'})` : 'not connected'}`);
         lines.push('', 'Pass your `username` to `status` to see your own session.');
+        if (warning)
+            lines.push(warning);
         return { content: [{ type: 'text', text: lines.join('\n') }] };
     }
     /** Prepend the caller's header to the first text block unless it already names them. */

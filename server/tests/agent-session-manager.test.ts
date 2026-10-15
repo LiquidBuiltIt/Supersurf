@@ -254,6 +254,18 @@ describe('AgentSessionManager', () => {
     expect((await m.callTool('status', { username: 'sm-a' })).content[0].text).toContain('👤 you are sm-a');
   });
 
+  it('status with an unknown username returns health plus the unknown-username hint', async () => {
+    mocks.queryDaemonStatus.mockResolvedValue({ version: '9.9.9', uptimeSeconds: 61, extensionConnected: true, extensionBrowser: 'Chromium' });
+    const m = await managerWith(['sm-a']);
+    const raw = await m.callTool('status', { username: 'ghost' }, { rawResult: true });
+    expect(raw.warning).toMatch(/No live session for username "ghost"/);
+    expect(raw.daemon.running).toBe(true);
+    const text = (await m.callTool('status', { username: 'ghost' })).content[0].text as string;
+    expect(text).toMatch(/^SuperSurf v/);
+    expect(text).toContain('No live session for username "ghost"');
+    expect(text).not.toContain('sm-a');
+  });
+
   it('status lists an optional username property', async () => {
     const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
     const status = (await m.listTools()).find(t => t.name === 'status')!;
@@ -289,6 +301,41 @@ describe('AgentSessionManager', () => {
       behavior.callDelayMs = 5000;
       const p = m.callTool('browser_tabs', { username: 'sm-a', action: 'list' });
       await vi.advanceTimersByTimeAsync(5000); await p;
+      expect(m.get('sm-a')).toBeDefined();
+    });
+
+    it('an old session\'s late call does not decrement the new session\'s busy count', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], idle);
+      behavior.callDelayMs = 1500;
+      const pX = m.callTool('browser_tabs', { username: 'sm-a', action: 'list' });
+      await m.callTool('disconnect', { username: 'sm-a' });
+      await m.callTool('connect', { username: 'sm-a' });
+      behavior.callDelayMs = 5000;
+      const pY = m.callTool('browser_tabs', { username: 'sm-a', action: 'list' });
+      await vi.advanceTimersByTimeAsync(2500); // X resolved at 1500; Y still in flight
+      await pX;
+      expect(m.get('sm-a')).toBeDefined();
+      await vi.advanceTimersByTimeAsync(2500); await pY;
+      expect(m.get('sm-a')).toBeDefined();
+    });
+
+    it('a failed disconnect keeps the name routable', async () => {
+      const m = await managerWith(['sm-a']);
+      const s = m.get('sm-a')!;
+      vi.spyOn(s, 'callTool').mockRejectedValue(new Error('daemon hung up'));
+      const r = await m.callTool('disconnect', { username: 'sm-a' });
+      expect(r.isError).toBe(true);
+      expect(s.state).not.toBe('passive');
+      expect(m.get('sm-a')).toBe(s);
+    });
+
+    it('status with a live username resets the idle clock', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], idle);
+      await vi.advanceTimersByTimeAsync(800);
+      await m.callTool('status', { username: 'sm-a' });
+      await vi.advanceTimersByTimeAsync(800); // past the original deadline, under one timeout from status
       expect(m.get('sm-a')).toBeDefined();
     });
 

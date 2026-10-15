@@ -212,7 +212,7 @@ describe('humanization session keying', () => {
     mockIsEnabled.mockReturnValue(false);
   });
 
-  it('moves the cursor of the manager that owns the context', async () => {
+  it('moves the cursor of the AgentSession that owns the context', async () => {
     const ctx = createMockCtx();
     ctx.agentSession = { clientId: 'session-a', getAttachedTab: () => null };
 
@@ -222,7 +222,7 @@ describe('humanization session keying', () => {
     expect(getSession('session-b')).toMatchObject({ cursorX: 0, cursorY: 0 });
   });
 
-  it('keeps two managers cursor state independent', async () => {
+  it('keeps cursor state of two AgentSessions independent', async () => {
     const a = createMockCtx();
     a.agentSession = { clientId: 'session-a', getAttachedTab: () => null };
     const b = createMockCtx();

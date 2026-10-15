@@ -22,7 +22,7 @@
 //    silently fail to resolve on the default configuration.
 //
 // Session state mirrors `ExperimentRegistry._sessions` (experimental/index.ts:53-63):
-// keyed by the `connect` `client_id`, bound and dropped from the same two places
+// keyed by the `connect` `username` (the daemon session id), bound and dropped from the same two places
 // in `backend/handlers.ts`.
 
 import { normalizeName } from './naming';

@@ -3,7 +3,7 @@
  * BrowserBridge — orchestrator for browser tool dispatch.
  *
  * Thin lifecycle wrapper. Builds a ToolContext from the transport,
- * connection manager, and helper modules, then delegates dispatch to
+ * AgentSession, and helper modules, then delegates dispatch to
  * `tools/dispatcher.ts`. The CDP/eval primitives, element resolver, and
  * result formatter live in sibling modules.
  *
@@ -26,8 +26,8 @@ const log = (0, shared_1.createLog)('[Bridge]');
 /**
  * Lifecycle wrapper for browser tool execution. Created by
  * `backend/handlers.ts:onConnect` after the daemon transport is up;
- * `initialize()` wires in the MCP server, client metadata, connection
- * manager, and (optional) usage-metrics logger.
+ * `initialize()` wires in the MCP server, client metadata, AgentSession,
+ * and (optional) usage-metrics logger.
  */
 class BrowserBridge {
     config;

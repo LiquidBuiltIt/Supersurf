@@ -13,9 +13,9 @@ export async function getViewportSize(ctx: ToolContext): Promise<{ width: number
 /**
  * Resolve the mouse-humanization session key for a tool call.
  *
- * Keyed by the owning AgentSession's `client_id` so two managers in one
+ * Keyed by the owning AgentSession's `username` (the daemon session id) so two AgentSessions in one
  * Node process keep separate cursor state. Falls back to '_default' only for
- * contexts built without a connection manager (unit tests) — BrowserBridge
+ * contexts built without an AgentSession (unit tests) — BrowserBridge
  * always wires one in production.
  */
 export function humanizationSessionId(ctx: ToolContext): string {

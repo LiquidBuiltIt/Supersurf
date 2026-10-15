@@ -174,13 +174,13 @@ async function onConnect(mgr, args = {}, options = {}) {
                 {
                     type: 'text',
                     text: mgr.statusHeader() +
-                        `### Already Connected\n\n**State:** ${mgr.state}\n**Client ID:** ${mgr.clientId}\n\nTo restart, call \`disconnect\` first.`,
+                        `### Already Connected\n\n**State:** ${mgr.state}\n**Username:** ${mgr.clientId}\n\nTo restart, call \`disconnect\` first.`,
                 },
             ],
         };
     }
     mgr.clientId = raw;
-    log('Client ID set to:', mgr.clientId);
+    log('Username set to:', mgr.clientId);
     // Start session log file
     const reg = (0, shared_2.getRegistry)();
     if (reg.debugMode) {
@@ -432,7 +432,7 @@ async function rehydrateAttachedTab(mgr, client) {
 // ─── Disconnect ─────────────────────────────────────────────────
 /**
  * Close the session log, clear tip suppression counters, drop session-scoped
- * experiment + cursor state. All keyed by client_id so another agent's
+ * experiment + cursor state. All keyed by username (the daemon session id) so another agent's
  * AgentSession in this process keeps its own. Safe for an id that never got
  * bound — every callee ignores unknown ids.
  */

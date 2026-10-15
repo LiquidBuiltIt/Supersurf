@@ -12,23 +12,29 @@ vi.mock('shared', async (importOriginal) => {
       disable: vi.fn(),
     }),
     createLog: () => (..._args: unknown[]) => {},
-    DaemonClient: vi.fn(() => ({
-      start: vi.fn().mockResolvedValue(undefined),
-      stop: vi.fn().mockResolvedValue(undefined),
-      notifyClientId: vi.fn(),
-      sendCmd: vi.fn().mockResolvedValue(undefined),
-      connected: true,
-      buildTime: null,
-      browser: 'chrome',
-      onReconnect: null,
-      onTabInfoUpdate: null,
-    })),
+    DaemonClient: vi.fn(function (this: any) {
+      Object.assign(this, {
+        start: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockResolvedValue(undefined),
+        notifyClientId: vi.fn(),
+        sendCmd: vi.fn().mockResolvedValue(undefined),
+        connected: true,
+        buildTime: null,
+        browser: 'chrome',
+        version: '0.1.0',
+        extensionConnected: true,
+        isConfigDrifted: vi.fn(() => false),
+        onReconnect: null,
+        onTabInfoUpdate: null,
+      });
+    }),
   };
 });
 
 // Mock daemon-spawn
 vi.mock('../src/daemon-spawn', () => ({
   ensureDaemon: vi.fn().mockResolvedValue(undefined),
+  stopDaemon: vi.fn().mockResolvedValue(undefined),
   getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
   queryDaemonStatus: vi.fn().mockResolvedValue(null),
 }));
@@ -41,18 +47,22 @@ vi.mock('../src/experimental/index', () => ({
     disable: vi.fn(),
     reset: vi.fn(),
     getStates: vi.fn().mockReturnValue({ page_diffing: false, smart_waiting: false }),
+    bind: vi.fn(),
+    unbind: vi.fn(),
+    isEnabled: vi.fn().mockReturnValue(false),
   },
   applyInitialState: vi.fn(),
 }));
 
 // Mock tools
+const bridgeCall = vi.hoisted(() => vi.fn());
 vi.mock('../src/tools', () => ({
-  BrowserBridge: vi.fn(() => ({
-    initialize: vi.fn().mockResolvedValue(undefined),
-    listTools: vi.fn().mockResolvedValue([]),
-    callTool: vi.fn().mockResolvedValue({ success: true }),
-    serverClosed: vi.fn(),
-  })),
+  BrowserBridge: vi.fn(function (this: any) {
+    this.initialize = vi.fn().mockResolvedValue(undefined);
+    this.listTools = vi.fn().mockResolvedValue([]);
+    this.callTool = bridgeCall.mockResolvedValue({ success: true, from: 'session' });
+    this.serverClosed = vi.fn();
+  }),
 }));
 
 /**
@@ -85,7 +95,7 @@ describe('stdio (script mode)', () => {
   /**
    * Helper to start script mode with a fake stdin and push lines into it.
    */
-  async function runWithInput(lines: string[]): Promise<string[]> {
+  async function runWithInput(lines: string[], sequential = false): Promise<string[]> {
     fakeStdin = new Readable({
       read() {},
     });
@@ -103,6 +113,10 @@ describe('stdio (script mode)', () => {
 
     for (const line of lines) {
       fakeStdin.push(line + '\n');
+      if (sequential) {
+        const want = capturedOutput.length + 1;
+        for (let i = 0; i < 100 && capturedOutput.length < want; i++) await new Promise((r) => setTimeout(r, 20));
+      }
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -126,6 +140,17 @@ describe('stdio (script mode)', () => {
     expect(parsed.jsonrpc).toBe('2.0');
     expect(parsed.id).toBe(1);
     expect(parsed.result).toBeDefined();
+  });
+
+  it('connect then a call with username reaches that agent\'s session', async () => {
+    const output = await runWithInput([
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'connect', params: { username: 'script-a' } }),
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'browser_tabs', params: { username: 'script-a', action: 'list' } }),
+    ], true);
+
+    const routed = output.map((o) => JSON.parse(o)).find((o) => o.id === 2);
+    expect(routed.result).toEqual({ success: true, from: 'session' });
+    expect(bridgeCall).toHaveBeenCalledWith('browser_tabs', { action: 'list' }, expect.anything());
   });
 
   it('invalid jsonrpc version returns error code -32600', async () => {
