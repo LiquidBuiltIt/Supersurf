@@ -22,7 +22,7 @@ function getConnectionToolSchemas() {
     return [
         {
             name: 'connect',
-            description: 'Connect to the SuperSurf service and start browser automation. Pass a username to identify this agent. Read the skill guide for best practices: https://liquidbuiltit.github.io/Supersurf/skill.md',
+            description: 'Register this agent under `username` and connect. Pass the same `username` to every later call. Read the skill guide for best practices: https://liquidbuiltit.github.io/Supersurf/skill.md',
             inputSchema: {
                 type: 'object',
                 properties: {
@@ -46,7 +46,7 @@ function getConnectionToolSchemas() {
         },
         {
             name: 'disconnect',
-            description: 'Disconnect this session from the SuperSurf service.',
+            description: 'End your session: closes the tabs you created, releases tabs you attached to.',
             inputSchema: { type: 'object', properties: {}, required: [] },
             annotations: {
                 title: 'Disconnect from service',
@@ -57,7 +57,7 @@ function getConnectionToolSchemas() {
         },
         {
             name: 'status',
-            description: 'Show server, daemon and extension health. Without `username` it reports health only and names no one; with your `username` it reports your own session.',
+            description: 'Without `username`: server and daemon health. With your `username`: the status of your own session.',
             inputSchema: {
                 type: 'object',
                 properties: { username: { type: 'string', description: 'Your agent name. Omit for a health check that names no one.' } },
