@@ -8,6 +8,7 @@ import { ConfigService } from 'shared';
 import { AgentSessionManager } from '../src/agent-session-manager';
 import { experimentRegistry } from '../src/experimental/index';
 import type { BackendConfig } from '../src/backend';
+import { trailFor } from '../src/playbooks/trail';
 
 // ---- Mocks ----
 
@@ -271,6 +272,15 @@ describe('AgentSessionManager', () => {
     const status = (await m.listTools()).find(t => t.name === 'status')!;
     expect((status.inputSchema.properties as Record<string, unknown>).username).toBeDefined();
     expect((status.inputSchema.required as string[] | undefined) ?? []).not.toContain('username');
+  });
+
+  it('a fresh connect starts with an empty action trail', async () => {
+    const m = await managerWith(['x']);
+    await m.callTool('disconnect', { username: 'x' });
+    // an in-flight call finishing after disconnect recreates the trail
+    trailFor('x').record({ tool: 'browser_tabs', type: 'browser_tabs', outcome: 'ok', message: 'late', params: {} } as any);
+    await m.callTool('connect', { username: 'x' });
+    expect(trailFor('x').tail(10).total).toBe(0);
   });
 
   describe('idle expiry', () => {

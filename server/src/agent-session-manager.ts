@@ -12,6 +12,7 @@
 import { AgentSession } from './backend';
 import { USERNAME_RE } from './backend/handlers';
 import { queryDaemonStatus } from './daemon-spawn';
+import { dropTrail } from './playbooks/trail';
 import type { BackendConfig, ToolSchema } from './backend/types';
 
 const EXEMPT = new Set(['status', 'profile_create', 'profile_list', 'profile_delete', 'reload_mcp', 'experimental_features']);
@@ -131,6 +132,7 @@ export class AgentSessionManager {
     // Validation of empty / malformed names stays in onConnect (Task 4) — one copy of those texts.
     this._connecting.add(username);
     try {
+      dropTrail(username); // a late call from a previous session may have recreated it
       const session = new AgentSession(this._config);
       await session.initialize(this._server, this._clientInfo);
       const result = await session.callTool('connect', { ...rest, username }, options);
