@@ -88,7 +88,7 @@ class AgentSessionManager {
                 `If it expired after ${this._idleMin} min idle, its tabs are closed — call \`connect\` to start again.`, raw, 'unknown_username');
         }
         let result;
-        this._busy.set(username, (this._busy.get(username) ?? 0) + 1);
+        this._busy.set(session, (this._busy.get(session) ?? 0) + 1);
         this._touch(username);
         try {
             result = await session.callTool(name, rest, options);
@@ -103,14 +103,14 @@ class AgentSessionManager {
                 this._sessions.delete(username);
                 clearTimeout(this._timers.get(username));
                 this._timers.delete(username);
-                this._busy.delete(username);
+                this._busy.delete(session);
             }
             else {
-                const n = (this._busy.get(username) ?? 1) - 1;
+                const n = (this._busy.get(session) ?? 1) - 1;
                 if (n > 0)
-                    this._busy.set(username, n);
+                    this._busy.set(session, n);
                 else
-                    this._busy.delete(username);
+                    this._busy.delete(session);
                 if (this._sessions.get(username) === session)
                     this._touch(username);
             }
@@ -145,9 +145,9 @@ class AgentSessionManager {
         this._timers.set(username, t);
     }
     async _expire(username) {
-        if ((this._busy.get(username) ?? 0) > 0)
-            return this._touch(username);
         const s = this._sessions.get(username);
+        if (s && (this._busy.get(s) ?? 0) > 0)
+            return this._touch(username);
         this._sessions.delete(username);
         this._timers.delete(username);
         await s?.callTool('disconnect', {}, { rawResult: true }).catch(() => { });

@@ -28,7 +28,7 @@ export class AgentSessionManager {
   private _sessions = new Map<string, AgentSession>();
   private _connecting = new Set<string>();
   private _timers = new Map<string, NodeJS.Timeout>();
-  private _busy = new Map<string, number>();
+  private _busy = new Map<AgentSession, number>();
   private _lobby: AgentSession;
   private _server: any = null;
   private _clientInfo: Record<string, unknown> = {};
@@ -97,7 +97,7 @@ export class AgentSessionManager {
     }
 
     let result: any;
-    this._busy.set(username, (this._busy.get(username) ?? 0) + 1);
+    this._busy.set(session, (this._busy.get(session) ?? 0) + 1);
     this._touch(username);
     try {
       result = await session.callTool(name, rest, options);
@@ -109,10 +109,10 @@ export class AgentSessionManager {
         this._sessions.delete(username);
         clearTimeout(this._timers.get(username));
         this._timers.delete(username);
-        this._busy.delete(username);
+        this._busy.delete(session);
       } else {
-        const n = (this._busy.get(username) ?? 1) - 1;
-        if (n > 0) this._busy.set(username, n); else this._busy.delete(username);
+        const n = (this._busy.get(session) ?? 1) - 1;
+        if (n > 0) this._busy.set(session, n); else this._busy.delete(session);
         if (this._sessions.get(username) === session) this._touch(username);
       }
     }
@@ -148,8 +148,8 @@ export class AgentSessionManager {
   }
 
   private async _expire(username: string): Promise<void> {
-    if ((this._busy.get(username) ?? 0) > 0) return this._touch(username);
     const s = this._sessions.get(username);
+    if (s && (this._busy.get(s) ?? 0) > 0) return this._touch(username);
     this._sessions.delete(username);
     this._timers.delete(username);
     await s?.callTool('disconnect', {}, { rawResult: true }).catch(() => {});

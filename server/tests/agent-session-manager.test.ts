@@ -292,6 +292,22 @@ describe('AgentSessionManager', () => {
       expect(m.get('sm-a')).toBeDefined();
     });
 
+    it('an old session\'s late call does not decrement the new session\'s busy count', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-a'], idle);
+      behavior.callDelayMs = 1500;
+      const pX = m.callTool('browser_tabs', { username: 'sm-a', action: 'list' });
+      await m.callTool('disconnect', { username: 'sm-a' });
+      await m.callTool('connect', { username: 'sm-a' });
+      behavior.callDelayMs = 5000;
+      const pY = m.callTool('browser_tabs', { username: 'sm-a', action: 'list' });
+      await vi.advanceTimersByTimeAsync(2500); // X resolved at 1500; Y still in flight
+      await pX;
+      expect(m.get('sm-a')).toBeDefined();
+      await vi.advanceTimersByTimeAsync(2500); await pY;
+      expect(m.get('sm-a')).toBeDefined();
+    });
+
     it('disconnect leaves no timer and no second disconnect', async () => {
       vi.useFakeTimers();
       const m = await managerWith(['sm-a'], idle);
