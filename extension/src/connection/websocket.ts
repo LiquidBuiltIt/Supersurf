@@ -431,7 +431,26 @@ export class WebSocketConnection {
     if (handler) await handler(params);
   }
 
+  /** In-flight sessionDisconnect teardowns by session id. A same-id command that
+   *  arrives mid-teardown waits, so the teardown cannot ungroup or wipe the new session. */
+  private pendingTeardowns = new Map<string, Promise<unknown>>();
+
   private async _routeCommand(message: any): Promise<any> {
+    const { method, params } = message;
+    const pending = this.pendingTeardowns.get(params?._sessionId);
+    if (pending) await pending.catch(() => {});
+    if (method === 'sessionDisconnect' && params?.sessionId) {
+      const id = params.sessionId;
+      const teardown = this._runCommand(message);
+      this.pendingTeardowns.set(id, teardown);
+      const clear = () => { if (this.pendingTeardowns.get(id) === teardown) this.pendingTeardowns.delete(id); };
+      teardown.then(clear, clear);
+      return await teardown;
+    }
+    return await this._runCommand(message);
+  }
+
+  private async _runCommand(message: any): Promise<any> {
     const { method, params } = message;
     if (this.dialogPendingChecker?.(params?._sessionId ?? null) && !DIALOG_SAFE_METHODS.has(method)) {
       throw new Error(

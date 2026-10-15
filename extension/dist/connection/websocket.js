@@ -406,7 +406,26 @@ export class WebSocketConnection {
         if (handler)
             await handler(params);
     }
+    /** In-flight sessionDisconnect teardowns by session id. A same-id command that
+     *  arrives mid-teardown waits, so the teardown cannot ungroup or wipe the new session. */
+    pendingTeardowns = new Map();
     async _routeCommand(message) {
+        const { method, params } = message;
+        const pending = this.pendingTeardowns.get(params?._sessionId);
+        if (pending)
+            await pending.catch(() => { });
+        if (method === 'sessionDisconnect' && params?.sessionId) {
+            const id = params.sessionId;
+            const teardown = this._runCommand(message);
+            this.pendingTeardowns.set(id, teardown);
+            const clear = () => { if (this.pendingTeardowns.get(id) === teardown)
+                this.pendingTeardowns.delete(id); };
+            teardown.then(clear, clear);
+            return await teardown;
+        }
+        return await this._runCommand(message);
+    }
+    async _runCommand(message) {
         const { method, params } = message;
         if (this.dialogPendingChecker?.(params?._sessionId ?? null) && !DIALOG_SAFE_METHODS.has(method)) {
             throw new Error('A native dialog is blocking the page. Inspect it with ' +
