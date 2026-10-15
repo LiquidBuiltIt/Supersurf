@@ -61,6 +61,13 @@ function stopDaemon(home: string): void {
   try {
     const pid = Number(fs.readFileSync(path.join(home, '.supersurf', 'daemon.pid'), 'utf8').trim());
     if (pid > 0) process.kill(pid, 'SIGTERM');
+    // Wait for it to exit: it logs while shutting down, and a log line that
+    // lands mid-rmSync re-creates daemon.log and fails the HOME removal.
+    const until = Date.now() + 5000;
+    while (Date.now() < until) {
+      process.kill(pid, 0); // throws once the daemon is gone
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
   } catch { /* never started, or already gone */ }
 }
 function ok(message: string): void {
