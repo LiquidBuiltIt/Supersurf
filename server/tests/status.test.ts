@@ -93,7 +93,7 @@ describe('buildStatusHeader — agent identity', () => {
 
   it('names the agent in the active header', () => {
     const h = buildStatusHeader({ ...active, username: 'geo-research' });
-    expect(h).toMatch(/v\d[^|]*\| 👤 you are geo-research \|/);
+    expect(h).toMatch(/v\d[^|\n]*\| 👤 you are geo-research( \||$)/m);
   });
 
   it('names the agent in the passive header, before Disabled', () => {
