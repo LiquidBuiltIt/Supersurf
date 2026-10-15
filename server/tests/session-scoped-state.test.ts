@@ -1,5 +1,5 @@
 /**
- * Cross-manager isolation lock.
+ * Cross-AgentSession isolation lock.
  *
  * Two AgentSession instances in one Node process must not share
  * session-scoped state. Disconnecting one must leave the other's experiment
@@ -72,7 +72,7 @@ vi.mock('../src/usage-metrics-logger', () => ({
   redactParams: vi.fn((p: any) => p),
 }));
 
-// A fresh bridge object per construction, so per-manager instancing is observable.
+// A fresh bridge object per construction, so per-AgentSession instancing is observable.
 vi.mock('../src/tools', () => ({
   BrowserBridge: vi.fn(function (this: any) {
     this.initialize = vi.fn().mockResolvedValue(undefined);
@@ -151,7 +151,7 @@ describe('two AgentSessions in one process', () => {
     expect(getSession('session-b')).toBeUndefined();
   });
 
-  it('each manager binds its own daemon transport', async () => {
+  it('each AgentSession binds its own daemon transport', async () => {
     experimentRegistry.bind('session-a', (a as any).extensionServer);
     experimentRegistry.bind('session-b', (b as any).extensionServer);
 
@@ -169,7 +169,7 @@ describe('two AgentSessions in one process', () => {
     );
   });
 
-  it('the surviving manager stays active after the other disconnects', async () => {
+  it('the surviving AgentSession stays active after the other disconnects', async () => {
     await b.callTool('disconnect', {}, { rawResult: true });
 
     const statusA = await a.callTool('status', {}, { rawResult: true });
@@ -194,7 +194,7 @@ describe('two AgentSessions in one process', () => {
     expect(clearTipCounters).not.toHaveBeenCalledWith('session-a');
   });
 
-  it('each manager owns a distinct BrowserBridge and metrics logger', () => {
+  it('each AgentSession owns a distinct BrowserBridge and metrics logger', () => {
     expect((a as any).bridge).toBeTruthy();
     expect((b as any).bridge).toBeTruthy();
     expect((a as any).bridge).not.toBe((b as any).bridge);

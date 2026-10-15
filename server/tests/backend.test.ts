@@ -265,6 +265,7 @@ describe('AgentSession', () => {
 
       const result = await backend.callTool('connect', { username: 'other' });
       expect(result.content[0].text).toContain('Already Connected');
+      expect(result.content[0].text).toContain('**Username:** test');
     });
 
     it('initializes BrowserBridge with correct args', async () => {

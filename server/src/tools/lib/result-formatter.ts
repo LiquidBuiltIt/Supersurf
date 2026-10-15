@@ -3,7 +3,7 @@
 // MCP result envelope handling. Three pure functions:
 //   - formatResult: wrap a handler result in MCP content blocks, prepend
 //     status header, unwrap the `_recovery` envelope, sync tab/browser
-//     metadata to the connection manager.
+//     metadata to the AgentSession.
 //   - maybeAppendScreenshot: append an inline screenshot image block when
 //     the agent passed `screenshot: true` to an eligible tool.
 //   - formatError: format an error message as an MCP error block, or a
@@ -19,7 +19,7 @@ export const SCREENSHOT_ELIGIBLE = new Set([
   'browser_drag', 'browser_handle_dialog', 'browser_window',
 ]);
 
-/** Minimal connection-manager shape this module needs. */
+/** Minimal AgentSession shape this module needs. */
 export interface ResultFormatterCM {
   setAttachedTab?: (tab: any) => void;
   setConnectedBrowserName?: (name: string) => void;
@@ -30,7 +30,7 @@ export interface ResultFormatterCM {
 /**
  * Wrap a handler result into MCP content blocks, prepending the status
  * header. In rawResult mode, passes through unchanged. Also syncs tab/
- * browser metadata with the connection manager and unwraps the
+ * browser metadata with the AgentSession and unwraps the
  * `_recovery` envelope (extension's `ensureAttachedTab()` attaches one
  * when the attached tab was stale and re-bound mid-call).
  */

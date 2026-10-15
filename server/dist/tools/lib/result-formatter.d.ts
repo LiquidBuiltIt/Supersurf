@@ -1,6 +1,6 @@
 /** Tools that support the `screenshot` param for inline post-action capture. */
 export declare const SCREENSHOT_ELIGIBLE: Set<string>;
-/** Minimal connection-manager shape this module needs. */
+/** Minimal AgentSession shape this module needs. */
 export interface ResultFormatterCM {
     setAttachedTab?: (tab: any) => void;
     setConnectedBrowserName?: (name: string) => void;
@@ -10,7 +10,7 @@ export interface ResultFormatterCM {
 /**
  * Wrap a handler result into MCP content blocks, prepending the status
  * header. In rawResult mode, passes through unchanged. Also syncs tab/
- * browser metadata with the connection manager and unwraps the
+ * browser metadata with the AgentSession and unwraps the
  * `_recovery` envelope (extension's `ensureAttachedTab()` attaches one
  * when the attached tab was stale and re-bound mid-call).
  */
