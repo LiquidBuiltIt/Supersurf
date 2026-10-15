@@ -372,7 +372,7 @@ async function main(): Promise<void> {
   const none = await A.send('browser_tabs', { action: 'list', username: undefined });
   if (!/username required/.test(JSON.stringify(none))) fail(`missing username not refused: ${JSON.stringify(none)}`);
   const ghost = await A.send('browser_tabs', { action: 'list', username: 'ghost' });
-  if (!/No live session for username "ghost"/.test(JSON.stringify(ghost))) fail(`unknown username not refused: ${JSON.stringify(ghost)}`);
+  if (!/No live session for username "ghost"/.test(String(ghost?.message))) fail(`unknown username not refused: ${JSON.stringify(ghost)}`);
   ok('missing and unknown usernames are refused with the fix-it text');
 
   // ── Assertion 7: two usernames in ONE process do not share a network log.
