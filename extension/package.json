@@ -3,7 +3,7 @@
   "version": "4.0.0",
   "private": true,
   "description": "SuperSurf Chrome extension for browser automation",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "build": "tsc && npx tsx build.ts",
     "dev": "tsc --watch",
