@@ -786,14 +786,14 @@ describe('browser_evaluate with secure_eval (default-on, opt-out via env)', () =
 describe('blocked-code messages do not advertise the off-switch', () => {
   let bridge: BrowserBridge;
   let mockExt: ReturnType<typeof createMockExt>;
-  let mockCM: ReturnType<typeof createMockConnectionManager>;
+  let mockCM: ReturnType<typeof createMockAgentSession>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     experimentRegistry.reset();
     delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
     mockExt = createMockExt();
-    mockCM = createMockConnectionManager();
+    mockCM = createMockAgentSession();
     bridge = new BrowserBridge({}, mockExt);
     bridge.initialize({}, {}, mockCM);
   });
