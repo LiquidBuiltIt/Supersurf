@@ -37,6 +37,7 @@
     "smoke.register": "npx tsx scripts/smoke-register.ts",
     "smoke.hints": "npx tsx scripts/smoke-hints.ts",
     "smoke.parallel": "npx tsx scripts/smoke-parallel.ts",
+    "bench.release": "npx tsx scripts/bench-release.ts",
     "tree": "npx tsx scripts/tree.ts",
     "changelog": "npx tsx scripts/changelog.ts"
   }
