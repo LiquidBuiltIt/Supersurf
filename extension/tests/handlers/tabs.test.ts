@@ -138,7 +138,7 @@ describe('TabHandlers', () => {
       const createdTab = { id: 200, index: 3, title: 'My Page', url: 'https://test.com' };
       mockChrome.tabs.create.mockResolvedValue(createdTab);
       mockChrome.tabs.query.mockResolvedValue([
-        { id: 1, url: 'https://x.com' }, { id: 2, url: 'https://y.com' }, { id: 3, url: 'https://z.com' }, createdTab,
+        { id: 1, url: 'https://example.com/x' }, { id: 2, url: 'https://example.com/y' }, { id: 3, url: 'https://example.com/z' }, createdTab,
       ]);
 
       const result = await tabs.createTab({ url: 'https://test.com', stealth: true });
@@ -256,9 +256,9 @@ describe('TabHandlers', () => {
   describe('one index space across windows', () => {
     // Chrome's tab.index is per-window: both windows have a tab at index 0.
     const twoWindows = [
-      { id: 10, index: 0, windowId: 1, title: 'W1 T0', url: 'https://a.com' },
-      { id: 11, index: 1, windowId: 1, title: 'W1 T1', url: 'https://b.com' },
-      { id: 20, index: 0, windowId: 2, title: 'W2 T0', url: 'https://c.com' },
+      { id: 10, index: 0, windowId: 1, title: 'W1 T0', url: 'https://example.com/a' },
+      { id: 11, index: 1, windowId: 1, title: 'W1 T1', url: 'https://example.com/b' },
+      { id: 20, index: 0, windowId: 2, title: 'W2 T0', url: 'https://example.com/c' },
     ];
 
     it('list reports the position that close consumes', async () => {
@@ -331,7 +331,7 @@ describe('TabHandlers', () => {
     });
 
     it('closes a specific tab by tabId and reports it', async () => {
-      mockChrome.tabs.get.mockResolvedValue({ id: 77, title: 'T', url: 'https://t.com' });
+      mockChrome.tabs.get.mockResolvedValue({ id: 77, title: 'T', url: 'https://example.com/t' });
 
       const result = await tabs.closeTab({ tabId: 77 });
 
@@ -340,10 +340,10 @@ describe('TabHandlers', () => {
     });
 
     it('prefers tabId over index when both are given', async () => {
-      mockChrome.tabs.get.mockResolvedValue({ id: 77, title: 'T', url: 'https://t.com' });
+      mockChrome.tabs.get.mockResolvedValue({ id: 77, title: 'T', url: 'https://example.com/t' });
       mockChrome.tabs.query.mockResolvedValue([
-        { id: 10, title: 'Tab 0', url: 'https://a.com' },
-        { id: 20, title: 'Tab 1', url: 'https://b.com' },
+        { id: 10, title: 'Tab 0', url: 'https://example.com/a' },
+        { id: 20, title: 'Tab 1', url: 'https://example.com/b' },
       ]);
 
       await tabs.closeTab({ tabId: 77, index: 1 });
@@ -360,7 +360,7 @@ describe('TabHandlers', () => {
     });
 
     it("refuses to close by tabId a tab in another session's group", async () => {
-      mockChrome.tabs.get.mockResolvedValue({ id: 77, groupId: 900, windowId: 1, title: 'T', url: 'https://t.com' });
+      mockChrome.tabs.get.mockResolvedValue({ id: 77, groupId: 900, windowId: 1, title: 'T', url: 'https://example.com/t' });
       vi.spyOn(tabs as any, 'getTabOwnership').mockReturnValue('other');
 
       await expect(tabs.closeTab({ tabId: 77, _sessionId: 's1' })).rejects.toThrow("another session's group");
@@ -369,8 +369,8 @@ describe('TabHandlers', () => {
 
     it('reports closedTabId when closing by index', async () => {
       mockChrome.tabs.query.mockResolvedValue([
-        { id: 10, title: 'Tab 0', url: 'https://a.com' },
-        { id: 20, title: 'Tab 1', url: 'https://b.com' },
+        { id: 10, title: 'Tab 0', url: 'https://example.com/a' },
+        { id: 20, title: 'Tab 1', url: 'https://example.com/b' },
       ]);
 
       const result = await tabs.closeTab({ index: 1 });
