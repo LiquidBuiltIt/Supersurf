@@ -6,8 +6,9 @@ import path from 'path';
 import { DaemonClient } from '../daemon-ipc/client';
 
 // Mock the logger
+const logSpy = vi.hoisted(() => vi.fn());
 vi.mock('../logger/registry', () => ({
-  createLog: () => (..._args: unknown[]) => {},
+  createLog: () => logSpy,
 }));
 
 function createMockDaemon(sockPath: string, options: {
@@ -223,6 +224,30 @@ describe('DaemonClient', () => {
       client.notifyClientId('my-project');
 
       await client.stop();
+    });
+  });
+
+  describe('sendCmd() debug log', () => {
+    it('never logs the secure_fill credential value, but still logs other commands\' value', async () => {
+      mockDaemon = createMockDaemon(sockPath, {
+        onRequest: (msg, socket) => {
+          socket.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { ok: true } }) + '\n');
+        },
+      });
+      await new Promise(r => mockDaemon!.on('listening', r));
+
+      const client = new DaemonClient(sockPath, 'test-session');
+      await client.start();
+      logSpy.mockClear();
+
+      await client.sendCmd('secure_fill', { selector: '#pw', value: 'hunter2-SECRET', tabId: 7 });
+      await client.sendCmd('someOtherCmd', { value: 'visible-value' });
+      await client.stop();
+
+      const logged = JSON.stringify(logSpy.mock.calls);
+      expect(logged).not.toContain('hunter2-SECRET');
+      expect(logged).toContain('#pw');
+      expect(logged).toContain('visible-value');
     });
   });
 

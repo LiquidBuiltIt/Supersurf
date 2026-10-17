@@ -23,6 +23,8 @@ export { QUERY_DEEP_SOURCE, QUERY_ALL_DEEP_SOURCE } from './dom/shadow-walker';
 
 export { daemonCommand } from './commands/index';
 
+export { redactForLog } from './daemon-ipc/redact';
+
 export {
   shouldShowUpgradeNotice,
   checkAndTouchVersionState,

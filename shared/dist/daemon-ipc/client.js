@@ -16,6 +16,7 @@ exports.DaemonClient = void 0;
 const net_1 = __importDefault(require("net"));
 const crypto_1 = __importDefault(require("crypto"));
 const registry_1 = require("../logger/registry");
+const redact_1 = require("./redact");
 const log = (0, registry_1.createLog)('[Daemon]');
 /**
  * Transport that connects to the SuperSurf daemon over a Unix domain socket.
@@ -201,7 +202,7 @@ class DaemonClient {
             throw new Error('Not connected to daemon. Call connect first.');
         }
         const id = crypto_1.default.randomUUID().slice(0, 8);
-        log(`-> ${method}`, params);
+        log(`-> ${method}`, (0, redact_1.redactForLog)(method, params));
         return new Promise((resolve, reject) => {
             const timeoutId = setTimeout(() => {
                 this.inflight.delete(id);

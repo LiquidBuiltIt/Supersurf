@@ -199,7 +199,7 @@ class ExtensionServer {
             log(`→ ${method}:`, params.method, params.params ?? {});
         }
         else {
-            log(`→ ${method}`, params);
+            log(`→ ${method}`, (0, shared_1.redactForLog)(method, params));
         }
         return new Promise((resolve, reject) => {
             const timeoutId = setTimeout(() => {

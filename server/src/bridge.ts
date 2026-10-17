@@ -20,7 +20,7 @@
 import crypto from 'crypto';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createLog } from 'shared';
+import { createLog, redactForLog } from 'shared';
 import type { IExtensionTransport, DialogEvent } from 'shared';
 export type { IExtensionTransport, DialogEvent } from 'shared';
 
@@ -231,7 +231,7 @@ export class ExtensionServer implements IExtensionTransport {
     if (method === 'forwardCDPCommand') {
       log(`→ ${method}:`, (params as any).method, (params as any).params ?? {});
     } else {
-      log(`→ ${method}`, params);
+      log(`→ ${method}`, redactForLog(method, params));
     }
 
     return new Promise((resolve, reject) => {
