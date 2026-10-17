@@ -27,7 +27,7 @@ export declare function getAttachedUrl(ctx: ToolContext): Promise<string | null>
  * Manage browser tabs: list, create, attach (with optional stealth), or close.
  * Updates AgentSession metadata on attach/close to keep status headers accurate.
  *
- * @param args - `{ action: 'list'|'new'|'attach'|'close', url?, index?, activate?, stealth? }`
+ * @param args - `{ action: 'list'|'new'|'attach'|'close', url?, index?, tabId?, activate?, stealth? }`
  */
 export declare function onBrowserTabs(ctx: ToolContext, args: any, options: any): Promise<any>;
 /**

@@ -63,7 +63,7 @@ async function checkChromeError(ctx: ToolContext): Promise<string | null> {
  * Manage browser tabs: list, create, attach (with optional stealth), or close.
  * Updates AgentSession metadata on attach/close to keep status headers accurate.
  *
- * @param args - `{ action: 'list'|'new'|'attach'|'close', url?, index?, activate?, stealth? }`
+ * @param args - `{ action: 'list'|'new'|'attach'|'close', url?, index?, tabId?, activate?, stealth? }`
  */
 export async function onBrowserTabs(ctx: ToolContext, args: any, options: any): Promise<any> {
   const action = args.action as string;
@@ -87,7 +87,7 @@ export async function onBrowserTabs(ctx: ToolContext, args: any, options: any): 
       });
       break;
     case 'close':
-      result = await ctx.ext.sendCmd('closeTab', args.index);
+      result = await ctx.ext.sendCmd('closeTab', { index: args.index, tabId: args.tabId });
       break;
     default:
       return ctx.error(`Unknown tab action: ${action}`, options);
@@ -98,7 +98,11 @@ export async function onBrowserTabs(ctx: ToolContext, args: any, options: any): 
       ctx.agentSession.setAttachedTab(result);
       if (args.stealth) ctx.agentSession.setStealthMode(true);
     } else if (action === 'close') {
-      ctx.agentSession.clearAttachedTab();
+      // An extension that predates `closedTabId` only ever closed the attached tab.
+      const closedTabId = result.closedTabId;
+      if (closedTabId === undefined || closedTabId === ctx.agentSession.attachedTab?.id) {
+        ctx.agentSession.clearAttachedTab();
+      }
     }
   }
 
