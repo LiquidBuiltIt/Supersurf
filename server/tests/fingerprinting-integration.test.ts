@@ -16,7 +16,7 @@ import type { FingerprintRecord } from '../src/experimental/fingerprinting/types
 const mockEnabled = experimentRegistry.isEnabled as ReturnType<typeof vi.fn>;
 const TMP = path.join(process.cwd(), '.tmp-fp-int');
 setBaseDirForTests(TMP);
-const url = () => 'https://ex.com/';
+const url = () => 'https://example.com/';
 
 function rec(): FingerprintRecord {
   return { selector: '#go', role: 'button', name: 'Go', text: 'Go', tag: 'button', type: null,
@@ -62,7 +62,7 @@ describe('resolveWithHealing', () => {
 
   it('ON + miss + stored fingerprint + high score: heals to stored coords', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
-    putRecord('ex.com', '/', '#go', rec());
+    putRecord('example.com', '/', '#go', rec());
     const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
     const center = await resolveWithHealing(evalFn, '#go', url, () => undefined);
     expect(center).toEqual({ x: 42, y: 99, text: '', label: '' });
@@ -70,7 +70,7 @@ describe('resolveWithHealing', () => {
 
   it('ON + miss + low margin: escalates (throws), never false-heals', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
-    putRecord('ex.com', '/', '#go', rec());
+    putRecord('example.com', '/', '#go', rec());
     const evalFn = vi.fn()
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.05 })); // margin < 0.10
@@ -93,14 +93,14 @@ describe('resolveWithHealing telemetry (emit)', () => {
     await resolveWithHealing(evalFn, '#go', url, () => undefined, emit);
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: 'fingerprint', outcome: 'resolved', selector: '#go', domain: 'ex.com', route: '/',
+        event: 'fingerprint', outcome: 'resolved', selector: '#go', domain: 'example.com', route: '/',
         hadRecord: false, discovery: 'new',
       }),
     );
   });
 
   it('emits outcome=resolved with hadRecord=true + discovery=known when a record already exists', async () => {
-    putRecord('ex.com', '/', '#go', rec());
+    putRecord('example.com', '/', '#go', rec());
     const evalFn = vi.fn().mockResolvedValue({ x: 1, y: 2 });
     const emit = vi.fn();
     await resolveWithHealing(evalFn, '#go', url, () => undefined, emit);
@@ -110,7 +110,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
   });
 
   it('emits outcome=healed with score+margin on a successful heal', async () => {
-    putRecord('ex.com', '/', '#go', rec());
+    putRecord('example.com', '/', '#go', rec());
     const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
     const emit = vi.fn();
     await resolveWithHealing(evalFn, '#go', url, () => undefined, emit);
@@ -120,7 +120,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
   });
 
   it('emits outcome=escalated (hadRecord=true, discovery=known) when the gate fails on low margin', async () => {
-    putRecord('ex.com', '/', '#go', rec());
+    putRecord('example.com', '/', '#go', rec());
     const evalFn = healEvalFn(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.05 }));
     const emit = vi.fn();
     await expect(resolveWithHealing(evalFn, '#go', url, () => undefined, emit)).rejects.toThrow(/not found/i);
@@ -142,16 +142,16 @@ describe('resolveWithHealing telemetry (emit)', () => {
 describe('captureInContext (iframe-bound capture)', () => {
   it('OFF: persists nothing and never evals', async () => {
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify(rec()));
-    await captureInContext(evalFn, 'https://ex.com/', '#go');
+    await captureInContext(evalFn, 'https://example.com/', '#go');
     expect(evalFn).not.toHaveBeenCalled();
-    expect(getRecord('ex.com', '/', '#go')).toBeUndefined();
+    expect(getRecord('example.com', '/', '#go')).toBeUndefined();
   });
 
   it('ON: persists the fingerprint resolved via the frame-bound eval', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify(rec()));
-    await captureInContext(evalFn, 'https://ex.com/login', '#go');
-    const got = getRecord('ex.com', '/login', '#go');
+    await captureInContext(evalFn, 'https://example.com/login', '#go');
+    const got = getRecord('example.com', '/login', '#go');
     expect(got?.name).toBe('Go');
     expect(got?.selector).toBe('#go');
   });
@@ -160,31 +160,31 @@ describe('captureInContext (iframe-bound capture)', () => {
 describe('healInContext (iframe-bound heal)', () => {
   it('OFF: returns null and never evals', async () => {
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify({ cx: 1, cy: 2, score: 0.9, margin: 0.5 }));
-    const hit = await healInContext(evalFn, 'https://ex.com/', '#go');
+    const hit = await healInContext(evalFn, 'https://example.com/', '#go');
     expect(hit).toBeNull();
     expect(evalFn).not.toHaveBeenCalled();
   });
 
   it('ON + stored record + gate-passing score: returns the hit', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
-    putRecord('ex.com', '/', '#go', rec());
+    putRecord('example.com', '/', '#go', rec());
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
-    const hit = await healInContext(evalFn, 'https://ex.com/', '#go');
+    const hit = await healInContext(evalFn, 'https://example.com/', '#go');
     expect(hit).toEqual({ cx: 42, cy: 99, score: 0.9, margin: 0.5 });
   });
 
   it('ON + low margin: returns null (never false-heals)', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
-    putRecord('ex.com', '/', '#go', rec());
+    putRecord('example.com', '/', '#go', rec());
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.05 }));
-    const hit = await healInContext(evalFn, 'https://ex.com/', '#go');
+    const hit = await healInContext(evalFn, 'https://example.com/', '#go');
     expect(hit).toBeNull();
   });
 
   it('ON + no stored record: returns null', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
     const evalFn = vi.fn();
-    const hit = await healInContext(evalFn, 'https://ex.com/', '#missing');
+    const hit = await healInContext(evalFn, 'https://example.com/', '#missing');
     expect(hit).toBeNull();
   });
 });
