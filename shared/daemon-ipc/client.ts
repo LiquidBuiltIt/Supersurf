@@ -12,6 +12,7 @@ import net from 'net';
 import crypto from 'crypto';
 import type { IExtensionTransport, DialogEvent } from './types';
 import { createLog } from '../logger/registry';
+import { redactForLog } from './redact';
 
 const log = createLog('[Daemon]');
 
@@ -224,7 +225,7 @@ export class DaemonClient implements IExtensionTransport {
 
     const id = crypto.randomUUID().slice(0, 8);
 
-    log(`-> ${method}`, params);
+    log(`-> ${method}`, redactForLog(method, params));
 
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {

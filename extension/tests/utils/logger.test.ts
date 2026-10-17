@@ -250,4 +250,27 @@ describe('Logger', () => {
       expect(consoleSpy.log).not.toHaveBeenCalled();
     });
   });
+
+  describe('secure_fill redaction', () => {
+    const msg = { jsonrpc: '2.0', id: 1, method: 'secure_fill', params: { selector: '#pw', value: 'hunter2-SECRET', tabId: 3 } };
+
+    it('never prints the secure_fill credential value', () => {
+      logger.setDebugMode(true);
+      logger.log('[WebSocket] Received:', msg);
+      logger.logAlways('x', msg);
+      logger.error('x', msg);
+      logger.warn('x', msg);
+      const printed = JSON.stringify([consoleSpy.log.mock.calls, consoleSpy.error.mock.calls, consoleSpy.warn.mock.calls]);
+      expect(printed).not.toContain('hunter2-SECRET');
+      expect(printed).toContain('#pw');
+    });
+
+    it('does not redact value on other commands and does not mutate the message', () => {
+      logger.setDebugMode(true);
+      logger.log('other', { method: 'forwardCDPCommand', params: { value: 'visible-value' } });
+      expect(JSON.stringify(consoleSpy.log.mock.calls)).toContain('visible-value');
+      logger.log(msg);
+      expect(msg.params.value).toBe('hunter2-SECRET');
+    });
+  });
 });
