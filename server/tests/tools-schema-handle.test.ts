@@ -78,6 +78,19 @@ describe('browser_interact schema — handle fields', () => {
     expect(desc).toContain('fingerprinting');
     expect(desc).toContain('off by default');
   });
+  it('does not claim the @ prefix is ignored when the experiment is off, and names both handle tiers', () => {
+    const interact = getToolSchemas().find(s => s.name === 'browser_interact')!;
+    const itemProps = (interact.inputSchema as any).properties.actions.items.properties;
+    const desc = itemProps.selector.description as string;
+    // The resolver always recognizes `@`; only the persisted tier is gated.
+    expect(desc).not.toContain('not recognized');
+    expect(desc).not.toContain('falls through');
+    expect(desc).toContain('always recognized');
+    // Tier 2: ephemeral handles minted by the element-miss hint resolve without the experiment.
+    expect(desc).toContain('Ephemeral');
+    expect(desc).toContain('Did you mean?');
+    expect(desc).toContain('never persisted');
+  });
   it('discloses the domain + URL path scope of handle resolution on the selector description', () => {
     const interact = getToolSchemas().find(s => s.name === 'browser_interact')!;
     const itemProps = (interact.inputSchema as any).properties.actions.items.properties;

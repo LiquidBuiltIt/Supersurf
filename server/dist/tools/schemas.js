@@ -92,13 +92,17 @@ function getToolSchemas() {
                                     type: 'string',
                                     description: 'CSS selector for the target element. Supports :has-text("...") for text matching, ' +
                                         'e.g. button:has-text("Submit"). For wait: element to poll for existence. ' +
-                                        'You may also target a handle you named earlier by prefixing it with `@` — e.g. ' +
-                                        '"@tweet_button" — and the server resolves it to the element that multi-word ' +
+                                        'You may also target a handle by prefixing it with `@` — e.g. "@tweet_button". ' +
+                                        'The `@` prefix is always recognized; a handle resolves in one of two tiers. ' +
+                                        'Persisted: a handle you named earlier resolves to the element that multi-word ' +
                                         'snake_case name was recorded against on this exact domain + URL path (no ' +
-                                        'cross-route matching), healing it if the page changed. Only works when the ' +
-                                        '`fingerprinting` experiment is enabled (off by default) — otherwise the `@` prefix ' +
-                                        'is not recognized and falls through to the CSS path. A selector with no `@` prefix ' +
-                                        'is always read as plain CSS, never a handle.',
+                                        'cross-route matching), healing it if the page changed; this tier only works when the ' +
+                                        '`fingerprinting` experiment is enabled (off by default). ' +
+                                        'Ephemeral: the "Did you mean?" hint on an element miss mints `@` handles for its ' +
+                                        'candidates; these resolve without the experiment, but are session-scoped and never ' +
+                                        'persisted, and on a miss they are not healed and get no child-frame fallback. ' +
+                                        'A name no tier knows is looked up as a plain CSS tag selector with the `@` stripped. ' +
+                                        'A selector with no `@` prefix is always read as plain CSS, never a handle.',
                                 },
                                 text: { type: 'string', description: 'Text to type (for type action)' },
                                 key: { type: 'string', description: 'Key to press (for press_key action)' },
