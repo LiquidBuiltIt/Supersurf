@@ -83,6 +83,8 @@ function isMemberCall(callee, obj, prop) {
         !callee.computed);
 }
 // ── Blocked patterns ─────────────────────────────────────────
+/** DOM-node properties that hand back a window/document (hoisted: matcher runs per MemberExpression). */
+const ESCAPES = ['ownerDocument', 'defaultView', 'contentWindow', 'contentDocument'];
 const BLOCKED_PATTERNS = [
     // Blocked API calls (direct: fetch(), or via global: window.fetch())
     {
@@ -264,7 +266,6 @@ const BLOCKED_PATTERNS = [
     {
         nodeType: 'MemberExpression',
         matcher: (node) => {
-            const ESCAPES = ['ownerDocument', 'defaultView', 'contentWindow', 'contentDocument'];
             if (!node.computed && node.property?.type === 'Identifier') {
                 return ESCAPES.includes(node.property.name);
             }
