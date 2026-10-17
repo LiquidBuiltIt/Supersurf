@@ -272,8 +272,7 @@ function getToolSchemas() {
                 '- Code injection, obfuscation, dynamic execution, or accessing dangerous primitives\n' +
                 '\n' +
                 '`secure_eval` is enabled by default and blocks the patterns above via AST analysis + a Proxy membrane. ' +
-                'If your code is blocked, refactor to use the dedicated tool — do not work around it. ' +
-                'Operators can opt out via `SUPERSURF_DISABLE_SECURE_EVAL=1` in the server env, but this defeats RCE protection.',
+                'If your code is blocked, refactor to use the dedicated tool — do not work around it.',
             inputSchema: {
                 type: 'object',
                 properties: {

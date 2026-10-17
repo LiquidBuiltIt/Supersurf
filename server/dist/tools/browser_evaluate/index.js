@@ -47,8 +47,7 @@ async function onEvaluate(ctx, args, options) {
                 `**Reason:** ${analysis.reason}\n\n` +
                 `\`browser_evaluate\` is for read-only computation only. ` +
                 `For network calls, storage access, navigation, form filling, or DOM mutation, use the dedicated MCP tools ` +
-                `(browser_navigate, browser_fill_form, browser_interact, browser_storage, browser_network_requests). ` +
-                `If you genuinely need this primitive, set \`security.secure_eval: false\` in \`~/.supersurf/config.json\` (and restart the daemon), or \`SUPERSURF_DISABLE_SECURE_EVAL=1\` in the server env.`, options);
+                `(browser_navigate, browser_fill_form, browser_interact, browser_storage, browser_network_requests).`, options);
         }
         // Layer 2: SW Proxy membrane (~10-20ms)
         try {
@@ -56,8 +55,8 @@ async function onEvaluate(ctx, args, options) {
             if (validation && validation.safe === false) {
                 return ctx.error(`Code blocked by \`secure_eval\` (membrane).\n\n` +
                     `**Reason:** ${validation.reason}\n\n` +
-                    `\`browser_evaluate\` is for read-only computation only. Use a dedicated MCP tool, ` +
-                    `or set \`security.secure_eval: false\` in \`~/.supersurf/config.json\` (and restart the daemon).`, options);
+                    `\`browser_evaluate\` is for read-only computation only. Use a dedicated MCP tool instead ` +
+                    `(browser_navigate, browser_fill_form, browser_interact, browser_storage, browser_network_requests).`, options);
             }
         }
         catch {
@@ -84,8 +83,8 @@ async function onEvaluate(ctx, args, options) {
             if (message.includes('[secure_eval]')) {
                 return ctx.error(`Code blocked by \`secure_eval\` (page proxy).\n\n` +
                     `**Reason:** ${message}\n\n` +
-                    `\`browser_evaluate\` is for read-only computation only. Use a dedicated MCP tool, ` +
-                    `or set \`security.secure_eval: false\` in \`~/.supersurf/config.json\` (and restart the daemon).`, options);
+                    `\`browser_evaluate\` is for read-only computation only. Use a dedicated MCP tool instead ` +
+                    `(browser_navigate, browser_fill_form, browser_interact, browser_storage, browser_network_requests).`, options);
             }
             throw err;
         }
