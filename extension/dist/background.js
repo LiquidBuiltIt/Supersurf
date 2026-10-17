@@ -77,8 +77,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
                 id: tab.id,
                 title: tab.title,
                 url: tab.url,
-                index: null,
-                techStack: null,
             },
         });
     }

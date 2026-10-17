@@ -20,6 +20,23 @@ describe('applyTabInfoUpdate', () => {
     applyTabInfoUpdate(mgr, { id: 1, index: 0, title: 'new', url: 'https://ex.com/b' });
     expect(mgr.attachedTab.url).toBe('https://ex.com/b');
   });
+
+  it('keeps the stored index and techStack when the update carries null for them', () => {
+    const stack = { frameworks: ['react'] };
+    const mgr: any = { attachedTab: { id: 1, index: 3, title: 'old', url: 'https://example.com/a', techStack: stack } };
+    applyTabInfoUpdate(mgr, { id: 1, index: null, title: 'new', url: 'https://example.com/b', techStack: null });
+    expect(mgr.attachedTab.url).toBe('https://example.com/b');
+    expect(mgr.attachedTab.index).toBe(3);
+    expect(mgr.attachedTab.techStack).toBe(stack);
+  });
+
+  it('keeps the stored index and techStack when the update omits them', () => {
+    const stack = { frameworks: ['react'] };
+    const mgr: any = { attachedTab: { id: 1, index: 3, title: 'old', url: 'https://example.com/a', techStack: stack } };
+    applyTabInfoUpdate(mgr, { id: 1, title: 'new', url: 'https://example.com/b' });
+    expect(mgr.attachedTab.index).toBe(3);
+    expect(mgr.attachedTab.techStack).toBe(stack);
+  });
 });
 
 describe('rehydrateAttachedTab', () => {
