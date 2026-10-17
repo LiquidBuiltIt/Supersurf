@@ -4,21 +4,21 @@ import { applyTabInfoUpdate, rehydrateAttachedTab } from '../src/backend/handler
 describe('applyTabInfoUpdate', () => {
   it('rebuilds attachedTab from an update even when it was null (post-reconnect recovery)', () => {
     const mgr: any = { attachedTab: null };
-    applyTabInfoUpdate(mgr, { id: 7, index: 2, title: 'X', url: 'https://ex.com/p', techStack: null });
-    expect(mgr.attachedTab.url).toBe('https://ex.com/p');
+    applyTabInfoUpdate(mgr, { id: 7, index: 2, title: 'X', url: 'https://example.com/p', techStack: null });
+    expect(mgr.attachedTab.url).toBe('https://example.com/p');
     expect(mgr.attachedTab.id).toBe(7);
   });
 
   it('clears attachedTab when the update is null', () => {
-    const mgr: any = { attachedTab: { id: 1, url: 'https://ex.com/' } };
+    const mgr: any = { attachedTab: { id: 1, url: 'https://example.com/' } };
     applyTabInfoUpdate(mgr, null);
     expect(mgr.attachedTab).toBeNull();
   });
 
   it('refreshes url on an already-attached tab (control)', () => {
-    const mgr: any = { attachedTab: { id: 1, index: 0, title: 'old', url: 'https://ex.com/a' } };
-    applyTabInfoUpdate(mgr, { id: 1, index: 0, title: 'new', url: 'https://ex.com/b' });
-    expect(mgr.attachedTab.url).toBe('https://ex.com/b');
+    const mgr: any = { attachedTab: { id: 1, index: 0, title: 'old', url: 'https://example.com/a' } };
+    applyTabInfoUpdate(mgr, { id: 1, index: 0, title: 'new', url: 'https://example.com/b' });
+    expect(mgr.attachedTab.url).toBe('https://example.com/b');
   });
 });
 

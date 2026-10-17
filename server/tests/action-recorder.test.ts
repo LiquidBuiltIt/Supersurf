@@ -4,7 +4,7 @@ import { recordAction } from '../src/recorder/action-recorder';
 function ctx(enabled: boolean) {
   return {
     config: { get: () => ({ logging: { usage_metrics: enabled } }) },
-    agentSession: { clientId: 'sid', getAttachedTab: () => ({ url: 'https://ex.com/jobs' }) },
+    agentSession: { clientId: 'sid', getAttachedTab: () => ({ url: 'https://example.com/jobs' }) },
     metricsLogger: { write: vi.fn() },
   } as any;
 }
@@ -21,7 +21,7 @@ describe('recordAction', () => {
     recordAction(c, { type: 'click', selector: '#go' }, 1000, 'Clicked #go at (5, 6)', null);
     expect(c.metricsLogger.write).toHaveBeenCalledWith(
       expect.objectContaining({
-        tool: 'action', result: 'ok', url: 'https://ex.com/jobs', session_id: 'sid',
+        tool: 'action', result: 'ok', url: 'https://example.com/jobs', session_id: 'sid',
         params: expect.objectContaining({
           event: 'action', type: 'click', selector: '#go', x: null, y: null,
           outcome: 'ok', message: 'Clicked #go at (5, 6)',
