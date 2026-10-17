@@ -61,7 +61,7 @@ async function checkChromeError(ctx) {
  * Manage browser tabs: list, create, attach (with optional stealth), or close.
  * Updates AgentSession metadata on attach/close to keep status headers accurate.
  *
- * @param args - `{ action: 'list'|'new'|'attach'|'close', url?, index?, activate?, stealth? }`
+ * @param args - `{ action: 'list'|'new'|'attach'|'close', url?, index?, tabId?, activate?, stealth? }`
  */
 async function onBrowserTabs(ctx, args, options) {
     const action = args.action;
@@ -84,7 +84,7 @@ async function onBrowserTabs(ctx, args, options) {
             });
             break;
         case 'close':
-            result = await ctx.ext.sendCmd('closeTab', args.index);
+            result = await ctx.ext.sendCmd('closeTab', { index: args.index, tabId: args.tabId });
             break;
         default:
             return ctx.error(`Unknown tab action: ${action}`, options);
@@ -96,7 +96,11 @@ async function onBrowserTabs(ctx, args, options) {
                 ctx.agentSession.setStealthMode(true);
         }
         else if (action === 'close') {
-            ctx.agentSession.clearAttachedTab();
+            // An extension that predates `closedTabId` only ever closed the attached tab.
+            const closedTabId = result.closedTabId;
+            if (closedTabId === undefined || closedTabId === ctx.agentSession.attachedTab?.id) {
+                ctx.agentSession.clearAttachedTab();
+            }
         }
     }
     return ctx.formatResult('browser_tabs', result, options);

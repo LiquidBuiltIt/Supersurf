@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onBrowserTabs, onNavigate } from '../src/tools/navigation';
 import type { ToolContext } from '../src/tools/lib/types';
+import { getToolSchemas } from '../src/tools/schemas';
 
 // Mock experimental registry
 vi.mock('../src/experimental/index', () => ({
@@ -54,9 +55,40 @@ describe('onBrowserTabs()', () => {
     expect(ctx.ext.sendCmd).toHaveBeenCalledWith('selectTab', expect.objectContaining({ index: 0 }));
   });
 
-  it('sends closeTab for close action', async () => {
+  it('sends closeTab with the index wrapped in an object', async () => {
+    await onBrowserTabs(ctx, { action: 'close', index: 2 }, {});
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('closeTab', { index: 2, tabId: undefined });
+  });
+
+  it('sends closeTab with index 0 intact (the daemon turns a bare 0 into {})', async () => {
     await onBrowserTabs(ctx, { action: 'close', index: 0 }, {});
-    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('closeTab', 0);
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('closeTab', { index: 0, tabId: undefined });
+  });
+
+  it('forwards tabId on close', async () => {
+    await onBrowserTabs(ctx, { action: 'close', tabId: 77 }, {});
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('closeTab', { index: undefined, tabId: 77 });
+  });
+
+  it('keeps the attached tab when a different tab closed', async () => {
+    ctx.agentSession.attachedTab = { id: 5 };
+    (ctx.ext.sendCmd as any).mockResolvedValue({ success: true, message: 'Tab closed', closedTabId: 9 });
+    await onBrowserTabs(ctx, { action: 'close', index: 1 }, {});
+    expect(ctx.agentSession.clearAttachedTab).not.toHaveBeenCalled();
+  });
+
+  it('clears the attached tab when the attached tab closed', async () => {
+    ctx.agentSession.attachedTab = { id: 5 };
+    (ctx.ext.sendCmd as any).mockResolvedValue({ success: true, message: 'Tab closed', closedTabId: 5 });
+    await onBrowserTabs(ctx, { action: 'close' }, {});
+    expect(ctx.agentSession.clearAttachedTab).toHaveBeenCalled();
+  });
+
+  it('clears the attached tab when an older extension does not report closedTabId', async () => {
+    ctx.agentSession.attachedTab = { id: 5 };
+    (ctx.ext.sendCmd as any).mockResolvedValue({ success: true, message: 'Tab closed' });
+    await onBrowserTabs(ctx, { action: 'close' }, {});
+    expect(ctx.agentSession.clearAttachedTab).toHaveBeenCalled();
   });
 
   it('returns error for unknown action', async () => {
@@ -181,5 +213,17 @@ describe('onNavigate()', () => {
     const result = await onNavigate(ctx, { action: 'url', url: 'https://example.com/' }, {});
     expect(ctx.error).not.toHaveBeenCalled();
     expect(result).toBeDefined();
+  });
+});
+
+describe('browser_tabs schema — index space', () => {
+  const props = () => (getToolSchemas().find(s => s.name === 'browser_tabs')!.inputSchema as any).properties;
+
+  it('tells the agent the index is the one `list` reports', () => {
+    expect(props().index.description).toContain('list');
+  });
+
+  it('documents tabId for close, not only attach', () => {
+    expect(props().tabId.description).toContain('close');
   });
 });

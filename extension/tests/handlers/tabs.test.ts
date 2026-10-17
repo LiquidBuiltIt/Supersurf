@@ -137,6 +137,9 @@ describe('TabHandlers', () => {
     it('returns correct result shape', async () => {
       const createdTab = { id: 200, index: 3, title: 'My Page', url: 'https://test.com' };
       mockChrome.tabs.create.mockResolvedValue(createdTab);
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 1, url: 'https://example.com/x' }, { id: 2, url: 'https://example.com/y' }, { id: 3, url: 'https://example.com/z' }, createdTab,
+      ]);
 
       const result = await tabs.createTab({ url: 'https://test.com', stealth: true });
 
@@ -250,6 +253,55 @@ describe('TabHandlers', () => {
     });
   });
 
+  describe('one index space across windows', () => {
+    // Chrome's tab.index is per-window: both windows have a tab at index 0.
+    const twoWindows = [
+      { id: 10, index: 0, windowId: 1, title: 'W1 T0', url: 'https://example.com/a' },
+      { id: 11, index: 1, windowId: 1, title: 'W1 T1', url: 'https://example.com/b' },
+      { id: 20, index: 0, windowId: 2, title: 'W2 T0', url: 'https://example.com/c' },
+    ];
+
+    it('list reports the position that close consumes', async () => {
+      mockChrome.tabs.query.mockResolvedValue(twoWindows);
+
+      const listed = await tabs.getTabs();
+      const w2 = listed.tabs.find(t => t.id === 20)!;
+      await tabs.closeTab({ index: w2.index });
+
+      expect(w2.index).toBe(2);
+      expect(mockChrome.tabs.remove).toHaveBeenCalledWith(20);
+    });
+
+    it('list reports the position that attach consumes', async () => {
+      mockChrome.tabs.query.mockResolvedValue(twoWindows);
+
+      const listed = await tabs.getTabs();
+      const w2 = listed.tabs.find(t => t.id === 20)!;
+      const result = await tabs.selectTab({ index: w2.index });
+
+      expect(result.attachedTab.id).toBe(20);
+    });
+
+    it('attach reports the same index list does', async () => {
+      mockChrome.tabs.query.mockResolvedValue(twoWindows);
+      mockChrome.tabs.get.mockResolvedValue(twoWindows[2]);
+
+      const result = await tabs.selectTab({ tabId: 20 });
+
+      expect(result.attachedTab.index).toBe(2);
+    });
+
+    it("new reports the new tab's position across windows", async () => {
+      const created = { id: 30, index: 1, windowId: 2, title: 'New', url: 'about:blank' };
+      mockChrome.tabs.create.mockResolvedValue(created);
+      mockChrome.tabs.query.mockResolvedValue([...twoWindows, created]);
+
+      const result = await tabs.createTab({});
+
+      expect(result.attachedTab.index).toBe(3);
+    });
+  });
+
   describe('closeTab()', () => {
     it('closes the currently attached tab when no index specified', async () => {
       // First attach a tab
@@ -276,6 +328,54 @@ describe('TabHandlers', () => {
 
       expect(mockChrome.tabs.remove).toHaveBeenCalledWith(20);
       expect(result.success).toBe(true);
+    });
+
+    it('closes a specific tab by tabId and reports it', async () => {
+      mockChrome.tabs.get.mockResolvedValue({ id: 77, title: 'T', url: 'https://example.com/t' });
+
+      const result = await tabs.closeTab({ tabId: 77 });
+
+      expect(mockChrome.tabs.remove).toHaveBeenCalledWith(77);
+      expect(result.closedTabId).toBe(77);
+    });
+
+    it('prefers tabId over index when both are given', async () => {
+      mockChrome.tabs.get.mockResolvedValue({ id: 77, title: 'T', url: 'https://example.com/t' });
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 10, title: 'Tab 0', url: 'https://example.com/a' },
+        { id: 20, title: 'Tab 1', url: 'https://example.com/b' },
+      ]);
+
+      await tabs.closeTab({ tabId: 77, index: 1 });
+
+      expect(mockChrome.tabs.remove).toHaveBeenCalledWith(77);
+      expect(mockChrome.tabs.remove).not.toHaveBeenCalledWith(20);
+    });
+
+    it('rejects an unknown tabId and closes nothing', async () => {
+      mockChrome.tabs.get.mockRejectedValue(new Error('No tab with id: 999.'));
+
+      await expect(tabs.closeTab({ tabId: 999 })).rejects.toThrow('999');
+      expect(mockChrome.tabs.remove).not.toHaveBeenCalled();
+    });
+
+    it("refuses to close by tabId a tab in another session's group", async () => {
+      mockChrome.tabs.get.mockResolvedValue({ id: 77, groupId: 900, windowId: 1, title: 'T', url: 'https://example.com/t' });
+      vi.spyOn(tabs as any, 'getTabOwnership').mockReturnValue('other');
+
+      await expect(tabs.closeTab({ tabId: 77, _sessionId: 's1' })).rejects.toThrow("another session's group");
+      expect(mockChrome.tabs.remove).not.toHaveBeenCalled();
+    });
+
+    it('reports closedTabId when closing by index', async () => {
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 10, title: 'Tab 0', url: 'https://example.com/a' },
+        { id: 20, title: 'Tab 1', url: 'https://example.com/b' },
+      ]);
+
+      const result = await tabs.closeTab({ index: 1 });
+
+      expect(result.closedTabId).toBe(20);
     });
 
     it('throws when no tab specified and none attached', async () => {
