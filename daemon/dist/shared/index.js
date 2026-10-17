@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.devSource = exports.createLog = exports.getRegistry = exports.getLogger = exports.LoggerRegistry = exports.DaemonClient = exports.SUPERSURF_SERVICE = exports.KeychainNotAvailableError = exports.KeychainError = exports.LinuxKeychainBackend = exports.MacosKeychainBackend = exports.InMemoryKeychainBackend = exports.getKeychainBackend = exports.UPGRADE_NOTICE_MESSAGE = exports.defaultVersionStatePath = exports.checkAndTouchVersionState = exports.shouldShowUpgradeNotice = exports.daemonCommand = exports.QUERY_ALL_DEEP_SOURCE = exports.QUERY_DEEP_SOURCE = exports.ensureConfigFile = exports.loadEnvConfig = exports.loadJsonConfig = exports.SCAFFOLD_DEFAULTS = exports.HARDCODED_DEFAULTS = exports.ConfigService = exports.replacer = exports.truncateString = exports.sanitizeFilename = exports.LOG_ROOT = exports.FileLogger = void 0;
+exports.devSource = exports.createLog = exports.getRegistry = exports.getLogger = exports.LoggerRegistry = exports.DaemonClient = exports.SUPERSURF_SERVICE = exports.KeychainNotAvailableError = exports.KeychainError = exports.LinuxKeychainBackend = exports.MacosKeychainBackend = exports.InMemoryKeychainBackend = exports.getKeychainBackend = exports.UPGRADE_NOTICE_MESSAGE = exports.defaultVersionStatePath = exports.checkAndTouchVersionState = exports.shouldShowUpgradeNotice = exports.redactForLog = exports.daemonCommand = exports.QUERY_ALL_DEEP_SOURCE = exports.QUERY_DEEP_SOURCE = exports.ensureConfigFile = exports.loadEnvConfig = exports.loadJsonConfig = exports.SCAFFOLD_DEFAULTS = exports.HARDCODED_DEFAULTS = exports.ConfigService = exports.replacer = exports.truncateString = exports.sanitizeFilename = exports.LOG_ROOT = exports.FileLogger = void 0;
 var logger_1 = require("./logger/logger");
 Object.defineProperty(exports, "FileLogger", { enumerable: true, get: function () { return logger_1.FileLogger; } });
 Object.defineProperty(exports, "LOG_ROOT", { enumerable: true, get: function () { return logger_1.LOG_ROOT; } });
@@ -19,6 +19,8 @@ Object.defineProperty(exports, "QUERY_DEEP_SOURCE", { enumerable: true, get: fun
 Object.defineProperty(exports, "QUERY_ALL_DEEP_SOURCE", { enumerable: true, get: function () { return shadow_walker_1.QUERY_ALL_DEEP_SOURCE; } });
 var index_2 = require("./commands/index");
 Object.defineProperty(exports, "daemonCommand", { enumerable: true, get: function () { return index_2.daemonCommand; } });
+var redact_1 = require("./daemon-ipc/redact");
+Object.defineProperty(exports, "redactForLog", { enumerable: true, get: function () { return redact_1.redactForLog; } });
 var index_3 = require("./version-state/index");
 Object.defineProperty(exports, "shouldShowUpgradeNotice", { enumerable: true, get: function () { return index_3.shouldShowUpgradeNotice; } });
 Object.defineProperty(exports, "checkAndTouchVersionState", { enumerable: true, get: function () { return index_3.checkAndTouchVersionState; } });
