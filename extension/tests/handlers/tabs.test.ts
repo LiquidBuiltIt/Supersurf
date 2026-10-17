@@ -137,6 +137,9 @@ describe('TabHandlers', () => {
     it('returns correct result shape', async () => {
       const createdTab = { id: 200, index: 3, title: 'My Page', url: 'https://test.com' };
       mockChrome.tabs.create.mockResolvedValue(createdTab);
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 1, url: 'https://x.com' }, { id: 2, url: 'https://y.com' }, { id: 3, url: 'https://z.com' }, createdTab,
+      ]);
 
       const result = await tabs.createTab({ url: 'https://test.com', stealth: true });
 
@@ -247,6 +250,55 @@ describe('TabHandlers', () => {
 
       const result = await tabs.selectTab({ index: 0 });
       expect(result.attachedTab.techStack).toEqual({ react: true });
+    });
+  });
+
+  describe('one index space across windows', () => {
+    // Chrome's tab.index is per-window: both windows have a tab at index 0.
+    const twoWindows = [
+      { id: 10, index: 0, windowId: 1, title: 'W1 T0', url: 'https://a.com' },
+      { id: 11, index: 1, windowId: 1, title: 'W1 T1', url: 'https://b.com' },
+      { id: 20, index: 0, windowId: 2, title: 'W2 T0', url: 'https://c.com' },
+    ];
+
+    it('list reports the position that close consumes', async () => {
+      mockChrome.tabs.query.mockResolvedValue(twoWindows);
+
+      const listed = await tabs.getTabs();
+      const w2 = listed.tabs.find(t => t.id === 20)!;
+      await tabs.closeTab({ index: w2.index });
+
+      expect(w2.index).toBe(2);
+      expect(mockChrome.tabs.remove).toHaveBeenCalledWith(20);
+    });
+
+    it('list reports the position that attach consumes', async () => {
+      mockChrome.tabs.query.mockResolvedValue(twoWindows);
+
+      const listed = await tabs.getTabs();
+      const w2 = listed.tabs.find(t => t.id === 20)!;
+      const result = await tabs.selectTab({ index: w2.index });
+
+      expect(result.attachedTab.id).toBe(20);
+    });
+
+    it('attach reports the same index list does', async () => {
+      mockChrome.tabs.query.mockResolvedValue(twoWindows);
+      mockChrome.tabs.get.mockResolvedValue(twoWindows[2]);
+
+      const result = await tabs.selectTab({ tabId: 20 });
+
+      expect(result.attachedTab.index).toBe(2);
+    });
+
+    it("new reports the new tab's position across windows", async () => {
+      const created = { id: 30, index: 1, windowId: 2, title: 'New', url: 'about:blank' };
+      mockChrome.tabs.create.mockResolvedValue(created);
+      mockChrome.tabs.query.mockResolvedValue([...twoWindows, created]);
+
+      const result = await tabs.createTab({});
+
+      expect(result.attachedTab.index).toBe(3);
     });
   });
 

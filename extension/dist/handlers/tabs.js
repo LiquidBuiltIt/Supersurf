@@ -382,7 +382,7 @@ export class TabHandlers {
             const windowType = windowCache.get(tab.windowId) || 'normal';
             return {
                 id: tab.id,
-                index: tab.index,
+                index: allTabs.indexOf(tab),
                 title: tab.title || 'Untitled',
                 url,
                 automatable,
@@ -425,7 +425,7 @@ export class TabHandlers {
         return {
             attachedTab: {
                 id: tab.id,
-                index: tab.index,
+                index: await this.flatIndexOf(tab.id),
                 title: tab.title || 'Untitled',
                 url: tab.url || url,
                 groupId: groupId ?? (tab.groupId ?? -1),
@@ -497,7 +497,7 @@ export class TabHandlers {
         return {
             attachedTab: {
                 id: tab.id,
-                index: tab.index,
+                index: await this.flatIndexOf(tab.id),
                 title: tab.title || 'Untitled',
                 url,
                 groupId: tab.groupId ?? -1,
@@ -505,6 +505,13 @@ export class TabHandlers {
             },
             stealthMode: stealth,
         };
+    }
+    /** Position of a tab in `tabs.query({})` — the one index space that `getTabs`,
+     *  `selectTab` and `closeTab` share. Chrome's own `tab.index` is per-window, so two
+     *  windows both have an index 0. -1 if the tab is already gone. */
+    async flatIndexOf(tabId) {
+        const allTabs = await this.browser.tabs.query({});
+        return allTabs.findIndex((t) => t.id === tabId);
     }
     /** Close a tab by tabId or index, or the attached tab when neither is given.
      *  `index` is a position in `tabs.query({})` — the space `getTabs` reports.
