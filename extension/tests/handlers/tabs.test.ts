@@ -278,6 +278,54 @@ describe('TabHandlers', () => {
       expect(result.success).toBe(true);
     });
 
+    it('closes a specific tab by tabId and reports it', async () => {
+      mockChrome.tabs.get.mockResolvedValue({ id: 77, title: 'T', url: 'https://t.com' });
+
+      const result = await tabs.closeTab({ tabId: 77 });
+
+      expect(mockChrome.tabs.remove).toHaveBeenCalledWith(77);
+      expect(result.closedTabId).toBe(77);
+    });
+
+    it('prefers tabId over index when both are given', async () => {
+      mockChrome.tabs.get.mockResolvedValue({ id: 77, title: 'T', url: 'https://t.com' });
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 10, title: 'Tab 0', url: 'https://a.com' },
+        { id: 20, title: 'Tab 1', url: 'https://b.com' },
+      ]);
+
+      await tabs.closeTab({ tabId: 77, index: 1 });
+
+      expect(mockChrome.tabs.remove).toHaveBeenCalledWith(77);
+      expect(mockChrome.tabs.remove).not.toHaveBeenCalledWith(20);
+    });
+
+    it('rejects an unknown tabId and closes nothing', async () => {
+      mockChrome.tabs.get.mockRejectedValue(new Error('No tab with id: 999.'));
+
+      await expect(tabs.closeTab({ tabId: 999 })).rejects.toThrow('999');
+      expect(mockChrome.tabs.remove).not.toHaveBeenCalled();
+    });
+
+    it("refuses to close by tabId a tab in another session's group", async () => {
+      mockChrome.tabs.get.mockResolvedValue({ id: 77, groupId: 900, windowId: 1, title: 'T', url: 'https://t.com' });
+      vi.spyOn(tabs as any, 'getTabOwnership').mockReturnValue('other');
+
+      await expect(tabs.closeTab({ tabId: 77, _sessionId: 's1' })).rejects.toThrow("another session's group");
+      expect(mockChrome.tabs.remove).not.toHaveBeenCalled();
+    });
+
+    it('reports closedTabId when closing by index', async () => {
+      mockChrome.tabs.query.mockResolvedValue([
+        { id: 10, title: 'Tab 0', url: 'https://a.com' },
+        { id: 20, title: 'Tab 1', url: 'https://b.com' },
+      ]);
+
+      const result = await tabs.closeTab({ index: 1 });
+
+      expect(result.closedTabId).toBe(20);
+    });
+
     it('throws when no tab specified and none attached', async () => {
       mockChrome.tabs.query.mockResolvedValue([]);
       await expect(tabs.closeTab()).rejects.toThrow('No tab specified and no tab attached');

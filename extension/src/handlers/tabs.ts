@@ -602,37 +602,45 @@ export class TabHandlers {
     };
   }
 
-  /** Close a tab by index, or close the currently attached tab if no index given. */
-  async closeTab(params?: { index?: number; _sessionId?: string }): Promise<{ success: boolean; message: string }> {
+  /** Close a tab by tabId or index, or the attached tab when neither is given.
+   *  `index` is a position in `tabs.query({})` — the space `getTabs` reports.
+   *  Returns the id it closed so the daemon and server can tell whether the
+   *  attached tab went away. */
+  async closeTab(params?: { index?: number; tabId?: number; _sessionId?: string }): Promise<{ success: boolean; message: string; closedTabId: number }> {
     const sid = params?._sessionId ?? null;
     const s = this.ctx.getSession(sid);
     const index = params?.index;
+    let target: chrome.tabs.Tab | null = null;
     let tabId: number;
 
-    if (index !== undefined) {
+    if (params?.tabId !== undefined) {
+      target = await this.browser.tabs.get(params.tabId);
+    } else if (index !== undefined) {
       const allTabs = await this.browser.tabs.query({});
       if (index < 0 || index >= allTabs.length) {
         throw new Error(`Tab index ${index} out of range`);
       }
-      const tab = allTabs[index];
+      target = allTabs[index];
+    }
 
+    if (target) {
       // Session boundary enforcement — only for normal windows (popups can't be grouped)
       if (params?._sessionId) {
         let isNormalWindow = true;
         try {
-          const win = await (this.browser as any).windows.get(tab.windowId!);
+          const win = await (this.browser as any).windows.get(target.windowId!);
           isNormalWindow = win.type === 'normal';
         } catch {}
 
         if (isNormalWindow) {
-          const ownership = this.getTabOwnership(tab, params._sessionId);
+          const ownership = this.getTabOwnership(target, params._sessionId);
           if (ownership === 'other') {
             throw new Error(`Tab belongs to another session's group. Cannot close.`);
           }
         }
       }
 
-      tabId = tab.id!;
+      tabId = target.id!;
     } else if (s.attachedTabId) {
       tabId = s.attachedTabId;
     } else {
@@ -644,7 +652,7 @@ export class TabHandlers {
     await this.browser.tabs.remove(tabId);
     this.handleTabClosed(tabId);
 
-    return { success: true, message: `Tab closed` };
+    return { success: true, message: `Tab closed`, closedTabId: tabId };
   }
 
   /** Clean up attachment, stealth tracking and tech-stack info for a closed tab.
