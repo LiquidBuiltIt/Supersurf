@@ -95,7 +95,7 @@ export function buildStatusHeader(input: StatusInput): string {
   if (attachedTab) {
     const url = attachedTab.url || 'about:blank';
     const shortUrl = url.length > 50 ? url.substring(0, 47) + '...' : url;
-    parts.push(`📄 Tab ${attachedTab.index}: ${shortUrl}`);
+    parts.push(attachedTab.index == null ? `📄 ${shortUrl}` : `📄 Tab ${attachedTab.index}: ${shortUrl}`);
 
     if (attachedTab.techStack) {
       const tech = attachedTab.techStack;

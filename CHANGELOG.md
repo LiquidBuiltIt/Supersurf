@@ -44,6 +44,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 - feat: **Breaking: one server process now serves many agents, each by its own `username`.** `connect` takes `username` (was `client_id`), and every tool except `status`, `profile_*` and `reload_mcp` requires it. Each username is its own session; a name already in use, a missing name and an unknown name are refused with text that says how to fix the call.
 - feat: **Every result's status line names the caller: `👤 you are <name>`, errors included.**
 - feat: **`disconnect` and idle expiry close the tabs the agent created and release the tabs it attached to.** Idle expiry is `agents.idle_timeout_ms` (default 10 minutes); a call in flight keeps the name alive.
+- fix: **the status header keeps the attached tab's index and detected tech stack after the tab navigates.** The extension sent `index: null` and `techStack: null` on every URL change, so the header read `Tab null` and the tech stack was wiped; unknown fields no longer overwrite known ones.
 - feat: **`status` without a `username` reports server and daemon health only.** With a username it also resets that agent's idle timer, and it flags a username that has no live session.
 - feat: **The action trail behind `playbooks history` is per agent.**
 - fix: **The extension-download error and the failed-registration page now print a restart command that works.** Both said `npx supersurf daemon restart`, which runs an unrelated npm package. They now print `npx supersurf-daemon@latest restart`, like every other daemon hint.

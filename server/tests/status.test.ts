@@ -106,3 +106,17 @@ describe('buildStatusHeader — agent identity', () => {
     expect(buildStatusHeader({ ...passive, username: null })).not.toContain('👤');
   });
 });
+
+describe('buildStatusHeader — attached tab with an unknown index', () => {
+  it('never prints a null/undefined tab index', () => {
+    for (const index of [null, undefined]) {
+      const header = buildStatusHeader({
+        ...base,
+        state: 'connected',
+        attachedTab: { id: 1, index, url: 'https://example.com/' } as any,
+      });
+      expect(header).toContain('📄 https://example.com/');
+      expect(header).not.toMatch(/Tab (null|undefined)/);
+    }
+  });
+});
