@@ -20,23 +20,23 @@ function rec(selector: string): FingerprintRecord {
 
 describe('fingerprint store', () => {
   it('returns undefined for an unknown record', () => {
-    expect(getRecord('ex.com', '/', '#nope')).toBeUndefined();
+    expect(getRecord('example.com', '/', '#nope')).toBeUndefined();
   });
 
   it('persists and reloads a record across calls (disk round-trip)', () => {
-    putRecord('ex.com', '/', '#go', rec('#go'));
-    const got = getRecord('ex.com', '/', '#go');
+    putRecord('example.com', '/', '#go', rec('#go'));
+    const got = getRecord('example.com', '/', '#go');
     expect(got?.name).toBe('Sign in');
     // fresh read from disk, not memory
-    const onDisk = loadDomain('ex.com');
+    const onDisk = loadDomain('example.com');
     expect(onDisk.routes['/']['#go'].selector).toBe('#go');
   });
 
   it('keeps multiple routes and selectors separate', () => {
-    putRecord('ex.com', '/', '#a', rec('#a'));
-    putRecord('ex.com', '/login', '#b', rec('#b'));
-    expect(getRecord('ex.com', '/', '#b')).toBeUndefined();
-    expect(getRecord('ex.com', '/login', '#b')?.selector).toBe('#b');
+    putRecord('example.com', '/', '#a', rec('#a'));
+    putRecord('example.com', '/login', '#b', rec('#b'));
+    expect(getRecord('example.com', '/', '#b')).toBeUndefined();
+    expect(getRecord('example.com', '/login', '#b')?.selector).toBe('#b');
   });
 });
 
@@ -107,8 +107,8 @@ describe('capture guard', () => {
   });
 
   it('DOES persist for a real domain (control)', async () => {
-    await captureOnResolve(fakeEval, 'https://ex.com/p', '#z');
-    expect(getRecord('ex.com', '/p', '#z')?.selector).toBe('#z');
+    await captureOnResolve(fakeEval, 'https://example.com/p', '#z');
+    expect(getRecord('example.com', '/p', '#z')?.selector).toBe('#z');
   });
 });
 
