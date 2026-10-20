@@ -427,8 +427,9 @@ export function applyTabInfoUpdate(mgr: AgentSessionAPI, tabInfo: any): void {
     id: tabInfo.id,
     title: tabInfo.title,
     url: tabInfo.url,
-    index: tabInfo.index,
-    techStack: tabInfo.techStack || null,
+    // A null/absent field means "unknown", not "cleared" — keep the stored value.
+    index: tabInfo.index ?? mgr.attachedTab?.index,
+    techStack: tabInfo.techStack ?? mgr.attachedTab?.techStack ?? null,
   };
 }
 
