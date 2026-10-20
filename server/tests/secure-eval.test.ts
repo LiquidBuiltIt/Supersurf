@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { analyzeCode, wrapWithPageProxy } from '../src/tools/browser_evaluate/secure-eval';
 import { experimentRegistry } from '../src/experimental/index';
 import { BrowserBridge } from '../src/tools';
+import { getToolSchemas } from '../src/tools/schemas';
 import { ConfigService } from 'shared';
 
 function makeConfigWithSecureEval(enabled: boolean) {
@@ -443,6 +444,68 @@ describe('analyzeCode', () => {
     });
   });
 
+  describe('window/document escape via any receiver', () => {
+    it('blocks ownerDocument on a DOM node', () => {
+      const result = analyzeCode('document.body.ownerDocument');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks the full escape chain to fetch', () => {
+      const result = analyzeCode("document.body.ownerDocument.defaultView.fetch('/x')");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks the cookie leak through ownerDocument', () => {
+      const result = analyzeCode('document.body.ownerDocument.cookie');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks contentWindow on an iframe element', () => {
+      const result = analyzeCode("document.querySelector('iframe').contentWindow");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks contentDocument on an iframe element', () => {
+      const result = analyzeCode("document.querySelector('iframe').contentDocument");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks bracket notation with a string literal key', () => {
+      const result = analyzeCode("document.body['ownerDocument']");
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks a no-interpolation template literal key', () => {
+      const result = analyzeCode('document.body[`ownerDocument`]');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('blocks the name reached by destructuring', () => {
+      const result = analyzeCode('const { ownerDocument } = document.body;');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toContain('Window/document escape');
+    });
+
+    it('still reports the original reason for bare document.defaultView', () => {
+      const result = analyzeCode('document.defaultView');
+      expect(result.safe).toBe(false);
+      expect(result.reason).toBe('Window alias via document.defaultView');
+    });
+
+    it('leaves ordinary DOM reads alone', () => {
+      expect(analyzeCode("document.querySelector('h1').textContent").safe).toBe(true);
+      expect(analyzeCode("document.body.getAttribute('class')").safe).toBe(true);
+      expect(analyzeCode('document.title').safe).toBe(true);
+    });
+  });
+
   describe('v2: Object.getOwnPropertyDescriptor', () => {
     it('blocks Object.getOwnPropertyDescriptor()', () => {
       const result = analyzeCode("Object.getOwnPropertyDescriptor(window, 'fetch')");
@@ -717,6 +780,51 @@ describe('browser_evaluate with secure_eval (default-on, opt-out via env)', () =
     );
     expect(result.success).toBe(false);
     expect(result.error).toContain('secure_eval');
+  });
+});
+
+describe('blocked-code messages do not advertise the off-switch', () => {
+  let bridge: BrowserBridge;
+  let mockExt: ReturnType<typeof createMockExt>;
+  let mockCM: ReturnType<typeof createMockAgentSession>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    experimentRegistry.reset();
+    delete process.env.SUPERSURF_DISABLE_SECURE_EVAL;
+    mockExt = createMockExt();
+    mockCM = createMockAgentSession();
+    bridge = new BrowserBridge({}, mockExt);
+    bridge.initialize({}, {}, mockCM);
+  });
+
+  it('names no disable flag when the AST layer blocks', async () => {
+    const result = await bridge.callTool('browser_evaluate', {
+      purpose: 'test',
+      expression: "fetch('/api')",
+    });
+    const text = result.content[0].text;
+    expect(result.isError).toBe(true);
+    expect(text).toContain('secure_eval');
+    expect(text).not.toContain('secure_eval: false');
+    expect(text).not.toContain('SUPERSURF_DISABLE_SECURE_EVAL');
+    expect(text).not.toContain('--disable-secure-eval');
+  });
+
+  it('still names the dedicated tools to use instead', async () => {
+    const result = await bridge.callTool('browser_evaluate', {
+      purpose: 'test',
+      expression: "fetch('/api')",
+    });
+    expect(result.content[0].text).toContain('browser_navigate');
+  });
+
+  it('the browser_evaluate tool description names no disable flag', () => {
+    const schema = getToolSchemas().find((s) => s.name === 'browser_evaluate');
+    expect(schema).toBeDefined();
+    expect(schema!.description).toContain('secure_eval');
+    expect(schema!.description).not.toContain('SUPERSURF_DISABLE_SECURE_EVAL');
+    expect(schema!.description).not.toContain('secure_eval: false');
   });
 });
 
