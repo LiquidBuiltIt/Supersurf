@@ -38,6 +38,15 @@ export class Logger {
     });
   }
 
+  /** Replace the `secure_fill` credential in any printed command envelope (copy, never mutates). */
+  private redact(args: unknown[]): unknown[] {
+    return args.map((a: any) =>
+      a?.method === 'secure_fill' && a.params && 'value' in a.params
+        ? { ...a, params: { ...a.params, value: '[redacted]' } }
+        : a
+    );
+  }
+
   private timestamp(): string {
     const d = new Date();
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
@@ -46,21 +55,21 @@ export class Logger {
   /** Log only when debug mode is enabled. */
   log(...args: unknown[]): void {
     if (this.debugMode) {
-      console.log(`[${this.prefix}] ${this.timestamp()}`, ...args);
+      console.log(`[${this.prefix}] ${this.timestamp()}`, ...this.redact(args));
     }
   }
 
   /** Log regardless of debug mode (for critical lifecycle events). */
   logAlways(...args: unknown[]): void {
-    console.log(`[${this.prefix}] ${this.timestamp()}`, ...args);
+    console.log(`[${this.prefix}] ${this.timestamp()}`, ...this.redact(args));
   }
 
   error(...args: unknown[]): void {
-    console.error(`[${this.prefix}] ${this.timestamp()}`, ...args);
+    console.error(`[${this.prefix}] ${this.timestamp()}`, ...this.redact(args));
   }
 
   warn(...args: unknown[]): void {
-    console.warn(`[${this.prefix}] ${this.timestamp()}`, ...args);
+    console.warn(`[${this.prefix}] ${this.timestamp()}`, ...this.redact(args));
   }
 
   /** Programmatically override debug mode (e.g. from a test harness). */
