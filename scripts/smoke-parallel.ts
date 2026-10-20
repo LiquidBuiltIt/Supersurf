@@ -70,6 +70,23 @@ function stopDaemon(home: string): void {
     }
   } catch { /* never started, or already gone */ }
 }
+/** Page targets with Chromium's own `attached` flag, via Target.getTargets on the browser socket. */
+async function pageTargets(userDataDir: string): Promise<{ url: string; attached: boolean }[]> {
+  const [port, wsPath] = fs.readFileSync(path.join(userDataDir, 'DevToolsActivePort'), 'utf8').split('\n');
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${wsPath}`);
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => { ws.close(); reject(new Error('Target.getTargets timed out')); }, 10_000);
+    ws.onopen = () => ws.send(JSON.stringify({ id: 1, method: 'Target.getTargets' }));
+    ws.onmessage = (m) => {
+      const r = JSON.parse(String(m.data));
+      if (r.id !== 1) return;
+      clearTimeout(t); ws.close();
+      resolve((r.result?.targetInfos ?? []).filter((x: any) => x.type === 'page'));
+    };
+    ws.onerror = () => { clearTimeout(t); reject(new Error('browser DevTools websocket error')); };
+  });
+}
+
 function ok(message: string): void {
   process.stdout.write(`  ✓ ${message}\n`);
 }
@@ -86,22 +103,10 @@ function servePage(label: string): Promise<{ port: number; close: () => void }> 
       res.end(`window.__marker = '${label}';`);
       return;
     }
-    if (req.url === `/${label}-late.js`) {
-      res.writeHead(200, { 'Content-Type': 'application/javascript' });
-      res.end(`window.__late = '${label}';`);
-      return;
-    }
-    // `?late=1` adds a SECOND subresource. Assertion 3 needs a request that
-    // happens after the other session's screenshot, and it has to originate in
-    // the page: `secure_eval` is on by default and blocks
-    // document.createElement('script') (`secure-eval.ts:127-137`), so
-    // injecting one through browser_evaluate would fail for the wrong reason.
-    const late = (req.url || '').includes('late=1');
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(
       `<!doctype html><html><head><title>PAGE-${label.toUpperCase()}</title>` +
       `<script src="/${label}-marker.js"></script>` +
-      (late ? `<script src="/${label}-late.js"></script>` : '') +
       `</head><body><h1>PAGE-${label.toUpperCase()}</h1></body></html>`
     );
   });
@@ -315,22 +320,19 @@ async function main(): Promise<void> {
   if (attachedA === attachedB) fail(`both sessions report the same attached tab (${attachedA})`);
   ok(`attached tabs are distinct (A=${attachedA} B=${attachedB})`);
 
-  // ── Assertion 3 (D3): B's CDP work must not kill A's capture.
-  // A screenshot attaches the debugger to B's tab; on unfixed code that
-  // DETACHES A's tab, so A's next page load is never captured.
+  // ── Assertion 3 (D3): B's CDP work must not detach A's tab.
+  // Asked of Chromium itself, not of browser_network_requests: that tool reads
+  // the webRequest log, which captures with or without a debugger, so it
+  // cannot see a detach. On unfixed code `ensureDebugger` detached the
+  // previous tab before attaching the next one.
+  const attachedOn = async (port: number) => (await pageTargets(userDataDir))
+    .some((t) => t.url.includes(`:${port}`) && t.attached);
+  await A.send('browser_take_screenshot', {});
+  if (!(await attachedOn(pageA.port))) fail('control: A\'s screenshot did not show A\'s tab as attached');
   await B.send('browser_take_screenshot', {});
-  // Navigate A's OWN tab to produce the post-screenshot request. Do not inject
-  // a script through browser_evaluate: `secure_eval` blocks
-  // document.createElement('script') by default, so the test would go red on a
-  // refusal rather than on the CDP detach it exists to catch.
-  await A.send('browser_navigate', { action: 'url', url: `http://127.0.0.1:${pageA.port}/?late=1` });
-  await sleep(1500);
-  const netA2 = await A.send('browser_network_requests', {});
-  probe('A network after B screenshot', netA2);
-  if (!(netA2.requests ?? []).some((r: any) => r.url.includes('a-late.js'))) {
-    fail('A lost network capture after B took a screenshot (CDP detach)');
-  }
-  ok('A keeps its CDP capture while B uses the debugger');
+  if (!(await attachedOn(pageB.port))) fail('control: B\'s screenshot did not show B\'s tab as attached');
+  if (!(await attachedOn(pageA.port))) fail('B\'s screenshot detached A\'s tab (CDP detach)');
+  ok('A\'s tab stays attached while B uses the debugger');
 
   // ── Assertion 4 (BACKLOG #65): usage-metrics lines carry THEIR session's flags.
   // `meta.experiments: true` turns every experiment on for the run's own
