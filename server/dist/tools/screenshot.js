@@ -68,15 +68,17 @@ async function onScreenshot(ctx, args, options) {
         : !explicitPath && (omitMode === 'inline' || omitMode === 'both');
     const filePath = explicitPath ?? (wantDisk ? defaultTempScreenshotPath(format) : undefined);
     // Build capture params
-    const captureParams = { format, tabId: ctx.tabId };
+    // Field names are the extension's wire contract (background.ts 'screenshot'
+    // handler): `type` and flat `clip_*`. Sending `format`/`clip` was silently
+    // ignored, so every clip returned the full viewport.
+    const captureParams = { type: format, tabId: ctx.tabId };
     if (args.quality)
         captureParams.quality = args.quality;
     if (args.clip_x !== undefined) {
-        captureParams.clip = {
-            x: args.clip_x, y: args.clip_y,
-            width: args.clip_width, height: args.clip_height,
-            scale: 1,
-        };
+        captureParams.clip_x = args.clip_x;
+        captureParams.clip_y = args.clip_y;
+        captureParams.clip_width = args.clip_width;
+        captureParams.clip_height = args.clip_height;
     }
     // Highlight clickable elements if requested
     if (args.highlightClickables) {

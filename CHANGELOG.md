@@ -41,6 +41,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- fix: **`browser_take_screenshot` honours `clip_*` and `type` again.** The server sent `clip` and `format`, which the extension never reads, so every clip returned the full viewport and `type` was ignored. Broken since 1.0.0; the fix is server-side, so it works with already-installed extensions.
 - feat: **Breaking: one server process now serves many agents, each by its own `username`.** `connect` takes `username` (was `client_id`), and every tool except `status`, `profile_*` and `reload_mcp` requires it. Each username is its own session; a name already in use, a missing name and an unknown name are refused with text that says how to fix the call.
 - feat: **Every result's status line names the caller: `👤 you are <name>`, errors included.**
 - feat: **`disconnect` and idle expiry close the tabs the agent created and release the tabs it attached to.** Idle expiry is `agents.idle_timeout_ms` (default 10 minutes); a call in flight keeps the name alive.
