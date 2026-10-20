@@ -270,11 +270,15 @@ async function main(): Promise<void> {
   );
 
   const cdpPort = await readDevToolsPort(userDataDir);
-  const target = JSON.parse(await cdpHttp(cdpPort, `/json/new?${fixture.url}`, 'PUT'));
+  const target = JSON.parse(await cdpHttp(cdpPort, `/json/new`, 'PUT'));
   if (!target?.webSocketDebuggerUrl) fail('Chromium would not open the fixture page.');
   const page = await cdpSession(target.webSocketDebuggerUrl);
   await page.send('Runtime.enable');
   await page.send('Page.enable');
+  const nav = await page.send('Page.navigate', { url: fixture.url });
+  if (nav.error || nav.result?.errorText) {
+    fail(`could not navigate to the fixture page: ${nav.error?.message ?? nav.result.errorText}`);
+  }
 
   // Real readiness signal, not a sleep: the fixture's own script has run when
   // the probes are on the DOM and the rung-5 element exists.

@@ -118,6 +118,7 @@ function cdpSession(wsUrl: string) {
   return {
     ready: new Promise<void>((resolve) => ws.on('open', () => resolve())),
     close: () => ws.close(),
+    send,
     /** Evaluate an expression, awaiting promises, and return its value. */
     async evaluate<T = unknown>(expression: string): Promise<T> {
       const res = await send('Runtime.evaluate', {
@@ -189,9 +190,13 @@ async function main(): Promise<void> {
   // startup race, not the contract under test.
   await sleep(3000);
 
-  const target = JSON.parse(await cdpHttp(cdpPort, `/json/new?${registerUrl}`, 'PUT'));
+  const target = JSON.parse(await cdpHttp(cdpPort, `/json/new`, 'PUT'));
   const session = cdpSession(target.webSocketDebuggerUrl);
   await session.ready;
+  const nav = await session.send('Page.navigate', { url: registerUrl });
+  if (nav.error || nav.result?.errorText) {
+    fail(`could not navigate to the register page: ${nav.error?.message ?? nav.result.errorText}`);
+  }
 
   console.log('\nWaiting for the registration round trip...');
   const deadline = Date.now() + ROUND_TRIP_TIMEOUT_MS;
