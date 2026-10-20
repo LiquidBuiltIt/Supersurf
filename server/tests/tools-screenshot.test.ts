@@ -139,3 +139,25 @@ describe('onScreenshot()', () => {
     expect(result.content.some((c: any) => c.type === 'image')).toBe(true);
   });
 });
+
+describe('onScreenshot wire contract', () => {
+  // The extension's handler is the receiver; a key it never reads is dropped
+  // silently (clip was ignored from 1.0.0 to 5.0.0 this way).
+  it('sends only keys the extension screenshot handler reads', async () => {
+    const src = fs.readFileSync(
+      path.join(__dirname, '../../extension/src/background.ts'), 'utf8');
+    const start = src.indexOf("registerCommandHandler('screenshot'");
+    const body = src.slice(start, src.indexOf('registerCommandHandler(', start + 1));
+    const read = new Set([...body.matchAll(/params\??\.(\w+)/g)].map(m => m[1]));
+
+    const ctx = createMockCtx('inline');
+    (ctx.ext.sendCmd as any).mockResolvedValue({ data: await tinyJpegBase64(), mimeType: 'image/jpeg' });
+    await onScreenshot(ctx, {
+      type: 'png', quality: 50, clip_x: 1, clip_y: 2, clip_width: 30, clip_height: 40,
+    }, {});
+
+    const sent = (ctx.ext.sendCmd as any).mock.calls[0][1];
+    expect(Object.keys(sent).filter(k => !read.has(k))).toEqual([]);
+    expect(sent).toMatchObject({ type: 'png', clip_x: 1, clip_y: 2, clip_width: 30, clip_height: 40 });
+  });
+});
