@@ -41,6 +41,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- fix: **A session whose tab closes now reattaches only to a tab it owns; with none it stays unattached.** Before, it could take another agent's tab. Recovery from a stale or missing attachment follows the same rule and otherwise says no tab is attached.
 - feat: **Breaking: one server process now serves many agents, each by its own `username`.** `connect` takes `username` (was `client_id`), and every tool except `status`, `profile_*` and `reload_mcp` requires it. Each username is its own session; a name already in use, a missing name and an unknown name are refused with text that says how to fix the call.
 - feat: **Every result's status line names the caller: `👤 you are <name>`, errors included.**
 - feat: **`disconnect` and idle expiry close the tabs the agent created and release the tabs it attached to.** Idle expiry is `agents.idle_timeout_ms` (default 10 minutes); a call in flight keeps the name alive.

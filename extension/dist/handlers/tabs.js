@@ -10,6 +10,7 @@
  *
  * Adapted from Blueprint MCP (Apache 2.0)
  */
+const NO_TAB_ATTACHED = 'No tab is attached to this session. Attach one first — call browser_tabs with action="new", or action="select" to take an existing tab.';
 /**
  * Manages browser tab CRUD, attaching/detaching, stealth mode tracking,
  * tech stack metadata, and per-session tab group isolation.
@@ -77,7 +78,7 @@ export class TabHandlers {
     requireAttachedTabId(sessionId) {
         const tabId = this.ctx.getSession(sessionId).attachedTabId;
         if (tabId === null) {
-            throw new Error('No tab is attached to this session. Attach one first — call browser_tabs with action="new", or action="select" to take an existing tab.');
+            throw new Error(NO_TAB_ATTACHED);
         }
         return tabId;
     }
@@ -136,22 +137,6 @@ export class TabHandlers {
             }
         }
         const reason = previousTabId === null ? 'no-attached-tab' : 'stale-attached-tab';
-        // Find a recovery candidate
-        const allTabs = await this.browser.tabs.query({});
-        const candidates = allTabs.filter((t) => {
-            if (!t.id || !t.url)
-                return false;
-            if (t.url.startsWith('chrome://'))
-                return false;
-            if (t.url.startsWith('chrome-extension://'))
-                return false;
-            if (t.url.startsWith('about:'))
-                return false;
-            return true;
-        });
-        if (candidates.length === 0) {
-            throw new Error(`No attached tab and no recoverable tabs available. Open a tab or call browser_tabs with action="new" to create one.`);
-        }
         // Determine the preferred window (current focused window if available)
         let preferredWindowId;
         try {
@@ -161,18 +146,10 @@ export class TabHandlers {
         catch {
             // windows API not available (e.g. in tests) — skip preference
         }
-        // Preference order:
-        //   (a) active tab in preferred window
-        //   (b) any active tab
-        //   (c) any candidate (last in list — typically most-recently opened)
-        let target;
-        if (preferredWindowId !== undefined) {
-            target = candidates.find((t) => t.active && t.windowId === preferredWindowId);
-        }
+        // Owned tabs only: never recover onto another session's or the human's tab.
+        const target = await this.pickOwnedTab(sessionId, preferredWindowId);
         if (!target)
-            target = candidates.find((t) => t.active);
-        if (!target)
-            target = candidates[candidates.length - 1];
+            throw new Error(NO_TAB_ATTACHED);
         s.attachedTabId = target.id;
         this.ctx.persistSession();
         this.iconManager.setAttachedTab(target.id);
@@ -569,20 +546,34 @@ export class TabHandlers {
         }
     }
     /**
-     * Attempt to reattach one session to the most recent normal-window tab
-     * after its attached tab is closed. Silently does nothing if no
-     * candidates exist.
+     * Pick a recovery tab from the session's own Chrome tab group. A nameless
+     * session has no group, so it owns nothing. Prefers the active tab in
+     * `preferredWindowId`, then any active tab, then the last candidate.
+     */
+    async pickOwnedTab(sessionId, preferredWindowId) {
+        if (sessionId === null)
+            return null;
+        const group = await this.findGroupByClientId(sessionId);
+        if (!group)
+            return null;
+        const candidates = (await this.browser.tabs.query({})).filter((t) => t.id && t.url && t.groupId === group.id &&
+            !t.url.startsWith('chrome://') && !t.url.startsWith('chrome-extension://') && !t.url.startsWith('about:'));
+        return ((preferredWindowId !== undefined
+            ? candidates.find((t) => t.active && t.windowId === preferredWindowId)
+            : undefined) ??
+            candidates.find((t) => t.active) ??
+            candidates[candidates.length - 1] ??
+            null);
+    }
+    /**
+     * Attempt to reattach one session to a tab it owns after its attached tab
+     * is closed. Silently does nothing if it owns none.
      */
     async autoReattach(sessionId) {
         try {
-            const allTabs = await this.browser.tabs.query({ windowType: 'normal' });
-            // Filter to automatable tabs (not chrome://, not chrome-extension://)
-            const candidates = allTabs.filter(t => t.id && t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('chrome-extension://'));
-            if (candidates.length === 0)
+            const target = await this.pickOwnedTab(sessionId);
+            if (!target)
                 return;
-            // Prefer the currently active tab, otherwise take the last one
-            const active = candidates.find(t => t.active);
-            const target = active || candidates[candidates.length - 1];
             this.ctx.getSession(sessionId).attachedTabId = target.id;
             this.ctx.persistSession();
             this.iconManager.setAttachedTab(target.id);
