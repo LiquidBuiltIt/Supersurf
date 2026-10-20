@@ -201,10 +201,12 @@ class RequestScheduler {
             }
             if (method === 'closeTab') {
                 const sessionTabId = this.sessions.getAttachedTabId(sessionId);
-                if (sessionTabId !== null) {
-                    this.sessions.removeOwnedTab(sessionId, sessionTabId);
+                // An extension that predates `closedTabId` only ever closed the attached tab.
+                const closedTabId = result?.closedTabId ?? sessionTabId;
+                if (closedTabId !== null)
+                    this.sessions.removeOwnedTab(sessionId, closedTabId);
+                if (closedTabId === sessionTabId)
                     this.sessions.setAttachedTabId(sessionId, null);
-                }
             }
             // Filter getTabs results
             if (method === 'getTabs') {

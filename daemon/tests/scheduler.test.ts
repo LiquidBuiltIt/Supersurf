@@ -198,6 +198,36 @@ describe('RequestScheduler', () => {
       expect(sessions.getAttachedTabId('s1')).toBeNull();
     });
 
+    it('keeps the attached tab when closeTab closed a different tab', async () => {
+      sessions.add('s1', mockSocket());
+      scheduler.addSession('s1');
+
+      sessions.addOwnedTab('s1', 50);
+      sessions.addOwnedTab('s1', 77);
+      sessions.setAttachedTabId('s1', 50);
+
+      (bridge.sendCmd as any).mockResolvedValueOnce({ success: true, closedTabId: 77 });
+
+      await scheduler.enqueue('s1', 'closeTab', { index: 3 });
+      expect(sessions.get('s1')!.ownedTabs.has(77)).toBe(false);
+      expect(sessions.get('s1')!.ownedTabs.has(50)).toBe(true);
+      expect(sessions.getAttachedTabId('s1')).toBe(50);
+    });
+
+    it('clears the attached tab when closeTab reports the attached tab closed', async () => {
+      sessions.add('s1', mockSocket());
+      scheduler.addSession('s1');
+
+      sessions.addOwnedTab('s1', 50);
+      sessions.setAttachedTabId('s1', 50);
+
+      (bridge.sendCmd as any).mockResolvedValueOnce({ success: true, closedTabId: 50 });
+
+      await scheduler.enqueue('s1', 'closeTab', { tabId: 50 });
+      expect(sessions.get('s1')!.ownedTabs.has(50)).toBe(false);
+      expect(sessions.getAttachedTabId('s1')).toBeNull();
+    });
+
     it('refuses to close another session\'s tab and names the owner', async () => {
       const s = schedulerWithSessions(['sm-a', 'sm-b']);
       s.sessions.addOwnedTab('sm-a', 101);

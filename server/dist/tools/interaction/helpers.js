@@ -45,8 +45,8 @@ async function detectSpawnedTabs(ctx, since) {
         await ctx.sleep(300);
         const result = await ctx.ext.sendCmd('drainSpawnedTabs', { since }, 3000);
         if (result?.tabs?.length > 0) {
-            const lines = result.tabs.map((t) => `  → Tab #${t.index}: ${t.url || 'about:blank'}${t.title ? ` ("${t.title}")` : ''}`);
-            return `New tab(s) opened:\n${lines.join('\n')}\nUse browser_tabs action='attach' index=N to switch.`;
+            const lines = result.tabs.map((t) => `  → tabId ${t.id}: ${t.url || 'about:blank'}${t.title ? ` ("${t.title}")` : ''}`);
+            return `New tab(s) opened:\n${lines.join('\n')}\nUse browser_tabs action='attach' tabId=<id> to switch.`;
         }
     }
     catch { /* non-blocking */ }

@@ -33,8 +33,16 @@ export function getToolSchemas(): ToolSchema[] {
             description: 'Action to perform',
           },
           url: { type: 'string', description: 'URL to navigate to (for new action)' },
-          index: { type: 'number', description: 'Tab index (for attach/close actions)' },
-          tabId: { type: 'number', description: 'Tab ID (alternative to index for attach action — more stable than index ordering)' },
+          index: {
+            type: 'number',
+            description:
+              'Tab index exactly as `list` reports it — 0-based position across all windows (for attach/close). ' +
+              'Indexes shift when tabs open or close; prefer tabId. close with neither index nor tabId closes the attached tab.',
+          },
+          tabId: {
+            type: 'number',
+            description: 'Tab ID from `list` (for attach/close). Stable, unlike index; wins when both are given.',
+          },
           activate: {
             type: 'boolean',
             description: 'Bring tab to foreground (default: true for new, false for attach)',

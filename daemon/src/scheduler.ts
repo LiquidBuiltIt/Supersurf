@@ -220,10 +220,10 @@ export class RequestScheduler {
 
       if (method === 'closeTab') {
         const sessionTabId = this.sessions.getAttachedTabId(sessionId);
-        if (sessionTabId !== null) {
-          this.sessions.removeOwnedTab(sessionId, sessionTabId);
-          this.sessions.setAttachedTabId(sessionId, null);
-        }
+        // An extension that predates `closedTabId` only ever closed the attached tab.
+        const closedTabId = (result?.closedTabId as number | undefined) ?? sessionTabId;
+        if (closedTabId !== null) this.sessions.removeOwnedTab(sessionId, closedTabId);
+        if (closedTabId === sessionTabId) this.sessions.setAttachedTabId(sessionId, null);
       }
 
       // Filter getTabs results

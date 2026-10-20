@@ -683,6 +683,9 @@ describe('onInteract()', () => {
     expect(result.content[0].text).toContain('https://example.com');
     expect(result.content[0].text).toContain('Example');
     expect(result.content[0].text).toContain("browser_tabs action='attach'");
+    expect(result.content[0].text).toContain('tabId 42');
+    expect(result.content[0].text).toContain("action='attach' tabId=");
+    expect(result.content[0].text).not.toContain('index=N');
   });
 
   it('returns normal click response when no tabs spawned', async () => {
