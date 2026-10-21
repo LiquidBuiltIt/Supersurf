@@ -142,7 +142,7 @@ describe('onScreenshot()', () => {
 
 describe('onScreenshot wire contract', () => {
   // The extension's handler is the receiver; a key it never reads is dropped
-  // silently (clip was ignored from 1.0.0 to 5.0.0 this way).
+  // silently (clip was ignored from 1.0.0 to 4.0.0 this way).
   it('sends only keys the extension screenshot handler reads', async () => {
     const src = fs.readFileSync(
       path.join(__dirname, '../../extension/src/background.ts'), 'utf8');

@@ -1,0 +1,129 @@
+---
+title: "What's New In SuperSurf: Hints You Can Paste, Agents That Stay Apart"
+date: 2026-10-21
+version: "4.1.0"
+summary: "The \"Did you mean?\" hint now suggests selectors that click what they describe. Two agents on one browser no longer share tabs, logs or dialogs. And there is a new opt-in mode where one server serves many agents. 42 changes, and `connect(client_id)` works as in 4.0."
+draft: false
+---
+
+SuperSurf 4.1.0 is here. The "Did you mean?" hint now gives you selectors that click what they describe. Two agents driving one browser no longer step on each other. And you can try a new mode where one server serves many agents, each by name.
+
+| What changed | What you get |
+| --- | --- |
+| **Hints you can paste** | A suggested selector hits the element it names, or it prints the plain selector and offers no handle |
+| **Agents stay apart** | Two agents on one browser keep their own tabs, logs, dialogs and flags |
+| **Multi-agent mode (opt-in)** | One server process serves many agents, each by its own `username` |
+| **Dev mode** | Every fix on `main`, the day it lands |
+
+> **`connect(client_id)` works as in 4.0, and no tool needs a `username` unless you turn on multi-agent mode.** Two things to know before you upgrade are below.
+
+---
+
+## Before you upgrade
+
+| What | Why |
+| --- | --- |
+| Update the extension too | The 4.1.0 daemon refuses a 4.0 extension. Update the extension and the daemon together |
+| Network and console logs need an attached tab | They used to return every tab's traffic, including other agents' tabs. Now they read your tab only, and with no tab they tell you to open one with `browser_tabs` `action="new"` or `action="select"` |
+
+---
+
+## Hints you can paste
+
+When a selector missed, the "Did you mean?" hint printed candidates. On a page with no ids and no classes, such as Hacker News, every candidate came out as the bare tag `a`. Three suggested handles all clicked the logo, and every click reported success.
+
+A candidate is now checked in the page before it is printed: the selector has to resolve back to the element it describes. If it does not, SuperSurf makes it more specific and checks again. If nothing works, it prints the plain selector and offers no handle.
+
+| Change | What it means |
+| --- | --- |
+| Every selector tool suggests candidates on a miss | Not only `:has-text()` clicks, but `type`, `select_option`, `wait`, `browser_fill_form` and the rest |
+| A pasteable `@handle` per candidate | A `"Got it"` button offers `@got_it` for your next call, with no experiment flag needed |
+| `browser_lookup` and `browser_snapshot` | Their suggested selectors get the same check |
+
+These hint handles last for the session and are never saved.
+
+---
+
+## Agents stay apart
+
+If you ran two agents against one browser, you may have seen the failure. Each had its own session, but the extension underneath kept state that every session shared. Nothing errored. One agent just read or clicked what the other had left behind.
+
+Each of these is now per session:
+
+| Shared before | Now |
+| --- | --- |
+| The attached tab | Each session tracks its own, and a closed tab only reattaches to a tab the session owns |
+| Network and console logs | Each session reads and clears only its own tab |
+| The CDP debugger | It attaches per tab, so one agent's screenshot no longer kills another's network capture |
+| Native dialogs | One agent's `alert()` blocks only the session on that tab |
+| Experiment flags | A flag one session turns on no longer reaches the others |
+
+The experiment flag was the one that could click the wrong thing: a session that never enabled `fingerprinting` could have a missed selector healed to a different element. `npm run smoke.parallel` now runs two real servers against one Chromium to guard tab and network isolation.
+
+When an agent calls `disconnect`, the tabs it opened now close and the tabs it borrowed are released.
+
+---
+
+## Try multi-agent mode
+
+Your MCP client starts one SuperSurf server, and every subagent it spawns shares it. By default that server is one session, as in 4.0. So when Claude Code sends three subagents to the browser, they share one attached tab, one network log and one set of dialogs.
+
+Multi-agent mode gives each subagent its own session, under its own `username`.
+
+| | Default | Multi-agent mode |
+| --- | --- | --- |
+| Sessions per server | One | One per `username` |
+| Subagents of one client | Share a tab, logs and dialogs | Each has its own |
+| Tab cleanup | On `disconnect` | Per agent, on `disconnect` or after 10 minutes idle |
+
+It is new, and we want to hear how it works for you in [GitHub issues](https://github.com/LiquidBuiltIt/Supersurf/issues). Turn it on in `~/.supersurf/config.json`:
+
+```json
+{ "agents": { "multi_agent": true } }
+```
+
+Or set `SUPERSURF_MULTI_AGENT=1`, or pass `--multi-agent` to the server. Restart your MCP client after you change it. `connect` then takes `username`, and every browser tool requires it:
+
+```js
+connect({ username: "reviewer" })
+browser_tabs({ username: "reviewer", action: "new" })
+```
+
+Every result starts with `👤 you are <name>`, so an agent always knows which session answered. A name already in use, a missing name and an unknown name are each refused with a message that says how to fix the call. A name that sits idle for 10 minutes (`agents.idle_timeout_ms`) expires: the tabs it opened close and the tabs it borrowed are released.
+
+---
+
+## Dev mode
+
+To try a fix, you used to wait for a release. Dev mode runs every component from the tip of `main`:
+
+```sh
+curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh -s -- --latest
+```
+
+It clones `main` into `~/.supersurf/dev/src`, and from then on `supersurf mcp`, `supersurf daemon` and your managed profiles' extension all run from that clone. Re-run it to update. Run the installer without `--latest` to go back.
+
+---
+
+## Security fixes
+
+| Fix | What it means |
+| --- | --- |
+| `secure_eval` escapes | `document.body.ownerDocument.defaultView.fetch()` and similar walks to the real `window` are blocked from any object |
+| `secure_eval` block messages | They no longer tell the agent how to switch `secure_eval` off |
+| `secure_fill` in logs | With debug logging on, the credential no longer reaches `server.log` or the extension console |
+
+---
+
+## Everything else
+
+42 entries landed in this release. Four worth calling out:
+
+| Change | What it means |
+| --- | --- |
+| Screenshot clipping works | `clip_*` and `type` were ignored since 1.0.0, so every clip was the full viewport |
+| `browser_tabs action='close'` closes the tab you name | It used to ignore `index` and close the tab you were on |
+| `supersurf-mcp` installs its own daemon | `supersurf-mcp@4.0.0` could run with a 3.x daemon |
+| SuperSurf ships as a Claude Code plugin | `/plugin install supersurf@supersurf` adds four skills, and the installer now adds it for you |
+
+The complete list is in [`CHANGELOG.md`](https://github.com/LiquidBuiltIt/Supersurf/blob/main/CHANGELOG.md).
