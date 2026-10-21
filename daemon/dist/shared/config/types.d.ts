@@ -27,6 +27,8 @@ export interface Config {
     };
     agents: {
         idle_timeout_ms: number;
+        /** Opt-in username-based multi-agent mode. Off (default) = one session per server process, named by `client_id`. */
+        multi_agent: boolean;
     };
     logging: {
         debug: DebugMode;

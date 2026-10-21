@@ -12,7 +12,7 @@
  *
  * @module backend/handlers
  */
-import type { AgentSessionAPI } from './types';
+import { type AgentSessionAPI } from './types';
 /** A username ends up in the `metrics-<username>-…` log filename, so keep it filename-safe. */
 export declare const USERNAME_RE: RegExp;
 export declare const BAD_NAME_TEXT = "`username` must be 1-64 characters: letters, digits, dot, dash or underscore, starting with a letter or digit (e.g. `claudebox-geo-research`).";

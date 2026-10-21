@@ -58,6 +58,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AgentSession = void 0;
 const usage_metrics_logger_1 = require("./usage-metrics-logger");
 const shared_1 = require("./shared");
+const types_1 = require("./backend/types");
 const status_1 = require("./backend/status");
 const hint_1 = require("./playbooks/hint");
 const registry_1 = require("./playbooks/registry");
@@ -191,14 +192,14 @@ class AgentSession {
             lastConnectError: this.lastConnectError,
             playbookHint: this.playbookHint(),
             playbookWarning: this.playbookWarning(),
-            username: this.clientId,
+            username: (0, types_1.isMultiAgent)(this.config) ? this.clientId : null,
         });
     }
     // ─── Tool listing ──────────────────────────────────────────
     /** Return all available tool schemas: connection tools + browser tools + debug tools (if enabled). */
     async listTools() {
         log(`listTools() — state: ${this.state}`);
-        const connectionTools = (0, schemas_1.getConnectionToolSchemas)();
+        const connectionTools = (0, schemas_1.getConnectionToolSchemas)((0, types_1.isMultiAgent)(this.config));
         // Get browser tools from BrowserBridge (dummy transport, schema only)
         const BB = await getBrowserBridge();
         const dummyBridge = new BB(this.config, null);

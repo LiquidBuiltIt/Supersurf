@@ -25,6 +25,8 @@ export interface BackendConfig {
      *  not re-read per tool call). Surfaced as a one-shot notice in the `connect` response. */
     showUpgradeNotice?: boolean;
 }
+/** True when username-based multi-agent mode is on (`agents.multi_agent`). Off = 4.0.0 `client_id` semantics. */
+export declare function isMultiAgent(config: BackendConfig): boolean;
 /** Metadata for the currently attached browser tab. */
 export interface TabInfo {
     id?: number;

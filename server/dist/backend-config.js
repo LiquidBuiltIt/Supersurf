@@ -65,6 +65,8 @@ function cliToPartial(options) {
         out.security = { ...(out.security || {}), secure_eval: false };
     if (options.disablePlaybookEval)
         out.security = { ...(out.security || {}), playbook_eval: false };
+    if (options.multiAgent)
+        out.agents = { multi_agent: true };
     return out;
 }
 /** Resolve the config file path, honouring SUPERSURF_CONFIG_FILE. */

@@ -7,6 +7,9 @@
  * carrying the caller's status header, errors included, so an agent can always
  * read its own name back.
  *
+ * With `agents.multi_agent` off (the default) none of that applies: the lobby IS the
+ * one session, named by `client_id`, and every call passes straight through (4.0.0 semantics).
+ *
  * @module agent-session-manager
  */
 import { AgentSession } from './backend';
@@ -18,6 +21,7 @@ export declare class AgentSessionManager {
     private _timers;
     private _busy;
     private _lobby;
+    private _multi;
     private _server;
     private _clientInfo;
     constructor(_config: BackendConfig);
