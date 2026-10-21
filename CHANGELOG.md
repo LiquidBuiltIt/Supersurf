@@ -41,6 +41,8 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- fix: **`secure_fill` now runs the `secureFill` module instead of an inline copy.** Passwords with characters outside the Basic Multilingual Plane (emoji, some CJK) are typed intact instead of split into broken surrogate halves, and a page error during typing returns a failure instead of leaving the call hanging.
+
 ## 4.1.0 — 2026-10-21
 
 *Hints that click what they describe, and agents that stay apart. The "Did you mean?" hint now checks each selector against the element it names before it prints it. Two agents on one browser no longer share tabs, network logs, dialogs or experiment flags. One server can now serve many agents by `username`, as an opt-in trial (`agents.multi_agent`). `connect(client_id)` works as in 4.0. Update the extension with the daemon, and attach a tab before you read network or console logs. 42 changes.*
