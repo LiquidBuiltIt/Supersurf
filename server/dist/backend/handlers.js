@@ -155,13 +155,13 @@ async function onConnect(mgr, args = {}, options = {}) {
             isError: true,
         };
     }
-    if (!exports.USERNAME_RE.test(raw)) {
-        const badName = multi ? exports.BAD_NAME_TEXT : exports.BAD_NAME_TEXT.replace('`username`', '`client_id`');
+    // 4.0.0 accepted any client_id; the log filenames sanitize it themselves.
+    if (multi && !exports.USERNAME_RE.test(raw)) {
         if (options.rawResult) {
-            return { success: false, error: `invalid_${idKey}`, message: badName };
+            return { success: false, error: 'invalid_username', message: exports.BAD_NAME_TEXT };
         }
         return {
-            content: [{ type: 'text', text: `### Invalid ${idKey}\n\n${badName}` }],
+            content: [{ type: 'text', text: `### Invalid username\n\n${exports.BAD_NAME_TEXT}` }],
             isError: true,
         };
     }

@@ -450,14 +450,12 @@ describe('AgentSessionManager', () => {
       }
     });
 
-    it('a malformed client_id is refused in client_id words', async () => {
-      const m = await plain();
-      const raw = await m.callTool('connect', { client_id: '../etc' }, { rawResult: true });
-      expect(raw).toMatchObject({ success: false, error: 'invalid_client_id' });
-      expect(raw.message).toContain('`client_id`');
-      expect(raw.message).not.toContain('username');
-      const mcp = await m.callTool('connect', { client_id: 'a b' });
-      expect(mcp.content[0].text).toContain('Invalid client_id');
+    it('any non-blank client_id connects, as in 4.0.0 (log filenames sanitize it)', async () => {
+      for (const id of ['My Agent!', '../etc']) {
+        const m = await plain();
+        expect(await m.callTool('connect', { client_id: id }, { rawResult: true }))
+          .toMatchObject({ success: true, client_id: id });
+      }
     });
 
     it('connecting twice says Already Connected with a Client ID', async () => {
