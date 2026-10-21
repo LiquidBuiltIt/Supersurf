@@ -23,9 +23,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.IDLE_TIMEOUT_MS = exports.SOCK_FILE = exports.PID_FILE = exports.SUPERSURF_DIR = void 0;
+exports.IDLE_TIMEOUT_MS = exports.SOCK_FILE = exports.PID_FILE = exports.SUPERSURF_DIR = exports.isProcessAlive = void 0;
 exports.parseArgs = parseArgs;
-exports.isProcessAlive = isProcessAlive;
 exports.cleanStaleFiles = cleanStaleFiles;
 exports.stopDaemon = stopDaemon;
 exports.printStatus = printStatus;
@@ -39,6 +38,7 @@ const net_1 = __importDefault(require("net"));
 const crypto_1 = __importDefault(require("crypto"));
 const child_process_1 = require("child_process");
 const shared_1 = require("./shared");
+Object.defineProperty(exports, "isProcessAlive", { enumerable: true, get: function () { return shared_1.isProcessAlive; } });
 const extension_bridge_1 = require("./extension-bridge");
 const session_1 = require("./session");
 const scheduler_1 = require("./scheduler");
@@ -47,11 +47,11 @@ const index_1 = require("./experiments/index");
 const registry_1 = require("./profiles/registry");
 const extension_source_1 = require("./profiles/extension-source");
 const chrome_1 = require("./profiles/chrome");
-const SUPERSURF_DIR = path_1.default.join(os_1.default.homedir(), '.supersurf');
+const SUPERSURF_DIR = (0, shared_1.supersurfDir)();
 exports.SUPERSURF_DIR = SUPERSURF_DIR;
-const PID_FILE = path_1.default.join(SUPERSURF_DIR, 'daemon.pid');
+const PID_FILE = (0, shared_1.pidPath)();
 exports.PID_FILE = PID_FILE;
-const SOCK_FILE = path_1.default.join(SUPERSURF_DIR, 'daemon.sock');
+const SOCK_FILE = (0, shared_1.sockPath)();
 exports.SOCK_FILE = SOCK_FILE;
 const LOG_FILE = path_1.default.join(SUPERSURF_DIR, 'logs', 'daemon.log');
 // Retained as a backwards-compatible export; runtime now reads the live value
@@ -168,11 +168,8 @@ async function printStatus(verbose) {
     let pid = null;
     let alive = false;
     if (daemonRunning) {
-        try {
-            pid = parseInt(fs_1.default.readFileSync(PID_FILE, 'utf8').trim(), 10);
-            alive = !isNaN(pid) && isProcessAlive(pid);
-        }
-        catch { }
+        pid = (0, shared_1.readDaemonPid)();
+        alive = pid !== null && (0, shared_1.isProcessAlive)(pid);
     }
     if (!alive) {
         console.log('Daemon not running');
@@ -250,19 +247,12 @@ function stopDaemon() {
         console.log('Daemon not running (no PID file)');
         return false;
     }
-    let pid;
-    try {
-        pid = parseInt(fs_1.default.readFileSync(PID_FILE, 'utf8').trim(), 10);
-        if (isNaN(pid)) {
-            console.log('Daemon not running (invalid PID file)');
-            return false;
-        }
-    }
-    catch {
-        console.log('Daemon not running (cannot read PID file)');
+    const pid = (0, shared_1.readDaemonPid)();
+    if (pid === null) {
+        console.log('Daemon not running (invalid PID file)');
         return false;
     }
-    if (!isProcessAlive(pid)) {
+    if (!(0, shared_1.isProcessAlive)(pid)) {
         console.log(`Daemon not running (stale PID ${pid})`);
         // Clean up stale files
         try {
@@ -285,7 +275,7 @@ function stopDaemon() {
     // Wait up to 5s for the process to exit
     const start = Date.now();
     while (Date.now() - start < 5000) {
-        if (!isProcessAlive(pid)) {
+        if (!(0, shared_1.isProcessAlive)(pid)) {
             console.log(`Daemon stopped (pid ${pid})`);
             return true;
         }
@@ -311,22 +301,12 @@ function stopDaemon() {
     return true;
 }
 // ─── PID File Management ──────────────────────────────────────
-/** Check if a process with the given PID is alive. */
-function isProcessAlive(pid) {
-    try {
-        process.kill(pid, 0);
-        return true;
-    }
-    catch {
-        return false;
-    }
-}
 /** Clean stale PID/socket files if the referenced process is dead. */
 function cleanStaleFiles() {
     if (fs_1.default.existsSync(PID_FILE)) {
         try {
             const pid = parseInt(fs_1.default.readFileSync(PID_FILE, 'utf8').trim(), 10);
-            if (!isNaN(pid) && !isProcessAlive(pid)) {
+            if (!isNaN(pid) && !(0, shared_1.isProcessAlive)(pid)) {
                 fs_1.default.unlinkSync(PID_FILE);
                 if (fs_1.default.existsSync(SOCK_FILE)) {
                     fs_1.default.unlinkSync(SOCK_FILE);
@@ -422,12 +402,10 @@ async function main() {
     // Clean stale files from a crashed previous instance
     cleanStaleFiles();
     // Check if daemon is already running
-    if (fs_1.default.existsSync(PID_FILE)) {
-        const existingPid = parseInt(fs_1.default.readFileSync(PID_FILE, 'utf8').trim(), 10);
-        if (!isNaN(existingPid) && isProcessAlive(existingPid)) {
-            console.error(`Daemon already running (pid ${existingPid})`);
-            process.exit(1);
-        }
+    const existingPid = (0, shared_1.readDaemonPid)();
+    if (existingPid !== null && (0, shared_1.isProcessAlive)(existingPid)) {
+        console.error(`Daemon already running (pid ${existingPid})`);
+        process.exit(1);
     }
     // Write PID file
     writePidFile();

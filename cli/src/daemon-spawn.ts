@@ -10,29 +10,14 @@
  * @module daemon-spawn
  */
 import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { supersurfDir, sockPath, pidPath, isDaemonRunning } from 'shared';
 import { packageCommand } from './shell-out';
 
-const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
-const PID_FILE = path.join(SUPERSURF_DIR, 'daemon.pid');
-const SOCK_FILE = path.join(SUPERSURF_DIR, 'daemon.sock');
+export { isDaemonRunning };
 
-export function getSockPath(): string { return SOCK_FILE; }
-export function getPidPath(): string { return PID_FILE; }
-
-export function isDaemonRunning(): boolean {
-  if (!fs.existsSync(PID_FILE)) return false;
-  try {
-    const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-    if (Number.isNaN(pid)) return false;
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
+export function getSockPath(): string { return sockPath(); }
+export function getPidPath(): string { return pidPath(); }
 
 /**
  * Ensure a daemon is up. Shells out to the pinned daemon package's own `start`,
@@ -41,10 +26,10 @@ export function isDaemonRunning(): boolean {
  * cold fetch of the daemon tarball.
  */
 export async function ensureDaemon(port: number = 5555): Promise<void> {
-  if (isDaemonRunning() && fs.existsSync(SOCK_FILE)) return;
+  if (isDaemonRunning() && fs.existsSync(sockPath())) return;
 
-  try { if (fs.existsSync(SOCK_FILE)) fs.unlinkSync(SOCK_FILE); } catch { /* stale */ }
-  if (!fs.existsSync(SUPERSURF_DIR)) fs.mkdirSync(SUPERSURF_DIR, { recursive: true });
+  try { if (fs.existsSync(sockPath())) fs.unlinkSync(sockPath()); } catch { /* stale */ }
+  if (!fs.existsSync(supersurfDir())) fs.mkdirSync(supersurfDir(), { recursive: true });
 
   const run = packageCommand('supersurf-daemon');
   const res = spawnSync(run.cmd, [...run.args, 'start', '--port', String(port)], {
@@ -70,7 +55,7 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
 
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (fs.existsSync(SOCK_FILE)) return;
+    if (fs.existsSync(sockPath())) return;
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(

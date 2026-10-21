@@ -14,4 +14,5 @@ export type { IExtensionTransport, DialogEvent } from './daemon-ipc/types';
 export { LoggerRegistry, getLogger, getRegistry, createLog } from './logger/registry';
 export { devSource } from './dev-source';
 export type { DevComponent } from './dev-source';
+export { supersurfDir, sockPath, pidPath, readDaemonPid, isProcessAlive, isDaemonRunning, } from './daemon-paths';
 //# sourceMappingURL=index.d.ts.map
