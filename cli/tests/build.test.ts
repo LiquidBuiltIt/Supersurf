@@ -85,7 +85,8 @@ describe('the binary never points a user at a name npm will never grant', () => 
 describe('version.bump and tree know about cli/', () => {
   const scripts = path.resolve(CLI_ROOT, '..', 'scripts');
   it('version.bump rewrites cli/package.json', () => {
-    expect(fs.readFileSync(path.join(scripts, 'version.bump.ts'), 'utf8')).toContain("'cli/package.json'");
+    // version.bump.ts takes its target list from bump-helpers.ts.
+    expect(fs.readFileSync(path.join(scripts, 'bump-helpers.ts'), 'utf8')).toContain("'cli/package.json'");
   });
   it('tree lists cli', () => {
     expect(fs.readFileSync(path.join(scripts, 'tree.ts'), 'utf8')).toMatch(/PACKAGES\s*=\s*\[[^\]]*'cli'/);
