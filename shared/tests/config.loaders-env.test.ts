@@ -100,4 +100,11 @@ describe('loadEnvConfig', () => {
     expect(config.security?.secure_eval).toBe(false);
     expect(config.security?.playbook_eval).toBe(false);
   });
+
+  it('SUPERSURF_MULTI_AGENT=1 turns agents.multi_agent on; absent or falsy leaves it untouched', () => {
+    expect(loadEnvConfig({ SUPERSURF_MULTI_AGENT: '1' }).config.agents?.multi_agent).toBe(true);
+    expect(loadEnvConfig({ SUPERSURF_MULTI_AGENT: 'true' }).config.agents?.multi_agent).toBe(true);
+    expect(loadEnvConfig({}).config.agents?.multi_agent).toBeUndefined();
+    expect(loadEnvConfig({ SUPERSURF_MULTI_AGENT: '0' }).config.agents?.multi_agent).toBeUndefined();
+  });
 });

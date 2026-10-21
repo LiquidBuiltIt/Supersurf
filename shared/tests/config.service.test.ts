@@ -165,4 +165,17 @@ describe('ConfigService', () => {
     expect(warns).toHaveLength(2);
     expect(warns.every((w) => w.includes('agents.idle_timeout_ms'))).toBe(true);
   });
+
+  it('agents.multi_agent merges CLI over env over file over default, and rejects non-booleans', () => {
+    const warns: string[] = [];
+    const build = (inp: any) => new ConfigService({ cli: {}, env: {}, file: {}, ...inp, onWarn: (m: string) => warns.push(m) });
+    expect(build({}).get().agents.multi_agent).toBe(false);
+    expect(build({ file: { agents: { multi_agent: true } } }).get().agents.multi_agent).toBe(true);
+    expect(build({ file: { agents: { multi_agent: false } }, env: { agents: { multi_agent: true } } }).get().agents.multi_agent).toBe(true);
+    expect(build({ env: { agents: { multi_agent: false } }, cli: { agents: { multi_agent: true } } }).get().agents.multi_agent).toBe(true);
+    expect(warns).toEqual([]);
+    expect(build({ file: { agents: { multi_agent: 'yes' as any } } }).get().agents.multi_agent).toBe(false);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('agents.multi_agent');
+  });
 });
