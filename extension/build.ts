@@ -10,7 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { execFileSync } from 'child_process';
+import { releasedChangelogJson } from '../scripts/changelog-json';
 
 const __buildDir = path.dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = path.resolve(__buildDir, 'src');
@@ -49,21 +49,15 @@ function copyAssets(dir: string): number {
   return copied;
 }
 
-/** Runs `scripts/changelog.ts json`, drops the Unreleased section, and
- *  writes the result to `dist/pages/changelog.json`. */
+/** Writes the released sections of `CHANGELOG.md` to `dist/pages/changelog.json`. */
 function writeChangelogJson(): void {
-  const scriptPath = path.join(REPO_ROOT, 'scripts', 'changelog.ts');
-  const raw = execFileSync('npx', ['tsx', scriptPath, 'json'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-  });
-  const parsed = JSON.parse(raw) as { sections: Array<{ version: string }> };
-  const released = { sections: parsed.sections.filter((s) => s.version !== 'Unreleased') };
+  const text = fs.readFileSync(path.join(REPO_ROOT, 'CHANGELOG.md'), 'utf8');
+  const out = releasedChangelogJson(text);
 
   const destPath = path.join(DIST_DIR, 'pages', 'changelog.json');
   fs.mkdirSync(path.dirname(destPath), { recursive: true });
-  fs.writeFileSync(destPath, JSON.stringify(released, null, 2) + '\n', 'utf8');
-  console.log(`  pages/changelog.json (${released.sections.length} released version(s))`);
+  fs.writeFileSync(destPath, out, 'utf8');
+  console.log(`  pages/changelog.json (${JSON.parse(out).sections.length} released version(s))`);
 }
 
 /**

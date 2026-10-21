@@ -151,3 +151,13 @@ export function sectionsToJson(sections: Section[]): ChangelogJson {
     }),
   };
 }
+
+/**
+ * The extension's `dist/pages/changelog.json` contents: released sections
+ * only (the changelog page never sees `## Unreleased`). One function so the
+ * extension build and `version.bump` write byte-identical output.
+ */
+export function releasedChangelogJson(text: string): string {
+  const released = sectionsToJson(parseSections(text)).sections.filter((s) => s.version !== 'Unreleased');
+  return JSON.stringify({ sections: released }, null, 2) + '\n';
+}

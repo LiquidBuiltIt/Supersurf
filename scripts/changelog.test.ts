@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseSections, sectionsToJson, bulletType, typeBreakdown, extractSummary, extractBullets } from './changelog-json';
+import { parseSections, sectionsToJson, bulletType, typeBreakdown, extractSummary, extractBullets, releasedChangelogJson } from './changelog-json';
+import { cutUnreleased } from './changelog-cut';
 
 const SAMPLE = [
   '# Changelog',
@@ -257,5 +258,18 @@ describe('typeBreakdown', () => {
       { type: 'other', count: 1 },
       { type: 'perf', count: 1 },
     ]);
+  });
+});
+
+describe('releasedChangelogJson', () => {
+  it('emits the released sections of a freshly cut changelog, newline-terminated, without Unreleased', () => {
+    const fixture = ['# Changelog', '', '## Unreleased', '', '- feat: new', '', '## 1.0.0 — 2026-01-01', '', '- initial', ''].join('\n');
+    const cut = cutUnreleased(fixture, '1.1.0', '2026-08-05', 'blurb');
+    if (!('content' in cut)) throw new Error('cut failed');
+
+    const out = releasedChangelogJson(cut.content);
+
+    expect(out.endsWith('\n')).toBe(true);
+    expect(JSON.parse(out).sections.map((s: { version: string }) => s.version)).toEqual(['1.1.0', '1.0.0']);
   });
 });
