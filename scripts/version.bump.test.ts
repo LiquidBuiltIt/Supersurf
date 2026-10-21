@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { readFileSync, writeFileSync, mkdtempSync } from 'fs';
+import { describe, it, expect, afterEach } from 'vitest';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
@@ -169,18 +169,25 @@ describe('server daemon pin', () => {
   });
 });
 
-// Throwaway git repo on `main` with one commit.
+const g = (dir: string, ...a: string[]) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' });
+
+const fixtures: string[] = [];
+afterEach(() => {
+  for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+// Throwaway git repo on `main` with one commit, removed after each test.
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), 'bump-'));
-  const g = (...a: string[]) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' });
-  g('init', '-q', '-b', 'main');
-  g('config', 'user.email', 't@example.com');
-  g('config', 'user.name', 't');
-  g('config', 'commit.gpgsign', 'false');
+  fixtures.push(dir);
+  g(dir, 'init', '-q', '-b', 'main');
+  g(dir, 'config', 'user.email', 't@example.com');
+  g(dir, 'config', 'user.name', 't');
+  g(dir, 'config', 'commit.gpgsign', 'false');
   writeFileSync(join(dir, 'a.txt'), 'a\n');
   writeFileSync(join(dir, 'b.txt'), 'b\n');
-  g('add', '.');
-  g('commit', '-q', '-m', 'init');
+  g(dir, 'add', '.');
+  g(dir, 'commit', '-q', '-m', 'init');
   return dir;
 }
 
@@ -237,10 +244,9 @@ describe('commitRelease', () => {
     writeFileSync(join(dir, 'b.txt'), 'changed\n');
     const msg = 'v9.9.0 — code `username` and "quoted" and $(id) and `whoami`';
     commitRelease(dir, ['a.txt'], msg, 'pipe');
-    const g = (...a: string[]) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' });
-    expect(g('log', '-1', '--format=%B').replace(/\n+$/, '')).toBe(msg);
-    expect(g('show', '--name-only', '--format=', 'HEAD').trim()).toBe('a.txt');
-    expect(g('status', '--porcelain').trim()).toBe('M b.txt');
+    expect(g(dir, 'log', '-1', '--format=%B').replace(/\n+$/, '')).toBe(msg);
+    expect(g(dir, 'show', '--name-only', '--format=', 'HEAD').trim()).toBe('a.txt');
+    expect(g(dir, 'status', '--porcelain').trim()).toBe('M b.txt');
   });
 });
 
