@@ -28,6 +28,7 @@ import { createLog } from 'shared';
 
 // Re-export types so existing imports from './backend' still work
 export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend/types';
+import { isMultiAgent } from './backend/types';
 import type { BackendConfig, TabInfo, BackendState, ToolSchema, AgentSessionAPI } from './backend/types';
 
 import { buildStatusHeader } from './backend/status';
@@ -170,7 +171,7 @@ export class AgentSession implements AgentSessionAPI {
       lastConnectError: this.lastConnectError,
       playbookHint: this.playbookHint(),
       playbookWarning: this.playbookWarning(),
-      username: this.clientId,
+      username: isMultiAgent(this.config) ? this.clientId : null,
     });
   }
 
@@ -180,7 +181,7 @@ export class AgentSession implements AgentSessionAPI {
   async listTools(): Promise<ToolSchema[]> {
     log(`listTools() — state: ${this.state}`);
 
-    const connectionTools = getConnectionToolSchemas();
+    const connectionTools = getConnectionToolSchemas(isMultiAgent(this.config));
 
     // Get browser tools from BrowserBridge (dummy transport, schema only)
     const BB = await getBrowserBridge();

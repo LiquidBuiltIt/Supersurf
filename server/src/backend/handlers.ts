@@ -13,7 +13,7 @@
  * @module backend/handlers
  */
 
-import type { AgentSessionAPI } from './types';
+import { isMultiAgent, type AgentSessionAPI } from './types';
 import { DaemonClient } from 'shared';
 import { ensureDaemon, stopDaemon, getSockPath } from '../daemon-spawn';
 import { createLog, getRegistry } from 'shared';
@@ -117,27 +117,32 @@ export async function onConnect(
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
+  // Default mode (4.0.0 parity): the agent's name is `client_id`; the manager maps it onto `username`.
+  const multi = isMultiAgent(mgr.config);
+  const idKey = multi ? 'username' : 'client_id';
   const raw = typeof args.username === 'string' ? args.username.trim() : '';
   if (!raw) {
     if (options.rawResult) {
-      return { success: false, error: 'missing_username', message: 'username is required' };
+      return { success: false, error: `missing_${idKey}`, message: `${idKey} is required` };
     }
+    const example = multi ? "connect username='geo-research'" : "connect client_id='my-project'";
     return {
       content: [
         {
           type: 'text',
-          text: "### Missing Required Parameter\n\n`username` is required.\n\n**Example:**\n```\nconnect username='geo-research'\n```",
+          text: `### Missing Required Parameter\n\n\`${idKey}\` is required.\n\n**Example:**\n\`\`\`\n${example}\n\`\`\``,
         },
       ],
       isError: true,
     };
   }
   if (!USERNAME_RE.test(raw)) {
+    const badName = multi ? BAD_NAME_TEXT : BAD_NAME_TEXT.replace('`username`', '`client_id`');
     if (options.rawResult) {
-      return { success: false, error: 'invalid_username', message: BAD_NAME_TEXT };
+      return { success: false, error: `invalid_${idKey}`, message: badName };
     }
     return {
-      content: [{ type: 'text', text: `### Invalid username\n\n${BAD_NAME_TEXT}` }],
+      content: [{ type: 'text', text: `### Invalid ${idKey}\n\n${badName}` }],
       isError: true,
     };
   }
@@ -149,7 +154,7 @@ export async function onConnect(
         already_connected: true,
         state: mgr.state,
         browser: mgr.connectedBrowserName,
-        username: mgr.clientId,
+        [idKey]: mgr.clientId,
       };
     }
     return {
@@ -158,7 +163,7 @@ export async function onConnect(
           type: 'text',
           text:
             mgr.statusHeader() +
-            `### Already Connected\n\n**State:** ${mgr.state}\n**Username:** ${mgr.clientId}\n\nTo restart, call \`disconnect\` first.`,
+            `### Already Connected\n\n**State:** ${mgr.state}\n**${multi ? 'Username' : 'Client ID'}:** ${mgr.clientId}\n\nTo restart, call \`disconnect\` first.`,
         },
       ],
     };
@@ -349,7 +354,7 @@ export async function onConnect(
         success: true,
         state: mgr.state,
         browser: mgr.connectedBrowserName,
-        username: mgr.clientId,
+        [idKey]: mgr.clientId,
         port,
       };
     }
@@ -569,7 +574,7 @@ export async function onStatus(
   const statusData: Record<string, unknown> = {
     state: mgr.state,
     browser: mgr.connectedBrowserName,
-    username: mgr.clientId,
+    [isMultiAgent(mgr.config) ? 'username' : 'client_id']: mgr.clientId,
     attached_tab: mgr.attachedTab
       ? {
           index: mgr.attachedTab.index,
@@ -673,7 +678,7 @@ export async function onProfileCreate(
             `### Profile Created\n\n` +
             `**Name:** ${(result as any).profile?.name}\n` +
             `**Created:** ${(result as any).profile?.created}\n\n` +
-            `Use \`connect username='...' profile='${(result as any).profile?.name}'\` to connect.`,
+            `Use \`connect ${isMultiAgent(mgr.config) ? 'username' : 'client_id'}='...' profile='${(result as any).profile?.name}'\` to connect.`,
         }],
       };
     });

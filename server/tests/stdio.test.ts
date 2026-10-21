@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Readable } from 'stream';
+import { ConfigService } from 'shared';
 
 // Mock the logger and DaemonClient (replaces ExtensionServer)
 vi.mock('shared', async (importOriginal) => {
@@ -95,7 +96,7 @@ describe('stdio (script mode)', () => {
   /**
    * Helper to start script mode with a fake stdin and push lines into it.
    */
-  async function runWithInput(lines: string[], sequential = false): Promise<string[]> {
+  async function runWithInput(lines: string[], sequential = false, multiAgent = false): Promise<string[]> {
     fakeStdin = new Readable({
       read() {},
     });
@@ -109,6 +110,7 @@ describe('stdio (script mode)', () => {
       debug: false,
       port: 5555,
       server: { name: 'supersurf', version: '0.1.0' },
+      configService: new ConfigService({ cli: {}, env: {}, file: { agents: { multi_agent: multiAgent } } as any }),
     });
 
     for (const line of lines) {
@@ -146,10 +148,24 @@ describe('stdio (script mode)', () => {
     const output = await runWithInput([
       JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'connect', params: { username: 'script-a' } }),
       JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'browser_tabs', params: { username: 'script-a', action: 'list' } }),
-    ], true);
+    ], true, true);
 
     const routed = output.map((o) => JSON.parse(o)).find((o) => o.id === 2);
     expect(routed.result).toEqual({ success: true, from: 'session' });
+    expect(bridgeCall).toHaveBeenCalledWith('browser_tabs', { action: 'list' }, expect.anything());
+  });
+
+  it('default mode: connect with client_id, then calls need no name', async () => {
+    const output = await runWithInput([
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'connect', params: {} }),
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'connect', params: { client_id: 'script-a' } }),
+      JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'browser_tabs', params: { action: 'list' } }),
+    ], true);
+
+    const byId = (id: number) => output.map((o) => JSON.parse(o)).find((o) => o.id === id);
+    expect(byId(1).result).toMatchObject({ success: false, error: 'missing_client_id' });
+    expect(byId(2).result).toMatchObject({ success: true, client_id: 'script-a' });
+    expect(byId(3).result).toEqual({ success: true, from: 'session' });
     expect(bridgeCall).toHaveBeenCalledWith('browser_tabs', { action: 'list' }, expect.anything());
   });
 

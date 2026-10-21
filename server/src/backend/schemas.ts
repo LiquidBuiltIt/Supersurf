@@ -16,7 +16,8 @@
 import type { ToolSchema } from './types';
 
 /** Return MCP tool schemas for connect, disconnect, and status. */
-export function getConnectionToolSchemas(): ToolSchema[] {
+export function getConnectionToolSchemas(multiAgent = false): ToolSchema[] {
+  if (!multiAgent) return getSingleSessionConnectionSchemas();
   return [
     {
       name: 'connect',
@@ -72,6 +73,35 @@ export function getConnectionToolSchemas(): ToolSchema[] {
         destructiveHint: false,
         openWorldHint: false,
       },
+    },
+  ];
+}
+
+/** The 4.0.0 `connect` and `status` schemas (one session per process, named by `client_id`); `disconnect` is unchanged. */
+function getSingleSessionConnectionSchemas(): ToolSchema[] {
+  const [connect, disconnect, status] = getConnectionToolSchemas(true);
+  return [
+    {
+      ...connect,
+      description:
+        'Connect to the SuperSurf service and start browser automation. Pass a client_id to identify this session. Read the skill guide for best practices: https://liquidbuiltit.github.io/Supersurf/skill.md',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          client_id: {
+            type: 'string',
+            description: 'Human-readable identifier for this MCP client (e.g., "my-project").',
+          },
+          profile: (connect.inputSchema.properties as Record<string, unknown>).profile,
+        },
+        required: ['client_id'],
+      },
+    },
+    disconnect,
+    {
+      ...status,
+      description: 'Show current connection state: passive (idle), active (server up), or connected (extension linked).',
+      inputSchema: { type: 'object', properties: {}, required: [] },
     },
   ];
 }
