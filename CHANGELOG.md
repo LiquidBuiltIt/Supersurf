@@ -41,6 +41,10 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+## 4.1.0 — 2026-10-21
+
+*Hints that click what they describe, and agents that stay apart. The "Did you mean?" hint now checks each selector against the element it names before it prints it. Two agents on one browser no longer share tabs, network logs, dialogs or experiment flags. One server can now serve many agents by `username`, as an opt-in trial (`agents.multi_agent`). `connect(client_id)` works as in 4.0. Update the extension with the daemon, and attach a tab before you read network or console logs. 42 changes.*
+
 - security: **`secure_eval` now blocks window/document escapes reached through any object.** `document.body.ownerDocument.defaultView.fetch()` reached real `fetch`, and `document.body.ownerDocument.cookie` read cookies — both walked past rules that only matched the literal identifier `document` as the receiver. `ownerDocument`, `defaultView`, `contentWindow` and `contentDocument` are now blocked on any receiver, in dot, bracket, template-literal and destructured form. Not covered: a property name assembled at runtime (`el['owner' + 'Document']`), which static analysis cannot see.
 - security: **`browser_evaluate` no longer tells the agent how to switch `secure_eval` off.** The three block messages and the static tool description all ended by naming `security.secure_eval: false` and `SUPERSURF_DISABLE_SECURE_EVAL=1` — and the tool description shipped that text on every call, not just on a refusal. The agent is the untrusted party in this gate. Block messages keep the reason and the dedicated-tool redirect, and the flag itself is unchanged and still documented for operators via the server CLI help.
 - fix: **`browser_take_screenshot` honours `clip_*` and `type` again.** The server sent `clip` and `format`, which the extension never reads, so every clip returned the full viewport and `type` was ignored. Broken since 1.0.0; the fix is server-side, so it works with already-installed extensions.
