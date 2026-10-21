@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
+import { execFileSync } from 'child_process';
 import { cutUnreleased } from './changelog-cut';
+import { VERSION_TARGETS, EXTENSION_CHANGELOG_JSON, assertCleanMain, stagedPaths, commitRelease } from './bump-helpers';
 
 describe('cutUnreleased', () => {
   it('moves Unreleased bullets into a new version section, leaving Unreleased empty', () => {
@@ -163,5 +166,88 @@ describe('server daemon pin', () => {
   it('pins supersurf-daemon to exactly the daemon workspace version', () => {
     const read = (rel: string) => JSON.parse(readFileSync(join(__dirname, '..', rel), 'utf8'));
     expect(read('server/package.json').dependencies['supersurf-daemon']).toBe(read('daemon/package.json').version);
+  });
+});
+
+// Throwaway git repo on `main` with one commit.
+function fixture(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'bump-'));
+  const g = (...a: string[]) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' });
+  g('init', '-q', '-b', 'main');
+  g('config', 'user.email', 't@example.com');
+  g('config', 'user.name', 't');
+  g('config', 'commit.gpgsign', 'false');
+  writeFileSync(join(dir, 'a.txt'), 'a\n');
+  writeFileSync(join(dir, 'b.txt'), 'b\n');
+  g('add', '.');
+  g('commit', '-q', '-m', 'init');
+  return dir;
+}
+
+describe('assertCleanMain', () => {
+  it('passes on a clean main', () => {
+    expect(() => assertCleanMain(fixture())).not.toThrow();
+  });
+
+  it('throws naming the branch when not on main, unless forced', () => {
+    const dir = fixture();
+    execFileSync('git', ['switch', '-q', '-c', 'feat/x'], { cwd: dir });
+    expect(() => assertCleanMain(dir)).toThrow(/feat\/x/);
+    expect(() => assertCleanMain(dir, { force: true })).not.toThrow();
+  });
+
+  it('throws on a dirty tree, even when forced, and lists the file', () => {
+    const dir = fixture();
+    writeFileSync(join(dir, 'stray.txt'), 'x');
+    expect(() => assertCleanMain(dir)).toThrow(/stray\.txt/);
+    expect(() => assertCleanMain(dir, { force: true })).toThrow(/stray\.txt/);
+  });
+});
+
+describe('stagedPaths', () => {
+  const blog = 'blog/src/content/blog/9.9.0.mdx';
+
+  it('lists version targets, both changelogs and the blog post', () => {
+    expect(stagedPaths(blog)).toEqual([
+      'package.json',
+      'server/package.json',
+      'extension/package.json',
+      'extension/manifest.json',
+      'daemon/package.json',
+      'shared/package.json',
+      'cli/package.json',
+      'CHANGELOG.md',
+      'extension/dist/pages/changelog.json',
+      blog,
+    ]);
+  });
+
+  it('omits the blog post when there is none, and never stages "."', () => {
+    expect(stagedPaths(null)).toHaveLength(VERSION_TARGETS.length + 2);
+    expect(stagedPaths(null)).toContain(EXTENSION_CHANGELOG_JSON);
+    expect(stagedPaths(null)).not.toContain('.');
+    expect(stagedPaths(blog)).not.toContain('.');
+  });
+});
+
+describe('commitRelease', () => {
+  it('commits a message full of shell metacharacters verbatim and only the listed paths', () => {
+    const dir = fixture();
+    writeFileSync(join(dir, 'a.txt'), 'changed\n');
+    writeFileSync(join(dir, 'b.txt'), 'changed\n');
+    const msg = 'v9.9.0 — code `username` and "quoted" and $(id) and `whoami`';
+    commitRelease(dir, ['a.txt'], msg, 'pipe');
+    const g = (...a: string[]) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' });
+    expect(g('log', '-1', '--format=%B').replace(/\n+$/, '')).toBe(msg);
+    expect(g('show', '--name-only', '--format=', 'HEAD').trim()).toBe('a.txt');
+    expect(g('status', '--porcelain').trim()).toBe('M b.txt');
+  });
+});
+
+describe('version.bump.ts source', () => {
+  it('never stages everything and never builds the commit through a shell string', () => {
+    const src = readFileSync(join(__dirname, 'version.bump.ts'), 'utf8');
+    expect(src).not.toMatch(/git add \./);
+    expect(src).not.toMatch(/git commit -m "/);
   });
 });
