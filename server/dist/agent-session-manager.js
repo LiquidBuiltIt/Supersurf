@@ -83,7 +83,7 @@ class AgentSessionManager {
             if (name !== 'connect')
                 return this._lobby.callTool(name, args, options);
             const { client_id, username: _ignored, ...rest } = args;
-            if (typeof client_id === 'string')
+            if (typeof client_id === 'string' && this._lobby.state === 'passive')
                 (0, trail_1.dropTrail)(client_id.trim()); // a late call from a previous session may have recreated it
             return this._lobby.callTool(name, { ...rest, username: client_id }, options);
         }

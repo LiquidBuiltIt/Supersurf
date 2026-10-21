@@ -485,6 +485,14 @@ describe('AgentSessionManager', () => {
       expect(trailFor('x').tail(10).total).toBe(0);
     });
 
+    it('a repeat connect while connected keeps the live action trail', async () => {
+      const m = await plain();
+      await m.callTool('connect', { client_id: 'y' });
+      trailFor('y').record({ tool: 'browser_tabs', type: 'browser_tabs', outcome: 'ok', message: 'live', params: {} } as any);
+      await m.callTool('connect', { client_id: 'y' });
+      expect(trailFor('y').tail(10).total).toBe(1);
+    });
+
     it('never idle-expires the session', async () => {
       vi.useFakeTimers();
       const m = await plain({ agents: { idle_timeout_ms: 1000 } });
