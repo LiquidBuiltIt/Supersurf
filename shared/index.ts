@@ -50,3 +50,12 @@ export { LoggerRegistry, getLogger, getRegistry, createLog } from './logger/regi
 
 export { devSource } from './dev-source';
 export type { DevComponent } from './dev-source';
+
+export {
+  supersurfDir,
+  sockPath,
+  pidPath,
+  readDaemonPid,
+  isProcessAlive,
+  isDaemonRunning,
+} from './daemon-paths';
