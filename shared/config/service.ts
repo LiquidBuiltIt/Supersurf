@@ -134,6 +134,9 @@ export class ConfigService {
         idle_timeout_ms: pick('agents.idle_timeout_ms',
           inp.cli.agents?.idle_timeout_ms, inp.env.agents?.idle_timeout_ms,
           inp.file.agents?.idle_timeout_ms, D.agents.idle_timeout_ms, isPosNum, warn),
+        multi_agent: pick('agents.multi_agent',
+          inp.cli.agents?.multi_agent, inp.env.agents?.multi_agent,
+          inp.file.agents?.multi_agent, D.agents.multi_agent, isBool, warn),
       },
       logging: {
         debug: pick('logging.debug',

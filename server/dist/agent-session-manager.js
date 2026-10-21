@@ -10,10 +10,14 @@ exports.AgentSessionManager = void 0;
  * carrying the caller's status header, errors included, so an agent can always
  * read its own name back.
  *
+ * With `agents.multi_agent` off (the default) none of that applies: the lobby IS the
+ * one session, named by `client_id`, and every call passes straight through (4.0.0 semantics).
+ *
  * @module agent-session-manager
  */
 const backend_1 = require("./backend");
 const handlers_1 = require("./backend/handlers");
+const types_1 = require("./backend/types");
 const daemon_spawn_1 = require("./daemon-spawn");
 const trail_1 = require("./playbooks/trail");
 const EXEMPT = new Set(['status', 'profile_create', 'profile_list', 'profile_delete', 'reload_mcp', 'experimental_features']);
@@ -34,11 +38,13 @@ class AgentSessionManager {
     _timers = new Map();
     _busy = new Map();
     _lobby;
+    _multi;
     _server = null;
     _clientInfo = {};
     constructor(_config) {
         this._config = _config;
         this._lobby = new backend_1.AgentSession(_config);
+        this._multi = (0, types_1.isMultiAgent)(_config);
     }
     async initialize(server, clientInfo) {
         this._server = server;
@@ -53,6 +59,8 @@ class AgentSessionManager {
     }
     async listTools() {
         const tools = await this._lobby.listTools();
+        if (!this._multi)
+            return tools;
         return tools.map(t => {
             if (EXEMPT.has(t.name) || t.name === 'connect')
                 return t;
@@ -71,6 +79,14 @@ class AgentSessionManager {
         });
     }
     async callTool(name, args = {}, options = {}) {
+        if (!this._multi) {
+            if (name !== 'connect')
+                return this._lobby.callTool(name, args, options);
+            const { client_id, username: _ignored, ...rest } = args;
+            if (typeof client_id === 'string' && this._lobby.state === 'passive')
+                (0, trail_1.dropTrail)(client_id.trim()); // a late call from a previous session may have recreated it
+            return this._lobby.callTool(name, { ...rest, username: client_id }, options);
+        }
         const raw = !!options.rawResult;
         const { username: rawName, ...rest } = args;
         const username = typeof rawName === 'string' ? rawName.trim() : '';

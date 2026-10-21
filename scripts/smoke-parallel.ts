@@ -9,11 +9,14 @@
  * asserted in the real runtime.
  *
  * WHY TWO PROCESSES. Two `cli.js --script-mode` processes are genuinely
- * independent, so they prove cross-process isolation (assertions 1-4).
+ * independent, so they prove cross-process isolation (assertions 1-4). They run
+ * in the DEFAULT mode (4.0.0 semantics: one session per process, named by
+ * `client_id`, no `username` on any call).
  *
- * WHY ONE PROCESS TOO. Subagents of one MCP client share one server process;
- * since username-keyed sessions they are still separate SuperSurf sessions.
- * Assertions 5-9 drive several usernames through ONE process and prove that
+ * WHY ONE PROCESS TOO. With `--multi-agent` (agents.multi_agent) the subagents
+ * of one MCP client share one server process and are still separate SuperSurf
+ * sessions, one per `username`. Assertions 5-9 start a third process with the
+ * flag on and drive several usernames through it, proving that
  * duplicates are refused, missing/unknown names get the fix-it text, network
  * logs stay separate, and disconnect closes created tabs and releases attached
  * ones.
@@ -176,8 +179,9 @@ interface Session {
 }
 
 /** Start one `cli.js --script-mode` process and give it a request/response channel. */
-function startSession(name: string, home: string): Session {
-  const child = spawn(process.execPath, [path.join(REPO_ROOT, 'server', 'dist', 'cli.js'), '--script-mode'], {
+function startSession(name: string, home: string, multiAgent = false): Session {
+  const args = [path.join(REPO_ROOT, 'server', 'dist', 'cli.js'), '--script-mode', ...(multiAgent ? ['--multi-agent'] : [])];
+  const child = spawn(process.execPath, args, {
     env: { ...process.env, HOME: home, SUPERSURF_EXPERIMENTS: "" },
     stdio: ['pipe', 'pipe', 'inherit'],
   });
@@ -208,8 +212,9 @@ function startSession(name: string, home: string): Session {
         if (msg.error) reject(new Error(`[${name}] ${method}: ${msg.error.message}`));
         else resolve(msg.result);
       });
-      // Every call carries this session's username; pass `username: undefined` to send none.
-      const withName = 'username' in params ? params : { username: name, ...params };
+      // Multi-agent mode: every call carries this session's username (pass `username: undefined` to send none).
+      // Default mode: no name on any call; `connect` carries `client_id` explicitly.
+      const withName = !multiAgent || 'username' in params ? params : { username: name, ...params };
       child.stdin!.write(JSON.stringify({ jsonrpc: '2.0', id, method, params: withName }) + '\n');
     });
 
@@ -272,9 +277,9 @@ async function main(): Promise<void> {
   const A = startSession('sm-a', home); sessions.push(A);
   const B = startSession('sm-b', home); sessions.push(B);
 
-  // Distinct usernames: the daemon session id IS the username.
-  const connA = await A.send('connect', { username: 'sm-a' });
-  const connB = await B.send('connect', { username: 'sm-b' });
+  // Distinct client_ids: the daemon session id IS the client_id.
+  const connA = await A.send('connect', { client_id: 'sm-a' });
+  const connB = await B.send('connect', { client_id: 'sm-b' });
   probe('A connect', connA); probe('B connect', connB);
   if (connA?.success === false) fail(`A connect failed: ${connA.message ?? connA.error}`);
   if (connB?.success === false) fail(`B connect failed: ${connB.message ?? connB.error}`);
@@ -370,56 +375,63 @@ async function main(): Promise<void> {
   }
   ok(`${FLAG} enabled by a run stays out of the calling session's usage-metrics lines`);
 
+  // Assertions 5-9 run on a third process with the multi-agent flag on.
+  const M = startSession('sm-m', home, true); sessions.push(M);
+  const connM = await M.send('connect', { username: 'sm-m' });
+  if (connM?.success === false) fail(`M connect failed: ${connM.message ?? connM.error}`);
+  await M.send('browser_tabs', { action: 'new', url: `http://127.0.0.1:${pageA.port}/` });
+
   // ── Assertion 5: duplicate names are refused, in-process and across processes.
-  const dupA = await A.send('connect', { username: A.name });
-  if (dupA?.error !== 'username_in_use') fail(`same-process duplicate not rejected: ${JSON.stringify(dupA)}`);
-  const dupB = await B.send('connect', { username: A.name });
+  const dupM = await M.send('connect', { username: M.name });
+  if (dupM?.error !== 'username_in_use') fail(`same-process duplicate not rejected: ${JSON.stringify(dupM)}`);
+  await B.send('disconnect', {}); // B (default mode) is done; free it to try M's name
+  const dupB = await B.send('connect', { client_id: M.name });
   if (!/already in use/.test(JSON.stringify(dupB))) fail(`cross-process duplicate not rejected: ${JSON.stringify(dupB)}`);
   // The refusal must not cost the live session anything: its tab is still there.
-  const liveA = await A.send('browser_tabs', { action: 'list' });
-  if (!(liveA?.tabs ?? []).some((t: any) => String(t.url).includes(`:${pageA.port}`))) {
-    fail(`refusing a duplicate ended the live session: ${JSON.stringify(liveA).slice(0, 400)}`);
+  const liveM = await M.send('browser_tabs', { action: 'list' });
+  if (!(liveM?.tabs ?? []).some((t: any) => String(t.url).includes(`:${pageA.port}`))) {
+    fail(`refusing a duplicate ended the live session: ${JSON.stringify(liveM).slice(0, 400)}`);
   }
   ok('duplicate usernames are refused');
 
   // ── Assertion 6: missing and unknown names get the fix-it text.
-  const none = await A.send('browser_tabs', { action: 'list', username: undefined });
+  const none = await M.send('browser_tabs', { action: 'list', username: undefined });
   if (!/username required/.test(JSON.stringify(none))) fail(`missing username not refused: ${JSON.stringify(none)}`);
-  const ghost = await A.send('browser_tabs', { action: 'list', username: 'ghost' });
+  const ghost = await M.send('browser_tabs', { action: 'list', username: 'ghost' });
   if (!/No live session for username "ghost"/.test(String(ghost?.message))) fail(`unknown username not refused: ${JSON.stringify(ghost)}`);
   ok('missing and unknown usernames are refused with the fix-it text');
 
   // ── Assertion 7: two usernames in ONE process do not share a network log.
-  await A.send('connect', { username: 'sm-c' });
-  await A.send('browser_tabs', { action: 'new', url: `http://127.0.0.1:${pageC.port}/`, username: 'sm-c' });
+  await M.send('connect', { username: 'sm-c' });
+  await M.send('browser_tabs', { action: 'new', url: `http://127.0.0.1:${pageC.port}/`, username: 'sm-c' });
   await sleep(1500);
-  const netC = JSON.stringify(await A.send('browser_network_requests', { username: 'sm-c' }));
-  const netA3 = JSON.stringify(await A.send('browser_network_requests', {}));
+  const netC = JSON.stringify(await M.send('browser_network_requests', { username: 'sm-c' }));
+  const netM = JSON.stringify(await M.send('browser_network_requests', {}));
   if (!netC.includes(`:${pageC.port}`)) fail('sm-c did not capture its own page');
-  if (netA3.includes(`:${pageC.port}`)) fail('sm-a sees sm-c traffic from the same process');
+  if (netM.includes(`:${pageC.port}`)) fail('sm-m sees sm-c traffic from the same process');
   ok('same-process sessions keep separate network logs');
 
   // ── Assertion 8: disconnect closes created tabs and releases attached ones.
-  const listC = await A.send('browser_tabs', { action: 'list', username: 'sm-c' });
+  const listC = await M.send('browser_tabs', { action: 'list', username: 'sm-c' });
   probe('C list', listC);
   const blankId = (listC.tabs ?? []).find((t: any) => t.url === 'about:blank')?.id;
   if (blankId === undefined) fail('no about:blank tab to attach');
-  await A.send('browser_tabs', { action: 'attach', tabId: blankId, username: 'sm-c' });
-  await A.send('disconnect', { username: 'sm-c' });
+  await M.send('browser_tabs', { action: 'attach', tabId: blankId, username: 'sm-c' });
+  await M.send('disconnect', { username: 'sm-c' });
   await sleep(1500);
   const cdpPort = fs.readFileSync(path.join(userDataDir, 'DevToolsActivePort'), 'utf8').split('\n')[0];
   const live = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json();
   if (live.some((t: any) => String(t.url).includes(`:${pageC.port}`))) fail('created tab survived disconnect');
   if (!live.some((t: any) => t.url === 'about:blank')) fail('attached tab was closed instead of released');
-  await A.send('connect', { username: 'sm-d' });
-  const listD = JSON.stringify(await A.send('browser_tabs', { action: 'list', username: 'sm-d' }));
+  await M.send('connect', { username: 'sm-d' });
+  const listD = JSON.stringify(await M.send('browser_tabs', { action: 'list', username: 'sm-d' }));
   if (!listD.includes('about:blank')) fail('released tab is still hidden in a dead group');
   ok('disconnect closed the created tab and released the attached one');
 
   // ── Assertion 9: status without a username names nobody.
-  const st = await A.send('status', { username: undefined });
+  const st = await M.send('status', { username: undefined });
   if (st?.daemon?.running !== true) fail(`status did not report a running daemon: ${JSON.stringify(st)}`);
-  if (/sm-a|sm-b|sm-d/.test(JSON.stringify(st))) fail(`status leaked usernames: ${JSON.stringify(st)}`);
+  if (/sm-a|sm-b|sm-c|sm-d|sm-m/.test(JSON.stringify(st))) fail(`status leaked usernames: ${JSON.stringify(st)}`);
   ok('nameless status reports health and names nobody');
 
   teardown();

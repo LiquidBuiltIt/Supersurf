@@ -57,6 +57,7 @@ exports.onProfileCreate = onProfileCreate;
 exports.onProfileList = onProfileList;
 exports.onProfileDelete = onProfileDelete;
 exports.onReloadMCP = onReloadMCP;
+const types_1 = require("./types");
 const shared_1 = require("../shared");
 const daemon_spawn_1 = require("../daemon-spawn");
 const shared_2 = require("../shared");
@@ -135,22 +136,27 @@ exports.BAD_NAME_TEXT = '`username` must be 1-64 characters: letters, digits, do
  * Transitions state from passive to active.
  */
 async function onConnect(mgr, args = {}, options = {}) {
+    // Default mode (4.0.0 parity): the agent's name is `client_id`; the manager maps it onto `username`.
+    const multi = (0, types_1.isMultiAgent)(mgr.config);
+    const idKey = multi ? 'username' : 'client_id';
     const raw = typeof args.username === 'string' ? args.username.trim() : '';
     if (!raw) {
         if (options.rawResult) {
-            return { success: false, error: 'missing_username', message: 'username is required' };
+            return { success: false, error: `missing_${idKey}`, message: `${idKey} is required` };
         }
+        const example = multi ? "connect username='geo-research'" : "connect client_id='my-project'";
         return {
             content: [
                 {
                     type: 'text',
-                    text: "### Missing Required Parameter\n\n`username` is required.\n\n**Example:**\n```\nconnect username='geo-research'\n```",
+                    text: `### Missing Required Parameter\n\n\`${idKey}\` is required.\n\n**Example:**\n\`\`\`\n${example}\n\`\`\``,
                 },
             ],
             isError: true,
         };
     }
-    if (!exports.USERNAME_RE.test(raw)) {
+    // 4.0.0 accepted any client_id; the log filenames sanitize it themselves.
+    if (multi && !exports.USERNAME_RE.test(raw)) {
         if (options.rawResult) {
             return { success: false, error: 'invalid_username', message: exports.BAD_NAME_TEXT };
         }
@@ -166,7 +172,7 @@ async function onConnect(mgr, args = {}, options = {}) {
                 already_connected: true,
                 state: mgr.state,
                 browser: mgr.connectedBrowserName,
-                username: mgr.clientId,
+                [idKey]: mgr.clientId,
             };
         }
         return {
@@ -174,7 +180,7 @@ async function onConnect(mgr, args = {}, options = {}) {
                 {
                     type: 'text',
                     text: mgr.statusHeader() +
-                        `### Already Connected\n\n**State:** ${mgr.state}\n**Username:** ${mgr.clientId}\n\nTo restart, call \`disconnect\` first.`,
+                        `### Already Connected\n\n**State:** ${mgr.state}\n**${multi ? 'Username' : 'Client ID'}:** ${mgr.clientId}\n\nTo restart, call \`disconnect\` first.`,
                 },
             ],
         };
@@ -326,7 +332,7 @@ async function onConnect(mgr, args = {}, options = {}) {
                 success: true,
                 state: mgr.state,
                 browser: mgr.connectedBrowserName,
-                username: mgr.clientId,
+                [idKey]: mgr.clientId,
                 port,
             };
         }
@@ -512,7 +518,7 @@ async function onStatus(mgr, options = {}) {
     const statusData = {
         state: mgr.state,
         browser: mgr.connectedBrowserName,
-        username: mgr.clientId,
+        [(0, types_1.isMultiAgent)(mgr.config) ? 'username' : 'client_id']: mgr.clientId,
         attached_tab: mgr.attachedTab
             ? {
                 index: mgr.attachedTab.index,
@@ -595,7 +601,7 @@ async function onProfileCreate(mgr, args = {}, options = {}) {
                             `### Profile Created\n\n` +
                             `**Name:** ${result.profile?.name}\n` +
                             `**Created:** ${result.profile?.created}\n\n` +
-                            `Use \`connect username='...' profile='${result.profile?.name}'\` to connect.`,
+                            `Use \`connect ${(0, types_1.isMultiAgent)(mgr.config) ? 'username' : 'client_id'}='...' profile='${result.profile?.name}'\` to connect.`,
                     }],
             };
         });

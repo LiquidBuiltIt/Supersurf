@@ -220,9 +220,9 @@ SuperSurf ships as **two** npm packages:
 
 | Tool | Description |
 |------|-------------|
-| `connect` | Register this agent under `username` and connect. Pass `profile` for an isolated Chromium instance. |
+| `connect` | Connect and start a session named by `client_id`. Pass `profile` for an isolated Chromium instance. (Opt-in multi-agent mode, `agents.multi_agent`, takes `username` instead.) |
 | `disconnect` | End your session: closes the tabs you created, releases tabs you attached to |
-| `status` | Without `username`: server and daemon health. With your `username`: your session's status |
+| `status` | Show current connection state: passive, active, or connected |
 | `profile_create` | Create an isolated Chromium profile |
 | `profile_list` | List all managed profiles |
 | `profile_delete` | Delete a managed profile |
@@ -329,7 +329,7 @@ SUPERSURF_EXPERIMENTS=page_diffing,smart_waiting,mouse_humanization
 <summary><strong>Debug log locations</strong></summary>
 
 - **Server log:** `~/.supersurf/logs/server.log`
-- **Session logs:** `~/.supersurf/logs/sessions/supersurf-debug-{username}-{timestamp}.log`
+- **Session logs:** `~/.supersurf/logs/sessions/supersurf-debug-{client_id}-{timestamp}.log`
 
 All WebSocket commands log params and responses. CDP passthrough unwraps to show inner methods. Base64 payloads (screenshots, PDFs) are auto-redacted in truncated mode.
 

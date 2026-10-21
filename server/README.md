@@ -47,7 +47,7 @@ Your agent calls `connect` to start the session, a daemon auto-starts, the exten
 
 | Tool | Description |
 |------|-------------|
-| `connect` / `disconnect` / `status` | Session lifecycle (`connect` takes your `username` and an optional `profile` for isolated Chromium) |
+| `connect` / `disconnect` / `status` | Session lifecycle (`connect` takes your `client_id` and an optional `profile` for isolated Chromium; opt-in multi-agent mode takes `username` instead) |
 | `profile_create` / `profile_list` / `profile_delete` | Manage isolated Chromium profiles |
 | `browser_tabs` | List, create, attach, or close tabs |
 | `browser_navigate` | Go to URL, back, forward, reload |

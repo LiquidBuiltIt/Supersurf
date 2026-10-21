@@ -97,7 +97,7 @@ vi.mock('../src/tools', () => ({
 
 // ---- Helpers ----
 
-function makeConfig(fileOverrides: Record<string, unknown> = {}): BackendConfig {
+function makeConfig(fileOverrides: Record<string, unknown> = {}, multiAgent = true): BackendConfig {
   return {
     debug: false,
     port: 5555,
@@ -105,7 +105,7 @@ function makeConfig(fileOverrides: Record<string, unknown> = {}): BackendConfig 
     configService: new ConfigService({
       cli: {},
       env: {},
-      file: { logging: { usage_metrics: true }, ...fileOverrides } as any,
+      file: { logging: { usage_metrics: true }, ...fileOverrides, agents: { multi_agent: multiAgent, ...(fileOverrides.agents as object) } } as any,
     }),
   };
 }
@@ -373,6 +373,131 @@ describe('AgentSessionManager', () => {
       vi.spyOn(m.get('sm-a')!, 'callTool').mockRejectedValue(new Error('gone'));
       await vi.advanceTimersByTimeAsync(1001);
       expect(m.get('sm-a')).toBeUndefined();
+    });
+  });
+
+  // 4.0.0 connection semantics: agents.multi_agent off (the default).
+  describe('default mode (agents.multi_agent off)', () => {
+    const V4_CONNECT_SCHEMA = {
+      type: 'object',
+      properties: {
+        client_id: { type: 'string', description: 'Human-readable identifier for this MCP client (e.g., "my-project").' },
+        profile: { type: 'string', description: 'Profile name for isolated Chromium instance, or omit for unmanaged connection to user\'s own browser.' },
+      },
+      required: ['client_id'],
+    };
+    const MISSING_TEXT = "### Missing Required Parameter\n\n`client_id` is required.\n\n**Example:**\n```\nconnect client_id='my-project'\n```";
+
+    async function plain(idle: Record<string, unknown> = {}): Promise<AgentSessionManager> {
+      const m = new AgentSessionManager(makeConfig(idle, false));
+      await m.initialize(fakeServer, {});
+      return m;
+    }
+
+    it('lists no username property on any tool; connect and status match 4.0.0', async () => {
+      const tools = await (await plain()).listTools();
+      for (const t of tools) {
+        expect(Object.keys((t.inputSchema.properties as object) ?? {}), t.name).not.toContain('username');
+        expect((t.inputSchema.required as string[] | undefined) ?? [], t.name).not.toContain('username');
+      }
+      expect(tools.find(t => t.name === 'connect')!.inputSchema).toEqual(V4_CONNECT_SCHEMA);
+      expect(tools.find(t => t.name === 'connect')!.description).toBe(
+        'Connect to the SuperSurf service and start browser automation. Pass a client_id to identify this session. Read the skill guide for best practices: https://liquidbuiltit.github.io/Supersurf/skill.md');
+      const status = tools.find(t => t.name === 'status')!;
+      expect(status.inputSchema).toEqual({ type: 'object', properties: {}, required: [] });
+      expect(status.description).toBe('Show current connection state: passive (idle), active (server up), or connected (extension linked).');
+    });
+
+    it('client_id connects one session; every later call routes to it without a name', async () => {
+      const m = await plain();
+      const r = await m.callTool('connect', { client_id: 'my-project' }, { rawResult: true });
+      expect(r).toMatchObject({ success: true, client_id: 'my-project' });
+      expect(r.username).toBeUndefined();
+      const nav = await m.callTool('browser_navigate', { url: 'https://example.com' });
+      expect(nav.isError).toBeUndefined();
+      expect(nav.content[0].text).not.toContain('👤');
+      expect((await m.callTool('profile_list', {})).isError).toBeUndefined();
+      expect((await m.callTool('disconnect', {})).content[0].text).toContain('Disconnected');
+    });
+
+    it('nameless status reports the one session, before and after connect, with no identity line', async () => {
+      const m = await plain();
+      const before = await m.callTool('status', {}, { rawResult: true });
+      expect(before).toMatchObject({ state: 'passive', client_id: null });
+      await m.callTool('connect', { client_id: 'my-project' });
+      const after = await m.callTool('status', {}, { rawResult: true });
+      expect(after).toMatchObject({ state: 'active', client_id: 'my-project' });
+      const text = (await m.callTool('status', {})).content[0].text as string;
+      expect(text).not.toContain('👤');
+      expect(text).not.toMatch(/missing|unknown|No live session/i);
+    });
+
+    it('no username decoration anywhere, including the status header', async () => {
+      const m = await plain();
+      expect((await m.callTool('connect', { client_id: 'my-project' })).content[0].text).not.toContain('👤');
+      const err = (behavior.call = 'error', await m.callTool('browser_tabs', { action: 'list' }));
+      expect(err.content[0].text).not.toContain('👤');
+    });
+
+    it('missing, blank, or username-only connect: 4.0.0 text and missing_client_id code', async () => {
+      const m = await plain();
+      for (const args of [{}, { client_id: '   ' }, { username: 'sneaky' }]) {
+        const r = await m.callTool('connect', args);
+        expect(r.isError).toBe(true);
+        expect(r.content[0].text).toBe(MISSING_TEXT);
+        expect(await m.callTool('connect', args, { rawResult: true }))
+          .toEqual({ success: false, error: 'missing_client_id', message: 'client_id is required' });
+      }
+    });
+
+    it('any non-blank client_id connects, as in 4.0.0 (log filenames sanitize it)', async () => {
+      for (const id of ['My Agent!', '../etc']) {
+        const m = await plain();
+        expect(await m.callTool('connect', { client_id: id }, { rawResult: true }))
+          .toMatchObject({ success: true, client_id: id });
+      }
+    });
+
+    it('connecting twice says Already Connected with a Client ID', async () => {
+      const m = await plain();
+      await m.callTool('connect', { client_id: 'my-project' });
+      expect((await m.callTool('connect', { client_id: 'other' })).content[0].text).toContain('**Client ID:** my-project');
+      expect(await m.callTool('connect', { client_id: 'other' }, { rawResult: true }))
+        .toMatchObject({ already_connected: true, client_id: 'my-project' });
+    });
+
+    it('disconnect then reconnect works on the same process', async () => {
+      const m = await plain();
+      await m.callTool('connect', { client_id: 'one' });
+      await m.callTool('disconnect', {});
+      expect(await m.callTool('status', {}, { rawResult: true })).toMatchObject({ state: 'passive' });
+      expect(await m.callTool('connect', { client_id: 'two' }, { rawResult: true })).toMatchObject({ success: true, client_id: 'two' });
+    });
+
+    it('a fresh connect starts with an empty action trail', async () => {
+      const m = await plain();
+      await m.callTool('connect', { client_id: 'x' });
+      await m.callTool('disconnect', {});
+      trailFor('x').record({ tool: 'browser_tabs', type: 'browser_tabs', outcome: 'ok', message: 'late', params: {} } as any);
+      await m.callTool('connect', { client_id: 'x' });
+      expect(trailFor('x').tail(10).total).toBe(0);
+    });
+
+    it('a repeat connect while connected keeps the live action trail', async () => {
+      const m = await plain();
+      await m.callTool('connect', { client_id: 'y' });
+      trailFor('y').record({ tool: 'browser_tabs', type: 'browser_tabs', outcome: 'ok', message: 'live', params: {} } as any);
+      await m.callTool('connect', { client_id: 'y' });
+      expect(trailFor('y').tail(10).total).toBe(1);
+    });
+
+    it('never idle-expires the session', async () => {
+      vi.useFakeTimers();
+      const m = await plain({ agents: { idle_timeout_ms: 1000 } });
+      await m.callTool('connect', { client_id: 'my-project' });
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await m.callTool('status', {}, { rawResult: true })).toMatchObject({ state: 'active' });
     });
   });
 });

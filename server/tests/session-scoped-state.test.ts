@@ -93,7 +93,7 @@ function makeConfig(): BackendConfig {
     configService: new ConfigService({
       cli: {},
       env: {},
-      file: { logging: { usage_metrics: true } },
+      file: { logging: { usage_metrics: true }, agents: { multi_agent: true } },
     }),
   };
 }

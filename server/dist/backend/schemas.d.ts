@@ -14,7 +14,7 @@
  */
 import type { ToolSchema } from './types';
 /** Return MCP tool schemas for connect, disconnect, and status. */
-export declare function getConnectionToolSchemas(): ToolSchema[];
+export declare function getConnectionToolSchemas(multiAgent?: boolean): ToolSchema[];
 /** Return MCP tool schemas for profile management (create, list, delete). */
 export declare function getProfileToolSchemas(): ToolSchema[];
 /** Return the reload_mcp tool schema. Only exposed when `--debug` is active. */

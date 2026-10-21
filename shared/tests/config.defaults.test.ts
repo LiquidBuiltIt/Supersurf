@@ -48,4 +48,9 @@ describe('config defaults', () => {
     expect(HARDCODED_DEFAULTS.agents.idle_timeout_ms).toBe(600_000);
     expect(SCAFFOLD_DEFAULTS.agents.idle_timeout_ms).toBe(600_000);
   });
+
+  it('agents.multi_agent defaults to off and is scaffolded off', () => {
+    expect(HARDCODED_DEFAULTS.agents.multi_agent).toBe(false);
+    expect(SCAFFOLD_DEFAULTS.agents.multi_agent).toBe(false);
+  });
 });

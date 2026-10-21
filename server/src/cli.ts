@@ -239,6 +239,7 @@ program
   .option('--script-mode', 'JSON-RPC over stdio for automation scripts')
   .option('--disable-secure-eval', 'Disable secure_eval RCE protection on browser_evaluate (not recommended — equivalent to SUPERSURF_DISABLE_SECURE_EVAL=1)')
   .option('--disable-playbook-eval', 'Refuse agent-invoked playbook scripts that declare the `eval` permission (equivalent to SUPERSURF_DISABLE_PLAYBOOK_EVAL=1). Terminal `supersurf playbook run` is unaffected.')
+  .option('--multi-agent', 'Opt in to username-based multi-agent mode: one server process serves many agents, each passing its own `username` (equivalent to SUPERSURF_MULTI_AGENT=1)')
   .action(async (options) => {
     if (options.scriptMode) {
       loadDotenv(process.cwd());

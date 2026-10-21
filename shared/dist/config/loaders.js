@@ -99,6 +99,9 @@ function loadEnvConfig(env) {
     if (isTruthy(env.SUPERSURF_DISABLE_PLAYBOOK_EVAL)) {
         out.security = { ...(out.security || {}), playbook_eval: false };
     }
+    if (isTruthy(env.SUPERSURF_MULTI_AGENT)) {
+        out.agents = { ...(out.agents || {}), multi_agent: true };
+    }
     if (env.SUPERSURF_DEBUG !== undefined) {
         if (env.SUPERSURF_DEBUG === 'no_truncate') {
             out.logging = { ...(out.logging || {}), debug: 'no_truncate' };
