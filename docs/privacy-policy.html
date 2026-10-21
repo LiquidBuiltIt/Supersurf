@@ -2,6 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- Google Analytics (GA4) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-142C8NF8KH"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-142C8NF8KH');
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SuperSurf — Privacy Policy</title>
   <style>
@@ -107,10 +115,10 @@
       <h1>SuperSurf <span class="version">Privacy Policy</span></h1>
     </header>
 
-    <p class="effective-date">Effective date: February 21, 2026</p>
+    <p class="effective-date">Effective date: October 21, 2026</p>
 
     <div class="summary-box">
-      <p><strong>Summary:</strong> SuperSurf does not collect, transmit, or store any personal data. All communication stays on your local machine. There is no telemetry, no analytics, and no remote servers.</p>
+      <p><strong>Summary:</strong> The SuperSurf extension and MCP server do not collect, transmit, or store any personal data. All communication stays on your local machine. The SuperSurf extension, MCP server and daemon have no telemetry, no analytics, and no remote servers. This website (<code>liquidbuiltit.github.io/Supersurf</code>) uses Google Analytics. See <a href="#website-analytics">Website Analytics</a>.</p>
     </div>
 
     <h2>What SuperSurf Does</h2>
@@ -161,7 +169,19 @@
     <p>SuperSurf includes a secure credential fill feature. When used, credential values are resolved from local environment variables on your machine by the MCP server process. The AI agent never sees the raw credential values. Credentials are typed character-by-character into form fields and are not stored or logged by the extension.</p>
 
     <h2>Third-Party Services</h2>
-    <p>SuperSurf does not integrate with any third-party services, advertising networks, or data brokers. The optional domain whitelist feature fetches the Tranco top-sites list from a public URL for safety enforcement, but no user data is sent in this request.</p>
+    <p>The SuperSurf extension does not integrate with any third-party services, advertising networks, or data brokers. The optional domain whitelist feature fetches the Tranco top-sites list from a public URL for safety enforcement, but no user data is sent in this request.</p>
+
+    <h2 id="website-analytics">Website Analytics</h2>
+    <p>This website uses <strong>Google Analytics 4</strong>, a web analytics service from Google. It applies only to this website. It is not part of the SuperSurf extension, the MCP server, or the daemon.</p>
+    <p>When you visit a page on this site, Google Analytics sets first-party cookies (such as <code>_ga</code>) and collects:</p>
+    <ul>
+      <li>The pages you view and the site that referred you</li>
+      <li>Your browser, device type, operating system, and screen size</li>
+      <li>Your approximate location (country or city), derived from your IP address</li>
+      <li>Interactions such as scrolls, outbound link clicks, and file downloads</li>
+    </ul>
+    <p>We use the reports to see how many people visit the site and which pages they read. We do not sell the data. Google processes the data under its own terms: see <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener">How Google uses information from sites or apps that use our services</a>.</p>
+    <p>To opt out, use a content blocker or install the <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener">Google Analytics Opt-out Browser Add-on</a>. Blocking cookies reduces tracking but may not stop it entirely.</p>
 
     <h2>Open Source</h2>
     <p>SuperSurf is open source. The complete source code is available for inspection at <a href="https://github.com/liquidbuiltit/supersurf" target="_blank" rel="noopener">github.com/liquidbuiltit/supersurf</a>.</p>
