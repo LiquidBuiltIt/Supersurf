@@ -24,7 +24,7 @@ import { DialogHandler, clearDialogForTab } from './handlers/dialogs.js';
 import { ConsoleHandler } from './handlers/console.js';
 import { DownloadHandler } from './handlers/downloads.js';
 import { wrapWithUnwrap, shouldUnwrap } from './utils/unwrap.js';
-import { secureFill } from './secure-fill.js';
+import { runSecureFill } from './secure-fill.js';
 import { ExperimentalFeatures } from './experimental/index.js';
 import { waitForDOMStable } from './experimental/wait-for-ready.js';
 import { registerMouseHandlers, handleIdleDrift } from './experimental/mouse-humanization.js';
@@ -645,45 +645,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
     const sid = (params?._sessionId as string | undefined) ?? null;
     const tabId = (await tabHandlers.ensureAttachedTab(sid, params.tabId)).tabId;
 
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN' as any,
-      func: (selector: string, value: string) => {
-        // Inline secure fill logic for MAIN world execution
-        return new Promise<{ success: boolean; error?: string }>((resolve) => {
-          const el = document.querySelector(selector) as HTMLInputElement | null;
-          if (!el) {
-            resolve({ success: false, error: `Element not found: ${selector}` });
-            return;
-          }
-
-          el.focus();
-          el.dispatchEvent(new Event('focus', { bubbles: true }));
-          el.value = '';
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-
-          let i = 0;
-          const chars = value.split('');
-          function typeNext() {
-            if (i >= chars.length) {
-              el!.dispatchEvent(new Event('change', { bubbles: true }));
-              resolve({ success: true });
-              return;
-            }
-            const char = chars[i++];
-            el!.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
-            el!.value += char;
-            el!.dispatchEvent(new Event('input', { bubbles: true }));
-            el!.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
-            setTimeout(typeNext, 40 + Math.random() * 80);
-          }
-          typeNext();
-        });
-      },
-      args: [params.selector, params.value],
-    });
-
-    return results?.[0]?.result || { success: false, error: 'Script execution failed' };
+    return await runSecureFill(tabId, params.selector, params.value);
   });
 
   // drainSpawnedTabs — returns and clears tabs created since a given timestamp
