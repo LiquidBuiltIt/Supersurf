@@ -23,11 +23,11 @@ export function pidPath(): string {
   return path.join(supersurfDir(), 'daemon.pid');
 }
 
-/** PID from the pidfile, or null when it is missing, unreadable or not an integer. */
+/** PID from the pidfile, or null when it is missing, unreadable, not an integer or <= 0 (0 and -1 would signal whole process groups). */
 export function readDaemonPid(): number | null {
   try {
     const pid = parseInt(fs.readFileSync(pidPath(), 'utf-8').trim(), 10);
-    return Number.isNaN(pid) ? null : pid;
+    return Number.isNaN(pid) || pid <= 0 ? null : pid;
   } catch {
     return null;
   }

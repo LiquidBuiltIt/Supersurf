@@ -47,4 +47,10 @@ describe('daemon-paths', () => {
     expect(readDaemonPid()).toBeNull();
     expect(isDaemonRunning()).toBe(false);
   });
+
+  it.each(['0', '-1'])('treats pid %s as not running (never signal a process group)', (content) => {
+    fs.writeFileSync(pidPath(), content);
+    expect(readDaemonPid()).toBeNull();
+    expect(isDaemonRunning()).toBe(false);
+  });
 });

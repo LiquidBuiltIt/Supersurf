@@ -4,7 +4,7 @@ export declare function supersurfDir(): string;
 export declare function sockPath(): string;
 /** Daemon pidfile: `~/.supersurf/daemon.pid` */
 export declare function pidPath(): string;
-/** PID from the pidfile, or null when it is missing, unreadable or not an integer. */
+/** PID from the pidfile, or null when it is missing, unreadable, not an integer or <= 0 (0 and -1 would signal whole process groups). */
 export declare function readDaemonPid(): number | null;
 /** True when a process with this PID exists (signal 0 probe). */
 export declare function isProcessAlive(pid: number): boolean;
