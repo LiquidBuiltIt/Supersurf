@@ -11,20 +11,17 @@
  */
 
 import fs from 'fs';
-import path from 'path';
-import os from 'os';
 import net from 'net';
 import { spawn } from 'child_process';
-import { createLog } from 'shared';
+import { createLog, supersurfDir, sockPath, pidPath, readDaemonPid, isProcessAlive, isDaemonRunning } from 'shared';
+
+export { isDaemonRunning };
 
 const log = createLog('[Spawn]');
 
-const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
-const PID_FILE = path.join(SUPERSURF_DIR, 'daemon.pid');
-const SOCK_FILE = path.join(SUPERSURF_DIR, 'daemon.sock');
 /** Captures the spawned daemon's stderr so a startup failure (e.g. EADDRINUSE)
  *  is not swallowed by `stdio: 'ignore'`. Truncated on every spawn attempt. */
-const STARTUP_LOG = path.join(SUPERSURF_DIR, 'daemon.startup.log');
+const startupLogPath = (): string => `${supersurfDir()}/daemon.startup.log`;
 
 /**
  * Turn a captured daemon-startup-stderr blob into a single human-facing reason.
@@ -47,14 +44,14 @@ export function explainStartupFailure(raw: string, port: number): string | null 
 
 /** Return the path to the daemon's Unix socket. */
 export function getSockPath(): string {
-  return SOCK_FILE;
+  return sockPath();
 }
 
 /** One `daemon_status` round trip over the socket; null when the daemon is unreachable. */
-export function queryDaemonStatus(sockPath: string = getSockPath()): Promise<any | null> {
+export function queryDaemonStatus(sock: string = getSockPath()): Promise<any | null> {
   return new Promise(resolve => {
-    if (!fs.existsSync(sockPath)) return resolve(null);
-    const socket = net.createConnection(sockPath);
+    if (!fs.existsSync(sock)) return resolve(null);
+    const socket = net.createConnection(sock);
     let buf = '';
     const done = (v: any) => { clearTimeout(t); socket.destroy(); resolve(v); };
     const t = setTimeout(() => done(null), 3000);
@@ -71,33 +68,7 @@ export function queryDaemonStatus(sockPath: string = getSockPath()): Promise<any
 
 /** Return the path to the daemon's PID file. */
 export function getPidPath(): string {
-  return PID_FILE;
-}
-
-/** Check if a process with the given PID is alive. */
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check if the daemon process is currently running.
- * Reads the PID file and verifies the process is alive.
- */
-export function isDaemonRunning(): boolean {
-  if (!fs.existsSync(PID_FILE)) return false;
-
-  try {
-    const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-    if (isNaN(pid)) return false;
-    return isProcessAlive(pid);
-  } catch {
-    return false;
-  }
+  return pidPath();
 }
 
 /**
@@ -106,14 +77,9 @@ export function isDaemonRunning(): boolean {
  * Safe no-op when nothing is running.
  */
 export async function stopDaemon(): Promise<void> {
-  let pid: number | null = null;
-  try {
-    pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-  } catch {
-    pid = null;
-  }
+  const pid = readDaemonPid();
 
-  if (pid !== null && !isNaN(pid) && isProcessAlive(pid)) {
+  if (pid !== null && isProcessAlive(pid)) {
     log(`Stopping daemon (pid=${pid})`);
     try { process.kill(pid, 'SIGTERM'); } catch {}
     const deadline = Date.now() + 5000;
@@ -126,8 +92,8 @@ export async function stopDaemon(): Promise<void> {
     }
   }
 
-  try { if (fs.existsSync(SOCK_FILE)) fs.unlinkSync(SOCK_FILE); } catch {}
-  try { if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE); } catch {}
+  try { if (fs.existsSync(sockPath())) fs.unlinkSync(sockPath()); } catch {}
+  try { if (fs.existsSync(pidPath())) fs.unlinkSync(pidPath()); } catch {}
 }
 
 /**
@@ -155,7 +121,7 @@ export function resolveDaemonEntry(): string {
  * @throws If daemon fails to start within 10 seconds
  */
 export async function ensureDaemon(port: number = 5555, debug: boolean = false, experiments: string[] = []): Promise<void> {
-  if (isDaemonRunning() && fs.existsSync(SOCK_FILE)) {
+  if (isDaemonRunning() && fs.existsSync(sockPath())) {
     log('Daemon already running');
     return;
   }
@@ -163,12 +129,12 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   log('Daemon not running, spawning...');
 
   // Clean stale files
-  try { if (fs.existsSync(SOCK_FILE)) fs.unlinkSync(SOCK_FILE); } catch {}
-  try { if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE); } catch {}
+  try { if (fs.existsSync(sockPath())) fs.unlinkSync(sockPath()); } catch {}
+  try { if (fs.existsSync(pidPath())) fs.unlinkSync(pidPath()); } catch {}
 
   // Ensure ~/.supersurf/ exists
-  if (!fs.existsSync(SUPERSURF_DIR)) {
-    fs.mkdirSync(SUPERSURF_DIR, { recursive: true });
+  if (!fs.existsSync(supersurfDir())) {
+    fs.mkdirSync(supersurfDir(), { recursive: true });
   }
 
   // Resolve the daemon from inside this package — never from the network.
@@ -195,7 +161,7 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   // `stdio: 'ignore'`. Without this, the daemon exits(1) on bind failure and the
   // poll loop below just times out blindly with no diagnostic.
   let errFd: number | undefined;
-  try { errFd = fs.openSync(STARTUP_LOG, 'w'); } catch { errFd = undefined; }
+  try { errFd = fs.openSync(startupLogPath(), 'w'); } catch { errFd = undefined; }
 
   const child = spawn(shell, ['-ilc', fullCmd], {
     detached: true,
@@ -222,14 +188,14 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   let waited = 0;
 
   while (waited < maxWait) {
-    if (fs.existsSync(SOCK_FILE)) {
+    if (fs.existsSync(sockPath())) {
       log('Daemon socket ready');
       return;
     }
     if (exited) {
       const info = exited as { code: number | null; signal: NodeJS.Signals | null };
       let captured = '';
-      try { captured = fs.readFileSync(STARTUP_LOG, 'utf8'); } catch {}
+      try { captured = fs.readFileSync(startupLogPath(), 'utf8'); } catch {}
       const reason = explainStartupFailure(captured, port);
       const how = info.code != null ? `exit code ${info.code}`
         : info.signal != null ? `signal ${info.signal}`
@@ -237,7 +203,7 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
       log('Daemon exited before becoming ready:', how, reason || '(no diagnostic)');
       throw new Error(
         `Daemon process exited before becoming ready (${how}). ` +
-        (reason ?? `No diagnostic captured — see ${STARTUP_LOG} and ~/.supersurf/logs/daemon.log.`)
+        (reason ?? `No diagnostic captured — see ${startupLogPath()} and ~/.supersurf/logs/daemon.log.`)
       );
     }
     await new Promise(r => setTimeout(r, pollInterval));

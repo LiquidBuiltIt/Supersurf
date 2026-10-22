@@ -9,6 +9,8 @@
  * @exports getPidPath - Return the daemon PID file path
  * @exports queryDaemonStatus - One `daemon_status` round trip; null when unreachable
  */
+import { isDaemonRunning } from 'shared';
+export { isDaemonRunning };
 /**
  * Turn a captured daemon-startup-stderr blob into a single human-facing reason.
  * Recognizes the common wedged-port case (EADDRINUSE) and renders an actionable
@@ -18,14 +20,9 @@ export declare function explainStartupFailure(raw: string, port: number): string
 /** Return the path to the daemon's Unix socket. */
 export declare function getSockPath(): string;
 /** One `daemon_status` round trip over the socket; null when the daemon is unreachable. */
-export declare function queryDaemonStatus(sockPath?: string): Promise<any | null>;
+export declare function queryDaemonStatus(sock?: string): Promise<any | null>;
 /** Return the path to the daemon's PID file. */
 export declare function getPidPath(): string;
-/**
- * Check if the daemon process is currently running.
- * Reads the PID file and verifies the process is alive.
- */
-export declare function isDaemonRunning(): boolean;
 /**
  * Stop the daemon: SIGTERM the PID-file process, wait up to 5s for exit,
  * SIGKILL as a last resort, then remove stale socket/PID files.

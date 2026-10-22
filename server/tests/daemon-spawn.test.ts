@@ -29,8 +29,8 @@ vi.mock('../src/daemon-spawn', async () => {
 });
 
 // The stopDaemon tests below need a genuinely fresh, unmocked module per test
-// (re-imported after mocking os.homedir()) so its internal PID_FILE/SOCK_FILE
-// constants resolve under a temp dir — never the real ~/.supersurf. Unmocking
+// (re-imported after mocking os.homedir()) so the paths it gets from `shared`
+// resolve under a temp dir — never the real ~/.supersurf. Unmocking
 // here, at top level, makes that explicit instead of relying on a nested
 // vi.unmock() being hoisted (which triggers a deprecation warning). None of
 // the assertions above this point depend on the mocked path values.

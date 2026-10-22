@@ -14,27 +14,23 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isDaemonRunning = void 0;
 exports.explainStartupFailure = explainStartupFailure;
 exports.getSockPath = getSockPath;
 exports.queryDaemonStatus = queryDaemonStatus;
 exports.getPidPath = getPidPath;
-exports.isDaemonRunning = isDaemonRunning;
 exports.stopDaemon = stopDaemon;
 exports.resolveDaemonEntry = resolveDaemonEntry;
 exports.ensureDaemon = ensureDaemon;
 const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
-const os_1 = __importDefault(require("os"));
 const net_1 = __importDefault(require("net"));
 const child_process_1 = require("child_process");
 const shared_1 = require("./shared");
+Object.defineProperty(exports, "isDaemonRunning", { enumerable: true, get: function () { return shared_1.isDaemonRunning; } });
 const log = (0, shared_1.createLog)('[Spawn]');
-const SUPERSURF_DIR = path_1.default.join(os_1.default.homedir(), '.supersurf');
-const PID_FILE = path_1.default.join(SUPERSURF_DIR, 'daemon.pid');
-const SOCK_FILE = path_1.default.join(SUPERSURF_DIR, 'daemon.sock');
 /** Captures the spawned daemon's stderr so a startup failure (e.g. EADDRINUSE)
  *  is not swallowed by `stdio: 'ignore'`. Truncated on every spawn attempt. */
-const STARTUP_LOG = path_1.default.join(SUPERSURF_DIR, 'daemon.startup.log');
+const startupLogPath = () => `${(0, shared_1.supersurfDir)()}/daemon.startup.log`;
 /**
  * Turn a captured daemon-startup-stderr blob into a single human-facing reason.
  * Recognizes the common wedged-port case (EADDRINUSE) and renders an actionable
@@ -54,14 +50,14 @@ function explainStartupFailure(raw, port) {
 }
 /** Return the path to the daemon's Unix socket. */
 function getSockPath() {
-    return SOCK_FILE;
+    return (0, shared_1.sockPath)();
 }
 /** One `daemon_status` round trip over the socket; null when the daemon is unreachable. */
-function queryDaemonStatus(sockPath = getSockPath()) {
+function queryDaemonStatus(sock = getSockPath()) {
     return new Promise(resolve => {
-        if (!fs_1.default.existsSync(sockPath))
+        if (!fs_1.default.existsSync(sock))
             return resolve(null);
-        const socket = net_1.default.createConnection(sockPath);
+        const socket = net_1.default.createConnection(sock);
         let buf = '';
         const done = (v) => { clearTimeout(t); socket.destroy(); resolve(v); };
         const t = setTimeout(() => done(null), 3000);
@@ -83,34 +79,7 @@ function queryDaemonStatus(sockPath = getSockPath()) {
 }
 /** Return the path to the daemon's PID file. */
 function getPidPath() {
-    return PID_FILE;
-}
-/** Check if a process with the given PID is alive. */
-function isProcessAlive(pid) {
-    try {
-        process.kill(pid, 0);
-        return true;
-    }
-    catch {
-        return false;
-    }
-}
-/**
- * Check if the daemon process is currently running.
- * Reads the PID file and verifies the process is alive.
- */
-function isDaemonRunning() {
-    if (!fs_1.default.existsSync(PID_FILE))
-        return false;
-    try {
-        const pid = parseInt(fs_1.default.readFileSync(PID_FILE, 'utf8').trim(), 10);
-        if (isNaN(pid))
-            return false;
-        return isProcessAlive(pid);
-    }
-    catch {
-        return false;
-    }
+    return (0, shared_1.pidPath)();
 }
 /**
  * Stop the daemon: SIGTERM the PID-file process, wait up to 5s for exit,
@@ -118,24 +87,18 @@ function isDaemonRunning() {
  * Safe no-op when nothing is running.
  */
 async function stopDaemon() {
-    let pid = null;
-    try {
-        pid = parseInt(fs_1.default.readFileSync(PID_FILE, 'utf8').trim(), 10);
-    }
-    catch {
-        pid = null;
-    }
-    if (pid !== null && !isNaN(pid) && isProcessAlive(pid)) {
+    const pid = (0, shared_1.readDaemonPid)();
+    if (pid !== null && (0, shared_1.isProcessAlive)(pid)) {
         log(`Stopping daemon (pid=${pid})`);
         try {
             process.kill(pid, 'SIGTERM');
         }
         catch { }
         const deadline = Date.now() + 5000;
-        while (Date.now() < deadline && isProcessAlive(pid)) {
+        while (Date.now() < deadline && (0, shared_1.isProcessAlive)(pid)) {
             await new Promise(r => setTimeout(r, 100));
         }
-        if (isProcessAlive(pid)) {
+        if ((0, shared_1.isProcessAlive)(pid)) {
             log(`Daemon did not exit on SIGTERM, sending SIGKILL (pid=${pid})`);
             try {
                 process.kill(pid, 'SIGKILL');
@@ -144,13 +107,13 @@ async function stopDaemon() {
         }
     }
     try {
-        if (fs_1.default.existsSync(SOCK_FILE))
-            fs_1.default.unlinkSync(SOCK_FILE);
+        if (fs_1.default.existsSync((0, shared_1.sockPath)()))
+            fs_1.default.unlinkSync((0, shared_1.sockPath)());
     }
     catch { }
     try {
-        if (fs_1.default.existsSync(PID_FILE))
-            fs_1.default.unlinkSync(PID_FILE);
+        if (fs_1.default.existsSync((0, shared_1.pidPath)()))
+            fs_1.default.unlinkSync((0, shared_1.pidPath)());
     }
     catch { }
 }
@@ -177,25 +140,25 @@ function resolveDaemonEntry() {
  * @throws If daemon fails to start within 10 seconds
  */
 async function ensureDaemon(port = 5555, debug = false, experiments = []) {
-    if (isDaemonRunning() && fs_1.default.existsSync(SOCK_FILE)) {
+    if ((0, shared_1.isDaemonRunning)() && fs_1.default.existsSync((0, shared_1.sockPath)())) {
         log('Daemon already running');
         return;
     }
     log('Daemon not running, spawning...');
     // Clean stale files
     try {
-        if (fs_1.default.existsSync(SOCK_FILE))
-            fs_1.default.unlinkSync(SOCK_FILE);
+        if (fs_1.default.existsSync((0, shared_1.sockPath)()))
+            fs_1.default.unlinkSync((0, shared_1.sockPath)());
     }
     catch { }
     try {
-        if (fs_1.default.existsSync(PID_FILE))
-            fs_1.default.unlinkSync(PID_FILE);
+        if (fs_1.default.existsSync((0, shared_1.pidPath)()))
+            fs_1.default.unlinkSync((0, shared_1.pidPath)());
     }
     catch { }
     // Ensure ~/.supersurf/ exists
-    if (!fs_1.default.existsSync(SUPERSURF_DIR)) {
-        fs_1.default.mkdirSync(SUPERSURF_DIR, { recursive: true });
+    if (!fs_1.default.existsSync((0, shared_1.supersurfDir)())) {
+        fs_1.default.mkdirSync((0, shared_1.supersurfDir)(), { recursive: true });
     }
     // Resolve the daemon from inside this package — never from the network.
     const daemonPath = resolveDaemonEntry();
@@ -219,7 +182,7 @@ async function ensureDaemon(port = 5555, debug = false, experiments = []) {
     // poll loop below just times out blindly with no diagnostic.
     let errFd;
     try {
-        errFd = fs_1.default.openSync(STARTUP_LOG, 'w');
+        errFd = fs_1.default.openSync(startupLogPath(), 'w');
     }
     catch {
         errFd = undefined;
@@ -249,7 +212,7 @@ async function ensureDaemon(port = 5555, debug = false, experiments = []) {
     const maxWait = 10000;
     let waited = 0;
     while (waited < maxWait) {
-        if (fs_1.default.existsSync(SOCK_FILE)) {
+        if (fs_1.default.existsSync((0, shared_1.sockPath)())) {
             log('Daemon socket ready');
             return;
         }
@@ -257,7 +220,7 @@ async function ensureDaemon(port = 5555, debug = false, experiments = []) {
             const info = exited;
             let captured = '';
             try {
-                captured = fs_1.default.readFileSync(STARTUP_LOG, 'utf8');
+                captured = fs_1.default.readFileSync(startupLogPath(), 'utf8');
             }
             catch { }
             const reason = explainStartupFailure(captured, port);
@@ -266,7 +229,7 @@ async function ensureDaemon(port = 5555, debug = false, experiments = []) {
                     : 'spawn error';
             log('Daemon exited before becoming ready:', how, reason || '(no diagnostic)');
             throw new Error(`Daemon process exited before becoming ready (${how}). ` +
-                (reason ?? `No diagnostic captured — see ${STARTUP_LOG} and ~/.supersurf/logs/daemon.log.`));
+                (reason ?? `No diagnostic captured — see ${startupLogPath()} and ~/.supersurf/logs/daemon.log.`));
         }
         await new Promise(r => setTimeout(r, pollInterval));
         waited += pollInterval;

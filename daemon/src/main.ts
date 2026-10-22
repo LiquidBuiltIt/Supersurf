@@ -35,6 +35,11 @@ import {
   checkAndTouchVersionState,
   UPGRADE_NOTICE_MESSAGE,
   daemonCommand,
+  supersurfDir,
+  sockPath,
+  pidPath,
+  readDaemonPid,
+  isProcessAlive,
 } from 'shared';
 import { ExtensionBridge } from './extension-bridge';
 import { SessionRegistry } from './session';
@@ -45,9 +50,9 @@ import { ProfileRegistry } from './profiles/registry';
 import { ensureExtension, isExtensionCached, getExtensionDir } from './profiles/extension-source';
 import { replayPidLog, findOrphanPids, killOrphanPids, truncatePidLog, appendPidLog } from './profiles/chrome';
 
-const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
-const PID_FILE = path.join(SUPERSURF_DIR, 'daemon.pid');
-const SOCK_FILE = path.join(SUPERSURF_DIR, 'daemon.sock');
+const SUPERSURF_DIR = supersurfDir();
+const PID_FILE = pidPath();
+const SOCK_FILE = sockPath();
 const LOG_FILE = path.join(SUPERSURF_DIR, 'logs', 'daemon.log');
 // Retained as a backwards-compatible export; runtime now reads the live value
 // from ConfigService (cfg.get().daemon.idle_timeout_ms).
@@ -165,10 +170,8 @@ async function printStatus(verbose: boolean): Promise<void> {
   let alive = false;
 
   if (daemonRunning) {
-    try {
-      pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-      alive = !isNaN(pid) && isProcessAlive(pid);
-    } catch {}
+    pid = readDaemonPid();
+    alive = pid !== null && isProcessAlive(pid);
   }
 
   if (!alive) {
@@ -252,15 +255,9 @@ function stopDaemon(): boolean {
     return false;
   }
 
-  let pid: number;
-  try {
-    pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-    if (isNaN(pid)) {
-      console.log('Daemon not running (invalid PID file)');
-      return false;
-    }
-  } catch {
-    console.log('Daemon not running (cannot read PID file)');
+  const pid = readDaemonPid();
+  if (pid === null) {
+    console.log('Daemon not running (invalid PID file)');
     return false;
   }
 
@@ -304,16 +301,6 @@ function stopDaemon(): boolean {
 }
 
 // ─── PID File Management ──────────────────────────────────────
-
-/** Check if a process with the given PID is alive. */
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** Clean stale PID/socket files if the referenced process is dead. */
 function cleanStaleFiles(): void {
@@ -412,12 +399,10 @@ async function main(): Promise<void> {
   cleanStaleFiles();
 
   // Check if daemon is already running
-  if (fs.existsSync(PID_FILE)) {
-    const existingPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-    if (!isNaN(existingPid) && isProcessAlive(existingPid)) {
-      console.error(`Daemon already running (pid ${existingPid})`);
-      process.exit(1);
-    }
+  const existingPid = readDaemonPid();
+  if (existingPid !== null && isProcessAlive(existingPid)) {
+    console.error(`Daemon already running (pid ${existingPid})`);
+    process.exit(1);
   }
 
   // Write PID file

@@ -18,6 +18,7 @@
  *
  * @module main
  */
+import { isProcessAlive } from 'shared';
 declare const SUPERSURF_DIR: string;
 declare const PID_FILE: string;
 declare const SOCK_FILE: string;
@@ -37,8 +38,6 @@ declare function printStatus(verbose: boolean): Promise<void>;
 declare function observe(): void;
 /** Stop the running daemon by sending SIGTERM to the PID in the PID file. */
 declare function stopDaemon(): boolean;
-/** Check if a process with the given PID is alive. */
-declare function isProcessAlive(pid: number): boolean;
 /** Clean stale PID/socket files if the referenced process is dead. */
 declare function cleanStaleFiles(): void;
 export { parseArgs, isProcessAlive, cleanStaleFiles, stopDaemon, printStatus, observe, formatUptime, getVersion, SUPERSURF_DIR, PID_FILE, SOCK_FILE, IDLE_TIMEOUT_MS };

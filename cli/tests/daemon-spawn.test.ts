@@ -25,7 +25,6 @@ const result: { status: number | null; signal: NodeJS.Signals | null; error?: Er
   error: undefined,
 };
 let sockPath = '';
-let currentTmpHome = '';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -44,28 +43,18 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
-// daemon-spawn.ts imports `* as os from 'node:os'` and reads os.homedir() at
-// MODULE LOAD TIME to build its PID_FILE/SOCK_FILE constants. A native ESM
-// import of a Node builtin yields a frozen namespace object (vi.spyOn throws
-// "Cannot redefine property" on it), unlike a plain `require('os')` — so this
-// redirects homedir() at the module-mock level instead, which works
-// regardless of how the source imports it, then vi.resetModules() + a
-// dynamic re-import (below) makes daemon-spawn.ts re-evaluate those
-// constants against the redirected home.
-vi.mock('node:os', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:os')>();
-  return {
-    ...actual,
-    homedir: () => currentTmpHome,
-  };
-});
-
+// daemon-spawn.ts gets its paths from `shared`, which calls os.homedir() at
+// CALL time, so setting process.env.HOME (what os.homedir() reads on
+// Linux/macOS) in beforeEach redirects every path to tmpHome and a miss can
+// never touch the developer's real ~/.supersurf.
 describe('ensureDaemon', () => {
   let tmpHome: string;
+  let origHome: string | undefined;
 
   beforeEach(() => {
+    origHome = process.env.HOME;
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-spawn-test-'));
-    currentTmpHome = tmpHome;
+    process.env.HOME = tmpHome;
     vi.resetModules();
     spawned.length = 0;
     result.status = 0;
@@ -75,6 +64,8 @@ describe('ensureDaemon', () => {
   });
 
   afterEach(() => {
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
