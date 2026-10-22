@@ -50,3 +50,16 @@ export async function secureFill(selector, value) {
         return { success: false, error: e.message };
     }
 }
+/**
+ * Run `secureFill` in the page's MAIN world. `executeScript` serialises `func`, so
+ * `secureFill` must stay self-contained (no imports, no closures over module scope).
+ */
+export async function runSecureFill(tabId, selector, value) {
+    const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: secureFill,
+        args: [selector, value],
+    });
+    return results?.[0]?.result || { success: false, error: 'Script execution failed' };
+}
