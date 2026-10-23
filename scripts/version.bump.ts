@@ -31,7 +31,7 @@ import { execSync } from 'child_process';
 import { cutUnreleased } from './changelog-cut';
 import { scaffoldPost } from './blog.scaffold';
 import { releasedChangelogJson } from './changelog-json';
-import { VERSION_TARGETS, EXTENSION_CHANGELOG_JSON, assertCleanMain, stagedPaths, commitRelease } from './bump-helpers';
+import { VERSION_TARGETS, EXTENSION_CHANGELOG_JSON, assertCleanMain, stagedPaths, commitRelease, bumpLockfile } from './bump-helpers';
 
 // ANSI colors
 const yellow = '\x1b[33m';
@@ -181,6 +181,11 @@ for (const rel of targets) {
   writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
   console.log(`  ${rel}: ${current} -> ${next}`);
 }
+
+// No existsSync guard: a missing lock must fail the bump loudly.
+const lockFile = join(root, 'package-lock.json');
+writeFileSync(lockFile, bumpLockfile(readFileSync(lockFile, 'utf8'), next));
+console.log(`  package-lock.json: ${current} -> ${next}`);
 
 console.log(`\nBumped ${bumpType}: ${current} -> ${next}\n`);
 

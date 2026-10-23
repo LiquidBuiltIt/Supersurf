@@ -31,9 +31,23 @@ export function assertCleanMain(cwd: string, opts: { force?: boolean } = {}): vo
   }
 }
 
+/** Move the lock's root, workspace and daemon-pin versions to `next` (npm's own 2-space format). */
+export function bumpLockfile(lockText: string, next: string): string {
+  const lock = JSON.parse(lockText);
+  lock.version = next;
+  lock.packages[''].version = next;
+  for (const dir of VERSION_TARGETS.filter((t) => t.endsWith('/package.json')).map((t) => t.slice(0, -'/package.json'.length))) {
+    const entry = lock.packages[dir];
+    if (!entry) throw new Error(`package-lock.json has no entry for workspace "${dir}" — run npm install to refresh it.`);
+    entry.version = next;
+    if (entry.dependencies?.['supersurf-daemon']) entry.dependencies['supersurf-daemon'] = next;
+  }
+  return JSON.stringify(lock, null, 2) + '\n';
+}
+
 /** Exactly the files a release commit may contain. Never `.`. */
 export function stagedPaths(blogPath: string | null): string[] {
-  return [...VERSION_TARGETS, 'CHANGELOG.md', EXTENSION_CHANGELOG_JSON, ...(blogPath ? [blogPath] : [])];
+  return [...VERSION_TARGETS, 'package-lock.json', 'CHANGELOG.md', EXTENSION_CHANGELOG_JSON, ...(blogPath ? [blogPath] : [])];
 }
 
 /** Stage `paths` and commit with `message` passed as one argv entry (no shell). */
