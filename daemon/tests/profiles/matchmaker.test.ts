@@ -3,7 +3,7 @@ import { WebSocket } from 'ws';
 import { Matchmaker } from '../../src/profiles/matchmaker';
 import type { PooledConnection } from '../../src/profiles/types';
 
-function mockWs(readyState = WebSocket.OPEN): WebSocket {
+function mockWs(readyState: number = WebSocket.OPEN): WebSocket {
   return {
     readyState,
     send: vi.fn(),

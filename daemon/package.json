@@ -42,7 +42,8 @@
     "clean": "rm -rf dist",
     "build": "tsc && npx tsx ../scripts/shared.bundle.ts daemon && chmod +x dist/main.js",
     "prepublishOnly": "cp ../LICENSE . && npm run clean && npm run build",
-    "test": "vitest run",
+    "typecheck.tests": "tsc -p tsconfig.test.json",
+    "test": "npm run typecheck.tests && vitest run",
     "test.watch": "vitest"
   },
   "dependencies": {

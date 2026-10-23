@@ -16,7 +16,7 @@ describe('root test chain', () => {
   });
 });
 
-const PKGS = ['shared'];
+const PKGS = ['shared', 'daemon'];
 
 describe.each(PKGS)('%s test chain', (pkg) => {
   const read = (f: string) => JSON.parse(readFileSync(resolve(__dirname, '..', pkg, f), 'utf8'));

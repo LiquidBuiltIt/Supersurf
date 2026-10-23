@@ -84,9 +84,9 @@ describe('ExtensionBridge — extension version guard stderr escalation (R1)', (
 
     expect(conn.version).toBe('not-a-version');
     expect(errorSpy).toHaveBeenCalled();
-    const calls = errorSpy.mock.calls.map((args) => args.join(' '));
-    expect(calls.some((line) => line.includes('guard inactive'))).toBe(true);
-    expect(calls.some((line) => line.includes('not-a-version'))).toBe(true);
+    const calls = errorSpy.mock.calls.map((args: unknown[]) => args.join(' '));
+    expect(calls.some((line: string) => line.includes('guard inactive'))).toBe(true);
+    expect(calls.some((line: string) => line.includes('not-a-version'))).toBe(true);
   });
 
   it('does NOT emit console.error for a patch-level warn — that is the guard passing', async () => {
@@ -115,7 +115,7 @@ describe('ExtensionBridge — extension version guard stderr escalation (R1)', (
 
     expect(conn.version).toBeNull();
     expect(errorSpy).toHaveBeenCalled();
-    const calls = errorSpy.mock.calls.map((args) => args.join(' '));
-    expect(calls.some((line) => line.includes('guard inactive'))).toBe(true);
+    const calls = errorSpy.mock.calls.map((args: unknown[]) => args.join(' '));
+    expect(calls.some((line: string) => line.includes('guard inactive'))).toBe(true);
   });
 });
