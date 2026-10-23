@@ -113,7 +113,7 @@ describe('resolveSelectorOrHandle() — ephemeral tier ordering', () => {
   it('prefers the persistent store over an ephemeral name that collides', () => {
     vi.spyOn(experimentRegistry, 'isEnabled').mockReturnValue(true);
     bindEphemeral('eph', 'got_it', 'span.ephemeral', NO_FACTS);
-    const out = resolveSelectorOrHandle('https://docs.google.com/doc', '@got_it');
+    const out = resolveSelectorOrHandle('https://docs.google.com/doc', '@got_it', 'eph');
     expect(out.selector).toBe('button.persisted');
     expect(out.handle).not.toBeNull();
     expect(out.ephemeral).toBeFalsy();
@@ -122,7 +122,7 @@ describe('resolveSelectorOrHandle() — ephemeral tier ordering', () => {
   it('falls through to ephemeral when the persistent store misses', () => {
     vi.spyOn(experimentRegistry, 'isEnabled').mockReturnValue(true);
     bindEphemeral('eph', 'close_dialog', 'span.ephemeral', NO_FACTS);
-    const out = resolveSelectorOrHandle('https://docs.google.com/doc', '@close_dialog');
+    const out = resolveSelectorOrHandle('https://docs.google.com/doc', '@close_dialog', 'eph');
     expect(out.selector).toBe('span.ephemeral');
     expect(out.ephemeral).toBe(true);
     expect(out.attempted).toBe(true);
@@ -131,20 +131,20 @@ describe('resolveSelectorOrHandle() — ephemeral tier ordering', () => {
   it('resolves an ephemeral handle with the fingerprinting experiment OFF', () => {
     vi.spyOn(experimentRegistry, 'isEnabled').mockReturnValue(false);
     bindEphemeral('eph', 'got_it', 'span.ephemeral', NO_FACTS);
-    const out = resolveSelectorOrHandle('https://docs.google.com/doc', '@got_it');
+    const out = resolveSelectorOrHandle('https://docs.google.com/doc', '@got_it', 'eph');
     expect(out.selector).toBe('span.ephemeral');
     expect(out.ephemeral).toBe(true);
   });
 
   it('still strips the marker and returns the bare name on a total miss', () => {
     vi.spyOn(experimentRegistry, 'isEnabled').mockReturnValue(false);
-    const out = resolveSelectorOrHandle('https://docs.google.com/doc', '@never_minted');
+    const out = resolveSelectorOrHandle('https://docs.google.com/doc', '@never_minted', 'eph');
     expect(out.selector).toBe('never_minted');
     expect(out.ephemeral).toBeFalsy();
   });
 
   it('leaves a plain CSS selector untouched', () => {
-    const out = resolveSelectorOrHandle('https://docs.google.com/doc', 'button.foo');
+    const out = resolveSelectorOrHandle('https://docs.google.com/doc', 'button.foo', 'eph');
     expect(out.selector).toBe('button.foo');
     expect(out.attempted).toBe(false);
   });

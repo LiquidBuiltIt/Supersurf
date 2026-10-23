@@ -165,7 +165,8 @@ import {
 
 const c = (over: Partial<AltCandidate>): AltCandidate => ({
   selector: 'div', visible: true, tag: 'div',
-  x: 0, y: 0, width: 10, height: 10, score: 0, ...over,
+  x: 0, y: 0, width: 10, height: 10, score: 0,
+  matchText: '', matchLabel: '', qualified: false, ...over,
 });
 
 describe('rankAlternatives()', () => {
@@ -495,11 +496,9 @@ describe('DESCRIBE_SOURCE — executed page code', () => {
     const logo = { textContent: '' };
     const doc = {
       querySelector: (s: string) => (s === 'a' ? logo : null),
-      querySelectorAll: (s: string) => (s === 'a' ? [logo, { textContent: 'new', ...el }] : []),
+      querySelectorAll: (s: string) => (s === 'a' ? [logo, el] : []),
       body: {},
     };
-    // Make the :has-text scan return the element identity we passed in.
-    doc.querySelectorAll = (s: string) => (s === 'a' ? [logo, el] : []);
     (el as any).textContent = 'new';
     const out = runDescribe(el, doc);
     expect(out.selector).toBe('a:has-text("new")');

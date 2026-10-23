@@ -142,7 +142,7 @@ describe('resolveWithHealing telemetry (emit)', () => {
 describe('captureInContext (iframe-bound capture)', () => {
   it('OFF: persists nothing and never evals', async () => {
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify(rec()));
-    await captureInContext(evalFn, 'https://example.com/', '#go');
+    await captureInContext(evalFn, 'https://example.com/', '#go', () => 's1');
     expect(evalFn).not.toHaveBeenCalled();
     expect(getRecord('example.com', '/', '#go')).toBeUndefined();
   });
@@ -150,7 +150,7 @@ describe('captureInContext (iframe-bound capture)', () => {
   it('ON: persists the fingerprint resolved via the frame-bound eval', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify(rec()));
-    await captureInContext(evalFn, 'https://example.com/login', '#go');
+    await captureInContext(evalFn, 'https://example.com/login', '#go', () => 's1');
     const got = getRecord('example.com', '/login', '#go');
     expect(got?.name).toBe('Go');
     expect(got?.selector).toBe('#go');
@@ -160,7 +160,7 @@ describe('captureInContext (iframe-bound capture)', () => {
 describe('healInContext (iframe-bound heal)', () => {
   it('OFF: returns null and never evals', async () => {
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify({ cx: 1, cy: 2, score: 0.9, margin: 0.5 }));
-    const hit = await healInContext(evalFn, 'https://example.com/', '#go');
+    const hit = await healInContext(evalFn, 'https://example.com/', '#go', () => 's1');
     expect(hit).toBeNull();
     expect(evalFn).not.toHaveBeenCalled();
   });
@@ -169,7 +169,7 @@ describe('healInContext (iframe-bound heal)', () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
     putRecord('example.com', '/', '#go', rec());
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.5 }));
-    const hit = await healInContext(evalFn, 'https://example.com/', '#go');
+    const hit = await healInContext(evalFn, 'https://example.com/', '#go', () => 's1');
     expect(hit).toEqual({ cx: 42, cy: 99, score: 0.9, margin: 0.5 });
   });
 
@@ -177,14 +177,14 @@ describe('healInContext (iframe-bound heal)', () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
     putRecord('example.com', '/', '#go', rec());
     const evalFn = vi.fn().mockResolvedValue(JSON.stringify({ cx: 42, cy: 99, score: 0.9, margin: 0.05 }));
-    const hit = await healInContext(evalFn, 'https://example.com/', '#go');
+    const hit = await healInContext(evalFn, 'https://example.com/', '#go', () => 's1');
     expect(hit).toBeNull();
   });
 
   it('ON + no stored record: returns null', async () => {
     mockEnabled.mockImplementation((f: string) => f === 'fingerprinting');
     const evalFn = vi.fn();
-    const hit = await healInContext(evalFn, 'https://example.com/', '#missing');
+    const hit = await healInContext(evalFn, 'https://example.com/', '#missing', () => 's1');
     expect(hit).toBeNull();
   });
 });

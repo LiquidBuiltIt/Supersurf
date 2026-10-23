@@ -44,13 +44,13 @@ function rec(over: Partial<FingerprintRecord> & { selector: string }): Fingerpri
 describe('buildHandleIndex', () => {
   it('returns an empty index when the experiment is off', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
-    expect(buildHandleIndex('https://x.com/home').size).toBe(0);
+    expect(buildHandleIndex('https://x.com/home', 's1').size).toBe(0);
   });
 
   it('indexes a record by its own stored selector', () => {
     enableFingerprinting();
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
-    expect(buildHandleIndex('https://x.com/home').get('#post')).toBe('tweet_button');
+    expect(buildHandleIndex('https://x.com/home', 's1').get('#post')).toBe('tweet_button');
   });
 
   it('indexes the tag#id shape the readers synthesise', () => {
@@ -58,7 +58,7 @@ describe('buildHandleIndex', () => {
     putRecord('x.com', '/home', 'button:has-text("Post")', rec({
       selector: 'button:has-text("Post")', handleName: 'tweet_button', tag: 'button', htmlId: 'post',
     }));
-    const idx = buildHandleIndex('https://x.com/home');
+    const idx = buildHandleIndex('https://x.com/home', 's1');
     expect(idx.get('button#post')).toBe('tweet_button');
   });
 
@@ -67,7 +67,7 @@ describe('buildHandleIndex', () => {
     putRecord('x.com', '/home', 'button:has-text("Post")', rec({
       selector: 'button:has-text("Post")', handleName: 'tweet_button', tag: 'button', htmlId: 'post',
     }));
-    expect(buildHandleIndex('https://x.com/home').get('#post')).toBeUndefined();
+    expect(buildHandleIndex('https://x.com/home', 's1').get('#post')).toBeUndefined();
   });
 
   it("a record's own stored selector always wins its exact-match slot over another record's derived key", () => {
@@ -82,7 +82,7 @@ describe('buildHandleIndex', () => {
     putRecord('x.com', '/home', 'button#post', rec({
       selector: 'button#post', handleName: 'right_handle', tag: 'button', htmlId: 'post',
     }));
-    const idx = buildHandleIndex('https://x.com/home');
+    const idx = buildHandleIndex('https://x.com/home', 's1');
     expect(idx.get('button#post')).toBe('right_handle');
   });
 
@@ -92,7 +92,7 @@ describe('buildHandleIndex', () => {
       selector: 'input[name="fname"]', handleName: 'first_name_input',
       tag: 'input', attrs: { name: 'fname' },
     }));
-    expect(buildHandleIndex('https://a.co/apply').get('input[name="fname"]')).toBe('first_name_input');
+    expect(buildHandleIndex('https://a.co/apply', 's1').get('input[name="fname"]')).toBe('first_name_input');
   });
 
   it('never indexes a class-based shape', () => {
@@ -100,7 +100,7 @@ describe('buildHandleIndex', () => {
     putRecord('a.co', '/apply', '.btn', rec({
       selector: '.btn', handleName: 'apply_button', tag: 'button', classList: ['btn', 'btn-primary'],
     }));
-    const idx = buildHandleIndex('https://a.co/apply');
+    const idx = buildHandleIndex('https://a.co/apply', 's1');
     expect(idx.get('button.btn.btn-primary')).toBeUndefined();
     expect(idx.get('.btn')).toBe('apply_button'); // its own stored selector still counts
   });
@@ -108,25 +108,25 @@ describe('buildHandleIndex', () => {
   it('skips records that never got a handle name', () => {
     enableFingerprinting();
     putRecord('x.com', '/home', '#anon', rec({ selector: '#anon' }));
-    expect(buildHandleIndex('https://x.com/home').size).toBe(0);
+    expect(buildHandleIndex('https://x.com/home', 's1').size).toBe(0);
   });
 
   it('skips a pre-fix corpus record whose handleName is a single word (fails looksLikeHandle)', () => {
     enableFingerprinting();
     putRecord('x.com', '/home', '#submit', rec({ selector: '#submit', handleName: 'submit' }));
-    expect(buildHandleIndex('https://x.com/home').size).toBe(0);
+    expect(buildHandleIndex('https://x.com/home', 's1').size).toBe(0);
   });
 
   it('does not cross route boundaries', () => {
     enableFingerprinting();
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
-    expect(buildHandleIndex('https://x.com/compose').size).toBe(0);
+    expect(buildHandleIndex('https://x.com/compose', 's1').size).toBe(0);
   });
 
   it('returns an empty index for an unusable URL', () => {
     enableFingerprinting();
-    expect(buildHandleIndex(undefined).size).toBe(0);
-    expect(buildHandleIndex('not a url').size).toBe(0);
+    expect(buildHandleIndex(undefined, 's1').size).toBe(0);
+    expect(buildHandleIndex('not a url', 's1').size).toBe(0);
   });
 
   it('reads the domain store once regardless of record count', () => {
@@ -135,7 +135,7 @@ describe('buildHandleIndex', () => {
       putRecord('x.com', '/home', `#el-${i}`, rec({ selector: `#el-${i}`, handleName: `thing_${i}` }));
     }
     (fs.statSync as unknown as ReturnType<typeof vi.fn>).mockClear();
-    buildHandleIndex('https://x.com/home');
+    buildHandleIndex('https://x.com/home', 's1');
     expect(fs.statSync).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getRecord, putRecord, loadDomain, setBaseDirForTests } from '../src/experimental/fingerprinting/store';
-import type { FingerprintRecord } from '../src/experimental/fingerprinting/types';
+import type { FingerprintRecord, ScoreHit } from '../src/experimental/fingerprinting/types';
 import { captureExpr, scoreExpr } from '../src/experimental/fingerprinting/page-scripts';
 import { domainOf, routeOf, passesGate, THRESHOLD, MARGIN, captureOnResolve } from '../src/experimental/fingerprinting/index';
 
@@ -114,8 +114,8 @@ describe('capture guard', () => {
 
 describe('threshold gate', () => {
   it('passes only when score>=THRESHOLD AND margin>=MARGIN', () => {
-    expect(passesGate({ cx: 1, cy: 1, score: THRESHOLD, margin: MARGIN })).toBe(true);
-    expect(passesGate({ cx: 1, cy: 1, score: THRESHOLD - 0.01, margin: 0.9 })).toBe(false);
-    expect(passesGate({ cx: 1, cy: 1, score: 0.99, margin: MARGIN - 0.01 })).toBe(false);
+    expect(passesGate({ cx: 1, cy: 1, score: THRESHOLD, margin: MARGIN } as ScoreHit)).toBe(true);
+    expect(passesGate({ cx: 1, cy: 1, score: THRESHOLD - 0.01, margin: 0.9 } as ScoreHit)).toBe(false);
+    expect(passesGate({ cx: 1, cy: 1, score: 0.99, margin: MARGIN - 0.01 } as ScoreHit)).toBe(false);
   });
 });

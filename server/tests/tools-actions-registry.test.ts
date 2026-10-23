@@ -29,7 +29,7 @@ describe('action registry', () => {
   it('lists registered action names', () => {
     registerAction({ name: 'a', run: async () => '' });
     registerAction({ name: 'b', run: async () => '' });
-    expect(getRegisteredActions().sort()).toEqual(['a', 'b']);
+    expect([...getRegisteredActions()].sort()).toEqual(['a', 'b']);
   });
 });
 

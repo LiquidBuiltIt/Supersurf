@@ -51,7 +51,7 @@ function fakeEval(found: Record<string, { x: number; y: number }>) {
 
 describe('resolveSelectorOrHandle', () => {
   it('passes a real CSS selector straight through without touching the store', () => {
-    const out = resolveSelectorOrHandle('https://x.com/home', '#post');
+    const out = resolveSelectorOrHandle('https://x.com/home', '#post', 's1');
     expect(out.selector).toBe('#post');
     expect(out.handle).toBeNull();
     expect(out.attempted).toBe(false);
@@ -59,7 +59,7 @@ describe('resolveSelectorOrHandle', () => {
 
   it('a bare snake_case string is never treated as a handle reference (hard switch — no shape guessing)', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
-    const out = resolveSelectorOrHandle('https://x.com/home', 'tweet_button');
+    const out = resolveSelectorOrHandle('https://x.com/home', 'tweet_button', 's1');
     expect(out.selector).toBe('tweet_button');
     expect(out.handle).toBeNull();
     expect(out.attempted).toBe(false);
@@ -67,13 +67,13 @@ describe('resolveSelectorOrHandle', () => {
 
   it('translates a `@`-marked handle to its stored selector', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
-    const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button');
+    const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button', 's1');
     expect(out.selector).toBe('#post');
     expect(out.attempted).toBe(true);
   });
 
   it('leaves an unknown `@`-marked handle untouched (marker stripped) but reports the attempt', () => {
-    const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button');
+    const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button', 's1');
     expect(out.selector).toBe('tweet_button');
     expect(out.handle).toBeNull();
     expect(out.attempted).toBe(true);
@@ -81,15 +81,15 @@ describe('resolveSelectorOrHandle', () => {
 
   it('is idempotent — translating a translated selector is a no-op', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
-    const once = resolveSelectorOrHandle('https://x.com/home', '@tweet_button').selector;
+    const once = resolveSelectorOrHandle('https://x.com/home', '@tweet_button', 's1').selector;
     expect(once).toBe('#post');
-    expect(resolveSelectorOrHandle('https://x.com/home', once).selector).toBe('#post');
+    expect(resolveSelectorOrHandle('https://x.com/home', once, 's1').selector).toBe('#post');
   });
 
   it('strips the `@` marker even when the experiment is off, but does not resolve', () => {
     putRecord('x.com', '/home', '#post', rec({ selector: '#post', handleName: 'tweet_button' }));
     mockEnabled.mockReturnValue(false);
-    const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button');
+    const out = resolveSelectorOrHandle('https://x.com/home', '@tweet_button', 's1');
     expect(out.selector).toBe('tweet_button');
     // The ephemeral tier (Task 4) is consulted even when the experiment is off,
     // so a lookup did run here — it just missed. `attempted` now reflects that.
@@ -97,7 +97,7 @@ describe('resolveSelectorOrHandle', () => {
   });
 
   it('strips the `@` marker for the unknown domain bucket (nothing is ever stored there)', () => {
-    const out = resolveSelectorOrHandle(undefined, '@tweet_button');
+    const out = resolveSelectorOrHandle(undefined, '@tweet_button', 's1');
     expect(out.selector).toBe('tweet_button');
     // Same as above: the ephemeral tier still runs (and misses) for the 'unknown' bucket.
     expect(out.attempted).toBe(true);

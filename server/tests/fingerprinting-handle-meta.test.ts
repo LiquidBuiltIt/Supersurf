@@ -24,7 +24,7 @@ describe('mergeHandleMeta', () => {
     expect(r.outcome).toBe('ignored');
     expect(r.ignoredName).toBe('first_name_input');
     // The whole point: no alias map comes back out of the merge.
-    expect((r as Record<string, unknown>).aliases).toBeUndefined();
+    expect((r as unknown as Record<string, unknown>).aliases).toBeUndefined();
   });
 
   it('repeating the same differing name never accumulates state', () => {
