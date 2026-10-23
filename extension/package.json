@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc && npx tsx build.ts",
     "dev": "tsc --watch",
-    "test": "vitest run",
+    "test": "npm run typecheck.tests && vitest run",
+    "typecheck.tests": "tsc -p tsconfig.test.json",
     "test.watch": "vitest",
     "zip": "zip -r supersurf-extension.zip ./assets/ ./dist/ ./manifest.json"
   },
