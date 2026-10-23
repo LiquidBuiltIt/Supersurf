@@ -15,3 +15,19 @@ describe('root test chain', () => {
     expect(scripts['test.cli']).toContain('typecheck');
   });
 });
+
+const PKGS = ['shared'];
+
+describe.each(PKGS)('%s test chain', (pkg) => {
+  const read = (f: string) => JSON.parse(readFileSync(resolve(__dirname, '..', pkg, f), 'utf8'));
+
+  it('npm test type-checks the tests before vitest', () => {
+    expect(read('package.json').scripts.test).toBe('npm run typecheck.tests && vitest run');
+  });
+
+  it('tsconfig.test.json sets its own exclude without "tests"', () => {
+    const { exclude } = read('tsconfig.test.json');
+    expect(Array.isArray(exclude)).toBe(true);
+    expect(exclude).not.toContain('tests');
+  });
+});

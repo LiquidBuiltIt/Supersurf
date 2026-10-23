@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "test": "vitest run",
+    "typecheck.tests": "tsc -p tsconfig.test.json",
+    "test": "npm run typecheck.tests && vitest run",
     "test.watch": "vitest"
   },
   "devDependencies": {

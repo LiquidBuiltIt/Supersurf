@@ -67,7 +67,7 @@ describe('loadEnvConfig', () => {
 
   it('warns and drops graduated experiment names', () => {
     const { config, warnings } = loadEnvConfig({ SUPERSURF_EXPERIMENTS: 'storage_inspection' });
-    expect(config.experiments?.storage_inspection).toBeUndefined();
+    expect('storage_inspection' in (config.experiments ?? {})).toBe(false);
     expect(warnings.some(w => /storage_inspection.*graduated/.test(w))).toBe(true);
   });
 
