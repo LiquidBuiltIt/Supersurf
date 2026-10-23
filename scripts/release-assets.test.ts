@@ -66,3 +66,16 @@ describe('the release path refuses an already-published version', () => {
     expect(build).not.toContain('npm view');
   });
 });
+
+describe('publish runs the test suite before anything leaves the machine', () => {
+  it('main() gates on runReleaseTests after preflight, before --dry exits and before any push or npm publish', () => {
+    const publish = read('scripts/publish.ts');
+    const main = publish.slice(publish.indexOf('async function main()'));
+    const at = (s: string) => main.indexOf(s);
+    const gate = at('await runReleaseTests(root');
+    expect(gate).toBeGreaterThan(at('await preflight()'));
+    expect(gate).toBeLessThan(at('if (isDry)'));
+    expect(gate).toBeLessThan(at('pushToGitHub('));
+    expect(gate).toBeLessThan(at('publishNpm()'));
+  });
+});
