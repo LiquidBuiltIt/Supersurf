@@ -62,7 +62,9 @@ describe('server import graph (static value imports only)', () => {
   });
 
   it('backend.ts never statically reaches tools.ts or tools/screenshot.ts (sharp)', () => {
-    const r = reach(buildGraph(), 'backend.ts');
+    const g = buildGraph();
+    for (const k of ['backend.ts', 'tools.ts', 'tools/screenshot.ts']) expect(g.has(k)).toBe(true);
+    const r = reach(g, 'backend.ts');
     expect(r.has('tools.ts')).toBe(false);
     expect(r.has('tools/screenshot.ts')).toBe(false);
   });

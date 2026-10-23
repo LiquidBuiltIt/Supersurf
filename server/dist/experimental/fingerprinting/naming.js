@@ -34,14 +34,14 @@ function wasNormalized(raw) {
 }
 /**
  * A bare snake_case identifier with at least one underscore — the shape a
- * normalized handle name takes (see `naming.ts`).
+ * normalized handle name takes (see `normalizeName` above).
  *
  * NOT used to decide whether a selector-slot string is a handle reference —
  * that is `isHandleRef`'s job, on the explicit `@` marker, with zero shape
  * inspection. This regex survives in two other roles: (a) capture-time
  * validation that a stored `handleName` is a shape `resolveHandleName` could
  * ever match again (`handle-meta.ts`, `handle-annotate.ts`), and (b) a
- * failure-path diagnostic (`handleMissHint` below) — never a resolution rule.
+ * failure-path diagnostic (`handleMissHint` in `handle-resolve.ts`) — never a resolution rule.
  */
 const HANDLE_RE = /^[a-z0-9]+(_[a-z0-9]+)+$/;
 /** True when `s` is shaped like a handle name. Resolution-time callers must use
