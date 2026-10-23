@@ -55,8 +55,9 @@ poc/
 .DS_Store
 Thumbs.db
 
-# Lock files (regenerated on install)
+# Lock files: only the root workspace lock is tracked (one workspace, one lock).
 package-lock.json
+!/package-lock.json
 
 # Sandbox HOME-dotfile shadows — empty 0-byte placeholders the agent sandbox
 # materializes at repo root. Not project files. Remove a line here if any of
