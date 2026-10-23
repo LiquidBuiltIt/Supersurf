@@ -16,8 +16,6 @@
  */
 import type { ToolContext } from './lib/types';
 import { type RunOutcome } from '../playbooks/runner';
-import { doList, doInspect, doValidate } from '../playbooks/report';
-export { doList, doInspect, doValidate };
 /** Seam for tests. Production passes nothing and gets the real runner. */
 export interface PlaybookDeps {
     runPlaybook?: (opts: any) => Promise<RunOutcome>;

@@ -25,8 +25,7 @@
 // keyed by the `connect` `username` (the daemon session id), bound and dropped from the same two places
 // in `backend/handlers.ts`.
 
-import { normalizeName } from './naming';
-import { looksLikeHandle } from './handle-resolve';
+import { normalizeName, looksLikeHandle } from './naming';
 
 /** Per-session cap. Insertion-ordered Map, oldest evicted first. */
 const MAX_PER_SESSION = 200;

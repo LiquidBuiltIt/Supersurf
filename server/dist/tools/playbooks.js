@@ -16,7 +16,6 @@
  * @module tools/playbooks
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.doValidate = exports.doInspect = exports.doList = void 0;
 exports.onPlaybooks = onPlaybooks;
 const trail_1 = require("../playbooks/trail");
 const trail_format_1 = require("../playbooks/trail-format");
@@ -25,9 +24,6 @@ const registry_1 = require("../playbooks/registry");
 const runner_1 = require("../playbooks/runner");
 const index_1 = require("../experimental/index");
 const report_1 = require("../playbooks/report");
-Object.defineProperty(exports, "doList", { enumerable: true, get: function () { return report_1.doList; } });
-Object.defineProperty(exports, "doInspect", { enumerable: true, get: function () { return report_1.doInspect; } });
-Object.defineProperty(exports, "doValidate", { enumerable: true, get: function () { return report_1.doValidate; } });
 /** Default history window. The busiest observed real session logged 5,215 actions. */
 const DEFAULT_LIMIT = 50;
 function text(body, isError = false) {

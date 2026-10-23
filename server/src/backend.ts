@@ -34,7 +34,7 @@ import type { BackendConfig, TabInfo, BackendState, ToolSchema, AgentSessionAPI 
 import { buildStatusHeader } from './backend/status';
 import { buildPlaybookDomainIndex, matchPlaybookNamesForUrl, formatPlaybookHintLine, formatInvalidPlaybookWarning, normalizeHost, type PlaybookDomainIndex } from './playbooks/hint';
 import { refreshRegistry, getInvalidRecords } from './playbooks/registry';
-import { doList as doPlaybooksList, doInspect as doPlaybooksInspect, doValidate as doPlaybooksValidate } from './tools/playbooks';
+import { doList as doPlaybooksList, doInspect as doPlaybooksInspect, doValidate as doPlaybooksValidate } from './playbooks/report';
 import { getConnectionToolSchemas, getDebugToolSchema, getProfileToolSchemas } from './backend/schemas';
 import {
   onConnect, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete,

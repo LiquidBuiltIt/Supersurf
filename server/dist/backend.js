@@ -62,7 +62,7 @@ const types_1 = require("./backend/types");
 const status_1 = require("./backend/status");
 const hint_1 = require("./playbooks/hint");
 const registry_1 = require("./playbooks/registry");
-const playbooks_1 = require("./tools/playbooks");
+const report_1 = require("./playbooks/report");
 const schemas_1 = require("./backend/schemas");
 const handlers_1 = require("./backend/handlers");
 const log = (0, shared_1.createLog)('[Conn]');
@@ -338,11 +338,11 @@ class AgentSession {
         // state still routes through the bridge below, unchanged.
         if (name === 'playbooks' && this.state === 'passive') {
             if (rawArguments.action === 'list')
-                return (0, playbooks_1.doList)(rawArguments);
+                return (0, report_1.doList)(rawArguments);
             if (rawArguments.action === 'inspect')
-                return (0, playbooks_1.doInspect)(rawArguments);
+                return (0, report_1.doInspect)(rawArguments);
             if (rawArguments.action === 'validate')
-                return (0, playbooks_1.doValidate)(rawArguments);
+                return (0, report_1.doValidate)(rawArguments);
         }
         // Forward to active bridge
         if (!this.bridge) {

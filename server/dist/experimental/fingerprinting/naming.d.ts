@@ -10,4 +10,7 @@
 export declare function normalizeName(raw: string | undefined | null): string;
 /** True when normalizeName(raw) differs from the trimmed input (i.e. it wasn't already canonical). */
 export declare function wasNormalized(raw: string | undefined | null): boolean;
+/** True when `s` is shaped like a handle name. Resolution-time callers must use
+ *  `isHandleRef` instead; this is for name-shape validation and diagnostics only. */
+export declare function looksLikeHandle(s: string): boolean;
 //# sourceMappingURL=naming.d.ts.map

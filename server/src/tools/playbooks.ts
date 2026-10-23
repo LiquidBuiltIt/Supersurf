@@ -24,8 +24,6 @@ import { runPlaybook as realRunPlaybook, type RunOutcome } from '../playbooks/ru
 import { experimentRegistry } from '../experimental/index';
 import { doList, doInspect, doValidate } from '../playbooks/report';
 
-export { doList, doInspect, doValidate };
-
 /** Default history window. The busiest observed real session logged 5,215 actions. */
 const DEFAULT_LIMIT = 50;
 

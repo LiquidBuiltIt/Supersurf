@@ -8,8 +8,7 @@
 // `resolveSelectorOrHandle` checks the `fingerprinting` experiment gate itself,
 // so callers don't have to.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.HANDLE_MARKER = void 0;
-exports.looksLikeHandle = looksLikeHandle;
+exports.HANDLE_MARKER = exports.looksLikeHandle = void 0;
 exports.isHandleRef = isHandleRef;
 exports.handleMissHint = handleMissHint;
 exports.resolveHandleName = resolveHandleName;
@@ -19,23 +18,8 @@ const naming_1 = require("./naming");
 const url_1 = require("./url");
 const index_1 = require("../index");
 const ephemeral_handles_1 = require("./ephemeral-handles");
-/**
- * A bare snake_case identifier with at least one underscore — the shape a
- * normalized handle name takes (see `naming.ts`).
- *
- * NOT used to decide whether a selector-slot string is a handle reference —
- * that is `isHandleRef`'s job, on the explicit `@` marker, with zero shape
- * inspection. This regex survives in two other roles: (a) capture-time
- * validation that a stored `handleName` is a shape `resolveHandleName` could
- * ever match again (`handle-meta.ts`, `handle-annotate.ts`), and (b) a
- * failure-path diagnostic (`handleMissHint` below) — never a resolution rule.
- */
-const HANDLE_RE = /^[a-z0-9]+(_[a-z0-9]+)+$/;
-/** True when `s` is shaped like a handle name. Resolution-time callers must use
- *  `isHandleRef` instead; this is for name-shape validation and diagnostics only. */
-function looksLikeHandle(s) {
-    return typeof s === 'string' && s.length <= 64 && HANDLE_RE.test(s);
-}
+var naming_2 = require("./naming");
+Object.defineProperty(exports, "looksLikeHandle", { enumerable: true, get: function () { return naming_2.looksLikeHandle; } });
 /** The marker that declares a selector-slot string a handle reference. */
 exports.HANDLE_MARKER = '@';
 /**
@@ -67,7 +51,7 @@ function handleMissHint(raw) {
         const name = raw.slice(exports.HANDLE_MARKER.length);
         return `\n\nNo handle named \`${name}\` is recorded for this page.`;
     }
-    if (!looksLikeHandle(raw))
+    if (!(0, naming_1.looksLikeHandle)(raw))
         return '';
     return `\n\nIf you meant the handle, target it with \`@${raw}\`.`;
 }
