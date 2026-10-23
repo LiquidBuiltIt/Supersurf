@@ -49,7 +49,7 @@ import path from 'path';
 const DIST = path.resolve(__dirname, '..', 'dist');
 const MCP_BIN = path.join(DIST, 'cli.js');
 
-/** Child env with VITEST removed — daemon/src/main.ts:618 no-ops when it is set. */
+/** Child env with VITEST removed — daemon/src/main.ts's isDirectRun guard no-ops when it is set. */
 function childEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   delete env.VITEST;
