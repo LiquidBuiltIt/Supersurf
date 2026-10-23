@@ -14,7 +14,7 @@
  *   - Status header formatting to `backend/status.ts`
  *   - Handler implementations to `backend/handlers.ts`
  *
- * BrowserBridge is lazy-imported to break a circular dependency (tools.ts imports backend types).
+ * BrowserBridge is lazy-loaded; see `backend/load-bridge.ts` for why.
  *
  * @module backend
  * @exports AgentSession
@@ -32,6 +32,7 @@ import { isMultiAgent } from './backend/types';
 import type { BackendConfig, TabInfo, BackendState, ToolSchema, AgentSessionAPI } from './backend/types';
 
 import { buildStatusHeader } from './backend/status';
+import { loadBrowserBridge } from './backend/load-bridge';
 import { buildPlaybookDomainIndex, matchPlaybookNamesForUrl, formatPlaybookHintLine, formatInvalidPlaybookWarning, normalizeHost, type PlaybookDomainIndex } from './playbooks/hint';
 import { refreshRegistry, getInvalidRecords } from './playbooks/registry';
 import { doList as doPlaybooksList, doInspect as doPlaybooksInspect, doValidate as doPlaybooksValidate } from './playbooks/report';
@@ -41,18 +42,6 @@ import {
 } from './backend/handlers';
 
 const log = createLog('[Conn]');
-
-// Lazy-load BrowserBridge to avoid circular dependency: tools.ts imports types from backend
-let BrowserBridge: any = null;
-
-/** Lazy singleton loader for BrowserBridge class. */
-async function getBrowserBridge(): Promise<any> {
-  if (!BrowserBridge) {
-    const mod = await import('./tools');
-    BrowserBridge = mod.BrowserBridge;
-  }
-  return BrowserBridge;
-}
 
 /**
  * Core state machine for managing the extension connection lifecycle.
@@ -184,7 +173,7 @@ export class AgentSession implements AgentSessionAPI {
     const connectionTools = getConnectionToolSchemas(isMultiAgent(this.config));
 
     // Get browser tools from BrowserBridge (dummy transport, schema only)
-    const BB = await getBrowserBridge();
+    const BB = await loadBrowserBridge();
     const dummyBridge = new BB(this.config, null);
     const browserTools = await dummyBridge.listTools();
 

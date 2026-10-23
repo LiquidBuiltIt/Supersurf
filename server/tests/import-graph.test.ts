@@ -60,4 +60,10 @@ describe('server import graph (static value imports only)', () => {
     const onCycle = [...g.keys()].filter((f) => reach(g, f).has(f)).sort();
     expect(onCycle).toEqual([]);
   });
+
+  it('backend.ts never statically reaches tools.ts or tools/screenshot.ts (sharp)', () => {
+    const r = reach(buildGraph(), 'backend.ts');
+    expect(r.has('tools.ts')).toBe(false);
+    expect(r.has('tools/screenshot.ts')).toBe(false);
+  });
 });
