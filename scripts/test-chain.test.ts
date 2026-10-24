@@ -32,7 +32,7 @@ describe.each(PKGS)('%s test chain', (pkg) => {
   });
 });
 
-it('server tests build ToolContext mocks only through helpers/mock-ctx', () => {
+it('no server test defines its own createMockCtx without importing helpers/mock-ctx', () => {
   const dir = resolve(__dirname, '..', 'server', 'tests');
   const offenders = (readdirSync(dir, { recursive: true }) as string[])
     .filter((f) => f.endsWith('.ts') && !f.startsWith('helpers'))

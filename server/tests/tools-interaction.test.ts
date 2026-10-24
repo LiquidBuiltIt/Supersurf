@@ -40,7 +40,6 @@ function createMockCtx(options: { clickResult?: string; clickError?: string } = 
     // (`{focused}`, `{scrolled}`, `{cleared}`, `{selected}`, `{verified}`)
     // don't throw for tests that don't opt in. Specific tests override as needed.
     eval: vi.fn().mockResolvedValue({ focused: true, scrolled: true, cleared: true, selected: true, optionText: 'ok', verified: true, found: true }),
-    sleep: vi.fn().mockResolvedValue(undefined),
     // clickError forces the click handler's element-resolution step to reject,
     // which onInteract's catch branch turns into a `✗` result line. clickResult
     // is accepted for readability at call sites but not otherwise wired — the
