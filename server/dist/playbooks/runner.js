@@ -19,6 +19,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.defaultEnableExperiments = defaultEnableExperiments;
 exports.validateParams = validateParams;
 exports.runPlaybook = runPlaybook;
+// runner → backend is the intended direction; backend never imports runner statically (see backend/load-bridge.ts).
 const backend_1 = require("../backend");
 const backend_config_1 = require("../backend-config");
 const command_map_1 = require("./command-map");

@@ -15,67 +15,25 @@
  *   - Status header formatting to `backend/status.ts`
  *   - Handler implementations to `backend/handlers.ts`
  *
- * BrowserBridge is lazy-imported to break a circular dependency (tools.ts imports backend types).
+ * BrowserBridge is lazy-loaded; see `backend/load-bridge.ts` for why.
  *
  * @module backend
  * @exports AgentSession
  * @exports BackendConfig, TabInfo, BackendState, ToolSchema (re-exported from backend/types)
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AgentSession = void 0;
 const usage_metrics_logger_1 = require("./usage-metrics-logger");
 const shared_1 = require("./shared");
 const types_1 = require("./backend/types");
 const status_1 = require("./backend/status");
+const load_bridge_1 = require("./backend/load-bridge");
 const hint_1 = require("./playbooks/hint");
 const registry_1 = require("./playbooks/registry");
-const playbooks_1 = require("./tools/playbooks");
+const report_1 = require("./playbooks/report");
 const schemas_1 = require("./backend/schemas");
 const handlers_1 = require("./backend/handlers");
 const log = (0, shared_1.createLog)('[Conn]');
-// Lazy-load BrowserBridge to avoid circular dependency: tools.ts imports types from backend
-let BrowserBridge = null;
-/** Lazy singleton loader for BrowserBridge class. */
-async function getBrowserBridge() {
-    if (!BrowserBridge) {
-        const mod = await Promise.resolve().then(() => __importStar(require('./tools')));
-        BrowserBridge = mod.BrowserBridge;
-    }
-    return BrowserBridge;
-}
 /**
  * Core state machine for managing the extension connection lifecycle.
  * Implements AgentSessionAPI so handler functions can read/write state.
@@ -201,7 +159,7 @@ class AgentSession {
         log(`listTools() — state: ${this.state}`);
         const connectionTools = (0, schemas_1.getConnectionToolSchemas)((0, types_1.isMultiAgent)(this.config));
         // Get browser tools from BrowserBridge (dummy transport, schema only)
-        const BB = await getBrowserBridge();
+        const BB = await (0, load_bridge_1.loadBrowserBridge)();
         const dummyBridge = new BB(this.config, null);
         const browserTools = await dummyBridge.listTools();
         const debugTools = [];
@@ -338,11 +296,11 @@ class AgentSession {
         // state still routes through the bridge below, unchanged.
         if (name === 'playbooks' && this.state === 'passive') {
             if (rawArguments.action === 'list')
-                return (0, playbooks_1.doList)(rawArguments);
+                return (0, report_1.doList)(rawArguments);
             if (rawArguments.action === 'inspect')
-                return (0, playbooks_1.doInspect)(rawArguments);
+                return (0, report_1.doInspect)(rawArguments);
             if (rawArguments.action === 'validate')
-                return (0, playbooks_1.doValidate)(rawArguments);
+                return (0, report_1.doValidate)(rawArguments);
         }
         // Forward to active bridge
         if (!this.bridge) {

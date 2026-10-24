@@ -8,31 +8,14 @@
 // so callers don't have to.
 
 import { loadDomain } from './store';
-import { normalizeName } from './naming';
+import { normalizeName, looksLikeHandle } from './naming';
 import { domainOf, routeOf } from './url';
 import { experimentRegistry } from '../index';
 import { resolveEphemeralBinding } from './ephemeral-handles';
 import type { EphemeralBinding } from './ephemeral-handles';
 import type { FingerprintRecord } from './types';
 
-/**
- * A bare snake_case identifier with at least one underscore — the shape a
- * normalized handle name takes (see `naming.ts`).
- *
- * NOT used to decide whether a selector-slot string is a handle reference —
- * that is `isHandleRef`'s job, on the explicit `@` marker, with zero shape
- * inspection. This regex survives in two other roles: (a) capture-time
- * validation that a stored `handleName` is a shape `resolveHandleName` could
- * ever match again (`handle-meta.ts`, `handle-annotate.ts`), and (b) a
- * failure-path diagnostic (`handleMissHint` below) — never a resolution rule.
- */
-const HANDLE_RE = /^[a-z0-9]+(_[a-z0-9]+)+$/;
-
-/** True when `s` is shaped like a handle name. Resolution-time callers must use
- *  `isHandleRef` instead; this is for name-shape validation and diagnostics only. */
-export function looksLikeHandle(s: string): boolean {
-  return typeof s === 'string' && s.length <= 64 && HANDLE_RE.test(s);
-}
+export { looksLikeHandle } from './naming';
 
 /** The marker that declares a selector-slot string a handle reference. */
 export const HANDLE_MARKER = '@';

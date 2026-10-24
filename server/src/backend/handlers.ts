@@ -27,21 +27,11 @@ import {
   dropSession as dropEphemeralSession,
 } from '../experimental/fingerprinting/ephemeral-handles';
 import { clearTipCounters } from '../tips';
+import { loadBrowserBridge } from './load-bridge';
 import { dropTrail } from '../playbooks/trail';
 import { UPGRADE_NOTICE_MESSAGE } from 'shared';
 
 const log = createLog('[Conn]');
-
-// Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
-let BrowserBridge: any = null;
-
-async function getBrowserBridge(): Promise<any> {
-  if (!BrowserBridge) {
-    const mod = await import('../tools');
-    BrowserBridge = mod.BrowserBridge;
-  }
-  return BrowserBridge;
-}
 
 /**
  * Compare two dot-separated version strings numerically, part by part.
@@ -307,7 +297,7 @@ export async function onConnect(
     experimentRegistry.bind(mgr.clientId!, client);
     bindEphemeralSession(mgr.clientId!);
 
-    const BB = await getBrowserBridge();
+    const BB = await loadBrowserBridge();
     mgr.bridge = new BB(mgr.config, mgr.extensionServer);
     await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr, mgr.metricsLogger);
 

@@ -37,7 +37,6 @@ exports.resolveEphemeralBinding = resolveEphemeralBinding;
 exports.resolveEphemeral = resolveEphemeral;
 exports.checkEphemeralIdentity = checkEphemeralIdentity;
 const naming_1 = require("./naming");
-const handle_resolve_1 = require("./handle-resolve");
 /** Per-session cap. Insertion-ordered Map, oldest evicted first. */
 const MAX_PER_SESSION = 200;
 /** Most tokens a minted name may carry, so one verbose button can't produce a sentence. */
@@ -131,7 +130,7 @@ function mintHandleName(sources, taken) {
             return null;
         name = `${name}_${tag}`;
     }
-    if (!(0, handle_resolve_1.looksLikeHandle)(name))
+    if (!(0, naming_1.looksLikeHandle)(name))
         return null;
     if (!taken.has(name)) {
         taken.add(name);
@@ -139,7 +138,7 @@ function mintHandleName(sources, taken) {
     }
     for (let n = 2; n <= 50; n++) {
         const candidate = `${name}_${n}`;
-        if (!taken.has(candidate) && (0, handle_resolve_1.looksLikeHandle)(candidate)) {
+        if (!taken.has(candidate) && (0, naming_1.looksLikeHandle)(candidate)) {
             taken.add(candidate);
             return candidate;
         }

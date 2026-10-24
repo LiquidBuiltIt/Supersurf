@@ -13,39 +13,6 @@
  *
  * @module backend/handlers
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BAD_NAME_TEXT = exports.USERNAME_RE = void 0;
 exports.onConnect = onConnect;
@@ -65,18 +32,10 @@ const index_1 = require("../experimental/index");
 const index_2 = require("../experimental/mouse-humanization/index");
 const ephemeral_handles_1 = require("../experimental/fingerprinting/ephemeral-handles");
 const tips_1 = require("../tips");
+const load_bridge_1 = require("./load-bridge");
 const trail_1 = require("../playbooks/trail");
 const shared_3 = require("../shared");
 const log = (0, shared_2.createLog)('[Conn]');
-// Lazy-load BrowserBridge to break circular dependency (same pattern as backend.ts)
-let BrowserBridge = null;
-async function getBrowserBridge() {
-    if (!BrowserBridge) {
-        const mod = await Promise.resolve().then(() => __importStar(require('../tools')));
-        BrowserBridge = mod.BrowserBridge;
-    }
-    return BrowserBridge;
-}
 /**
  * Compare two dot-separated version strings numerically, part by part.
  * Negative when `a` < `b`, positive when `a` > `b`, zero when equal.
@@ -298,7 +257,7 @@ async function onConnect(mgr, args = {}, options = {}) {
         // Bind experiment registry to daemon transport, keyed by this session's id
         index_1.experimentRegistry.bind(mgr.clientId, client);
         (0, ephemeral_handles_1.bindSession)(mgr.clientId);
-        const BB = await getBrowserBridge();
+        const BB = await (0, load_bridge_1.loadBrowserBridge)();
         mgr.bridge = new BB(mgr.config, mgr.extensionServer);
         await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr, mgr.metricsLogger);
         mgr.state = 'active';

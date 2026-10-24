@@ -14,7 +14,7 @@
  *   - Status header formatting to `backend/status.ts`
  *   - Handler implementations to `backend/handlers.ts`
  *
- * BrowserBridge is lazy-imported to break a circular dependency (tools.ts imports backend types).
+ * BrowserBridge is lazy-loaded; see `backend/load-bridge.ts` for why.
  *
  * @module backend
  * @exports AgentSession

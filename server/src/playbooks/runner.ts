@@ -15,6 +15,7 @@
  * @module playbooks/runner
  */
 
+// runner → backend is the intended direction; backend never imports runner statically (see backend/load-bridge.ts).
 import { AgentSession } from '../backend';
 import { buildConfigService, backendConfigFrom } from '../backend-config';
 import { mapCommand } from './command-map';
