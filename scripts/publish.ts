@@ -8,18 +8,19 @@
  *
  * Usage:
  *   npm run publish               # full release: github + npm + cws
- *   npm run publish -- --dry      # pre-flight checks only, no publishing
+ *   npm run publish -- --dry      # pre-flight checks + npm test, no publishing
  *   npm run publish -- --no-github # skip git push, publish npm + cws only
  *
  * Pipeline:
  *   1. Check CWS auth (.cws-token + token refresh)
  *   2. Check HEAD is a version-bump commit + clean working tree
- *   3. Create git tag (idempotent — skipped if tag already on HEAD)
- *   4. git push && git push --tags (deletes local tag if push fails)
- *   5. npm publish daemon + server
- *   6. Compile the four supersurf binaries, create the GitHub release, upload
+ *   3. npm test (build + unit + smokes; port 5555 must be free)
+ *   4. Create git tag (idempotent — skipped if tag already on HEAD)
+ *   5. git push && git push --tags (deletes local tag if push fails)
+ *   6. npm publish daemon + server
+ *   7. Compile the four supersurf binaries, create the GitHub release, upload
  *      them as assets (docs/install.sh downloads these)
- *   7. Build extension zip + upload + publish to CWS
+ *   8. Build extension zip + upload + publish to CWS
  *
  * Tags are created here, not by version.bump, so they only exist for versions
  * that were actually shipped.
@@ -28,6 +29,7 @@
 import { readFileSync, existsSync, statSync, createReadStream } from 'fs';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
+import { runReleaseTests } from './release-gate';
 
 // ── ANSI ─────────────────────────────────────────────────────
 
@@ -532,6 +534,15 @@ function printSummary(version: string) {
 
 async function main() {
   const { version, cwsToken, clientId, clientSecret } = await preflight();
+
+  info('Running npm test (build, unit suites, smokes)...');
+  try {
+    await runReleaseTests(root);
+  } catch (err) {
+    fail((err as Error).message);
+    process.exit(1);
+  }
+  ok('npm test passed');
 
   if (isDry) {
     console.log(`\n${green}All pre-flight checks passed.${reset} Run without --dry to publish.\n`);
