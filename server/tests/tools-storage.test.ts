@@ -53,7 +53,7 @@ function createMockCtx(overrides: Partial<ToolContext> = {}): ToolContext {
       setStealthMode: vi.fn(),
       clearAttachedTab: vi.fn(),
       attachedTab: null,
-    },
+    } as any,
     cdp: vi.fn().mockResolvedValue({}),
     eval: vi.fn().mockResolvedValue(undefined),
     sleep: vi.fn().mockResolvedValue(undefined),
