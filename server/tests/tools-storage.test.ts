@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onBrowserStorage, browserStorageSchema } from '../src/tools/browser_storage';
 import { getToolSchemas } from '../src/tools/schemas';
 import type { ToolContext } from '../src/tools/lib/types';
+import { createMockCtx } from './helpers/mock-ctx';
 import { BrowserBridge } from '../src/tools';
 
 // Mock the logger
@@ -44,27 +45,6 @@ vi.mock('../src/experimental/index', () => ({
   getExperimentalToolSchemas: vi.fn().mockReturnValue([]),
   callExperimentalTool: vi.fn().mockReturnValue(null),
 }));
-
-function createMockCtx(overrides: Partial<ToolContext> = {}): ToolContext {
-  return {
-    ext: { sendCmd: vi.fn().mockResolvedValue({ success: true }) } as any,
-    agentSession: {
-      setAttachedTab: vi.fn(),
-      setStealthMode: vi.fn(),
-      clearAttachedTab: vi.fn(),
-      attachedTab: null,
-    },
-    cdp: vi.fn().mockResolvedValue({}),
-    eval: vi.fn().mockResolvedValue(undefined),
-    sleep: vi.fn().mockResolvedValue(undefined),
-    getElementCenter: vi.fn().mockResolvedValue({ x: 100, y: 100 }),
-    getSelectorExpression: vi.fn((s: string) => `document.querySelector("${s}")`),
-    findAlternativeSelectors: vi.fn().mockResolvedValue([]),
-    formatResult: vi.fn((_name, result, _opts) => ({ content: [{ type: 'text', text: JSON.stringify(result) }] })),
-    error: vi.fn((msg, _opts) => ({ content: [{ type: 'text', text: msg }], isError: true })),
-    ...overrides,
-  };
-}
 
 describe('browser_storage (graduated from storage_inspection experiment)', () => {
   let ctx: ToolContext;
