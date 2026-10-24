@@ -65,6 +65,18 @@ describe('session state bind/release', () => {
     releaseSessionState(id);
   });
 
+  it('bindSessionState binds the experiment transport', () => {
+    const live = { connected: true, sendCmd: vi.fn().mockResolvedValue({}) } as any;
+    bindSessionState(id, live);
+    experimentRegistry.enable(id, 'page_diffing');
+    expect(live.sendCmd).toHaveBeenCalledWith(
+      'experiments.toggle',
+      { experiment: 'page_diffing', enabled: true },
+      5000
+    );
+    releaseSessionState(id);
+  });
+
   it('releaseSessionState leaves no entry in any of the six stores', () => {
     bindSessionState(id, transport);
     experimentRegistry.enable(id, 'page_diffing');
