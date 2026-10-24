@@ -7,7 +7,7 @@ function mockCtx(cdpImpl: (method: string, params: any) => Promise<any>): ToolCo
     cdp: vi.fn(cdpImpl),
     eval: vi.fn(),
     ext: { sendCmd: vi.fn() } as any,
-    agentSession: null,
+    agentSession: null as any,
     sleep: vi.fn(),
     getElementCenter: vi.fn(),
     getSelectorExpression: vi.fn(),
