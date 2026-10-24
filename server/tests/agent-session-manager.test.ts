@@ -9,6 +9,11 @@ import { AgentSessionManager } from '../src/agent-session-manager';
 import { experimentRegistry } from '../src/experimental/index';
 import type { BackendConfig } from '../src/backend';
 import { trailFor } from '../src/playbooks/trail';
+import { bindEphemeral, resolveEphemeralBinding } from '../src/experimental/fingerprinting/ephemeral-handles';
+import { initSession as initHumanization, getSession } from '../src/experimental/mouse-humanization/index';
+import { getTip } from '../src/tips';
+
+const queryEval = { expression: "document.querySelector('h1').textContent" };
 
 // ---- Mocks ----
 
@@ -294,6 +299,23 @@ describe('AgentSessionManager', () => {
       expect(m.get('sm-a')).toBeUndefined();
       expect(spy).toHaveBeenCalledWith('disconnect', {}, { rawResult: true });
       expect((await m.callTool('browser_tabs', { username: 'sm-a', action: 'list' })).content[0].text).toContain('If it expired after');
+    });
+
+    it('idle expiry leaves no per-session state behind', async () => {
+      vi.useFakeTimers();
+      const m = await managerWith(['sm-leak'], idle);
+      experimentRegistry.enable('sm-leak', 'page_diffing');
+      bindEphemeral('sm-leak', 'leak_probe', '#p', { matchSource: 'text', matchValue: 'P', x: 1, y: 1 });
+      initHumanization('sm-leak');
+      trailFor('sm-leak').record({ tool: 'browser_tabs', type: 'browser_tabs', outcome: 'ok', message: 'm', params: {} } as any);
+      for (let i = 0; i < 4; i++) getTip('browser_evaluate', queryEval, 'ok', undefined, 'sm-leak');
+      await vi.advanceTimersByTimeAsync(1001);
+      expect(m.get('sm-leak')).toBeUndefined();
+      expect(experimentRegistry.isEnabled('page_diffing', 'sm-leak')).toBe(false);
+      expect(resolveEphemeralBinding('leak_probe')).toBeNull();
+      expect(getSession('sm-leak')).toBeUndefined();
+      expect(trailFor('sm-leak').tail(10).total).toBe(0);
+      expect(getTip('browser_evaluate', queryEval, 'ok', undefined, 'sm-leak')).toContain('browser_lookup');
     });
 
     it('an idle_timeout_ms above the setTimeout limit does not expire at once', async () => {
