@@ -4,7 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
 import { cutUnreleased } from './changelog-cut';
-import { VERSION_TARGETS, EXTENSION_CHANGELOG_JSON, assertCleanMain, stagedPaths, commitRelease } from './bump-helpers';
+import { VERSION_TARGETS, EXTENSION_CHANGELOG_JSON, assertCleanMain, stagedPaths, commitRelease, bumpLockfile } from './bump-helpers';
 
 describe('cutUnreleased', () => {
   it('moves Unreleased bullets into a new version section, leaving Unreleased empty', () => {
@@ -211,6 +211,35 @@ describe('assertCleanMain', () => {
   });
 });
 
+describe('bumpLockfile', () => {
+  const ws = ['server', 'extension', 'daemon', 'shared', 'cli'];
+  const lockAt = (v: string) => ({
+    name: 'supersurf', version: v, lockfileVersion: 3, requires: true,
+    packages: {
+      '': { name: 'supersurf', version: v, workspaces: ws },
+      ...Object.fromEntries(ws.map((w) => [w, { version: v }])),
+      server: { version: v, dependencies: { 'supersurf-daemon': v, ws: '^8.0.0' } },
+      'node_modules/supersurf-daemon': { resolved: 'daemon', link: true },
+      'node_modules/ws': { version: '8.18.0' },
+    },
+  });
+  const text = (o: object) => JSON.stringify(o, null, 2) + '\n';
+
+  it('moves the root, every workspace and the daemon pin to the new version, and nothing else', () => {
+    expect(bumpLockfile(text(lockAt('4.1.0')), '4.2.0')).toBe(text(lockAt('4.2.0')));
+  });
+
+  it('round-trips byte for byte when the version does not change', () => {
+    expect(bumpLockfile(text(lockAt('4.1.0')), '4.1.0')).toBe(text(lockAt('4.1.0')));
+  });
+
+  it('throws naming a workspace the lock does not know', () => {
+    const lock = lockAt('4.1.0');
+    delete (lock.packages as Record<string, unknown>).cli;
+    expect(() => bumpLockfile(text(lock), '4.2.0')).toThrow(/cli/);
+  });
+});
+
 describe('stagedPaths', () => {
   const blog = 'blog/src/content/blog/9.9.0.mdx';
 
@@ -223,6 +252,7 @@ describe('stagedPaths', () => {
       'daemon/package.json',
       'shared/package.json',
       'cli/package.json',
+      'package-lock.json',
       'CHANGELOG.md',
       'extension/dist/pages/changelog.json',
       blog,
@@ -230,7 +260,8 @@ describe('stagedPaths', () => {
   });
 
   it('omits the blog post when there is none, and never stages "."', () => {
-    expect(stagedPaths(null)).toHaveLength(VERSION_TARGETS.length + 2);
+    expect(stagedPaths(null)).toHaveLength(VERSION_TARGETS.length + 3);
+    expect(stagedPaths(null)).toContain('package-lock.json');
     expect(stagedPaths(null)).toContain(EXTENSION_CHANGELOG_JSON);
     expect(stagedPaths(null)).not.toContain('.');
     expect(stagedPaths(blog)).not.toContain('.');
@@ -255,5 +286,6 @@ describe('version.bump.ts source', () => {
     const src = readFileSync(join(__dirname, 'version.bump.ts'), 'utf8');
     expect(src).not.toMatch(/git add \./);
     expect(src).not.toMatch(/git commit -m "/);
+    expect(src).toContain('bumpLockfile(');
   });
 });

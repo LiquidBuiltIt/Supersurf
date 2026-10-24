@@ -71,11 +71,12 @@ describe('install.sh --latest clone safety', () => {
     fs.rmSync(t, { recursive: true, force: true });
   });
 
-  // A clone has no lockfile, and npm's peer resolver crashes on a fresh tree
-  // (`Cannot read properties of null (reading 'edgesOut')`).
-  it('installs dependencies with --legacy-peer-deps', () => {
+  // The clone carries the tracked lockfile, so the installer reproduces it exactly.
+  it('installs dependencies from the lockfile with npm ci', () => {
     latest();
-    expect(fs.readFileSync(join(t, 'stub', 'npm-args'), 'utf8')).toContain('install --legacy-peer-deps');
+    const args = fs.readFileSync(join(t, 'stub', 'npm-args'), 'utf8');
+    expect(args).toMatch(/^ci\b/m);
+    expect(args).not.toMatch(/^install\b/m);
   });
 
   it('clones a dirty default clone again', () => {

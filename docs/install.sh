@@ -320,18 +320,16 @@ install_latest() {
     fresh_clone
   fi
 
-  # `npm install`, not `npm ci`: package-lock.json is gitignored upstream.
-  # --legacy-peer-deps: with no lockfile, npm's peer resolver crashes on this
-  # tree ("Cannot read properties of null (reading 'edgesOut')").
+  # `npm ci`: install exactly the tracked package-lock.json.
   step "Installing dependencies"
-  ( cd "$SRC_DIR" && npm install --legacy-peer-deps --no-audit --no-fund --loglevel=error ) \
-    || die "npm install failed in $SRC_DIR."
+  ( cd "$SRC_DIR" && npm ci --no-audit --no-fund --loglevel=error ) \
+    || die "npm ci failed in $SRC_DIR."
 
   # tsx is a server devDependency; npm may or may not hoist it, so ask node.
   loader=$(cd "$SRC_DIR/server" && node -p \
     "require('path').join(require('path').dirname(require.resolve('tsx/package.json')), 'dist', 'loader.mjs')" \
     2>/dev/null) || loader=""
-  [ -n "$loader" ] && [ -f "$loader" ] || die "tsx is missing in $SRC_DIR. Run npm install there, then re-run."
+  [ -n "$loader" ] && [ -f "$loader" ] || die "tsx is missing in $SRC_DIR. Run npm ci there, then re-run."
 
   mkdir -p "$INSTALL_DIR" || die "Could not create $INSTALL_DIR."
   [ -w "$INSTALL_DIR" ] || die "$INSTALL_DIR is not writable. Pass --dir <path> to install elsewhere."
