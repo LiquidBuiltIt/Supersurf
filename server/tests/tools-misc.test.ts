@@ -7,6 +7,7 @@ import {
 } from '../src/tools/misc';
 import { getSelectorExpression } from '../src/tools/lib/element-resolver';
 import type { ToolContext } from '../src/tools/lib/types';
+import { createMockCtx as createMockCtx_ } from './helpers/mock-ctx';
 
 // ── minimal fake DOM (mirrors server/tests/shadow-walker.test.ts) ─────────
 // queryDeep/queryAllDeep only touch querySelector/querySelectorAll/.shadowRoot,
@@ -111,18 +112,12 @@ function makeRealEval(doc: FakeDocument) {
 }
 
 function createMockCtx(): ToolContext {
-  return {
-    ext: { sendCmd: vi.fn().mockResolvedValue({ success: true }) } as any,
+  return createMockCtx_({
     agentSession: null,
-    cdp: vi.fn().mockResolvedValue({}),
-    eval: vi.fn().mockResolvedValue(undefined),
-    sleep: vi.fn().mockResolvedValue(undefined),
     getElementCenter: vi.fn(),
     getSelectorExpression: vi.fn(),
     findAlternativeSelectors: vi.fn(),
-    formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
-    error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
-  };
+  });
 }
 
 describe('onWindow()', () => {
