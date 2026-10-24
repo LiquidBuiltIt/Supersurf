@@ -3,6 +3,7 @@ import { onInteract } from '../src/tools/interaction';
 import type { ToolContext } from '../src/tools/lib/types';
 import { experimentRegistry } from '../src/experimental/index';
 import { initSession, destroySession, getSession } from '../src/experimental/mouse-humanization/index';
+import { createMockCtx as createMockCtx_ } from './helpers/mock-ctx';
 
 // Mock experimental registry to control test behavior
 vi.mock('../src/experimental/index', async () => {
@@ -20,7 +21,7 @@ vi.mock('../src/experimental/index', async () => {
 });
 
 function createMockCtx(): ToolContext {
-  return {
+  return createMockCtx_({
     ext: {
       sendCmd: vi.fn().mockImplementation((cmd: string) => {
         if (cmd === 'getViewportDimensions') {
@@ -32,7 +33,7 @@ function createMockCtx(): ToolContext {
         return Promise.resolve({});
       }),
     } as any,
-    agentSession: null,
+    agentSession: null as any,
     cdp: vi.fn().mockImplementation(async (method: string, params: any) => {
       if (method === 'Runtime.evaluate' && (params == null || params.contextId === undefined)) {
         return { result: { objectId: 'top-obj' } };
@@ -40,13 +41,8 @@ function createMockCtx(): ToolContext {
       return {};
     }),
     eval: vi.fn().mockResolvedValue({ focused: true, scrolled: true, cleared: true, selected: true, optionText: 'ok', verified: true, found: true }),
-    sleep: vi.fn().mockResolvedValue(undefined),
     getElementCenter: vi.fn().mockResolvedValue({ x: 50, y: 50 }),
-    getSelectorExpression: vi.fn((s) => `document.querySelector("${s}")`),
-    findAlternativeSelectors: vi.fn().mockResolvedValue([]),
-    formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
-    error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
-  };
+  });
 }
 
 describe('interaction with mouse_humanization', () => {
@@ -214,7 +210,7 @@ describe('humanization session keying', () => {
 
   it('moves the cursor of the AgentSession that owns the context', async () => {
     const ctx = createMockCtx();
-    ctx.agentSession = { clientId: 'session-a', getAttachedTab: () => null };
+    ctx.agentSession = { clientId: 'session-a', getAttachedTab: () => null } as any;
 
     await onInteract(ctx, { actions: [{ type: 'mouse_move', x: 400, y: 300 }] }, { rawResult: true });
 
@@ -224,9 +220,9 @@ describe('humanization session keying', () => {
 
   it('keeps cursor state of two AgentSessions independent', async () => {
     const a = createMockCtx();
-    a.agentSession = { clientId: 'session-a', getAttachedTab: () => null };
+    a.agentSession = { clientId: 'session-a', getAttachedTab: () => null } as any;
     const b = createMockCtx();
-    b.agentSession = { clientId: 'session-b', getAttachedTab: () => null };
+    b.agentSession = { clientId: 'session-b', getAttachedTab: () => null } as any;
 
     await onInteract(a, { actions: [{ type: 'mouse_move', x: 100, y: 100 }] }, { rawResult: true });
     await onInteract(b, { actions: [{ type: 'mouse_move', x: 700, y: 500 }] }, { rawResult: true });

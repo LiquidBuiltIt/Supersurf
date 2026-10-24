@@ -14,7 +14,7 @@
  */
 
 import { isMultiAgent, type AgentSessionAPI } from './types';
-import { DaemonClient } from 'shared';
+import { DaemonClient, type IExtensionTransport } from 'shared';
 import { ensureDaemon, stopDaemon, getSockPath } from '../daemon-spawn';
 import { createLog, getRegistry } from 'shared';
 import { experimentRegistry, applyInitialState } from '../experimental/index';
@@ -162,13 +162,6 @@ export async function onConnect(
   mgr.clientId = raw;
   log('Username set to:', mgr.clientId);
 
-  // Start session log file
-  const reg = getRegistry();
-  if (reg.debugMode) {
-    const sessionLogger = reg.setSessionLog(mgr.clientId);
-    log('Session log:', sessionLogger.logFilePath);
-  }
-
   // Fresh attempt — clear any stale failure reason from a prior connect.
   mgr.lastConnectError = null;
   mgr.profile = null;
@@ -293,9 +286,8 @@ export async function onConnect(
       applyTabInfoUpdate(mgr, tabInfo);
     };
 
-    // Bind experiment registry to daemon transport, keyed by this session's id
-    experimentRegistry.bind(mgr.clientId!, client);
-    bindEphemeralSession(mgr.clientId!);
+    // Open every per-session store, keyed by this session's id (see bindSessionState)
+    bindSessionState(mgr.clientId!, client);
 
     const BB = await loadBrowserBridge();
     mgr.bridge = new BB(mgr.config, mgr.extensionServer);
@@ -316,6 +308,7 @@ export async function onConnect(
     }
 
     // Pre-enable session features from resolved config (fire-and-forget IPC to daemon)
+    // Flag-ordered, so not in bindSessionState; released by releaseSessionState.
     if (mgr.config.configService) {
       applyInitialState(mgr.clientId!, mgr.config.configService.get().experiments);
     }
@@ -323,6 +316,7 @@ export async function onConnect(
     // Mouse humanization keeps per-session cursor + personality state. Create
     // the session here or generateMovement() has nothing to look up and every
     // humanized move silently degrades to a teleport.
+    // Profile-ordered, so not in bindSessionState; released by releaseSessionState.
     if (experimentRegistry.isEnabled('mouse_humanization', mgr.clientId!)) {
       initHumanization(mgr.clientId!);
     }
@@ -460,13 +454,36 @@ export async function rehydrateAttachedTab(mgr: AgentSessionAPI, client: TabQuer
 
 // ─── Disconnect ─────────────────────────────────────────────────
 
+/*
+ * Per-session stores open in bindSessionState and close in releaseSessionState.
+ * A new per-session store adds one line to each function, in the same PR.
+ * applyInitialState and initHumanization stay in onConnect: they are flag- and
+ * profile-ordered.
+ */
+
+/**
+ * Open the session log and reset every per-session store for `id`, so a reused
+ * id starts clean. Mirror of releaseSessionState.
+ */
+export function bindSessionState(id: string, transport: IExtensionTransport): void {
+  const reg = getRegistry();
+  if (reg.debugMode) {
+    const sessionLogger = reg.setSessionLog(id);
+    log('Session log:', sessionLogger.logFilePath);
+  }
+  clearTipCounters(id);
+  dropTrail(id); // a late call from a previous session may have recreated it
+  experimentRegistry.bind(id, transport);
+  bindEphemeralSession(id);
+}
+
 /**
  * Close the session log, clear tip suppression counters, drop session-scoped
  * experiment + cursor state. All keyed by username (the daemon session id) so another agent's
  * AgentSession in this process keeps its own. Safe for an id that never got
  * bound — every callee ignores unknown ids.
  */
-function releaseSessionState(id: string): void {
+export function releaseSessionState(id: string): void {
   getRegistry().clearSessionLog(id);
   clearTipCounters(id);
   dropTrail(id);

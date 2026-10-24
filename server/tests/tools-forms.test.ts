@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onFillForm, onDrag, onSecureFill } from '../src/tools/forms';
 import { getToolSchemas } from '../src/tools/schemas';
 import type { ToolContext } from '../src/tools/lib/types';
+import { createMockCtx as createMockCtx_ } from './helpers/mock-ctx';
 
 function createMockCtx(): ToolContext {
-  return {
+  return createMockCtx_({
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
-    agentSession: null,
+    agentSession: null as any,
     // Default cdp mock simulates a top-frame happy path for resolveInFrames:
     // Runtime.evaluate returns an objectId so onFillForm proceeds past resolution.
     cdp: vi.fn().mockImplementation((method: string) => {
@@ -15,14 +16,7 @@ function createMockCtx(): ToolContext {
       }
       return Promise.resolve({});
     }),
-    eval: vi.fn().mockResolvedValue(undefined),
-    sleep: vi.fn().mockResolvedValue(undefined),
-    getElementCenter: vi.fn().mockResolvedValue({ x: 100, y: 100 }),
-    getSelectorExpression: vi.fn((s) => `document.querySelector("${s}")`),
-    findAlternativeSelectors: vi.fn().mockResolvedValue([]),
-    formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
-    error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
-  };
+  });
 }
 
 describe('onFillForm()', () => {

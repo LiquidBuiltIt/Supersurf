@@ -4,6 +4,7 @@ import { getSelectorExpression } from '../src/tools/lib/element-resolver';
 import { QUALIFY_SOURCE } from '../src/tools/lib/selector-qualify';
 import type { ToolContext } from '../src/tools/lib/types';
 import type { HandleIndex } from '../src/experimental/fingerprinting/handle-annotate';
+import { createMockCtx as createMockCtx_ } from './helpers/mock-ctx';
 
 // ── minimal fake DOM (mirrors server/tests/shadow-walker.test.ts) ─────────
 // queryDeep only touches querySelector/querySelectorAll/.shadowRoot, so this
@@ -120,20 +121,13 @@ function makeRealEval(doc: FakeDocument) {
 }
 
 function createMockCtx(handleIndex?: HandleIndex): ToolContext {
-  return {
+  return createMockCtx_({
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
-    agentSession: null,
-    cdp: vi.fn().mockResolvedValue({}),
-    eval: vi.fn().mockResolvedValue(undefined),
-    sleep: vi.fn().mockResolvedValue(undefined),
+    agentSession: null as any,
     getElementCenter: vi.fn().mockResolvedValue({ x: 0, y: 0 }),
-    getSelectorExpression: vi.fn((s) => `document.querySelector("${s}")`),
     getAllSelectorExpression: vi.fn((s) => `document.querySelectorAll("${s}")`),
-    findAlternativeSelectors: vi.fn().mockResolvedValue([]),
-    formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
-    error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
     ...(handleIndex ? { getHandleIndex: vi.fn(() => handleIndex) } : {}),
-  };
+  });
 }
 
 describe('onSnapshot()', () => {
