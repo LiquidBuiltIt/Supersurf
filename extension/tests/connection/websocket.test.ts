@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockChrome } from '../__mocks__/chrome';
 import { WebSocketConnection } from '../../src/connection/websocket';
+import type { HeldDialog } from '../../src/handlers/dialogs';
 
 function createMockLogger() {
   return {
@@ -147,8 +148,8 @@ describe('WebSocketConnection', () => {
 
     it('attaches _dialogs to an object response when provider returns non-empty events', async () => {
       ws.registerCommandHandler('echo', async () => ({ ok: true }));
-      const events = [
-        { type: 'alert', message: 'hi', response: 'accepted', timestamp: 1 },
+      const events: HeldDialog[] = [
+        { tabId: 1, type: 'alert', message: 'hi', defaultPrompt: '', url: 'https://example.com/', hasBrowserHandler: false, timestamp: 1 },
       ];
       ws.setDialogEventProvider(() => events);
 
@@ -169,7 +170,9 @@ describe('WebSocketConnection', () => {
 
     it('wraps primitive results as { value, _dialogs } when events fire', async () => {
       ws.registerCommandHandler('num', async () => 7);
-      const events = [{ type: 'confirm', message: 'q', response: 'dismissed', timestamp: 2 }];
+      const events: HeldDialog[] = [
+        { tabId: 1, type: 'confirm', message: 'q', defaultPrompt: '', url: 'https://example.com/', hasBrowserHandler: false, timestamp: 2 },
+      ];
       ws.setDialogEventProvider(() => events);
 
       const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 12, method: 'num', params: {} });
@@ -195,7 +198,9 @@ describe('WebSocketConnection', () => {
         newTabId: 1,
         url: 'https://x.com',
       }), () => {});
-      const events = [{ type: 'alert', message: 'hi', response: 'accepted', timestamp: 1 }];
+      const events: HeldDialog[] = [
+        { tabId: 1, type: 'alert', message: 'hi', defaultPrompt: '', url: 'https://example.com/', hasBrowserHandler: false, timestamp: 1 },
+      ];
       ws.setDialogEventProvider(() => events);
 
       const sent = await fireCommand(ws, { jsonrpc: '2.0', id: 14, method: 'echo', params: {} });
@@ -661,7 +666,7 @@ describe('WebSocketConnection', () => {
       const { conn, sent } = makeConn();
       conn.setDialogPendingChecker(() => false);
       conn.setDialogEventProvider(() => [{
-        type: 'beforeunload', message: 'Leave site?', defaultPrompt: '',
+        tabId: 1, type: 'beforeunload', message: 'Leave site?', defaultPrompt: '',
         url: 'https://x.com/', hasBrowserHandler: true, timestamp: 1,
       }]);
       conn.registerCommandHandler('navigate', () => new Promise(() => {})); // never resolves

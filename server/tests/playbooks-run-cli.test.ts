@@ -233,14 +233,14 @@ describe('runRun — the terminal run path', () => {
         ...s,
         runPlaybook: async () => outcome({
           ok: false, error: 'selector never appeared', durationMs: 900,
-          evidence: { snapshot: '<page snapshot>' },
+          evidence: { url: 'https://example.com/compose', title: 'Compose' },
         }),
       });
       expect(code).toBe(1);
       expect(JSON.parse(s.out[0])).toEqual({
         name: 'post_tweet', ok: false, durationMs: 900,
         error: 'selector never appeared',
-        evidence: { snapshot: '<page snapshot>' },
+        evidence: { url: 'https://example.com/compose', title: 'Compose' },
       });
     });
   });

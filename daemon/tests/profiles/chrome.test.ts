@@ -14,7 +14,7 @@ import {
 } from '../../src/profiles/chrome';
 import type { PidLogEntry } from '../../src/profiles/types';
 
-const spawnMock = vi.fn(() => ({ pid: 12345, unref: vi.fn(), on: vi.fn() }));
+const spawnMock = vi.fn((..._args: unknown[]) => ({ pid: 12345, unref: vi.fn(), on: vi.fn() }));
 vi.mock('child_process', async () => {
   const actual = await vi.importActual<typeof import('child_process')>('child_process');
   return { ...actual, spawn: (...args: unknown[]) => spawnMock(...args as Parameters<typeof spawnMock>) };

@@ -28,7 +28,7 @@ afterAll(() => { fs.rmSync(home, { recursive: true, force: true }); });
  * developer's real one from a test run.
  */
 function childEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env, HOME: home };
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home };
   delete env.VITEST;
   delete env.VITEST_WORKER_ID;
   delete env.VITEST_POOL_ID;

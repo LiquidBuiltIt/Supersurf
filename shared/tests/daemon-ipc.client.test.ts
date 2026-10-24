@@ -272,7 +272,7 @@ describe('DaemonClient', () => {
             result: {
               message: 'ok',
               _dialogs: [
-                { type: 'alert', message: 'hi', response: 'accepted', timestamp: 123 },
+                { type: 'alert', message: 'hi', defaultPrompt: '', url: 'https://example.com/', hasBrowserHandler: false, timestamp: 123 },
               ],
             },
           }) + '\n');
@@ -293,7 +293,7 @@ describe('DaemonClient', () => {
       expect(events).toHaveLength(1);
       expect(events[0].type).toBe('alert');
       expect(events[0].message).toBe('hi');
-      expect(events[0].response).toBe('accepted');
+      expect(events[0].url).toBe('https://example.com/');
 
       // buffer is drained on consume
       expect(client.consumeDialogEvents()).toEqual([]);

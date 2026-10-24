@@ -474,7 +474,7 @@ describe('skill-linked tips', () => {
 
 describe('navigation tips', () => {
   const act = (selector: string) => ({ actions: [{ type: 'click', selector }] });
-  const alt = (tag: string) => ({ selector: `${tag}.x`, visible: true, text: 'Next', tag, x: 1, y: 1, width: 10, height: 10, score: 0 });
+  const alt = (tag: string) => ({ selector: `${tag}.x`, visible: true, text: 'Next', tag, x: 1, y: 1, width: 10, height: 10, score: 0, matchText: '', matchLabel: '', qualified: false });
   const missWith = (selector: string, tag?: string) =>
     `Element not found: \`${selector}\`` + (tag ? `\n\n${renderAlternatives([alt(tag)])}` : '');
 

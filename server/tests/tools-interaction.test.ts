@@ -1162,7 +1162,7 @@ describe('select_custom resilience', () => {
   });
 
   it('falls back to typing the filter when options render but none match', async () => {
-    const scans = [
+    const scans: Array<{ found: boolean; available?: string[]; optionText?: string }> = [
       { found: false, available: ['Afghanistan', 'Albania'] }, // pre-type scan (same result for every poll)
     ];
     const { ctx, evalCalls } = makeSelectCtx(scans);
