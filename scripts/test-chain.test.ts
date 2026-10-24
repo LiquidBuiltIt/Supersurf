@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
 
 // `npm test` runs smoke tests against built output, so it must build first,
@@ -30,4 +30,15 @@ describe.each(PKGS)('%s test chain', (pkg) => {
     expect(Array.isArray(exclude)).toBe(true);
     expect(exclude).not.toContain('tests');
   });
+});
+
+it('server tests build ToolContext mocks only through helpers/mock-ctx', () => {
+  const dir = resolve(__dirname, '..', 'server', 'tests');
+  const offenders = (readdirSync(dir, { recursive: true }) as string[])
+    .filter((f) => f.endsWith('.ts') && !f.startsWith('helpers'))
+    .filter((f) => {
+      const src = readFileSync(resolve(dir, f), 'utf8');
+      return /(function|const|let)\s+createMockCtx\b/.test(src) && !src.includes("from './helpers/mock-ctx'");
+    });
+  expect(offenders).toEqual([]);
 });
