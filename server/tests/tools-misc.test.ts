@@ -113,7 +113,7 @@ function makeRealEval(doc: FakeDocument) {
 
 function createMockCtx(): ToolContext {
   return createMockCtx_({
-    agentSession: null,
+    agentSession: null as any,
     getElementCenter: vi.fn(),
     getSelectorExpression: vi.fn(),
     findAlternativeSelectors: vi.fn(),

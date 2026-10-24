@@ -6,7 +6,7 @@ import { createMockCtx as createMockCtx_ } from './helpers/mock-ctx';
 function createMockCtx(): ToolContext {
   return createMockCtx_({
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
-    agentSession: null,
+    agentSession: null as any,
     getElementCenter: vi.fn(),
     getSelectorExpression: vi.fn(),
     findAlternativeSelectors: vi.fn(),

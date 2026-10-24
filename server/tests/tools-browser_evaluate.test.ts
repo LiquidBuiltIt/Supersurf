@@ -14,7 +14,7 @@ function createMockCtx(): ToolContext {
     file: { security: { secure_eval: false } },
   });
   return createMockCtx_({
-    agentSession: null,
+    agentSession: null as any,
     config,
     getElementCenter: vi.fn(),
     getSelectorExpression: vi.fn(),

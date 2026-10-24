@@ -33,7 +33,7 @@ function createMockCtx(): ToolContext {
         return Promise.resolve({});
       }),
     } as any,
-    agentSession: null,
+    agentSession: null as any,
     cdp: vi.fn().mockImplementation(async (method: string, params: any) => {
       if (method === 'Runtime.evaluate' && (params == null || params.contextId === undefined)) {
         return { result: { objectId: 'top-obj' } };
@@ -210,7 +210,7 @@ describe('humanization session keying', () => {
 
   it('moves the cursor of the AgentSession that owns the context', async () => {
     const ctx = createMockCtx();
-    ctx.agentSession = { clientId: 'session-a', getAttachedTab: () => null };
+    ctx.agentSession = { clientId: 'session-a', getAttachedTab: () => null } as any;
 
     await onInteract(ctx, { actions: [{ type: 'mouse_move', x: 400, y: 300 }] }, { rawResult: true });
 
@@ -220,9 +220,9 @@ describe('humanization session keying', () => {
 
   it('keeps cursor state of two AgentSessions independent', async () => {
     const a = createMockCtx();
-    a.agentSession = { clientId: 'session-a', getAttachedTab: () => null };
+    a.agentSession = { clientId: 'session-a', getAttachedTab: () => null } as any;
     const b = createMockCtx();
-    b.agentSession = { clientId: 'session-b', getAttachedTab: () => null };
+    b.agentSession = { clientId: 'session-b', getAttachedTab: () => null } as any;
 
     await onInteract(a, { actions: [{ type: 'mouse_move', x: 100, y: 100 }] }, { rawResult: true });
     await onInteract(b, { actions: [{ type: 'mouse_move', x: 700, y: 500 }] }, { rawResult: true });

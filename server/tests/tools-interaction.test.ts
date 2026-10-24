@@ -34,7 +34,7 @@ function createMockCtx(options: { clickResult?: string; clickError?: string } = 
   });
   return createMockCtx_({
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
-    agentSession: null,
+    agentSession: null as any,
     cdp: defaultCdp,
     // Default eval returns a truthy object so verification shims
     // (`{focused}`, `{scrolled}`, `{cleared}`, `{selected}`, `{verified}`)

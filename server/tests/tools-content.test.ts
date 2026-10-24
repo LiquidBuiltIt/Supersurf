@@ -123,7 +123,7 @@ function makeRealEval(doc: FakeDocument) {
 function createMockCtx(handleIndex?: HandleIndex): ToolContext {
   return createMockCtx_({
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
-    agentSession: null,
+    agentSession: null as any,
     getElementCenter: vi.fn().mockResolvedValue({ x: 0, y: 0 }),
     getAllSelectorExpression: vi.fn((s) => `document.querySelectorAll("${s}")`),
     ...(handleIndex ? { getHandleIndex: vi.fn(() => handleIndex) } : {}),

@@ -17,7 +17,7 @@ function createMockCtx(omitPath: 'inline' | 'path' | 'both' = 'inline'): ToolCon
   return createMockCtx_({
     tabId: 1,
     ext: { sendCmd: vi.fn() } as any,
-    agentSession: null,
+    agentSession: null as any,
     config,
     getElementCenter: vi.fn(),
     getSelectorExpression: vi.fn(),
