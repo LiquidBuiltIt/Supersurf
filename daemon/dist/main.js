@@ -23,18 +23,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.IDLE_TIMEOUT_MS = exports.SOCK_FILE = exports.PID_FILE = exports.SUPERSURF_DIR = exports.isProcessAlive = void 0;
-exports.parseArgs = parseArgs;
+exports.IDLE_TIMEOUT_MS = exports.SOCK_FILE = exports.PID_FILE = exports.SUPERSURF_DIR = exports.getVersion = exports.formatUptime = exports.observe = exports.printStatus = exports.stopDaemon = exports.isProcessAlive = exports.parseArgs = void 0;
 exports.cleanStaleFiles = cleanStaleFiles;
-exports.stopDaemon = stopDaemon;
-exports.printStatus = printStatus;
-exports.observe = observe;
-exports.formatUptime = formatUptime;
-exports.getVersion = getVersion;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
-const net_1 = __importDefault(require("net"));
 const crypto_1 = __importDefault(require("crypto"));
 const child_process_1 = require("child_process");
 const shared_1 = require("./shared");
@@ -47,324 +40,85 @@ const index_1 = require("./experiments/index");
 const registry_1 = require("./profiles/registry");
 const extension_source_1 = require("./profiles/extension-source");
 const chrome_1 = require("./profiles/chrome");
-const SUPERSURF_DIR = (0, shared_1.supersurfDir)();
-exports.SUPERSURF_DIR = SUPERSURF_DIR;
-const PID_FILE = (0, shared_1.pidPath)();
-exports.PID_FILE = PID_FILE;
-const SOCK_FILE = (0, shared_1.sockPath)();
-exports.SOCK_FILE = SOCK_FILE;
-const LOG_FILE = path_1.default.join(SUPERSURF_DIR, 'logs', 'daemon.log');
+const cli_commands_1 = require("./cli-commands");
+Object.defineProperty(exports, "SUPERSURF_DIR", { enumerable: true, get: function () { return cli_commands_1.SUPERSURF_DIR; } });
+Object.defineProperty(exports, "PID_FILE", { enumerable: true, get: function () { return cli_commands_1.PID_FILE; } });
+Object.defineProperty(exports, "SOCK_FILE", { enumerable: true, get: function () { return cli_commands_1.SOCK_FILE; } });
+Object.defineProperty(exports, "parseArgs", { enumerable: true, get: function () { return cli_commands_1.parseArgs; } });
+Object.defineProperty(exports, "formatUptime", { enumerable: true, get: function () { return cli_commands_1.formatUptime; } });
+Object.defineProperty(exports, "getVersion", { enumerable: true, get: function () { return cli_commands_1.getVersion; } });
+Object.defineProperty(exports, "printStatus", { enumerable: true, get: function () { return cli_commands_1.printStatus; } });
+Object.defineProperty(exports, "observe", { enumerable: true, get: function () { return cli_commands_1.observe; } });
+Object.defineProperty(exports, "stopDaemon", { enumerable: true, get: function () { return cli_commands_1.stopDaemon; } });
 // Retained as a backwards-compatible export; runtime now reads the live value
 // from ConfigService (cfg.get().daemon.idle_timeout_ms).
 const IDLE_TIMEOUT_MS = shared_1.HARDCODED_DEFAULTS.daemon.idle_timeout_ms;
 exports.IDLE_TIMEOUT_MS = IDLE_TIMEOUT_MS;
-// ─── CLI Parsing ──────────────────────────────────────────────
-function parseArgs(argv) {
-    let port = shared_1.HARDCODED_DEFAULTS.daemon.port;
-    let portExplicit = false;
-    let debug = false;
-    let verbose = false;
-    let command;
-    for (let i = 2; i < argv.length; i++) {
-        if (argv[i] === '--port' && argv[i + 1]) {
-            port = parseInt(argv[i + 1], 10);
-            if (isNaN(port)) {
-                console.error('Invalid port number');
-                process.exit(1);
-            }
-            portExplicit = true;
-            i++;
-        }
-        else if (argv[i] === '--debug') {
-            debug = true;
-        }
-        else if (argv[i] === '--verbose') {
-            verbose = true;
-        }
-        else if (argv[i] === 'start') {
-            command = 'start';
-        }
-        else if (argv[i] === 'stop') {
-            command = 'stop';
-        }
-        else if (argv[i] === 'restart') {
-            command = 'restart';
-        }
-        else if (argv[i] === 'status') {
-            command = 'status';
-        }
-        else if (argv[i] === 'observe') {
-            command = 'observe';
-        }
-    }
-    return { port, debug, verbose, command, portExplicit };
-}
-// ─── Status Command ──────────────────────────────────────────
-/** Query the daemon over the Unix socket for live state. */
-function queryDaemonStatus(verbose) {
-    return new Promise((resolve, reject) => {
-        if (!fs_1.default.existsSync(SOCK_FILE)) {
-            reject(new Error('Socket not found'));
-            return;
-        }
-        const socket = net_1.default.createConnection(SOCK_FILE);
-        let buffer = '';
-        const timeout = setTimeout(() => {
-            socket.destroy();
-            reject(new Error('Query timeout'));
-        }, 3000);
-        socket.on('connect', () => {
-            socket.write(JSON.stringify({ type: 'daemon_status', verbose }) + '\n');
-        });
-        socket.on('data', (data) => {
-            buffer += data.toString();
-            const idx = buffer.indexOf('\n');
-            if (idx !== -1) {
-                clearTimeout(timeout);
-                try {
-                    resolve(JSON.parse(buffer.slice(0, idx)));
-                }
-                catch {
-                    reject(new Error('Invalid response'));
-                }
-                socket.end();
-            }
-        });
-        socket.on('error', (err) => {
-            clearTimeout(timeout);
-            reject(err);
-        });
-    });
-}
-/** Format uptime seconds into human-readable string. */
-function formatUptime(seconds) {
-    if (seconds < 60)
-        return `${Math.floor(seconds)}s`;
-    if (seconds < 3600)
-        return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${mins}m`;
-}
-/** Read package version from package.json */
-function getVersion() {
-    const candidates = [
-        path_1.default.join(__dirname, '..', 'package.json'),
-        path_1.default.join(__dirname, '..', '..', 'package.json'),
-    ];
-    for (const p of candidates) {
-        try {
-            const pkg = JSON.parse(fs_1.default.readFileSync(p, 'utf8'));
-            if (pkg.name === 'supersurf' || pkg.name === 'supersurf-daemon') {
-                return pkg.version || 'unknown';
-            }
-        }
-        catch { /* try next */ }
-    }
-    return 'unknown';
-}
-async function printStatus(verbose) {
-    const daemonRunning = fs_1.default.existsSync(PID_FILE);
-    let pid = null;
-    let alive = false;
-    if (daemonRunning) {
-        pid = (0, shared_1.readDaemonPid)();
-        alive = pid !== null && (0, shared_1.isProcessAlive)(pid);
-    }
-    if (!alive) {
-        console.log('Daemon not running');
-        if (daemonRunning)
-            console.log('(stale PID file found — will be cleaned on next start)');
-        process.exit(1);
-        return;
-    }
-    // Try live query
-    try {
-        const status = await queryDaemonStatus(verbose);
-        if (verbose) {
-            const version = status.version || getVersion();
-            console.log(`SuperSurf Daemon v${version}`);
-            console.log(`  PID:        ${pid}`);
-            console.log(`  Uptime:     ${formatUptime(status.uptimeSeconds)}`);
-            console.log(`  Port:       ${status.port}`);
-            console.log(`  Socket:     ${SOCK_FILE}`);
-            console.log(`  Log:        ${LOG_FILE}`);
-            console.log('');
-            console.log('Extension');
-            console.log(`  Status:     ${status.extensionConnected ? 'connected' : 'disconnected'}`);
-            if (status.extensionBrowser) {
-                console.log(`  Browser:    ${status.extensionBrowser}`);
-            }
-            console.log('');
-            console.log(`Sessions (${status.sessions.length})`);
-            if (status.sessions.length === 0) {
-                console.log('  (none)');
-            }
-            else {
-                for (const s of status.sessions) {
-                    const tab = s.attachedTabId ? `tab #${s.attachedTabId}` : 'no tab';
-                    const owned = `${s.ownedTabCount} owned tab${s.ownedTabCount !== 1 ? 's' : ''}`;
-                    console.log(`  ${s.sessionId}   ${tab}   ${owned}`);
-                }
-            }
-            console.log('');
-            console.log('Scheduler');
-            console.log(`  Queue:      ${status.schedulerQueueDepth} pending`);
-        }
-        else {
-            const version = status.version || getVersion();
-            const ext = status.extensionConnected ? 'connected' : 'disconnected';
-            console.log(`SuperSurf Daemon v${version} (pid ${pid})`);
-            console.log(`  Uptime:      ${formatUptime(status.uptimeSeconds)}`);
-            console.log(`  Extension:   ${ext}`);
-            console.log(`  Sessions:    ${status.sessions.length} active`);
-            console.log('');
-            console.log(`Run \`${(0, shared_1.daemonCommand)('status --verbose')}\` for full details.`);
-        }
-    }
-    catch {
-        // Fallback: socket query failed, show basic PID info
-        console.log(`Daemon running (pid ${pid})`);
-        console.log(`Socket: ${fs_1.default.existsSync(SOCK_FILE) ? SOCK_FILE : 'missing'}`);
-    }
-    process.exit(0);
-}
-// ─── Observe Command ─────────────────────────────────────────
-function observe() {
-    if (!fs_1.default.existsSync(LOG_FILE)) {
-        console.error(`Log file not found: ${LOG_FILE}`);
-        process.exit(1);
-    }
-    console.log(`Tailing ${LOG_FILE} (Ctrl+C to stop)\n`);
-    const tail = (0, child_process_1.spawn)('tail', ['-f', LOG_FILE], { stdio: 'inherit' });
-    tail.on('exit', (code) => process.exit(code ?? 0));
-    process.on('SIGINT', () => { tail.kill(); process.exit(0); });
-}
-// ─── Stop Command ───────────────────────────────────────────
-/** Stop the running daemon by sending SIGTERM to the PID in the PID file. */
-function stopDaemon() {
-    if (!fs_1.default.existsSync(PID_FILE)) {
-        console.log('Daemon not running (no PID file)');
-        return false;
-    }
-    const pid = (0, shared_1.readDaemonPid)();
-    if (pid === null) {
-        console.log('Daemon not running (invalid PID file)');
-        return false;
-    }
-    if (!(0, shared_1.isProcessAlive)(pid)) {
-        console.log(`Daemon not running (stale PID ${pid})`);
-        // Clean up stale files
-        try {
-            fs_1.default.unlinkSync(PID_FILE);
-        }
-        catch { }
-        try {
-            fs_1.default.unlinkSync(SOCK_FILE);
-        }
-        catch { }
-        return false;
-    }
-    try {
-        process.kill(pid, 'SIGTERM');
-    }
-    catch (err) {
-        console.error(`Failed to stop daemon (pid ${pid}): ${err.message}`);
-        return false;
-    }
-    // Wait up to 5s for the process to exit
-    const start = Date.now();
-    while (Date.now() - start < 5000) {
-        if (!(0, shared_1.isProcessAlive)(pid)) {
-            console.log(`Daemon stopped (pid ${pid})`);
-            return true;
-        }
-        // Busy-wait in small increments (sync — this is a CLI command, not the server)
-        const waitUntil = Date.now() + 100;
-        while (Date.now() < waitUntil) { /* spin */ }
-    }
-    // Still alive after 5s — escalate to SIGKILL
-    try {
-        process.kill(pid, 'SIGKILL');
-        console.log(`Daemon killed (pid ${pid}) — did not exit gracefully`);
-    }
-    catch { }
-    // Clean up files the hard way
-    try {
-        fs_1.default.unlinkSync(PID_FILE);
-    }
-    catch { }
-    try {
-        fs_1.default.unlinkSync(SOCK_FILE);
-    }
-    catch { }
-    return true;
-}
 // ─── PID File Management ──────────────────────────────────────
 /** Clean stale PID/socket files if the referenced process is dead. */
 function cleanStaleFiles() {
-    if (fs_1.default.existsSync(PID_FILE)) {
+    if (fs_1.default.existsSync(cli_commands_1.PID_FILE)) {
         try {
-            const pid = parseInt(fs_1.default.readFileSync(PID_FILE, 'utf8').trim(), 10);
+            const pid = parseInt(fs_1.default.readFileSync(cli_commands_1.PID_FILE, 'utf8').trim(), 10);
             if (!isNaN(pid) && !(0, shared_1.isProcessAlive)(pid)) {
-                fs_1.default.unlinkSync(PID_FILE);
-                if (fs_1.default.existsSync(SOCK_FILE)) {
-                    fs_1.default.unlinkSync(SOCK_FILE);
+                fs_1.default.unlinkSync(cli_commands_1.PID_FILE);
+                if (fs_1.default.existsSync(cli_commands_1.SOCK_FILE)) {
+                    fs_1.default.unlinkSync(cli_commands_1.SOCK_FILE);
                 }
             }
         }
         catch {
             // If we can't read the PID file, clean both
             try {
-                fs_1.default.unlinkSync(PID_FILE);
+                fs_1.default.unlinkSync(cli_commands_1.PID_FILE);
             }
             catch { }
             try {
-                fs_1.default.unlinkSync(SOCK_FILE);
+                fs_1.default.unlinkSync(cli_commands_1.SOCK_FILE);
             }
             catch { }
         }
     }
-    else if (fs_1.default.existsSync(SOCK_FILE)) {
+    else if (fs_1.default.existsSync(cli_commands_1.SOCK_FILE)) {
         // Orphaned socket file without a PID file — clean it
         try {
-            fs_1.default.unlinkSync(SOCK_FILE);
+            fs_1.default.unlinkSync(cli_commands_1.SOCK_FILE);
         }
         catch { }
     }
 }
 /** Write current PID to the PID file. */
 function writePidFile() {
-    fs_1.default.writeFileSync(PID_FILE, String(process.pid), 'utf8');
+    fs_1.default.writeFileSync(cli_commands_1.PID_FILE, String(process.pid), 'utf8');
 }
 /** Remove PID and socket files on shutdown. */
 function cleanupFiles() {
     try {
-        fs_1.default.unlinkSync(PID_FILE);
+        fs_1.default.unlinkSync(cli_commands_1.PID_FILE);
     }
     catch { }
     try {
-        fs_1.default.unlinkSync(SOCK_FILE);
+        fs_1.default.unlinkSync(cli_commands_1.SOCK_FILE);
     }
     catch { }
 }
 // ─── Main ──────────────────────────────────────────────────────
 async function main() {
-    const { port: cliPort, debug, verbose, command, portExplicit } = parseArgs(process.argv);
+    const { port: cliPort, debug, verbose, command, portExplicit } = (0, cli_commands_1.parseArgs)(process.argv);
     if (command === 'status') {
-        await printStatus(verbose);
+        await (0, cli_commands_1.printStatus)(verbose);
         return;
     }
     if (command === 'stop') {
-        stopDaemon();
+        (0, cli_commands_1.stopDaemon)();
         return;
     }
     if (command === 'restart') {
-        stopDaemon();
+        (0, cli_commands_1.stopDaemon)();
         // Fall through to start the daemon fresh
     }
     if (command === 'observe') {
-        observe();
+        (0, cli_commands_1.observe)();
         return;
     }
     // Initialize ConfigService — scaffold ~/.supersurf/config.json on first run,
@@ -388,7 +142,7 @@ async function main() {
     const port = cfg.get().daemon.port;
     const idleTimeoutMs = cfg.get().daemon.idle_timeout_ms;
     // Initialize logger — always enabled for core events
-    const logger = new shared_1.FileLogger(LOG_FILE);
+    const logger = new shared_1.FileLogger(cli_commands_1.LOG_FILE);
     logger.enable();
     global.DAEMON_LOGGER = logger;
     if (debug) {
@@ -396,8 +150,8 @@ async function main() {
     }
     logger.log(`[Daemon] Starting daemon (port=${port}, pid=${process.pid})`);
     // Ensure ~/.supersurf/ exists
-    if (!fs_1.default.existsSync(SUPERSURF_DIR)) {
-        fs_1.default.mkdirSync(SUPERSURF_DIR, { recursive: true });
+    if (!fs_1.default.existsSync(cli_commands_1.SUPERSURF_DIR)) {
+        fs_1.default.mkdirSync(cli_commands_1.SUPERSURF_DIR, { recursive: true });
     }
     // Clean stale files from a crashed previous instance
     cleanStaleFiles();
@@ -411,7 +165,7 @@ async function main() {
     writePidFile();
     // Experiment defaults come from the resolved config snapshot (file + env merged).
     const expSnapshot = cfg.get().experiments;
-    const version = getVersion();
+    const version = (0, cli_commands_1.getVersion)();
     // Initialize components
     const bridge = new extension_bridge_1.ExtensionBridge(port, '127.0.0.1', version);
     const sessions = new session_1.SessionRegistry();
@@ -424,7 +178,7 @@ async function main() {
         logger.log(`[Daemon] Experiment defaults: ${enabledDefaults.join(', ')}`);
     }
     // Ensure ~/.supersurf/daemon/ exists
-    fs_1.default.mkdirSync(path_1.default.join(SUPERSURF_DIR, 'daemon'), { recursive: true });
+    fs_1.default.mkdirSync(path_1.default.join(cli_commands_1.SUPERSURF_DIR, 'daemon'), { recursive: true });
     // Pull extension from GitHub if not cached. A failure is not fatal at
     // startup — a cached copy may still be usable, and unmanaged (bring-your-own
     // Chromium) sessions never touch this directory. But it IS fatal to a managed
@@ -451,7 +205,7 @@ async function main() {
                 : `  No cached copy at ${(0, extension_source_1.getExtensionDir)()}. Managed profiles cannot start until this succeeds.`));
     }
     // Initialize profile registry
-    const profileRegistry = new registry_1.ProfileRegistry(path_1.default.join(SUPERSURF_DIR, 'profiles'));
+    const profileRegistry = new registry_1.ProfileRegistry(path_1.default.join(cli_commands_1.SUPERSURF_DIR, 'profiles'));
     // Kill orphan Chromium processes from previous crash
     const entries = (0, chrome_1.replayPidLog)();
     const orphans = (0, chrome_1.findOrphanPids)(entries);
@@ -464,7 +218,7 @@ async function main() {
         disableGpu: cfg.get().profiles.startup_opts.disable_gpu,
         chromePath: cfg.get().profiles.chrome_path,
     };
-    const ipc = new ipc_1.IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version, startupOpts, extensionPullError });
+    const ipc = new ipc_1.IPCServer(cli_commands_1.SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, { port, version, startupOpts, extensionPullError });
     // Watch ~/.supersurf/config.json for post-startup edits. The daemon snapshots
     // config at startup and never hot-reloads — drift means the user's edits won't
     // take effect until restart. We surface this through the IPC envelope so the
@@ -572,7 +326,7 @@ async function main() {
     // Start IPC server
     try {
         await ipc.start();
-        logger.log(`[Daemon] IPC listening on ${SOCK_FILE}`);
+        logger.log(`[Daemon] IPC listening on ${cli_commands_1.SOCK_FILE}`);
     }
     catch (error) {
         console.error(`Failed to start IPC server: ${error.message}`);
@@ -602,13 +356,13 @@ function daemonize(argv) {
 // Only run when executed directly (not imported by tests)
 const isDirectRun = !process.env.VITEST;
 if (isDirectRun) {
-    const { command } = parseArgs(process.argv);
+    const { command } = (0, cli_commands_1.parseArgs)(process.argv);
     const isDaemonized = process.argv.includes('--_daemonized');
     // Human-facing subcommands only (start/stop/restart/status/observe) — never the
     // detached background daemon child (--_daemonized) or a silent programmatic spawn
     // (e.g. ensureDaemon from the server), both of which have their stdio ignored anyway.
     if (command !== undefined && !isDaemonized) {
-        const versionCheck = (0, shared_1.checkAndTouchVersionState)(getVersion());
+        const versionCheck = (0, shared_1.checkAndTouchVersionState)((0, cli_commands_1.getVersion)());
         if (versionCheck.shouldNotify) {
             console.log(shared_1.UPGRADE_NOTICE_MESSAGE);
         }
@@ -621,7 +375,7 @@ if (isDirectRun) {
         }
         else {
             if (command === 'restart')
-                stopDaemon();
+                (0, cli_commands_1.stopDaemon)();
             daemonize(process.argv);
         }
     }

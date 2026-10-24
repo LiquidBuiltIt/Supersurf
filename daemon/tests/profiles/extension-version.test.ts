@@ -56,7 +56,7 @@ describe('compareExtensionVersion', () => {
 
   describe('fails open on unparsable input', () => {
     it('warns when the daemon version is the literal "unknown"', () => {
-      // getVersion() in daemon/src/main.ts returns 'unknown' when it cannot
+      // getVersion() in daemon/src/cli-commands.ts returns 'unknown' when it cannot
       // locate its own package.json. Rejecting there would brick that install.
       expect(compareExtensionVersion('unknown', '3.4.0').status).toBe('warn');
     });

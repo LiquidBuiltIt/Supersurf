@@ -446,7 +446,7 @@ open_url() {
 # Matches the daemon's non-verbose status line, `  Extension:   connected`.
 # The trailing anchor is load-bearing: an unanchored `connected` also matches
 # `disconnected`, which would report success against a daemon nothing is
-# attached to. This is a string coupling to daemon/src/main.ts printStatus().
+# attached to. This is a string coupling to daemon/src/cli-commands.ts printStatus().
 extension_connected() {
   "$BIN" daemon status 2>/dev/null | grep -q 'Extension:[[:space:]]*connected$'
 }

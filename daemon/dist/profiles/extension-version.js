@@ -17,7 +17,7 @@
  * auto-updates on Google's schedule and can legitimately lead or lag the npm
  * packages by days; exact-match would false-positive constantly.
  *
- * Fails OPEN on unparsable input: getVersion() in main.ts returns the literal
+ * Fails OPEN on unparsable input: getVersion() in cli-commands.ts returns the literal
  * string 'unknown' when it cannot find its own package.json, and turning that
  * packaging edge case into a hard connection refusal would be worse than the
  * skew it guards against.
