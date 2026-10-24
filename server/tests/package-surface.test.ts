@@ -31,9 +31,9 @@ describe('supersurf-mcp package surface', () => {
   // `npx supersurf-mcp` execs dist/cli.js directly through the bin symlink npm
   // creates, so the file has to be self-executable: lose the mode bit and npm
   // reports EACCES, lose the shebang and the shell runs it as a shell script.
-  // Neither failure is visible to any assertion above — both leave the path,
-  // the bin map and the file contents perfectly valid. The
-  // mode comes from `chmod +x` in `server/package.json` `build`, and can regress there.
+  // Neither failure is visible to any assertion above — both leave the path, the
+  // bin map and the file contents perfectly valid. The mode comes from `chmod +x`
+  // in `server/package.json` `build`, and can regress there.
   it('ships dist/cli.js executable', () => {
     const mode = fs.statSync(path.join(SERVER, 'dist', 'cli.js')).mode;
     expect(mode & 0o111).not.toBe(0);
