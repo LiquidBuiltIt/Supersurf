@@ -129,10 +129,7 @@ describe('bin entrypoints — no shim can rewrite argv', () => {
 describe('supersurf-mcp bin — compiled behaviour', () => {
   const bin = MCP_BIN;
 
-  it('has a compiled artifact committed alongside its source', () => {
-    // dist/ is tracked in this repo and `package.json:bin` points into it, so
-    // this file IS what `npx supersurf-mcp` executes. A source fix landed
-    // without a rebuild ships the previous build's behaviour to users.
+  it('has a built artifact at its bin path', () => {
     expect(fs.existsSync(bin)).toBe(true);
   });
 
@@ -217,13 +214,13 @@ describe('the supersurf-daemon bin still has a home', () => {
   // argv handling is covered by daemon/tests/main.test.ts's parseArgs suite.
   const daemonRoot = path.resolve(__dirname, '..', '..', 'daemon');
 
-  it('is declared by the supersurf-daemon package and its artifact is committed', () => {
+  it('is declared by the supersurf-daemon package and its artifact is built', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(daemonRoot, 'package.json'), 'utf8'));
     expect(pkg.bin).toEqual({ 'supersurf-daemon': 'dist/main.js' });
     expect(fs.existsSync(path.join(daemonRoot, 'dist', 'main.js'))).toBe(true);
   });
 
-  it('the committed bundle actually boots and answers `status`', () => {
+  it('the built bundle actually boots and answers `status`', () => {
     // Restores the EXECUTION the deleted server-side shim test performed. The
     // structural test above only stats the file, and dist/main.js is a BUNDLE
     // (tsc + shared.bundle.ts) -- a bundler regression, a syntax error or a

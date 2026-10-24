@@ -174,6 +174,8 @@ The [Chrome Web Store listing](https://chromewebstore.google.com/detail/falcdhoj
 <summary><strong>From source (development)</strong></summary>
 
 ```bash
+npm ci
+npm run build
 npm run mcp
 # or manually:
 claude mcp add supersurf -- node server/dist/cli.js

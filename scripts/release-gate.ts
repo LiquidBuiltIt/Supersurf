@@ -12,10 +12,10 @@ export function portInUse(port: number, host = '127.0.0.1'): Promise<boolean> {
   });
 }
 
-// Runs the full test suite as the release gate. `pretest` rebuilds tracked
-// dist/, so a tree that differs after the run means the release commit's dist/
-// is not what would ship. Compared before/after (not "must be empty") so
-// --no-github, which skips the clean-tree check, keeps working.
+// Runs the full test suite as the release gate. `pretest` rebuilds the tracked
+// `extension/dist/`, so a tree that differs after the run means the committed
+// `extension/dist/` is not what would ship. Compared before/after (not "must
+// be empty") so --no-github, which skips the clean-tree check, keeps working.
 export async function runReleaseTests(
   cwd: string,
   opts: { cmd?: string[]; port?: number; stdio?: 'inherit' | 'pipe' } = {},

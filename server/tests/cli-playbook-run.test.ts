@@ -6,9 +6,6 @@
  * `supersurf-mcp playbook run …` answered `error: unknown option '--param'`.
  * A test that only re-states the caller's intent cannot catch that. So these
  * execute the artifact and read what it actually printed.
- *
- * `dist/` is tracked in this repo, so a source fix with no rebuild ships the
- * old broken program in the npm tarball — running the artifact catches that too.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
@@ -55,7 +52,7 @@ function run(args: string[]): { stdout: string; stderr: string; code: number } {
 }
 
 describe('compiled cli.js — `playbook run` parses its own argv', () => {
-  it('has a compiled artifact committed alongside its source', () => {
+  it('has a built artifact at its bin path', () => {
     expect(fs.existsSync(CLI)).toBe(true);
   });
 
