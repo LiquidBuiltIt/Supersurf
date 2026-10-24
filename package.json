@@ -40,5 +40,8 @@
     "smoke.parallel": "npx tsx scripts/smoke-parallel.ts",
     "tree": "npx tsx scripts/tree.ts",
     "changelog": "npx tsx scripts/changelog.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
   }
 }

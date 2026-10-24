@@ -31,4 +31,8 @@ describe('package-lock.json', () => {
     expect(lock.packages.server.dependencies['supersurf-daemon'])
       .toBe(read('server/package.json').dependencies['supersurf-daemon']);
   });
+
+  it('hoists tsx to the root so every workspace script can run it', () => {
+    expect(read('package-lock.json').packages['node_modules/tsx']).toBeDefined();
+  });
 });
