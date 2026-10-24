@@ -13,6 +13,7 @@
  * @module backend/handlers
  */
 import { type AgentSessionAPI } from './types';
+import { type IExtensionTransport } from 'shared';
 /** A username ends up in the `metrics-<username>-…` log filename, so keep it filename-safe. */
 export declare const USERNAME_RE: RegExp;
 export declare const BAD_NAME_TEXT = "`username` must be 1-64 characters: letters, digits, dot, dash or underscore, starting with a letter or digit (e.g. `claudebox-geo-research`).";
@@ -45,6 +46,18 @@ interface TabQueryClient {
  * live URL and gets dropped. Best-effort: any failure falls back to null. Exported for testing.
  */
 export declare function rehydrateAttachedTab(mgr: AgentSessionAPI, client: TabQueryClient): Promise<void>;
+/**
+ * Open the session log and reset every per-session store for `id`, so a reused
+ * id starts clean. Mirror of releaseSessionState.
+ */
+export declare function bindSessionState(id: string, transport: IExtensionTransport): void;
+/**
+ * Close the session log, clear tip suppression counters, drop session-scoped
+ * experiment + cursor state. All keyed by username (the daemon session id) so another agent's
+ * AgentSession in this process keeps its own. Safe for an id that never got
+ * bound — every callee ignores unknown ids.
+ */
+export declare function releaseSessionState(id: string): void;
 /**
  * Disconnect from the daemon: tear down bridge, close DaemonClient session,
  * reset experiments and mouse humanization, transition back to passive.
