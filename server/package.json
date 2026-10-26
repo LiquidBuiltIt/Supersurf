@@ -53,7 +53,7 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc && npx tsx ../scripts/shared.bundle.ts server && chmod +x dist/cli.js",
-    "prepublishOnly": "cp ../LICENSE . && npm run clean && npm run build",
+    "prepublishOnly": "cp ../LICENSE . && npm run clean && npm --prefix .. run build.shared && npm run build",
     "dev": "npx tsx src/cli.ts --debug",
     "test": "npm run typecheck.tests && vitest run",
     "typecheck.tests": "tsc -p tsconfig.test.json",

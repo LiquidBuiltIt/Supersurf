@@ -39,7 +39,7 @@ function sourceFiles(): string[] {
     .filter(Boolean)
     .filter((rel) => {
       const parts = rel.split('/');
-      // `dist/` is tracked here, so the index alone does not exclude it.
+      // `extension/dist/` is tracked here, so the index alone does not exclude it.
       if (parts.some((p) => SKIP_DIRS.has(p) || p.endsWith('.old'))) return false;
       return SCAN_EXT.some((ext) => rel.endsWith(ext)) && !rel.endsWith('.old.ts');
     });

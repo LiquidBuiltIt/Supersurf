@@ -42,3 +42,9 @@ it('no server test defines its own mock ToolContext without importing helpers/mo
     });
   expect(offenders).toEqual([]);
 });
+
+it.each(['daemon', 'server'])('%s prepublishOnly builds shared before its own build', (pkg) => {
+  const s = JSON.parse(readFileSync(resolve(__dirname, '..', pkg, 'package.json'), 'utf8')).scripts.prepublishOnly;
+  expect(s).toContain('run build.shared');
+  expect(s.indexOf('run build.shared')).toBeLessThan(s.lastIndexOf('npm run build'));
+});

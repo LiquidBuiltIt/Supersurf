@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,5 +17,22 @@ describe('extension/dist orphans', () => {
       return /(^|\/)[^/]*\.old(\.ts)?(\/|$)/.test(src) || !existsSync(join(root, src));
     });
     expect(orphans).toEqual([]);
+  });
+});
+
+describe('tracked dist', () => {
+  const ls = (p: string) => execFileSync('git', ['ls-files', p], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
+
+  it('tracks no shared, daemon or server build output', () => {
+    expect([...ls('shared/dist'), ...ls('daemon/dist'), ...ls('server/dist')]).toEqual([]);
+  });
+
+  it('ignores shared, daemon and server build output', () => {
+    for (const f of ['shared/dist/index.js', 'daemon/dist/main.js', 'server/dist/cli.js'])
+      expect(spawnSync('git', ['check-ignore', '-q', f], { cwd: root }).status, f).toBe(0);
+  });
+
+  it('keeps extension/dist tracked: installed daemons pull it from the latest tag tarball', () => {
+    expect(ls('extension/dist')).toContain('extension/dist/background.js');
   });
 });

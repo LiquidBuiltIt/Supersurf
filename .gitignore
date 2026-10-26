@@ -79,5 +79,11 @@ package-lock.json
 BACKLOG.md
 
 # Compiled CLI binaries — ~95 MB each, four targets, rebuilt per release.
-# cli/ publishes no JavaScript, so unlike server/ and daemon/ it has no tracked dist/.
 cli/build/
+
+# Build output of the three Node packages. `npm run build` makes it and
+# prepublishOnly rebuilds it for npm. extension/dist/ stays tracked: installed
+# daemons download it from the latest tag's source tarball.
+shared/dist/
+daemon/dist/
+server/dist/

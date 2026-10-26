@@ -27,7 +27,8 @@ function run(cmd: string, cwd: string): string {
 
 const work = mkdtempSync(join(tmpdir(), 'supersurf-smoke-'));
 try {
-  console.log('→ Building server (shared bundle only, daemon is separate)...');
+  console.log('→ Building shared + server (daemon is separate)...');
+  run('npm run build.shared', root);
   run('npm run build', serverDir);
 
   console.log('→ Packing supersurf...');
