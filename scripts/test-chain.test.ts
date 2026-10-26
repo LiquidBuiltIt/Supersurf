@@ -32,13 +32,13 @@ describe.each(PKGS)('%s test chain', (pkg) => {
   });
 });
 
-it('no server test defines its own createMockCtx without importing helpers/mock-ctx', () => {
+it('no server test defines its own mock ToolContext without importing helpers/mock-ctx', () => {
   const dir = resolve(__dirname, '..', 'server', 'tests');
   const offenders = (readdirSync(dir, { recursive: true }) as string[])
     .filter((f) => f.endsWith('.ts') && !f.startsWith('helpers'))
     .filter((f) => {
       const src = readFileSync(resolve(dir, f), 'utf8');
-      return /(function|const|let)\s+createMockCtx\b/.test(src) && !src.includes("from './helpers/mock-ctx'");
+      return /(function|const|let)\s+\w*[mM]ock\w*Ctx\b/.test(src) && !src.includes("from './helpers/mock-ctx'");
     });
   expect(offenders).toEqual([]);
 });

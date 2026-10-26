@@ -1,20 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { findElementInFrames, getCenterInFrame, elementNotFoundError } from '../src/tools/lib/frames';
 import type { ToolContext } from '../src/tools/lib/types';
+import { createMockCtx } from './helpers/mock-ctx';
 
 function mockCtx(cdpImpl: (method: string, params: any) => Promise<any>): ToolContext {
-  return {
-    cdp: vi.fn(cdpImpl),
-    eval: vi.fn(),
-    ext: { sendCmd: vi.fn() } as any,
-    agentSession: null as any,
-    sleep: vi.fn(),
-    getElementCenter: vi.fn(),
-    getSelectorExpression: vi.fn(),
-    findAlternativeSelectors: vi.fn(),
-    formatResult: vi.fn(),
-    error: vi.fn(),
-  };
+  return createMockCtx({ cdp: vi.fn(cdpImpl), agentSession: null as any });
 }
 
 describe('findElementInFrames', () => {
