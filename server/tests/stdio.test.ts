@@ -113,19 +113,21 @@ describe('stdio (script mode)', () => {
       configService: new ConfigService({ cli: {}, env: {}, file: { agents: { multi_agent: multiAgent } } as any }),
     });
 
+    // Every non-blank input line yields exactly one output line (a batch yields one array line).
+    const waitForOutputs = (n: number) => vi.waitFor(() => expect(capturedOutput.length).toBeGreaterThanOrEqual(n), { timeout: 5000, interval: 10 });
+    let expected = 0;
     for (const line of lines) {
       fakeStdin.push(line + '\n');
-      if (sequential) {
-        const want = capturedOutput.length + 1;
-        for (let i = 0; i < 100 && capturedOutput.length < want; i++) await new Promise((r) => setTimeout(r, 20));
-      }
+      if (line.trim()) expected++;
+      if (sequential) await waitForOutputs(expected);
     }
 
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForOutputs(expected);
 
     fakeStdin.push(null);
 
-    await new Promise((r) => setTimeout(r, 100));
+    // readline 'close' -> serverClosed() -> process.exit(0) (mocked)
+    await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled(), { timeout: 5000, interval: 10 });
 
     Object.defineProperty(process, 'stdin', { value: originalStdin, configurable: true });
 
