@@ -3,6 +3,7 @@ import { onInteract } from '../src/tools/interaction';
 import { OPTION_MATCHER_JS } from '../src/tools/interaction/option-matcher';
 import { getSelectorExpression } from '../src/tools/lib/element-resolver';
 import type { ToolContext } from '../src/tools/lib/types';
+import { createMockCtx as createMockCtx_ } from './helpers/mock-ctx';
 
 // Build a node-callable version of the page-context matcher.
 // This lets us test the same JS string that gets inlined into select_custom.
@@ -31,7 +32,7 @@ function createMockCtx(options: { clickResult?: string; clickError?: string } = 
     }
     return {};
   });
-  return {
+  return createMockCtx_({
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
     agentSession: null as any,
     cdp: defaultCdp,
@@ -39,7 +40,6 @@ function createMockCtx(options: { clickResult?: string; clickError?: string } = 
     // (`{focused}`, `{scrolled}`, `{cleared}`, `{selected}`, `{verified}`)
     // don't throw for tests that don't opt in. Specific tests override as needed.
     eval: vi.fn().mockResolvedValue({ focused: true, scrolled: true, cleared: true, selected: true, optionText: 'ok', verified: true, found: true }),
-    sleep: vi.fn().mockResolvedValue(undefined),
     // clickError forces the click handler's element-resolution step to reject,
     // which onInteract's catch branch turns into a `✗` result line. clickResult
     // is accepted for readability at call sites but not otherwise wired — the
@@ -47,11 +47,7 @@ function createMockCtx(options: { clickResult?: string; clickError?: string } = 
     getElementCenter: options.clickError
       ? vi.fn().mockRejectedValue(new Error(options.clickError))
       : vi.fn().mockResolvedValue({ x: 50, y: 50 }),
-    getSelectorExpression: vi.fn((s) => `document.querySelector("${s}")`),
-    findAlternativeSelectors: vi.fn().mockResolvedValue([]),
-    formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
-    error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
-  };
+  });
 }
 
 describe('onInteract()', () => {

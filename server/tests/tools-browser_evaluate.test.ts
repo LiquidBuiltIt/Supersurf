@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { onEvaluate } from '../src/tools/browser_evaluate';
 import type { ToolContext } from '../src/tools/lib/types';
 import { ConfigService } from 'shared';
+import { createMockCtx as createMockCtx_ } from './helpers/mock-ctx';
 
 function createMockCtx(): ToolContext {
   // These tests exercise the IIFE wrapping + result serialization path,
@@ -12,19 +13,13 @@ function createMockCtx(): ToolContext {
     env: {},
     file: { security: { secure_eval: false } },
   });
-  return {
-    ext: { sendCmd: vi.fn().mockResolvedValue({ success: true }) } as any,
+  return createMockCtx_({
     agentSession: null as any,
     config,
-    cdp: vi.fn().mockResolvedValue({}),
-    eval: vi.fn().mockResolvedValue(undefined),
-    sleep: vi.fn().mockResolvedValue(undefined),
     getElementCenter: vi.fn(),
     getSelectorExpression: vi.fn(),
     findAlternativeSelectors: vi.fn(),
-    formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
-    error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
-  };
+  });
 }
 
 describe('onEvaluate()', () => {

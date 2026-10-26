@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import { ConfigService } from 'shared';
 import { onScreenshot } from '../src/tools/screenshot';
 import type { ToolContext } from '../src/tools/lib/types';
+import { createMockCtx as createMockCtx_ } from './helpers/mock-ctx';
 
 function createMockCtx(omitPath: 'inline' | 'path' | 'both' = 'inline'): ToolContext {
   const config = new ConfigService({
@@ -13,20 +14,15 @@ function createMockCtx(omitPath: 'inline' | 'path' | 'both' = 'inline'): ToolCon
     env: {},
     file: { screenshot: { omit_path: omitPath } },
   });
-  return {
+  return createMockCtx_({
     tabId: 1,
     ext: { sendCmd: vi.fn() } as any,
     agentSession: null as any,
     config,
-    cdp: vi.fn().mockResolvedValue({}),
-    eval: vi.fn().mockResolvedValue(undefined),
-    sleep: vi.fn().mockResolvedValue(undefined),
     getElementCenter: vi.fn(),
     getSelectorExpression: vi.fn(),
     findAlternativeSelectors: vi.fn(),
-    formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
-    error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
-  };
+  });
 }
 
 async function tinyJpegBase64(): Promise<string> {

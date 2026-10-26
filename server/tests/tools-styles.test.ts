@@ -1,20 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { onGetElementStyles } from '../src/tools/styles';
 import type { ToolContext } from '../src/tools/lib/types';
+import { createMockCtx as createMockCtx_ } from './helpers/mock-ctx';
 
 function createMockCtx(): ToolContext {
-  return {
+  return createMockCtx_({
     ext: { sendCmd: vi.fn().mockResolvedValue({}) } as any,
     agentSession: null as any,
-    cdp: vi.fn().mockResolvedValue({}),
-    eval: vi.fn().mockResolvedValue([]),
-    sleep: vi.fn().mockResolvedValue(undefined),
     getElementCenter: vi.fn(),
     getSelectorExpression: vi.fn(),
     findAlternativeSelectors: vi.fn(),
-    formatResult: vi.fn((_n, r) => ({ content: [{ type: 'text', text: JSON.stringify(r) }] })),
-    error: vi.fn((msg) => ({ content: [{ type: 'text', text: msg }], isError: true })),
-  };
+    eval: vi.fn().mockResolvedValue([]),
+  });
 }
 
 describe('onGetElementStyles()', () => {
