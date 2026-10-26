@@ -40,7 +40,7 @@ export function bumpLockfile(lockText: string, next: string): string {
     const entry = lock.packages[dir];
     if (!entry) throw new Error(`package-lock.json has no entry for workspace "${dir}" — run npm install to refresh it.`);
     entry.version = next;
-    if (entry.dependencies?.['supersurf-daemon']) entry.dependencies['supersurf-daemon'] = next;
+    if (entry.dependencies?.['supersurf-daemon'] !== undefined) entry.dependencies['supersurf-daemon'] = next;
   }
   return JSON.stringify(lock, null, 2) + '\n';
 }

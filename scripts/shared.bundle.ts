@@ -15,6 +15,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { hasLiveSource } from './shared-live';
 
 const root = path.resolve(__dirname, '..');
 const pkg = process.argv[2];
@@ -41,6 +42,8 @@ if (!fs.existsSync(sharedDist)) {
 
 // ── Step 1: Copy shared/dist/ → <pkg>/dist/shared/ ──────────
 
+// Only files with a live source in shared/ are copied: shared/dist is never cleaned
+// (live dev sessions run from it), so it can hold output of deleted sources.
 function copyDir(src: string, dest: string): number {
   if (!fs.existsSync(dest)) {
     fs.mkdirSync(dest, { recursive: true });
@@ -53,6 +56,8 @@ function copyDir(src: string, dest: string): number {
 
     if (entry.isDirectory()) {
       count += copyDir(srcPath, destPath);
+    } else if (!hasLiveSource(path.relative(sharedDist, srcPath), path.join(root, 'shared'))) {
+      console.log(`  Skipped stale shared/dist/${path.relative(sharedDist, srcPath)} (no live source)`);
     } else {
       fs.copyFileSync(srcPath, destPath);
       count++;
