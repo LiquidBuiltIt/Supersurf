@@ -74,6 +74,10 @@ export interface AgentSessionAPI {
      *  instead of a bare cached "Disabled". Cleared on the next connect attempt. */
     lastConnectError: string | null;
     statusHeader(): string;
+    getAttachedTab(): TabInfo | null;
+    setAttachedTab(tab: TabInfo | null): void;
+    clearAttachedTab(): void;
+    setStealthMode(enabled: boolean): void;
     notifyToolsListChanged(): Promise<void>;
     sendLogNotification(level: string, message: string, logger?: string): Promise<void>;
 }

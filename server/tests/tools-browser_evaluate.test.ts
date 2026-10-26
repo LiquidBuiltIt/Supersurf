@@ -14,7 +14,7 @@ function createMockCtx(): ToolContext {
   });
   return {
     ext: { sendCmd: vi.fn().mockResolvedValue({ success: true }) } as any,
-    agentSession: null,
+    agentSession: null as any,
     config,
     cdp: vi.fn().mockResolvedValue({}),
     eval: vi.fn().mockResolvedValue(undefined),

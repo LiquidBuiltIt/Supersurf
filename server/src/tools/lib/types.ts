@@ -9,6 +9,7 @@
 
 import type { IExtensionTransport } from '../../bridge';
 import type { ConfigService } from 'shared';
+import type { AgentSessionAPI } from '../../backend/types';
 import type { HandleMeta } from '../../experimental/fingerprinting/handle-meta';
 
 /**
@@ -34,7 +35,7 @@ export interface ToolContext {
   /** Transport for sending commands to the Chrome extension. */
   ext: IExtensionTransport;
   /** Tracks connection state, attached tab, stealth mode, etc. */
-  agentSession: any;
+  agentSession: AgentSessionAPI;
   /** Resolved ConfigService (CLI + env + file + defaults). Optional for legacy callers. */
   config?: ConfigService;
   /** Usage-metrics logger, when enabled. Used by the action recorder. */
