@@ -27,7 +27,11 @@ export async function runReleaseTests(
   const status = () => execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
   const before = status();
   const r = spawnSync(cmd[0], cmd.slice(1), { cwd, stdio });
-  if (r.status !== 0) throw new Error(`npm test failed (exit ${r.status}). Nothing was pushed or published.`);
+  const name = cmd.join(' ');
+  if (r.status !== 0) {
+    const why = r.error ? r.error.message : r.signal ? `signal ${r.signal}` : `exit ${r.status}`;
+    throw new Error(`${name} failed (${why}). Nothing was pushed or published.`);
+  }
   const after = status();
-  if (after !== before) throw new Error(`npm test changed the working tree. The committed build output is stale:\n${after}`);
+  if (after !== before) throw new Error(`${name} changed the working tree. The committed build output is stale:\n${after}`);
 }

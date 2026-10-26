@@ -49,6 +49,15 @@ describe('runReleaseTests', () => {
   it('rejects with the exit code when the command fails', async () => {
     await expect(runReleaseTests(fixture(), { cmd: ['sh', '-c', 'exit 3'], port: await freePort(), stdio: 'pipe' })).rejects.toThrow(/exit 3/);
   });
+  it('names the actual command, not "npm test", when a custom command fails', async () => {
+    await expect(runReleaseTests(fixture(), { cmd: ['sh', '-c', 'exit 3'], port: await freePort(), stdio: 'pipe' })).rejects.toThrow(/^sh -c exit 3 failed/);
+  });
+  it('reports the spawn error when the command cannot start', async () => {
+    await expect(runReleaseTests(fixture(), { cmd: ['no-such-binary-xyz'], port: await freePort(), stdio: 'pipe' })).rejects.toThrow(/ENOENT/);
+  });
+  it('reports the signal when the command is killed', async () => {
+    await expect(runReleaseTests(fixture(), { cmd: ['sh', '-c', 'kill -9 $$'], port: await freePort(), stdio: 'pipe' })).rejects.toThrow(/SIGKILL/);
+  });
   it('rejects naming the file when the run changes the tree', async () => {
     await expect(runReleaseTests(fixture(), { cmd: ['sh', '-c', 'echo x > a.txt'], port: await freePort(), stdio: 'pipe' })).rejects.toThrow(/a\.txt/);
   });
