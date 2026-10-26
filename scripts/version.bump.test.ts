@@ -233,6 +233,12 @@ describe('bumpLockfile', () => {
     expect(bumpLockfile(text(lockAt('4.1.0')), '4.1.0')).toBe(text(lockAt('4.1.0')));
   });
 
+  it('pins an empty-string daemon dependency too, since the key is present', () => {
+    const lock = lockAt('4.1.0');
+    (lock.packages.server.dependencies as Record<string, string>)['supersurf-daemon'] = '';
+    expect(bumpLockfile(text(lock), '4.2.0')).toBe(text(lockAt('4.2.0')));
+  });
+
   it('throws naming a workspace the lock does not know', () => {
     const lock = lockAt('4.1.0');
     delete (lock.packages as Record<string, unknown>).cli;
@@ -287,5 +293,16 @@ describe('version.bump.ts source', () => {
     expect(src).not.toMatch(/git add \./);
     expect(src).not.toMatch(/git commit -m "/);
     expect(src).toContain('bumpLockfile(');
+  });
+
+  it('computes the new lockfile before it writes any file, so a bad lock leaves the tree untouched', () => {
+    const src = readFileSync(join(__dirname, 'version.bump.ts'), 'utf8');
+    expect(src.indexOf('bumpLockfile(')).toBeGreaterThan(-1);
+    expect(src.indexOf('bumpLockfile(')).toBeLessThan(src.indexOf('writeFileSync('));
+  });
+
+  it('checks the daemon pin explicitly, not by truthiness', () => {
+    const src = readFileSync(join(__dirname, 'version.bump.ts'), 'utf8');
+    expect(src).not.toMatch(/if \(pkg\.dependencies\?\.\['supersurf-daemon'\]\)/);
   });
 });

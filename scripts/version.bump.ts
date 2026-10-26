@@ -120,6 +120,11 @@ const next =
   bumpType === 'minor' ? `${major}.${minor + 1}.0` :
   `${major}.${minor}.${patch + 1}`;
 
+// Computed before any file is written: a missing or malformed lock must abort
+// the bump with the tree untouched (no existsSync guard, so a missing lock fails loudly).
+const lockFile = join(root, 'package-lock.json');
+const lockContent = bumpLockfile(readFileSync(lockFile, 'utf8'), next);
+
 // ── Changelog cut ─────────────────────────────────────────────
 // Move everything under `## Unreleased` into a new `## <next> — <date>`
 // section before touching any version files, so a duplicate-section error
@@ -177,14 +182,12 @@ for (const rel of targets) {
   const pkg = JSON.parse(readFileSync(file, 'utf8'));
   pkg.version = next;
   // supersurf-mcp ships with exactly the daemon cut in the same release.
-  if (pkg.dependencies?.['supersurf-daemon']) pkg.dependencies['supersurf-daemon'] = next;
+  if (pkg.dependencies?.['supersurf-daemon'] !== undefined) pkg.dependencies['supersurf-daemon'] = next;
   writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
   console.log(`  ${rel}: ${current} -> ${next}`);
 }
 
-// No existsSync guard: a missing lock must fail the bump loudly.
-const lockFile = join(root, 'package-lock.json');
-writeFileSync(lockFile, bumpLockfile(readFileSync(lockFile, 'utf8'), next));
+writeFileSync(lockFile, lockContent);
 console.log(`  package-lock.json: ${current} -> ${next}`);
 
 console.log(`\nBumped ${bumpType}: ${current} -> ${next}\n`);
