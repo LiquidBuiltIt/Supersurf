@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import https from 'https';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import type { FileLogger } from 'shared';
 import { devSource } from 'shared';
 
@@ -122,7 +122,13 @@ function downloadFile(url: string, dest: string): Promise<void> {
   });
 }
 
-/** Pull the extension from GitHub tarball and extract to ~/.supersurf/extension/. */
+/**
+ * Pull the extension from a GitHub tarball into ~/.supersurf/extension/.
+ *
+ * Atomic: the tarball is extracted into a staging dir beside the cache and
+ * validated first; the old cache is only replaced once the new one is good,
+ * so any failure leaves the previous extension untouched.
+ */
 export async function pullExtension(tag?: string): Promise<void> {
   if (!tag) {
     tag = await getLatestTag();
@@ -130,39 +136,48 @@ export async function pullExtension(tag?: string): Promise<void> {
   debugLog(`Pulling extension from tag: ${tag}`);
 
   const tarballUrl = `https://github.com/${GITHUB_REPO}/archive/refs/tags/${tag}.tar.gz`;
+  fs.mkdirSync(SUPERSURF_DIR, { recursive: true });
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'supersurf-ext-'));
+  let stagingDir = '';
   const tarballPath = path.join(tmpDir, 'extension.tar.gz');
+  const backupDir = `${EXTENSION_DIR}.old-${process.pid}-${Date.now()}`;
 
   try {
+    // Same filesystem as EXTENSION_DIR so the final rename cannot hit EXDEV.
+    stagingDir = fs.mkdtempSync(path.join(SUPERSURF_DIR, '.extension-staging-'));
     await downloadFile(tarballUrl, tarballPath);
-    debugLog('Tarball downloaded, extracting extension/ directory...');
+    debugLog('Tarball downloaded, extracting...');
 
-    // Ensure extension directory exists and is clean
-    if (fs.existsSync(EXTENSION_DIR)) {
-      fs.rmSync(EXTENSION_DIR, { recursive: true });
+    // Whole archive, no member pattern: GNU tar does not glob members without --wildcards.
+    execFileSync('tar', ['xzf', tarballPath, '-C', stagingDir], { stdio: 'pipe' });
+
+    const tops = fs.readdirSync(stagingDir);
+    const invalid = () => new Error('Extension tarball has no valid extension/manifest.json');
+    if (tops.length !== 1) throw invalid();
+    const staged = path.join(stagingDir, tops[0], 'extension');
+    let valid = false;
+    try {
+      const st = fs.lstatSync(staged);
+      if (!st.isDirectory() || st.isSymbolicLink()) throw invalid();
+      const manifest = JSON.parse(fs.readFileSync(path.join(staged, 'manifest.json'), 'utf8'));
+      valid = typeof manifest.version === 'string';
+    } catch {}
+    if (!valid) throw invalid();
+
+    const hadOld = fs.existsSync(EXTENSION_DIR);
+    if (hadOld) fs.renameSync(EXTENSION_DIR, backupDir);
+    try {
+      fs.renameSync(staged, EXTENSION_DIR);
+    } catch (err) {
+      if (hadOld) fs.renameSync(backupDir, EXTENSION_DIR);
+      throw err;
     }
-    fs.mkdirSync(EXTENSION_DIR, { recursive: true });
-
-    // Extract only the extension/ subdirectory, stripping the top-level archive folder
-    execSync(
-      `tar xzf "${tarballPath}" --strip-components=1 -C "${EXTENSION_DIR}" "*/extension/"`,
-      { stdio: 'pipe' },
-    );
-
-    // The extraction puts files under EXTENSION_DIR/extension/ — move them up
-    const nestedDir = path.join(EXTENSION_DIR, 'extension');
-    if (fs.existsSync(nestedDir)) {
-      const files = fs.readdirSync(nestedDir);
-      for (const f of files) {
-        fs.renameSync(path.join(nestedDir, f), path.join(EXTENSION_DIR, f));
-      }
-      fs.rmdirSync(nestedDir);
-    }
+    try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {}
 
     debugLog('Extension extracted to', EXTENSION_DIR);
   } finally {
-    // Clean up temp files
-    try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    if (stagingDir) try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
   }
 }
 

@@ -44,6 +44,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 - chore: **`install.sh --latest` now builds the clone's `shared`, `daemon` and `server` packages after installing dependencies.** Their `dist/` output is no longer committed; `extension/dist` still is.
 - fix: **`install.sh --latest` installs from the tracked lockfile with `npm ci`.** A dev install now gets the exact dependency tree the release was tested with, and no longer resolves an old nested `supersurf-daemon`.
 - fix: **`secure_fill` now runs the `secureFill` module instead of an inline copy.** Passwords with characters outside the Basic Multilingual Plane (emoji, some CJK) are typed intact instead of split into broken surrogate halves, and a page error during typing returns a failure instead of leaving the call hanging.
+- fix: **The daemon's extension update no longer empties the cached extension when a download or extraction fails.** It now extracts to a staging directory and swaps it into `~/.supersurf/extension` only after the manifest validates. Tar extraction also works with GNU tar; previously every update failed on Linux with "Not found in archive".
 
 ## 4.1.0 — 2026-10-21
 
