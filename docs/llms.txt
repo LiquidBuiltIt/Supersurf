@@ -11,7 +11,7 @@ SuperSurf ships as two npm packages: `supersurf-mcp` (the MCP server) and `super
 Key facts:
 - Drives a **real** Chrome browser via a Chrome extension and content scripts, not raw CDP. Content scripts run in an isolated world the page's own JavaScript cannot read.
 - Uses your actual browser profile: real cookies, logins, history, localStorage, and extensions. Handles pages behind a login, iframe-heavy forms, React controlled inputs, and custom dropdowns.
-- Ships **28 browser tools**: navigation, clicking/typing, form fill, snapshots, network inspection, console access, screenshots, PDF export, CSS inspection, performance metrics, file downloads.
+- Ships **30 browser tools**: navigation, clicking/typing, form fill, snapshots, network inspection, console access, screenshots, PDF export, CSS inspection, performance metrics, file downloads.
 - Multiple MCP clients can share one browser through the local daemon (tab ownership tracking + round-robin scheduling).
 - Platform support: **macOS and Linux only** (no Windows yet).
 - License: Apache-2.0 with a Commons Clause. Source is fully public (server and extension). No telemetry.
@@ -20,10 +20,9 @@ Key facts:
 ## Docs
 
 - [Homepage](https://liquidbuiltit.github.io/Supersurf/): overview and quickstart
-- [Documentation](https://liquidbuiltit.github.io/Supersurf/documentation/): full docs index
-- [Tools reference](https://liquidbuiltit.github.io/Supersurf/documentation/tools.html): the 28 browser tools
-- [Architecture](https://liquidbuiltit.github.io/Supersurf/documentation/architecture.html): server, daemon, extension data flow
-- [Security](https://liquidbuiltit.github.io/Supersurf/documentation/security.html): secure_eval and credential handling
+- [Blog: SuperSurf 4.1.0](https://liquidbuiltit.github.io/Supersurf/blog/4-1-0/): latest release notes
+- [Blog: SuperSurf 4.0.0](https://liquidbuiltit.github.io/Supersurf/blog/4-0-0/): 4.0.0 release notes
+- [README](https://github.com/liquidbuiltit/Supersurf#readme): full tool list, architecture and security
 
 ## Source and packages
 
