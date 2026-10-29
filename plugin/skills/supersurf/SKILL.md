@@ -81,6 +81,6 @@ Every response starts with a status header: connection state, attached tab, dete
 ## Architecture
 
 - You talk to an MCP server over stdio. The server talks to a daemon over a Unix socket. The daemon talks to a Chrome extension over WebSocket. The extension controls Chrome.
-- DOM reads and writes go through content scripts, which run in Chrome's isolated world.
+- Page reads run in an isolated world, apart from the page's own scripts.
 - Clicks, key presses, screenshots, network capture and PDF export go through Chrome's debugger API (CDP input events and capture).
 - The daemon persists across sessions. Managed Chromium quits on disconnect by default; enable extension Settings "Keep browser after session ends" to keep the window open. Profile cookies/logins always persist on disk. Daemon idle timeout or shutdown can still quit daemon-owned browsers.

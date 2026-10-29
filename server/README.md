@@ -99,7 +99,7 @@ Pass flags via your MCP config:
 AI Agent  -->  MCP Server (stdio)  -->  Daemon (Unix socket)  -->  WebSocket  -->  Chrome Extension  -->  Browser
 ```
 
-A standalone daemon multiplexes multiple MCP sessions through a single Chrome extension connection. DOM reads and writes go through Chrome content scripts; clicks, key presses, screenshots, network capture and PDF export go through Chrome's debugger API. Your agent browses with your real browser profile — cookies, history, localStorage, extensions.
+A standalone daemon multiplexes multiple MCP sessions through a single Chrome extension connection. Page reads run in an isolated world, apart from the page's own scripts; clicks, key presses, screenshots, network capture and PDF export go through Chrome's debugger API. Your agent browses with your real browser profile — cookies, history, localStorage, extensions.
 
 ## Experimental Features
 
