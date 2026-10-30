@@ -678,70 +678,10 @@
       color: var(--text-muted);
     }
 
-    /* ── COMPARISON ── */
-    .comparison-slide {
-      max-width: 960px;
-      width: 100%;
-      margin: 0 auto;
-    }
-
-    .comparison-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 8px;
-    }
-
-    .comparison-table th,
-    .comparison-table td {
-      text-align: left;
-      padding: 14px 18px;
-      font-size: 13px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .comparison-table thead th {
-      font-weight: 600;
-      color: var(--text-primary);
-      font-size: 14px;
-      padding-bottom: 16px;
-      border-bottom: 2px solid #333;
-    }
-
-    .comparison-table thead th:first-child {
-      color: var(--text-muted);
-      font-weight: 400;
-    }
-
-    .comparison-table thead th.highlight {
-      color: var(--text-primary);
-    }
-
-    .comparison-table tbody td {
-      color: var(--text-muted);
-    }
-
-    .comparison-table tbody td:first-child {
-      font-weight: 500;
-      color: var(--text-secondary);
-    }
-
-    .comparison-table tbody td.highlight {
-      color: var(--text-secondary);
-      background: rgba(255,255,255,0.02);
-    }
-
-    .comparison-table .check {
-      color: var(--text-secondary);
-    }
-
-    .comparison-table .cross {
-      color: #555;
-    }
-
     /* ── TABLE OF CONTENTS ── */
     .toc-grid {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 10px;
       width: 100%;
       max-width: 800px;
@@ -1164,9 +1104,7 @@
       .quickstart-methods { grid-template-columns: 1fr; }
       .arch-pipeline { flex-direction: column; }
       .arch-stage:not(:last-child)::after { display: none; }
-      .toc-grid { grid-template-columns: repeat(3, 1fr); max-width: 100%; }
-      .comparison-table { font-size: 12px; }
-      .comparison-table th, .comparison-table td { padding: 10px 12px; }
+      .toc-grid { grid-template-columns: repeat(2, 1fr); max-width: 100%; }
       .dock-nav { display: none; }
       .hero-buttons { flex-direction: column; align-items: center; }
     }
@@ -1182,9 +1120,8 @@
     <div class="dock-item" data-slide="3"><span class="dock-label">Tools</span><span class="dock-pip"></span></div>
     <div class="dock-item" data-slide="4"><span class="dock-label">Security</span><span class="dock-pip"></span></div>
     <div class="dock-item" data-slide="5"><span class="dock-label">Experiments</span><span class="dock-pip"></span></div>
-    <div class="dock-item" data-slide="6"><span class="dock-label">Compare</span><span class="dock-pip"></span></div>
-    <div class="dock-item" data-slide="7"><span class="dock-label">Setup</span><span class="dock-pip"></span></div>
-    <div class="dock-item" data-slide="8"><span class="dock-label">Links</span><span class="dock-pip"></span></div>
+    <div class="dock-item" data-slide="6"><span class="dock-label">Setup</span><span class="dock-pip"></span></div>
+    <div class="dock-item" data-slide="7"><span class="dock-label">Links</span><span class="dock-pip"></span></div>
   </nav>
 
   <div class="slides-container" id="slides">
@@ -1204,13 +1141,13 @@
         <div class="sparkle sm" style="bottom:10px;left:-10px;animation-delay:1.1s;"></div>
       </div>
       <h1>SuperSurf</h1>
-      <p class="tagline">Open-source browser automation for AI agents. Any model. Real browser.</p>
+      <p class="tagline">Let your agent do the driving.</p>
       <div class="hero-buttons">
         <div class="demo-cta" onclick="goTo(1)">
           <span class="play-icon"></span>
           Watch Demo
         </div>
-        <div class="demo-cta" onclick="goTo(8)" style="background:transparent;border-color:#333;color:var(--text-secondary);">
+        <div class="demo-cta" onclick="goTo(7)" style="background:transparent;border-color:#333;color:var(--text-secondary);">
           <span class="crab-icon" style="font-size:16px;filter:grayscale(0.6) brightness(0.9);">&#129408;</span>
           Teach Your Agent
         </div>
@@ -1226,7 +1163,7 @@
           <h3>Watch Demo</h3>
           <p>See it in action</p>
         </div>
-        <div class="toc-item" onclick="goTo(7)">
+        <div class="toc-item" onclick="goTo(6)">
           <div class="toc-num">02</div>
           <h3>Get Started</h3>
           <p>Install and configure</p>
@@ -1240,11 +1177,6 @@
           <div class="toc-num">04</div>
           <h3>Browser Tools</h3>
           <p>30 automation tools</p>
-        </div>
-        <div class="toc-item" onclick="goTo(6)">
-          <div class="toc-num">05</div>
-          <h3>Comparison</h3>
-          <p>vs. Puppeteer, Selenium, Playwright</p>
         </div>
       </div>
       <div class="hero-hint">Press arrow keys to navigate</div>
@@ -1495,94 +1427,6 @@
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- ═══ SLIDE 6: COMPARISON ═══ -->
-    <div class="slide comparison-slide">
-      <div class="slide-sparkles">
-        <div class="sparkle" style="top:15%;left:8%;animation-delay:0.8s;"></div>
-        <div class="sparkle sm" style="top:10%;right:12%;animation-delay:0.4s;"></div>
-        <div class="sparkle sm" style="bottom:14%;left:14%;animation-delay:1.6s;"></div>
-        <div class="sparkle sm" style="bottom:22%;right:6%;animation-delay:1.1s;"></div>
-      </div>
-      <h2 class="slide-title">How SuperSurf Compares</h2>
-      <p class="slide-subtitle">Extension-based automation vs. the alternatives.</p>
-      <table class="comparison-table">
-        <thead>
-          <tr>
-            <th></th>
-            <th class="highlight">SuperSurf</th>
-            <th>Puppeteer</th>
-            <th>Selenium</th>
-            <th>Playwright</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Real browser profile</td>
-            <td class="highlight"><span class="check">Yes</span></td>
-            <td><span class="cross">No</span></td>
-            <td><span class="cross">No</span></td>
-            <td><span class="cross">No</span></td>
-          </tr>
-          <tr>
-            <td>Cookies & history intact</td>
-            <td class="highlight"><span class="check">Yes</span></td>
-            <td><span class="cross">Fresh profile</span></td>
-            <td><span class="cross">Fresh profile</span></td>
-            <td><span class="cross">Fresh profile</span></td>
-          </tr>
-          <tr>
-            <td>Interaction hidden from page JS</td>
-            <td class="highlight"><span class="check">Isolated world</span></td>
-            <td><span class="cross">CDP leaks</span></td>
-            <td><span class="cross">WebDriver flag</span></td>
-            <td><span class="cross">CDP leaks</span></td>
-          </tr>
-          <tr>
-            <td>navigator.webdriver</td>
-            <td class="highlight"><span class="check">Clean</span></td>
-            <td><span class="cross">Exposed</span></td>
-            <td><span class="cross">Exposed</span></td>
-            <td><span class="cross">Exposed</span></td>
-          </tr>
-          <tr>
-            <td>Secure credential fill</td>
-            <td class="highlight"><span class="check">Env var isolation</span></td>
-            <td><span class="cross">Plaintext</span></td>
-            <td><span class="cross">Plaintext</span></td>
-            <td><span class="cross">Plaintext</span></td>
-          </tr>
-          <tr>
-            <td>MCP native</td>
-            <td class="highlight"><span class="check">Yes</span></td>
-            <td><span class="cross">No</span></td>
-            <td><span class="cross">No</span></td>
-            <td><span class="cross">No</span></td>
-          </tr>
-          <tr>
-            <td>Extension as human signal</td>
-            <td class="highlight"><span class="check">Yes</span></td>
-            <td><span class="cross">No extensions</span></td>
-            <td><span class="cross">No extensions</span></td>
-            <td><span class="cross">No extensions</span></td>
-          </tr>
-          <tr>
-            <td>Multi-agent sessions</td>
-            <td class="highlight"><span class="check">Daemon + profiles</span></td>
-            <td><span class="cross">Single</span></td>
-            <td><span class="cross">Single</span></td>
-            <td><span class="cross">Single</span></td>
-          </tr>
-          <tr>
-            <td>Framework detection</td>
-            <td class="highlight"><span class="check">40+ frameworks</span></td>
-            <td><span class="cross">No</span></td>
-            <td><span class="cross">No</span></td>
-            <td><span class="cross">No</span></td>
-          </tr>
-        </tbody>
-      </table>
     </div>
 
     <!-- ═══ SLIDE 7: QUICK START ═══ -->
