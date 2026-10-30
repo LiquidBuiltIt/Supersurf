@@ -491,7 +491,7 @@ export function getToolSchemas(): ToolSchema[] {
     // ── Performance ──
     {
       name: 'browser_performance_metrics',
-      description: 'Collect Web Vitals and CDP performance metrics: FCP, LCP, CLS, TTFB, and more.',
+      description: 'Collect page timings (TTFB, FCP, DOMContentLoaded, Load) and CDP performance metrics.',
       inputSchema: { type: 'object', properties: {} },
       annotations: { title: 'Performance metrics', readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
