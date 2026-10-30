@@ -2,7 +2,7 @@
 
 Free and open-source MCP server for browser automation — gives AI agents control of a real Chrome browser via a Chrome extension.
 
-Works with any LLM that supports the [Model Context Protocol](https://modelcontextprotocol.io): Claude, GPT, Gemini, open-source models, or your own. Every line of code is public on GitHub — no telemetry, no data collection.
+Works with any LLM that supports the [Model Context Protocol](https://modelcontextprotocol.io): Claude, GPT, Gemini, open-source models, or your own.
 
 ## Quick Start
 
@@ -68,7 +68,7 @@ Your agent calls `connect` to start the session, a daemon auto-starts, the exten
 | `browser_pdf_save` | Export page as PDF |
 | `browser_handle_dialog` | Accept/dismiss alerts and prompts |
 | `browser_list_extensions` | List installed extensions |
-| `browser_performance_metrics` | Web Vitals (FCP, LCP, CLS, TTFB) |
+| `browser_performance_metrics` | Page timings (TTFB, FCP, DOMContentLoaded, Load) |
 | `browser_download` | Download a file via the browser |
 | `browser_storage` | Inspect/modify localStorage and sessionStorage |
 | `secure_fill` | Fill a field with a credential from an env var, or `list` available credential names (agent never sees the value). *Being deprecated in favor of a keychain-backed system.* |
@@ -99,7 +99,7 @@ Pass flags via your MCP config:
 AI Agent  -->  MCP Server (stdio)  -->  Daemon (Unix socket)  -->  WebSocket  -->  Chrome Extension  -->  Browser
 ```
 
-A standalone daemon multiplexes multiple MCP sessions through a single Chrome extension connection. All DOM interaction goes through Chrome content scripts (isolated world, invisible to page JS). CDP is only used for screenshots, network interception, and PDF export. Your agent browses with your real browser profile — cookies, history, localStorage, extensions.
+A standalone daemon multiplexes multiple MCP sessions through a single Chrome extension connection. Page reads run in an isolated world, apart from the page's own scripts; clicks, key presses, screenshots, network capture and PDF export go through Chrome's debugger API. Your agent browses with your real browser profile — cookies, history, localStorage, extensions.
 
 ## Experimental Features
 

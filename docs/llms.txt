@@ -1,6 +1,6 @@
 # SuperSurf
 
-> SuperSurf is an MCP (Model Context Protocol) server that gives any AI agent control of a real Chrome browser through a Chrome extension — real profile, cookies, and logins, no CDP. Works with any MCP client (Claude, GPT, or anything that speaks MCP).
+> A browser-control layer for AI agents. It plugs into Claude Code, Codex, Cursor, Claude Desktop or any MCP client and runs as an extension inside the Chrome you already use: your tabs, your sessions, your logins. No second browser to log into.
 
 Install with one command: `curl -fsSL https://liquidbuiltit.github.io/Supersurf/install.sh | sh`. That puts the `supersurf` CLI in `~/.local/bin` without sudo, starts the daemon, and walks the user through installing the Chrome extension from the Web Store. Register it with `claude mcp add supersurf -- supersurf mcp`, or pass `--client=claude` to the installer and it registers automatically once the extension connects. Re-running the installer is the upgrade path, and `--yes` makes it non-interactive for CI, Docker, or an agent (`--yes --client=claude` does both with no prompts).
 
@@ -9,13 +9,13 @@ Without the CLI, a client that can run `npx` needs nothing installed: point it a
 SuperSurf ships as two npm packages: `supersurf-mcp` (the MCP server) and `supersurf-daemon` (a coordinator auto-spawned by the server; never installed directly). The `supersurf` CLI is a separate compiled binary distributed through GitHub releases, not npm. The Chrome extension is the interaction layer.
 
 Key facts:
-- Drives a **real** Chrome browser via a Chrome extension and content scripts, not raw CDP. Content scripts run in an isolated world the page's own JavaScript cannot read.
+- Drives a **real** Chrome browser via a Chrome extension. DOM reads and writes go through content scripts; clicks, key presses, screenshots, network capture and PDF export go through Chrome's debugger API.
 - Uses your actual browser profile: real cookies, logins, history, localStorage, and extensions. Handles pages behind a login, iframe-heavy forms, React controlled inputs, and custom dropdowns.
 - Ships **30 browser tools**: navigation, clicking/typing, form fill, snapshots, network inspection, console access, screenshots, PDF export, CSS inspection, performance metrics, file downloads.
 - Multiple MCP clients can share one browser through the local daemon (tab ownership tracking + round-robin scheduling).
 - Platform support: **macOS and Linux only** (no Windows yet).
-- License: Apache-2.0 with a Commons Clause. Source is fully public (server and extension). No telemetry.
-- Honesty note: SuperSurf is a transparent browser *harness*, not an anti-bot framework. It has not been tested against commercial anti-bot vendors and is not marketed as "undetectable."
+- License: Apache-2.0 with a Commons Clause. Source is public (server and extension).
+- Honesty note: SuperSurf plugs into the harness you already run; it is not an anti-bot framework. It has not been tested against commercial anti-bot vendors.
 
 ## Docs
 

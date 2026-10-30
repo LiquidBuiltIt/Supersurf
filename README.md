@@ -2,7 +2,7 @@
 
 # SuperSurf
 
-**MCP-native browser automation. Any agent. Any model. Real Chrome, via extension — not CDP.**
+**Let your agent do the driving.**
 
 [![npm version](https://img.shields.io/npm/v/supersurf-mcp?style=flat-square&color=cb3837&label=npm)](https://www.npmjs.com/package/supersurf-mcp)
 [![License](https://img.shields.io/badge/license-Apache--2.0_with_Commons_Clause-blue?style=flat-square)](LICENSE)
@@ -30,12 +30,7 @@ graph LR
 
 <br />
 
-SuperSurf is a **free and open-source** MCP server that gives any AI agent control of a real Chrome browser.<br />
-It works with any LLM that supports the [Model Context Protocol](https://modelcontextprotocol.io) — Claude, GPT, Gemini, open-source models, or your own.
-
-Unlike tools that spin up headless browsers or inject CDP scripts, SuperSurf uses a Chrome extension to interact with pages through content scripts. Your agent operates in a real browser profile with your cookies, history, and localStorage intact — and page JavaScript can't detect it.
-
-**Every line of code — server and extension — is public.** No obfuscated binaries, no telemetry, no data collection. Read it, audit it, fork it.
+A browser-control layer for AI agents. It plugs into Claude Code, Codex, Cursor, Claude Desktop or any MCP client and runs as an extension inside the Chrome you already use: your tabs, your sessions, your logins. No second browser to log into.
 
 </div>
 
@@ -53,49 +48,16 @@ Unlike tools that spin up headless browsers or inject CDP scripts, SuperSurf use
 
 ---
 
-## Why SuperSurf?
+## What your agent can do with it
 
-<table>
-<tr>
-<td width="33%">
+### Check its own frontend work
+The agent opens the tab on your dev server, clicks through the change it just made, and reads what you would read: console output, network requests, matched CSS rules with file and line, page timings and the accessibility tree. It fixes what it finds and checks again.
 
-### vs. Puppeteer
-CDP over pipe — detectable via `navigator.webdriver`, CDP leak, and `Runtime.evaluate` VM artifacts. Fresh profile by default. Credentials pass through your script in plaintext. One connection per browser.
+### Do the chores that sit behind a login
+Invoices in a vendor portal, forty records in a CRM, a report in an admin console. You are already signed in, so the agent is too: no second login, no 2FA prompt. Downloads go through your browser, so your cookies apply.
 
-</td>
-<td width="33%">
-
-### vs. Selenium
-WebDriver protocol — `navigator.webdriver` flag, predictable DOM mutation patterns. Fresh profile. Credentials in plaintext. Widely fingerprinted by commercial anti-bot systems.
-
-</td>
-<td width="33%">
-
-### SuperSurf
-Content scripts in an isolated world — **invisible to page JS**. Your real browser profile. Credentials resolved extension-side from env vars — **agent never sees raw values**. Built-in multi-agent multiplexing.
-
-</td>
-</tr>
-</table>
-
-> Puppeteer and Selenium are great tools for scripted automation and testing. SuperSurf solves a different problem: giving an AI agent a browser that looks and behaves like a human's.
-
----
-
-## Why Extension-Based?
-
-> [!IMPORTANT]
-> CDP-injected scripts appear as VM instances in memory profiling. Content scripts run in an **isolated world** that page JavaScript cannot observe. SuperSurf never touches the page's JS context for DOM interaction.
-
-**Real browser profile.** No synthetic launch flags, no blank profile. Your agent browses with the same cookies, history, and extensions as a human user.
-
-**Extension presence is a human signal.** Anti-bot systems check for installed extensions as evidence of a real user. A browser with zero extensions is suspicious.
-
-> [!TIP]
-> SuperSurf is CI-compatible out of the box. Sideload without user interaction:
-> ```bash
-> chrome --load-extension=./extension --user-data-dir=/tmp/supersurf-profile
-> ```
+### Save it as a playbook, rerun it without the model
+Once the agent gets a flow right, save it as a playbook: a script you rerun from your terminal with no model in the loop, as often as you like. Every run is logged.
 
 ---
 
@@ -167,6 +129,7 @@ The [Chrome Web Store listing](https://chromewebstore.google.com/detail/falcdhoj
 
 - **Managed profiles need no install at all.** `supersurf profiles create <name>` launches a separate Chromium with the extension already sideloaded — the daemon downloads it from GitHub releases and caches it under `~/.supersurf/extension/`.
 - **Manual unpacked load**, for development or an offline machine: download the release `.zip` from [GitHub releases](https://github.com/LiquidBuiltIt/Supersurf/releases), extract it, open `chrome://extensions`, enable Developer mode, then **Load unpacked** and select the extracted folder.
+- **CI**, with no user interaction: `chrome --load-extension=./extension --user-data-dir=/tmp/supersurf-profile`.
 
 </details>
 
@@ -196,26 +159,29 @@ SuperSurf ships as **two** npm packages:
 
 ---
 
-## Features
+## Safe to hand over
 
 | | |
 |---|---|
-| **Isolated-world DOM interaction** | All page interaction runs through Chrome's content script context — an isolated world the page's own JavaScript can't read. No CDP fingerprints, no VM script artifacts. (Not tested against commercial anti-bot vendors.) |
-| **Real browser profile** | Your agent browses with your actual cookies, history, localStorage, and extensions. No sterile headless environment. |
-| **Secure credential handling** | `secure_fill` injects passwords from environment variables directly in the extension. The agent sends an env var *name*, never the value. |
-| **30 browser tools** | Full coverage: navigation, interaction, screenshots, network monitoring, console access, form filling, CSS inspection, PDF export, performance metrics, file downloads. |
-| **Session multiplexing** | Multiple MCP clients share one browser through a daemon process with tab ownership tracking and round-robin scheduling. The daemon is automatically spawned by the MCP server — no setup required. |
-| **Framework detection** | Content script identifies 40+ frontend frameworks and libraries on any page. |
-| **CI-ready** | Sideload the extension with `--load-extension` and a throwaway profile. No manual setup needed. |
-| **Domain whitelist** | Optional navigation restriction using the Tranco top 100K list. Fetched once, cached locally, refreshed daily. |
-| **Zero extension deps** | The Chrome extension uses browser APIs only. No bundled libraries, no supply chain surface. |
+| **Passwords** | The agent sends the name of an environment variable. The extension types the value. The model never sees it. |
+| **Page scripts** | Code the agent runs on a page is checked first. Network calls, storage access and navigation are blocked. On by default. |
+| **Cleanup** | When the agent disconnects, the tabs it opened close. |
+| **Domain allowlist** | Optional: limit navigation to the top 100K domains. |
 
-> [!NOTE]
-> **Credentials never reach the agent.** `secure_fill` resolves env var values extension-side and types characters with randomized delays (40-120ms) to mimic human input. Your agent sends `"GITHUB_PASSWORD"`, not the password itself.
+## Also in the box
+
+| | |
+|---|---|
+| **Several agents, one browser** | Each agent session owns the tabs it opens, so agents running side by side do not collide. Subagents of one client: opt in with `agents.multi_agent`. |
+| **Self-healing selectors** *(experimental)* | When a page changes and a selector breaks, the element is found again by its fingerprint. |
+| **Smart waiting** *(experimental)* | After an action, it waits for the page to settle before the agent reads it. |
+| **Managed profiles** | Keep a second account apart in its own Chromium, with its own logins. |
 
 ---
 
 ## Tools
+
+30 browser tools, grouped by job.
 
 <details>
 <summary><strong>Session Management</strong></summary>
@@ -279,7 +245,7 @@ SuperSurf ships as **two** npm packages:
 | `browser_pdf_save` | Export page as PDF |
 | `browser_console_messages` | Read console output, filter by level/text/URL |
 | `browser_network_requests` | Monitor/inspect/replay network traffic |
-| `browser_performance_metrics` | Collect Web Vitals (FCP, LCP, CLS, TTFB) |
+| `browser_performance_metrics` | Collect page timings (TTFB, FCP, DOMContentLoaded, Load) |
 | `browser_download` | Download a file via the browser |
 
 </details>

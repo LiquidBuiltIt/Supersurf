@@ -47,7 +47,7 @@ Every response starts with a status header: connection state, attached tab, dete
 | Dialogs | `alert`, `confirm`, `prompt` and `beforeunload` are held open. Use `action` `view`, `accept` (with `text=` for a prompt) or `dismiss`. | `browser_handle_dialog` | — |
 | Profiles | An isolated Chromium with its own cookies, logins and history. Names are lowercase alphanumeric and hyphens, max 32 characters. | `profile_create`, `profile_list`, `profile_delete` | `supersurf:doctor` |
 | Playbooks | A `.playbook.js` script in `~/.supersurf/playbooks/`. You write the file yourself. `history` lists this session's working selectors; `run` needs the `fingerprinting` experiment. | `playbooks` (`history`, `list`, `inspect`, `validate`, `run`) | `supersurf:creating-playbooks` |
-| Network & console | List, filter, inspect, replay and clear captured requests. Read console output by `level` or `text`. Core Web Vitals. | `browser_network_requests`, `browser_console_messages`, `browser_performance_metrics` | — |
+| Network & console | List, filter, inspect, replay and clear captured requests. Read console output by `level` or `text`. Page timings. | `browser_network_requests`, `browser_console_messages`, `browser_performance_metrics` | — |
 | CSS inspection | Matched rules with source file and line, computed values, and `pseudoState` forcing. | `browser_get_element_styles` | — |
 | Storage | Read and write `localStorage` or `sessionStorage`. `type` is required; `action` is `get`, `set`, `delete`, `clear` or `list`; `key` is required for `get`, `set` and `delete`; `set` also takes `value`. | `browser_storage` | — |
 | Screenshots & PDF | Viewport JPEG by default; `fullPage`, `selector` and `path` are options. With no `path`, output follows `screenshot.omit_path` in `~/.supersurf/config.json`. | `browser_take_screenshot`, `browser_pdf_save` | — |
@@ -81,6 +81,6 @@ Every response starts with a status header: connection state, attached tab, dete
 ## Architecture
 
 - You talk to an MCP server over stdio. The server talks to a daemon over a Unix socket. The daemon talks to a Chrome extension over WebSocket. The extension controls Chrome.
-- The extension runs in Chrome's isolated world — page JavaScript cannot detect it.
-- CDP is only used for screenshots, network interception, and PDF generation. All DOM interaction goes through content scripts.
+- Page reads run in an isolated world, apart from the page's own scripts.
+- Clicks, key presses, screenshots, network capture and PDF export go through Chrome's debugger API (CDP input events and capture).
 - The daemon persists across sessions. Managed Chromium quits on disconnect by default; enable extension Settings "Keep browser after session ends" to keep the window open. Profile cookies/logins always persist on disk. Daemon idle timeout or shutdown can still quit daemon-owned browsers.
