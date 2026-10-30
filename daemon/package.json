@@ -1,7 +1,7 @@
 {
   "name": "supersurf-daemon",
   "version": "4.1.0",
-  "description": "Daemon process for SuperSurf — coordinates multiple MCP sessions sharing one Chrome extension",
+  "description": "The coordinator daemon for SuperSurf, a browser-control layer that lets your AI agent drive the Chrome you are already logged into. Installed automatically by supersurf-mcp.",
   "keywords": [
     "mcp",
     "model-context-protocol",
