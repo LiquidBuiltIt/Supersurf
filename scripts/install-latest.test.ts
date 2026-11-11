@@ -79,13 +79,15 @@ describe('install.sh --latest clone safety', () => {
     expect(args).not.toMatch(/^install\b/m);
   });
 
-  it('builds shared, daemon and server after installing, never the tracked extension', () => {
+  it('builds shared, engine, daemon and server after installing, never the tracked extension', () => {
     latest();
     const calls = fs.readFileSync(join(t, 'stub', 'npm-args'), 'utf8').trim().split('\n');
     const at = (s: string) => calls.indexOf(s);
     const install = calls.findIndex((c) => c.startsWith('ci'));
     expect(at('run build.shared')).toBeGreaterThan(install);
-    expect(at('run build.daemon')).toBeGreaterThan(at('run build.shared'));
+    expect(at('run build.engine')).not.toBe(-1);
+    expect(at('run build.engine')).toBeGreaterThan(at('run build.shared'));
+    expect(at('run build.daemon')).toBeGreaterThan(at('run build.engine'));
     expect(at('run build.server')).toBeGreaterThan(at('run build.daemon'));
     expect(calls.filter((c) => /build\.extension|^run build$/.test(c))).toEqual([]);
   });
