@@ -32,7 +32,7 @@
     "pretest": "npm run build",
     "test": "npm run test.shared && npm run test.engine && npm run test.daemon && npm run test.server && npm run test.cli && npm run test.extension && npm run test.scripts && npm run smoke.register && npm run smoke.hints && npm run smoke.parallel",
     "mcp": "claude mcp add supersurf -- node server/dist/cli.js",
-    "filesize": "find ./{shared,cli,extension,server,daemon} -type f ! -path \"*/node_modules/*\" ! -path \"*/dist/*\" ! -name \"package-lock.json\"  -name *.ts   -exec wc -l {} + | sort -nr",
+    "filesize": "find ./{shared,engine,cli,extension,server,daemon} -type f ! -path \"*/node_modules/*\" ! -path \"*/dist/*\" ! -name \"package-lock.json\"  -name *.ts   -exec wc -l {} + | sort -nr",
     "version.bump": "npx tsx scripts/version.bump.ts",
     "cws.auth": "npx tsx scripts/cws.auth.ts",
     "cws.publish": "npx tsx scripts/cws.publish.ts",

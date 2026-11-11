@@ -212,7 +212,7 @@ describe('assertCleanMain', () => {
 });
 
 describe('bumpLockfile', () => {
-  const ws = ['server', 'extension', 'daemon', 'shared', 'cli'];
+  const ws = ['server', 'extension', 'daemon', 'shared', 'engine', 'cli'];
   const lockAt = (v: string) => ({
     name: 'supersurf', version: v, lockfileVersion: 3, requires: true,
     packages: {
@@ -257,6 +257,7 @@ describe('stagedPaths', () => {
       'extension/manifest.json',
       'daemon/package.json',
       'shared/package.json',
+      'engine/package.json',
       'cli/package.json',
       'package-lock.json',
       'CHANGELOG.md',

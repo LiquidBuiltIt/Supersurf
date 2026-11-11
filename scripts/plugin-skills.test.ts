@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { resolve, join } from 'path';
-import { METHODS } from '../server/src/security/sandbox/methods';
+import { METHODS } from '../engine/src/security/sandbox/methods';
 
 /**
  * Every plugin skill must (a) carry frontmatter whose `name` matches its
@@ -20,7 +20,7 @@ function walk(dir: string): string[] {
   });
 }
 const TOOL_NAMES = new Set(
-  [...walk(join(root, 'server/src/tools')), ...walk(join(root, 'server/src/backend'))]
+  [...walk(join(root, 'engine/src/tools')), ...walk(join(root, 'engine/src/backend'))]
     .flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/name: ['"]([a-z_]+)['"]/g)].map((m) => m[1])),
 );
 const TOOL_REF = /\b(browser_[a-z_]+|secure_fill|profile_(?:create|delete|list))\b/g;

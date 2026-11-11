@@ -1,9 +1,9 @@
 /**
- * The K3 lock: `cli/` reaches into `server/src/` from exactly ONE file.
+ * The K3 lock: `cli/` reaches into `engine/src/` from exactly ONE file.
  *
  * cli/src/server-imports.ts is a deliberate, accepted coupling point — item 27
  * compiles `playbook ls|inspect|validate|migrate` into the binary and those
- * live under server/src. The alternative (hoisting them into shared/) would
+ * live under engine/src. The alternative (hoisting them into shared/) would
  * force shared to declare acorn as a runtime dependency and break its
  * zero-runtime-dependency rule.
  *
@@ -15,7 +15,7 @@
  * cli/tests/playbook-cli.test.ts imports test seams (setPlaybooksDirForTests,
  * setValidatorForTests) straight from server/src, and routing test-only
  * mutable-state hooks through the production barrel would be worse than the
- * coupling. The cost is real and accepted: test-side coupling to server/ can
+ * coupling. The cost is real and accepted: test-side coupling to engine/ can
  * accumulate with nothing noticing. What ships in the binary is cli/src, and
  * that is what this file locks.
  */
@@ -41,9 +41,9 @@ function walk(dir: string, rel = ''): string[] {
  * Any static import, re-export, require() or dynamic import() naming a specifier.
  *
  * The `import\s+` alternative catches the BARE side-effect form,
- * `import '../../server/src/tools/screenshot';`, which every other branch
+ * `import '../../engine/src/tools/screenshot';`, which every other branch
  * misses because it has no `from`. That is not a hypothetical gap: this repo's
- * own boundary is `server/src/playbooks/run-cli.ts` — a live server-side
+ * own boundary is `engine/src/playbooks/run-cli.ts` — a live server-side
  * module that `cli/src/playbook-cli.ts` deliberately never imports, bare or
  * otherwise, because `run` shells out to the pinned `supersurf-mcp` package
  * instead of loading it in-process. Keeping that true is exactly what this
@@ -82,13 +82,13 @@ describe('cli/ imports server source from exactly one file (BACKLOG #28, ruling 
     expect(files).toContain(ALLOWED);
   });
 
-  it('no file other than server-imports.ts names a server/ specifier', () => {
+  it('no file other than server-imports.ts names a server/ or engine/ specifier', () => {
     const offenders: string[] = [];
     for (const rel of files) {
       if (rel === ALLOWED) continue;
       const txt = fs.readFileSync(path.join(SRC, rel), 'utf8');
       for (const m of txt.matchAll(SPECIFIER)) {
-        if (/(^|\/)server\//.test(m[1])) offenders.push(`${rel} -> ${m[1]}`);
+        if (/(^|\/)(server|engine)\//.test(m[1])) offenders.push(`${rel} -> ${m[1]}`);
       }
     }
     expect(offenders).toEqual([]);
@@ -133,7 +133,7 @@ describe('cli/ imports server source from exactly one file (BACKLOG #28, ruling 
     // Same non-vacuity guard as test 1: an emptied `files` list would make
     // this loop run zero times and pass for the wrong reason.
     expect(files.length).toBeGreaterThanOrEqual(8);
-    const NEEDLES = ['server/src', 'server/dist'];
+    const NEEDLES = ['server/src', 'server/dist', 'engine/src', 'engine/dist'];
 
     const stripComments = (src: string) =>
       src

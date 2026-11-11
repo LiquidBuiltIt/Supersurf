@@ -202,10 +202,10 @@ interface RoundTripped {
 async function main(): Promise<void> {
   process.stdout.write('smoke.hints — element-miss hint identity in real Chromium\n');
 
-  const qualifyPath = path.join(REPO_ROOT, 'server', 'dist', 'tools', 'lib', 'selector-qualify.js');
-  const describePath = path.join(REPO_ROOT, 'server', 'dist', 'tools', 'lib', 'element-resolver.js');
+  const qualifyPath = path.join(REPO_ROOT, 'engine', 'dist', 'tools', 'lib', 'selector-qualify.js');
+  const describePath = path.join(REPO_ROOT, 'engine', 'dist', 'tools', 'lib', 'element-resolver.js');
   if (!fs.existsSync(qualifyPath) || !fs.existsSync(describePath)) {
-    fail('server/dist is missing the page sources — run `npm run build.server` first.');
+    fail('engine/dist is missing the page sources — run `npm run build.engine` first.');
   }
   const { QUALIFY_SOURCE } = require_(qualifyPath) as { QUALIFY_SOURCE?: string };
   // `getSelectorExpression` is THE production resolution path: every
@@ -220,7 +220,7 @@ async function main(): Promise<void> {
   };
   if (!QUALIFY_SOURCE || !DESCRIBE_SOURCE || typeof getSelectorExpression !== 'function') {
     fail(
-      'server/dist no longer exports QUALIFY_SOURCE / DESCRIBE_SOURCE / getSelectorExpression — ' +
+      'engine/dist no longer exports QUALIFY_SOURCE / DESCRIBE_SOURCE / getSelectorExpression — ' +
         'rebuild, or the exports were renamed.',
     );
   }

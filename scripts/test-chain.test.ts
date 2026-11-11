@@ -16,7 +16,7 @@ describe('root test chain', () => {
   });
 });
 
-const PKGS = ['shared', 'daemon', 'server', 'cli', 'extension'];
+const PKGS = ['shared', 'daemon', 'engine', 'server', 'cli', 'extension'];
 
 describe.each(PKGS)('%s test chain', (pkg) => {
   const read = (f: string) => JSON.parse(readFileSync(resolve(__dirname, '..', pkg, f), 'utf8'));
@@ -32,8 +32,8 @@ describe.each(PKGS)('%s test chain', (pkg) => {
   });
 });
 
-it('no server test defines its own mock ToolContext without importing helpers/mock-ctx', () => {
-  const dir = resolve(__dirname, '..', 'server', 'tests');
+it('no engine test defines its own mock ToolContext without importing helpers/mock-ctx', () => {
+  const dir = resolve(__dirname, '..', 'engine', 'tests');
   const offenders = (readdirSync(dir, { recursive: true }) as string[])
     .filter((f) => f.endsWith('.ts') && !f.startsWith('helpers'))
     .filter((f) => {

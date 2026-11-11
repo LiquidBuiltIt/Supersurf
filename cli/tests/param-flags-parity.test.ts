@@ -1,6 +1,6 @@
 /**
  * Parity lock for the two independent copies of `parseParamFlags`:
- * cli/src/playbook-cli.ts and server/src/playbooks/run-cli.ts. They matched
+ * cli/src/playbook-cli.ts and engine/src/playbooks/run-cli.ts. They matched
  * byte-for-byte at review time; nothing enforces that they still match after
  * the next edit to either one.
  *
@@ -17,8 +17,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseParamFlags as cliParseParamFlags } from '../src/playbook-cli';
-import { parseParamFlags as serverParseParamFlags } from '../../server/src/playbooks/run-cli';
-import type { PlaybookMeta } from '../../server/src/security/meta';
+import { parseParamFlags as serverParseParamFlags } from '../../engine/src/playbooks/run-cli';
+import type { PlaybookMeta } from '../../engine/src/security/meta';
 
 const META: PlaybookMeta = {
   description: 'x',
@@ -39,7 +39,7 @@ const CASES: { name: string; pairs: string[]; meta: PlaybookMeta }[] = [
   { name: 'the empty-pairs case', pairs: [], meta: META },
 ];
 
-describe('parseParamFlags parity: cli/src/playbook-cli.ts vs server/src/playbooks/run-cli.ts', () => {
+describe('parseParamFlags parity: cli/src/playbook-cli.ts vs engine/src/playbooks/run-cli.ts', () => {
   for (const { name, pairs, meta } of CASES) {
     it(`produces identical output for ${name}, including the error string`, () => {
       const cliResult = cliParseParamFlags(pairs, meta);
