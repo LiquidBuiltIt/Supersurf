@@ -40,13 +40,17 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc && npx tsx ../scripts/shared.bundle.ts daemon && chmod +x dist/main.js",
-    "prepublishOnly": "cp ../LICENSE . && npm run clean && npm --prefix .. run build.shared && npm run build",
+    "build": "tsc && npx tsx ../scripts/engine.bundle.ts && npx tsx ../scripts/shared.bundle.ts daemon && chmod +x dist/main.js",
+    "prepublishOnly": "cp ../LICENSE . && npm run clean && npm --prefix .. run build.shared && npm --prefix .. run build.engine && npm run build",
     "typecheck.tests": "tsc -p tsconfig.test.json",
     "test": "npm run typecheck.tests && vitest run",
     "test.watch": "vitest"
   },
   "dependencies": {
+    "acorn": "^8.14.0",
+    "acorn-walk": "^8.3.4",
+    "image-size": "^2.0.2",
+    "sharp": "^0.34.5",
     "ws": "^8.18.3"
   },
   "devDependencies": {

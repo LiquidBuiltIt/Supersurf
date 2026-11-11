@@ -48,3 +48,10 @@ it.each(['daemon', 'server'])('%s prepublishOnly builds shared before its own bu
   expect(s).toContain('run build.shared');
   expect(s.indexOf('run build.shared')).toBeLessThan(s.lastIndexOf('npm run build'));
 });
+
+it.each(['daemon', 'server'])('%s prepublishOnly builds the engine after shared and before its own build', (pkg) => {
+  const s = JSON.parse(readFileSync(resolve(__dirname, '..', pkg, 'package.json'), 'utf8')).scripts.prepublishOnly;
+  expect(s).toContain('run build.engine');
+  expect(s.indexOf('run build.shared')).toBeLessThan(s.indexOf('run build.engine'));
+  expect(s.indexOf('run build.engine')).toBeLessThan(s.lastIndexOf('npm run build'));
+});
