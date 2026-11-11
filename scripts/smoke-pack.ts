@@ -27,18 +27,25 @@ function run(cmd: string, cwd: string): string {
 
 const work = mkdtempSync(join(tmpdir(), 'supersurf-smoke-'));
 try {
-  console.log('→ Building shared + server (daemon is separate)...');
+  console.log('→ Building shared + engine + daemon + server...');
   run('npm run build.shared', root);
+  run('npm run build.engine', root);
+  run('npm run build', join(root, 'daemon'));
   run('npm run build', serverDir);
 
-  console.log('→ Packing supersurf...');
+  console.log('→ Packing supersurf-daemon and supersurf-mcp...');
+  run('npm pack --pack-destination ' + work, join(root, 'daemon'));
   run('npm pack --pack-destination ' + work, serverDir);
-  const tarball = readdirSync(work).find((f) => f.endsWith('.tgz'));
-  if (!tarball) throw new Error('npm pack produced no .tgz');
+  const tarballs = readdirSync(work).filter((f) => f.endsWith('.tgz'));
+  const daemonTgz = tarballs.find((f) => f.startsWith('supersurf-daemon-'));
+  const serverTgz = tarballs.find((f) => f.startsWith('supersurf-mcp-'));
+  if (!daemonTgz || !serverTgz) throw new Error(`npm pack produced ${tarballs.join(', ')}`);
 
-  console.log(`→ Installing ${tarball} into a clean dir...`);
+  console.log('→ Installing both into a clean dir...');
   run('npm init -y', work);
-  run(`npm install ./${tarball}`, work);
+  // The server pins supersurf-daemon exactly; point that pin at the local tarball.
+  run(`npm pkg set overrides.supersurf-daemon=file:./${daemonTgz}`, work);
+  run(`npm install ./${daemonTgz} ./${serverTgz}`, work);
 
   const pkgRoot = join(work, 'node_modules', 'supersurf-mcp', 'dist');
   console.log('→ Loading entrypoints (VITEST=1)...');
@@ -53,6 +60,15 @@ try {
     `node -e "process.env.VITEST='1'; require('${join(pkgRoot, 'cli.js')}'); console.log('modules-ok')"`,
     { env: { ...process.env, VITEST: '1' }, stdio: ['ignore', 'inherit', 'inherit'] },
   );
+
+  console.log('→ Loading the engine through the server loader...');
+  execSync(
+    `node -e "const e = require('${join(pkgRoot, 'engine-loader.js')}').loadEngine(); if (typeof e.AgentSessionManager !== 'function') process.exit(1); console.log('engine-ok')"`,
+    { stdio: ['ignore', 'inherit', 'inherit'] },
+  );
+  if (existsSync(join(pkgRoot, 'engine'))) {
+    throw new Error('supersurf-mcp tarball ships an engine copy; P1 allows the daemon package only');
+  }
 
   // Item 28's headline acceptance criterion: the CLI left this package. A
   // stray bin here would put `supersurf` back on PATH from an npm install and

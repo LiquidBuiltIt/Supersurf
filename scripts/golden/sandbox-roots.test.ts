@@ -4,9 +4,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { REPO } from './harness';
 
-// Which built copy of the sandbox host is under test. Edited by the task that moves it:
-// Task 5: engine/dist (was server/dist), Task 9: daemon/dist/engine.
-const HOST_JS = 'engine/dist/security/sandbox/host.js';
+// The sandbox host as published: the engine bundle inside the daemon package.
+const HOST_JS = 'daemon/dist/engine/security/sandbox/host.js';
 
 const host = createRequire(import.meta.url)(path.join(REPO, HOST_JS)) as {
   resolveChildEntry(): { entry: string };
