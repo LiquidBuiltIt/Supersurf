@@ -317,7 +317,7 @@ function resolveTsxCli(from: string): string {
   }
   throw new Error(
     `tsx not found — cannot run the TypeScript sandbox child ${from}. Build the package `
-    + '(`npm run build.server`) so the compiled child.js is used instead, or run `npm install` '
+    + '(`npm run build.engine`) so the compiled child.js is used instead, or run `npm install` '
     + `to restore the tsx devDependency. Looked at: ${looked.join(', ')}`,
   );
 }
@@ -357,7 +357,7 @@ export function checkChildEntrySandboxing(entry: string, onLog: (message: string
   return (
     'refusing to run: the playbook sandbox child would load via tsx with NO filesystem '
     + 'sandboxing — the Node permission model cannot be applied through the tsx loader, so the '
-    + 'playbook would get unrestricted filesystem read. Run `npm run build` (or `npm run build.server`) '
+    + 'playbook would get unrestricted filesystem read. Run `npm run build` (or `npm run build.engine`) '
     + 'so the compiled child.js is used instead. To run unsandboxed anyway — NOT recommended outside '
     + 'a local dev checkout — set SUPERSURF_ALLOW_UNSANDBOXED_PLAYBOOK=1.'
   );
