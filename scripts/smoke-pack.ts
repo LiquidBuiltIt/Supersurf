@@ -44,8 +44,10 @@ try {
   console.log('→ Installing both into a clean dir...');
   run('npm init -y', work);
   // The server pins supersurf-daemon exactly; point that pin at the local tarball.
-  run(`npm pkg set overrides.supersurf-daemon=file:./${daemonTgz}`, work);
-  run(`npm install ./${daemonTgz} ./${serverTgz}`, work);
+  // npm rejects an override that differs from a direct dependency's spec (EOVERRIDE), so
+  // declare both tarballs as direct deps and have the override reference that spec.
+  run(`npm pkg set dependencies.supersurf-daemon=file:${daemonTgz} dependencies.supersurf-mcp=file:${serverTgz} 'overrides.supersurf-daemon=$supersurf-daemon'`, work);
+  run('npm install', work);
 
   const pkgRoot = join(work, 'node_modules', 'supersurf-mcp', 'dist');
   console.log('→ Loading entrypoints (VITEST=1)...');
