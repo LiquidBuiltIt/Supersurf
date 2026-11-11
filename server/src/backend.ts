@@ -21,10 +21,11 @@
  * @exports BackendConfig, TabInfo, BackendState, ToolSchema (re-exported from backend/types)
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { IExtensionTransport } from './bridge';
 import { UsageMetricsLogger } from './usage-metrics-logger';
 import { createLog } from 'shared';
+import type { EngineHost } from './host';
 
 // Re-export types so existing imports from './backend' still work
 export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend/types';
@@ -79,7 +80,7 @@ export class AgentSession implements AgentSessionAPI {
    *  broken file is named once rather than on every tool result. */
   private _warnedInvalidPlaybooks: Set<string> = new Set();
 
-  constructor(config: BackendConfig) {
+  constructor(config: BackendConfig, readonly host: EngineHost) {
     log('Constructor — starting in PASSIVE mode');
     this.config = config;
     this.debugMode = config.debug || false;
@@ -238,7 +239,7 @@ export class AgentSession implements AgentSessionAPI {
       // The logger captures the connect call itself, so this must run before the handler.
       const metricsEnabled = this.config.configService?.get().logging.usage_metrics ?? false;
       if (name === 'connect' && !this.metricsLogger && rawArguments.username && metricsEnabled) {
-        this.metricsLogger = new UsageMetricsLogger(String(rawArguments.username));
+        this.metricsLogger = new UsageMetricsLogger(String(rawArguments.username), undefined, this.host.packageVersion);
       }
 
       let result: any;

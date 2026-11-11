@@ -5,20 +5,20 @@
  * session-scoped state. Disconnecting one must leave the other's experiment
  * flags, humanized cursor state, bridge and metrics logger untouched.
  *
- * The daemon transport, daemon spawn, BrowserBridge, logger and metrics
+ * The daemon link (via a fake EngineHost), BrowserBridge, logger and metrics
  * logger are mocked. The experiment registry and the mouse-humanization
  * module are deliberately NOT mocked — they are what is under test.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AgentSession, BackendConfig } from '../src/backend';
 import { ConfigService } from 'shared';
+import { createFakeHost, fakeLink } from './helpers/fake-host';
 import { experimentRegistry } from '../src/experimental/index';
 import { initSession, getSession, destroySession } from '../src/experimental/mouse-humanization/index';
 
 // ---- Mocks ----
 
 const clearSessionLog = vi.fn();
-// A fresh transport object per construction, so bind() keying is observable.
 vi.mock('shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('shared')>();
   return {
@@ -31,22 +31,6 @@ vi.mock('shared', async (importOriginal) => {
       getLogger: vi.fn().mockReturnValue({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
     }),
     createLog: () => (..._args: unknown[]) => {},
-    DaemonClient: vi.fn(function (this: any, _sock: string, clientId: string) {
-      this.clientId = clientId;
-      this.start = vi.fn().mockResolvedValue(undefined);
-      this.stop = vi.fn().mockResolvedValue(undefined);
-      this.notifyClientId = vi.fn();
-      this.sendCmd = vi.fn().mockResolvedValue({});
-      this.connected = true;
-      this.browser = 'chrome';
-      this.buildTime = null;
-      this.version = '0.1.0';
-      this.extensionConnected = true;
-      this.onReconnect = null;
-      this.onTabInfoUpdate = null;
-      this.isConfigDrifted = vi.fn(() => false);
-      return this;
-    }),
   };
 });
 
@@ -55,12 +39,6 @@ vi.mock('../src/tips', async () => {
   const actual = await vi.importActual<typeof import('../src/tips')>('../src/tips');
   return { ...actual, clearTipCounters };
 });
-
-vi.mock('../src/daemon-spawn', () => ({
-  ensureDaemon: vi.fn().mockResolvedValue(undefined),
-  stopDaemon: vi.fn().mockResolvedValue(undefined),
-  getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
-}));
 
 vi.mock('../src/usage-metrics-logger', () => ({
   UsageMetricsLogger: vi.fn(function (this: any) {
@@ -103,7 +81,11 @@ function makeMockServer() {
 }
 
 async function connectManager(clientId: string): Promise<AgentSession> {
-  const mgr = new AgentSession(makeConfig());
+  // A fresh link per connect, so bind() keying is observable.
+  const host = createFakeHost({
+    openLink: vi.fn(async () => fakeLink({ sendCmd: vi.fn().mockResolvedValue({}) })),
+  });
+  const mgr = new AgentSession(makeConfig(), host);
   await mgr.initialize(makeMockServer(), {});
   const res = await mgr.callTool('connect', { username: clientId }, { rawResult: true });
   expect(res.success).toBe(true);

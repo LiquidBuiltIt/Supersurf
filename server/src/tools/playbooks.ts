@@ -134,7 +134,7 @@ async function doRun(ctx: ToolContext, args: any, deps: PlaybookDeps): Promise<a
   const profile = typeof args.profile === 'string' && args.profile.trim() ? args.profile.trim() : undefined;
 
   const run = deps.runPlaybook ?? realRunPlaybook;
-  const outcome = await run({ record: rec, params, caller: 'agent', profile });
+  const outcome = await run({ record: rec, params, caller: 'agent', profile, host: ctx.agentSession.host });
 
   const lines: string[] = [];
   for (const l of outcome.logs) lines.push(`  ${l}`);

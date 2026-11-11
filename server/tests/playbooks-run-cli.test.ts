@@ -7,6 +7,7 @@ import { setValidatorForTests, resetRegistryForTests } from '../src/playbooks/re
 import { parseParamFlags, runRun } from '../src/playbooks/run-cli';
 import type { ValidationRecord } from '../src/security/validate';
 import type { RunOutcome } from '../src/playbooks/runner';
+import { createFakeHost } from './helpers/fake-host';
 
 let dir: string;
 
@@ -109,6 +110,7 @@ describe('runRun — the terminal run path', () => {
     const s = sink();
     const seen: any[] = [];
     const code = await runRun('post_tweet', { param: ['text=hi'] }, {
+      host: createFakeHost(),
       ...s,
       runPlaybook: async (o) => { seen.push(o); return outcome(); },
     });
@@ -123,6 +125,7 @@ describe('runRun — the terminal run path', () => {
     const s = sink();
     const seen: any[] = [];
     await runRun('post_tweet', { param: [], profile: 'developer' }, {
+      host: createFakeHost(),
       ...s,
       runPlaybook: async (o) => { seen.push(o); return outcome(); },
     });
@@ -134,6 +137,7 @@ describe('runRun — the terminal run path', () => {
     const s = sink();
     const seen: any[] = [];
     const code = await runRun('Post-Tweet', { param: ['text=hi'] }, {
+      host: createFakeHost(),
       ...s,
       runPlaybook: async (o) => { seen.push(o); return outcome(); },
     });
@@ -163,6 +167,7 @@ describe('runRun — the terminal run path', () => {
       const s = sink();
       const seen: any[] = [];
       const code = await runRun('post_tweet', { param: [] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async (o) => { seen.push(o); return outcome(); },
       });
@@ -192,6 +197,7 @@ describe('runRun — the terminal run path', () => {
       seed();
       const s = sink();
       const code = await runRun('post_tweet', { param: ['text=hi'], json: true }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => outcome({ result: { id: 7 }, durationMs: 340 }),
       });
@@ -207,6 +213,7 @@ describe('runRun — the terminal run path', () => {
       const s = sink();
       const seen: any[] = [];
       await runRun('post_tweet', { param: [], json: true }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async (o) => { seen.push(o); return outcome(); },
       });
@@ -218,6 +225,7 @@ describe('runRun — the terminal run path', () => {
       const s = sink();
       const seen: any[] = [];
       await runRun('post_tweet', { param: [] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async (o) => { seen.push(o); return outcome(); },
       });
@@ -230,6 +238,7 @@ describe('runRun — the terminal run path', () => {
       seed();
       const s = sink();
       const code = await runRun('post_tweet', { param: [], json: true }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => outcome({
           ok: false, error: 'selector never appeared', durationMs: 900,
@@ -250,6 +259,7 @@ describe('runRun — the terminal run path', () => {
       seed();
       const s = sink();
       const code = await runRun('post_tweet', { param: [] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => outcome({ result: 'done', durationMs: 55 }),
       });
@@ -263,6 +273,7 @@ describe('runRun — the terminal run path', () => {
       seed();
       const s = sink();
       await runRun('post_tweet', { param: [] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => outcome({ result: { id: 7 } }),
       });
@@ -275,6 +286,7 @@ describe('runRun — the terminal run path', () => {
       seed();
       const s = sink();
       const code = await runRun('post_tweet', { param: [] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => outcome({
           ok: false, error: 'boom', durationMs: 900,
@@ -293,6 +305,7 @@ describe('runRun — the terminal run path', () => {
       seed();
       const s = sink();
       const code = await runRun('post_tweet', { param: [] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => outcome({ ok: false, error: 'boom' }),
       });
@@ -305,6 +318,7 @@ describe('runRun — the terminal run path', () => {
       seed();
       const s = sink();
       await runRun('post_tweet', { param: [] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => outcome({ ok: false }),
       });
@@ -317,6 +331,7 @@ describe('runRun — the terminal run path', () => {
       const s = sink();
       let called = false;
       const code = await runRun('nope', { param: [] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => { called = true; return outcome(); },
       });
@@ -339,6 +354,7 @@ describe('runRun — the terminal run path', () => {
       const s = sink();
       let called = false;
       const code = await runRun('post_tweet', { param: [] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => { called = true; return outcome(); },
       });
@@ -353,6 +369,7 @@ describe('runRun — the terminal run path', () => {
       const s = sink();
       let called = false;
       const code = await runRun('post_tweet', { param: ['count=lots'] }, {
+      host: createFakeHost(),
         ...s,
         runPlaybook: async () => { called = true; return outcome(); },
       });

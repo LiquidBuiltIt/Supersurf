@@ -1,10 +1,11 @@
 /**
  * AgentSessionManager — routing by username, exact error texts, identity
- * decoration. The daemon transport, daemon spawn, BrowserBridge, logger and
+ * decoration. The daemon link (via a fake EngineHost), BrowserBridge, logger and
  * metrics logger are mocked; AgentSession and the manager are real.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConfigService } from 'shared';
+import { createFakeHost, fakeLink } from './helpers/fake-host';
 import { AgentSessionManager } from '../src/agent-session-manager';
 import { experimentRegistry } from '../src/experimental/index';
 import type { BackendConfig } from '../src/backend';
@@ -38,34 +39,8 @@ vi.mock('shared', async (importOriginal) => {
       getLogger: vi.fn().mockReturnValue({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
     }),
     createLog: () => (..._args: unknown[]) => {},
-    DaemonClient: vi.fn(function (this: any, _sock: string, clientId: string) {
-      this.clientId = clientId;
-      this.start = vi.fn(async () => {
-        if (behavior.startDelayMs) await new Promise(r => setTimeout(r, behavior.startDelayMs));
-        if (behavior.connect === 'fail') throw new Error('daemon down');
-      });
-      this.stop = vi.fn().mockResolvedValue(undefined);
-      this.notifyClientId = vi.fn();
-      this.sendCmd = vi.fn().mockResolvedValue({});
-      this.connected = true;
-      this.browser = 'chrome';
-      this.buildTime = null;
-      this.version = '0.1.0';
-      this.extensionConnected = true;
-      this.onReconnect = null;
-      this.onTabInfoUpdate = null;
-      this.isConfigDrifted = vi.fn(() => false);
-      return this;
-    }),
   };
 });
-
-vi.mock('../src/daemon-spawn', () => ({
-  ensureDaemon: vi.fn().mockResolvedValue(undefined),
-  stopDaemon: vi.fn().mockResolvedValue(undefined),
-  getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
-  queryDaemonStatus: mocks.queryDaemonStatus,
-}));
 
 vi.mock('../src/usage-metrics-logger', () => ({
   UsageMetricsLogger: vi.fn(function (this: any) {
@@ -115,10 +90,20 @@ function makeConfig(fileOverrides: Record<string, unknown> = {}, multiAgent = tr
   };
 }
 
+// The fake host stands in for the daemon: `behavior` drives connect failure and delay.
+const mockHost = createFakeHost({
+  openLink: async (opts) => {
+    if (behavior.startDelayMs) await new Promise(r => setTimeout(r, behavior.startDelayMs));
+    if (behavior.connect === 'fail') throw new Error('daemon down');
+    return fakeLink({ clientId: opts.clientId, sendCmd: vi.fn().mockResolvedValue({}) });
+  },
+  queryDaemonStatus: () => mocks.queryDaemonStatus(),
+});
+
 const fakeServer = { sendToolsListChanged: vi.fn().mockResolvedValue(undefined) } as any;
 
 async function managerWith(names: string[], fileOverrides: Record<string, unknown> = {}): Promise<AgentSessionManager> {
-  const m = new AgentSessionManager(makeConfig(fileOverrides));
+  const m = new AgentSessionManager(makeConfig(fileOverrides), mockHost);
   await m.initialize(fakeServer, {});
   for (const username of names) await m.callTool('connect', { username });
   return m;
@@ -140,7 +125,7 @@ describe('AgentSessionManager', () => {
   afterEach(() => { vi.useRealTimers(); });
 
   it('injects a required username into every non-exempt schema', async () => {
-    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const m = new AgentSessionManager(makeConfig(), mockHost); await m.initialize(fakeServer, {});
     const tools = await m.listTools();
     const nav = tools.find(t => t.name === 'browser_navigate')!;
     expect(nav.inputSchema.required).toContain('username');
@@ -164,14 +149,14 @@ describe('AgentSessionManager', () => {
 
   it('does not keep a name whose connect failed', async () => {
     behavior.connect = 'fail';
-    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const m = new AgentSessionManager(makeConfig(), mockHost); await m.initialize(fakeServer, {});
     await m.callTool('connect', { username: 'sm-a' });
     expect(m.get('sm-a')).toBeUndefined();
   });
 
   it('concurrent connects for one name: exactly one wins, the other is rejected as in use', async () => {
     behavior.startDelayMs = 20;
-    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const m = new AgentSessionManager(makeConfig(), mockHost); await m.initialize(fakeServer, {});
     const [r1, r2] = await Promise.all([
       m.callTool('connect', { username: 'sm-a' }),
       m.callTool('connect', { username: 'sm-a' }),
@@ -187,7 +172,7 @@ describe('AgentSessionManager', () => {
     experimentRegistry.enable('sm-a', 'page_diffing');
     expect(experimentRegistry.isEnabled('page_diffing', 'sm-a')).toBe(true);
     behavior.initialize = 'throw';
-    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const m = new AgentSessionManager(makeConfig(), mockHost); await m.initialize(fakeServer, {});
     const r = await m.callTool('connect', { username: 'sm-a' });
     expect(r.isError).toBe(true);
     expect(m.get('sm-a')).toBeUndefined();
@@ -195,7 +180,7 @@ describe('AgentSessionManager', () => {
   });
 
   it('missing username: exact text, with the connect-first hint when nobody is live', async () => {
-    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const m = new AgentSessionManager(makeConfig(), mockHost); await m.initialize(fakeServer, {});
     const r = await m.callTool('browser_navigate', { url: 'x' });
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toContain('username required — your username is in the status line of your earlier SuperSurf results.');
@@ -273,7 +258,7 @@ describe('AgentSessionManager', () => {
   });
 
   it('status lists an optional username property', async () => {
-    const m = new AgentSessionManager(makeConfig()); await m.initialize(fakeServer, {});
+    const m = new AgentSessionManager(makeConfig(), mockHost); await m.initialize(fakeServer, {});
     const status = (await m.listTools()).find(t => t.name === 'status')!;
     expect((status.inputSchema.properties as Record<string, unknown>).username).toBeDefined();
     expect((status.inputSchema.required as string[] | undefined) ?? []).not.toContain('username');
@@ -411,7 +396,7 @@ describe('AgentSessionManager', () => {
     const MISSING_TEXT = "### Missing Required Parameter\n\n`client_id` is required.\n\n**Example:**\n```\nconnect client_id='my-project'\n```";
 
     async function plain(idle: Record<string, unknown> = {}): Promise<AgentSessionManager> {
-      const m = new AgentSessionManager(makeConfig(idle, false));
+      const m = new AgentSessionManager(makeConfig(idle, false), mockHost);
       await m.initialize(fakeServer, {});
       return m;
     }

@@ -27,6 +27,7 @@ import { getPlaybooksDir, normalizeName } from './paths';
 import { refreshRegistry, getRecord } from './registry';
 import { runPlaybook as realRunPlaybook, type RunOutcome } from './runner';
 import type { PlaybookMeta } from '../security/meta';
+import type { EngineHost } from '../host';
 
 export interface RunOpts {
   log?: (msg: string) => void;
@@ -34,6 +35,7 @@ export interface RunOpts {
 }
 
 export interface RunRunOpts extends RunOpts {
+  host: EngineHost;
   runPlaybook?: (opts: any) => Promise<RunOutcome>;
 }
 
@@ -72,7 +74,7 @@ export function parseParamFlags(
 export async function runRun(
   name: string,
   flags: { param?: string[]; profile?: string; json?: boolean },
-  opts: RunRunOpts = {},
+  opts: RunRunOpts,
 ): Promise<number> {
   const log = opts.log ?? console.log;
   const errLog = opts.errLog ?? console.error;
@@ -98,6 +100,7 @@ export async function runRun(
     record,
     params: parsed.params!,
     caller: 'cli',
+    host: opts.host,
     profile: flags.profile,
     onLog: flags.json ? undefined : (m: string) => log(`  ${m}`),
   });

@@ -15,7 +15,7 @@
 import { AgentSession } from './backend';
 import { USERNAME_RE } from './backend/handlers';
 import { isMultiAgent } from './backend/types';
-import { queryDaemonStatus } from './daemon-spawn';
+import type { EngineHost } from './host';
 import type { BackendConfig, ToolSchema } from './backend/types';
 
 const EXEMPT = new Set(['status', 'profile_create', 'profile_list', 'profile_delete', 'reload_mcp', 'experimental_features']);
@@ -43,8 +43,8 @@ export class AgentSessionManager {
   private _server: any = null;
   private _clientInfo: Record<string, unknown> = {};
 
-  constructor(private _config: BackendConfig) {
-    this._lobby = new AgentSession(_config);
+  constructor(private _config: BackendConfig, private readonly _host: EngineHost) {
+    this._lobby = new AgentSession(_config, _host);
     this._multi = isMultiAgent(_config);
   }
 
@@ -144,7 +144,7 @@ export class AgentSessionManager {
     // Validation of empty / malformed names stays in onConnect (Task 4) — one copy of those texts.
     this._connecting.add(username);
     try {
-      const session = new AgentSession(this._config);
+      const session = new AgentSession(this._config, this._host);
       await session.initialize(this._server, this._clientInfo);
       const result = await session.callTool('connect', { ...rest, username }, options);
       if (session.state !== 'passive') {
@@ -176,7 +176,7 @@ export class AgentSessionManager {
 
   /** Health only. Names and counts of other agents stay hidden until BACKLOG #69. */
   private async _status(raw: boolean, warning?: string): Promise<any> {
-    const d = await queryDaemonStatus();
+    const d = await this._host.queryDaemonStatus();
     const version = this._config.server.version;
     const daemon: any = d
       ? { running: true, version: d.version, uptime_seconds: Math.round(d.uptimeSeconds), extension_connected: !!d.extensionConnected, browser: d.extensionBrowser ?? null }

@@ -6,7 +6,7 @@
  * or raw JSON objects (for script mode via `rawResult: true`).
  *
  * State transitions managed here:
- *   - `onConnect`:  passive -> active (spawns daemon, connects via DaemonClient, creates BrowserBridge)
+ *   - `onConnect`:  passive -> active (host opens the daemon link, creates BrowserBridge)
  *   - `onDisconnect`: active/connected -> passive (closes daemon session)
  *   - `onReloadMCP`: triggers exit code 42 for the debug wrapper to restart
  *
@@ -14,8 +14,7 @@
  */
 
 import { isMultiAgent, type AgentSessionAPI } from './types';
-import { DaemonClient, type IExtensionTransport } from 'shared';
-import { ensureDaemon, stopDaemon, getSockPath } from '../daemon-spawn';
+import { isVersionMismatch, type DaemonLink, type IExtensionTransport } from 'shared';
 import { createLog, getRegistry } from 'shared';
 import { experimentRegistry, applyInitialState } from '../experimental/index';
 import {
@@ -98,8 +97,8 @@ export const BAD_NAME_TEXT =
   '`username` must be 1-64 characters: letters, digits, dot, dash or underscore, starting with a letter or digit (e.g. `claudebox-geo-research`).';
 
 /**
- * Connect to the SuperSurf daemon: validate username, spawn daemon if needed,
- * connect via DaemonClient, create BrowserBridge, apply pre-enabled experiments.
+ * Connect to the SuperSurf daemon: validate username, open the daemon link via the host,
+ * create BrowserBridge, apply pre-enabled experiments.
  * Transitions state from passive to active.
  */
 export async function onConnect(
@@ -169,65 +168,22 @@ export async function onConnect(
   try {
     const port = mgr.config.port || 5555;
 
-    // Spawn daemon if not running
-    log('Ensuring daemon is running...');
-    await ensureDaemon(port, mgr.debugMode, mgr.config.enabledExperiments || []);
-
-    // Connect to daemon via Unix socket
-    const sockPath = getSockPath();
-    let client = new DaemonClient(sockPath, mgr.clientId!);
-    await client.start();
-
-    // Refuse to attach to a daemon of a different generation. ensureDaemon
-    // only checks PID liveness, so a stale daemon from a previous package
-    // version survives upgrades — restart it once with the bundled daemon
-    // (owner decision 2026-08-25: daemon lifecycle is server-owned infra,
-    // so the restart lives in core, not smart mode).
-    let daemonVersion = client.version;
-    const serverVersion = mgr.config.server.version;
-    if (daemonVersion !== serverVersion) {
-      // Don't SIGTERM a daemon another session is mid-workflow on.
-      // `activeSessionCount` includes this session's own ack, so >1 means
-      // someone else is genuinely live on it.
-      //
-      // The daemon we're inspecting here is, by definition, an OLD build —
-      // it may predate this field entirely and send nothing. Absent/undefined
-      // must fall back to today's restart behaviour, not to refusing, or this
-      // guard bricks the very upgrade path it's meant to protect.
-      const sessionCount = client.activeSessionCount;
-      if (sessionCount !== null && sessionCount > 1) {
-        await client.stop().catch(() => {});
-        mgr.state = 'passive';
-        const otherSessions = sessionCount - 1;
-        return versionMismatchFailure(
-          mgr,
-          daemonVersion,
-          serverVersion,
-          `The daemon was NOT restarted because ${otherSessions} other session` +
-            `${otherSessions === 1 ? '' : 's'} ${otherSessions === 1 ? 'is' : 'are'} ` +
-            'currently active on it, and a restart would disconnect them.',
-          options,
-        );
-      }
-
-      log(`Daemon version mismatch (daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}) — restarting daemon`);
-      await client.stop().catch(() => {});
-      await stopDaemon();
-      await ensureDaemon(port, mgr.debugMode, mgr.config.enabledExperiments || []);
-      client = new DaemonClient(sockPath, mgr.clientId!);
-      await client.start();
-      daemonVersion = client.version;
-    }
-    if (daemonVersion !== serverVersion) {
-      await client.stop().catch(() => {});
+    // The host spawns the daemon if needed, connects, and enforces the
+    // daemon/server version guard (see server/src/socket-link.ts).
+    let client: DaemonLink;
+    try {
+      client = await mgr.host.openLink({
+        clientId: mgr.clientId!,
+        port,
+        debug: mgr.debugMode,
+        experiments: mgr.config.enabledExperiments || [],
+        serverVersion: mgr.config.server.version,
+        guardVersion: true,
+      });
+    } catch (e) {
+      if (!isVersionMismatch(e)) throw e;
       mgr.state = 'passive';
-      return versionMismatchFailure(
-        mgr,
-        daemonVersion,
-        serverVersion,
-        'Something outside this server keeps respawning it.',
-        options,
-      );
+      return versionMismatchFailure(mgr, e.daemonVersion, e.serverVersion, e.reason, options);
     }
 
     // A version-rejected extension. Without this the session proceeds, the
@@ -650,12 +606,16 @@ async function withDaemonConnection(
     });
   }
 
-  // Create a temporary daemon connection
-  await ensureDaemon(mgr.config.port || 5555, mgr.debugMode, mgr.config.enabledExperiments || []);
-  const sockPath = getSockPath();
-  const tempClient = new DaemonClient(sockPath, `profile-mgmt-${Date.now()}`);
+  // Create a temporary daemon connection (no version guard: profile tools never refused on mismatch)
+  const tempClient = await mgr.host.openLink({
+    clientId: `profile-mgmt-${Date.now()}`,
+    port: mgr.config.port || 5555,
+    debug: mgr.debugMode,
+    experiments: mgr.config.enabledExperiments || [],
+    serverVersion: mgr.config.server.version,
+    guardVersion: false,
+  });
   try {
-    await tempClient.start();
     return await fn({
       sendCmd: (method, params, timeout) => tempClient.sendCmd(method, params, timeout),
     });

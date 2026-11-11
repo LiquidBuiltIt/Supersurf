@@ -3,10 +3,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { AgentSession, BackendConfig } from '../src/backend';
-import { ConfigService } from 'shared';
+import { ConfigService, versionMismatch } from 'shared';
+import { createFakeHost } from './helpers/fake-host';
+import type { EngineHost } from '../src/host';
 import { setPlaybooksDirForTests, playbookFile } from '../src/playbooks/paths';
 import { refreshRegistry, resetRegistryForTests, setValidatorForTests } from '../src/playbooks/registry';
-import { ensureDaemon, stopDaemon } from '../src/daemon-spawn';
 
 // ---- Mocks ----
 
@@ -28,7 +29,7 @@ vi.mock('../src/experimental/index', () => ({
   applyInitialState: vi.fn(),
 }));
 
-// Mock DaemonClient (replaces ExtensionServer mock)
+// The daemon link the fake host's openLink hands out
 const mockDaemonClientInstance = {
   start: vi.fn().mockResolvedValue(undefined),
   stop: vi.fn().mockResolvedValue(undefined),
@@ -63,18 +64,8 @@ vi.mock('shared', async (importOriginal) => {
       getLogger: vi.fn().mockReturnValue({ log: vi.fn(), enable: vi.fn(), disable: vi.fn() }),
     }),
     createLog: () => (..._args: unknown[]) => {},
-    DaemonClient: vi.fn(function () {
-      return mockDaemonClientInstance;
-    }),
   };
 });
-
-// Mock daemon-spawn
-vi.mock('../src/daemon-spawn', () => ({
-  ensureDaemon: vi.fn().mockResolvedValue(undefined),
-  stopDaemon: vi.fn().mockResolvedValue(undefined),
-  getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
-}));
 
 // Mock UsageMetricsLogger
 const mockMetricsWrite = vi.fn();
@@ -132,10 +123,11 @@ function makeMockServer() {
 
 describe('AgentSession', () => {
   let backend: AgentSession;
+  let host: EngineHost;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset mock state for DaemonClient instance
+    // Reset mock state for the link instance
     mockDaemonClientInstance.start.mockResolvedValue(undefined);
     mockDaemonClientInstance.stop.mockResolvedValue(undefined);
     mockDaemonClientInstance.buildTime = null;
@@ -149,7 +141,8 @@ describe('AgentSession', () => {
     mockDaemonClientInstance.getPeerSessions.mockReturnValue([]);
     mockMetricsWrite.mockClear();
 
-    backend = new AgentSession(makeConfig());
+    host = createFakeHost({ openLink: vi.fn(async () => mockDaemonClientInstance as any) });
+    backend = new AgentSession(makeConfig(), host);
   });
 
   afterEach(() => {
@@ -200,15 +193,12 @@ describe('AgentSession', () => {
       expect(result.port).toBe(5555);
     });
 
-    it('spawns daemon and creates DaemonClient', async () => {
-      const { ensureDaemon } = await import('../src/daemon-spawn');
-      const { DaemonClient } = await import('shared');
-
+    it('opens the daemon link through the host', async () => {
       await backend.callTool('connect', { username: 'test' });
 
-      expect(ensureDaemon).toHaveBeenCalled();
-      expect(DaemonClient).toHaveBeenCalled();
-      expect(mockDaemonClientInstance.start).toHaveBeenCalled();
+      expect(host.openLink).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: 'test', port: 5555, debug: false, experiments: [], guardVersion: true }),
+      );
     });
 
     it('returns error without username', async () => {
@@ -230,7 +220,7 @@ describe('AgentSession', () => {
     });
 
     it('connect requires username and rejects a malformed one', async () => {
-      const mgr = new AgentSession(makeConfig());
+      const mgr = new AgentSession(makeConfig(), host);
       expect(await mgr.callTool('connect', {}, { rawResult: true }))
         .toMatchObject({ success: false, error: 'missing_username' });
       expect(await mgr.callTool('connect', { username: '../etc' }, { rawResult: true }))
@@ -244,7 +234,7 @@ describe('AgentSession', () => {
       );
       expect(USERNAME_RE.test('a'.repeat(64))).toBe(true);
       expect(USERNAME_RE.test('a'.repeat(65))).toBe(false);
-      const mgr = new AgentSession(makeConfig());
+      const mgr = new AgentSession(makeConfig(), host);
       const raw = await mgr.callTool('connect', { username: '-bad' }, { rawResult: true });
       expect(raw.message).toBe(BAD_NAME_TEXT);
       const mcp = await mgr.callTool('connect', { username: 'a b' });
@@ -276,26 +266,25 @@ describe('AgentSession', () => {
     });
 
     it('handles daemon connection failure gracefully', async () => {
-      mockDaemonClientInstance.start.mockRejectedValueOnce(new Error('Connection refused'));
+      (host.openLink as any).mockRejectedValueOnce(new Error('Connection refused'));
 
       const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
       expect(result.success).toBe(false);
       expect(result.error).toBe('connection_failed');
     });
 
-    it('refuses to connect when the daemon version mismatches', async () => {
-      mockDaemonClientInstance.version = '0.0.1'; // stale daemon still running, older than the mocked server's 0.1.0
+    it('refuses to connect when the host reports a daemon version mismatch', async () => {
+      (host.openLink as any).mockRejectedValueOnce(versionMismatch('0.0.1', '0.1.0', 'Because reasons.'));
 
       const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('version_mismatch');
       expect(result.message).toContain('supersurf-daemon@latest restart');
-      expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
     });
 
     it('refuses to connect when the daemon reports no version (pre-v3)', async () => {
-      mockDaemonClientInstance.version = null;
+      (host.openLink as any).mockRejectedValueOnce(versionMismatch(null, '0.1.0', 'Because reasons.'));
 
       const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
@@ -309,7 +298,7 @@ describe('AgentSession', () => {
     });
 
     it('includes the upgrade notice in the response text when the startup flag is set', async () => {
-      const noticeBackend = new AgentSession(makeConfig({ showUpgradeNotice: true }));
+      const noticeBackend = new AgentSession(makeConfig({ showUpgradeNotice: true }), host);
       await noticeBackend.initialize(makeMockServer(), {});
 
       const result = await noticeBackend.callTool('connect', { username: 'test' });
@@ -394,82 +383,21 @@ describe('AgentSession', () => {
     });
   });
 
-  describe('daemon version mismatch auto-restart', () => {
-    it('restarts a stale daemon once and connects on version match', async () => {
-      mockDaemonClientInstance.version = '0.0.1-stale';
-      // The restart respawns the bundled daemon — model that by having
-      // stopDaemon flip the mock daemon to the matching version.
-      (stopDaemon as any).mockImplementationOnce(async () => {
-        mockDaemonClientInstance.version = '0.1.0';
-      });
-
-      await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { username: 'test' });
-
-      expect(stopDaemon).toHaveBeenCalledTimes(1);
-      expect(ensureDaemon).toHaveBeenCalledTimes(2);
-      expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('Connected to Service');
-    });
-
-    it('errors with the exact restart command when the mismatch survives the restart', async () => {
-      mockDaemonClientInstance.version = '0.0.1-stale';
-
-      await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { username: 'test' });
-
-      expect(stopDaemon).toHaveBeenCalledTimes(1);
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Daemon Version Mismatch');
-      expect(result.content[0].text).toContain('npx supersurf-daemon@latest restart');
-    });
-
-    it('skips the restart and fails connect when other sessions are active on the mismatched daemon', async () => {
-      mockDaemonClientInstance.version = '0.0.1-stale';
-      mockDaemonClientInstance.activeSessionCount = 2; // this session + 1 other
+  describe('daemon version mismatch rendering', () => {
+    it('records the refusal reason so a later status can show it', async () => {
+      (host.openLink as any).mockRejectedValueOnce(
+        versionMismatch('0.0.1-stale', '0.1.0', 'The daemon was NOT restarted because 1 other session is currently active on it.'),
+      );
 
       await backend.initialize(makeMockServer(), {});
       const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
 
-      expect(stopDaemon).not.toHaveBeenCalled();
-      expect(result.success).toBe(false);
       expect(result.error).toBe('version_mismatch');
       expect(result.message).toContain('1 other session');
       expect(result.message).toContain('supersurf-daemon@latest restart');
-      expect(mockDaemonClientInstance.stop).toHaveBeenCalled();
       // Without this a later `status` renders a bare "Disabled" and the refusal
       // leaves no trace of why it happened.
       expect(backend.lastConnectError).toContain(`version mismatch causes instability`);
-    });
-
-    it('restarts as today when the mismatched daemon reports only this session', async () => {
-      mockDaemonClientInstance.version = '0.0.1-stale';
-      mockDaemonClientInstance.activeSessionCount = 1; // only this session
-      (stopDaemon as any).mockImplementationOnce(async () => {
-        mockDaemonClientInstance.version = '0.1.0';
-      });
-
-      await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { username: 'test' });
-
-      expect(stopDaemon).toHaveBeenCalledTimes(1);
-      expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('Connected to Service');
-    });
-
-    it('restarts as today when the daemon omits activeSessionCount (pre-upgrade daemon)', async () => {
-      mockDaemonClientInstance.version = '0.0.1-stale';
-      mockDaemonClientInstance.activeSessionCount = null; // old daemon build, field absent
-      (stopDaemon as any).mockImplementationOnce(async () => {
-        mockDaemonClientInstance.version = '0.1.0';
-      });
-
-      await backend.initialize(makeMockServer(), {});
-      const result = await backend.callTool('connect', { username: 'test' });
-
-      expect(stopDaemon).toHaveBeenCalledTimes(1);
-      expect(result.isError).toBeUndefined();
-      expect(result.content[0].text).toContain('Connected to Service');
     });
 
     it('names restarting the client, not the daemon, when the SERVER is the stale side', async () => {
@@ -477,7 +405,7 @@ describe('AgentSession', () => {
       // and holds it for the life of the session, so after a daemon upgrade the
       // SERVER is usually the stale half. `npx supersurf-daemon@latest restart`
       // fixes nothing there — the message must say so instead of repeating it.
-      mockDaemonClientInstance.version = '5.0.0'; // newer than the mocked server's 0.1.0
+      (host.openLink as any).mockRejectedValueOnce(versionMismatch('5.0.0', '0.1.0', 'Because reasons.')); // newer than the mocked server's 0.1.0
 
       await backend.initialize(makeMockServer(), {});
       const result = await backend.callTool('connect', { username: 'test' }, { rawResult: true });
@@ -841,7 +769,7 @@ describe('AgentSession', () => {
     });
 
     it('triggers reload in debug mode', async () => {
-      const debugBackend = new AgentSession(makeConfig({ debug: true }));
+      const debugBackend = new AgentSession(makeConfig({ debug: true }), host);
       const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
       vi.useFakeTimers();
 
@@ -857,7 +785,7 @@ describe('AgentSession', () => {
     });
 
     it('returns MCP-formatted reload message in debug mode', async () => {
-      const debugBackend = new AgentSession(makeConfig({ debug: true }));
+      const debugBackend = new AgentSession(makeConfig({ debug: true }), host);
       const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
       vi.useFakeTimers();
 
@@ -961,7 +889,7 @@ describe('AgentSession', () => {
     });
 
     it('includes build timestamp in debug mode', async () => {
-      const debugBackend = new AgentSession(makeConfig({ debug: true }));
+      const debugBackend = new AgentSession(makeConfig({ debug: true }), host);
       await debugBackend.initialize(makeMockServer(), {});
 
       mockDaemonClientInstance.buildTime = '2026-01-15T10:30:00.000Z';
@@ -1310,7 +1238,7 @@ describe('AgentSession', () => {
 
       await backend.callTool('connect', { username: 'audit-test' });
 
-      expect(UsageMetricsLogger).toHaveBeenCalledWith('audit-test');
+      expect(UsageMetricsLogger).toHaveBeenCalledWith('audit-test', undefined, '0.1.0');
       expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           session_id: 'audit-test',
@@ -1398,11 +1326,11 @@ describe('AgentSession', () => {
       // But if username is present and the daemon fails:
       mockMetricsWrite.mockClear();
       (UsageMetricsLogger as any).mockClear();
-      mockDaemonClientInstance.start.mockRejectedValueOnce(new Error('Connection refused'));
+      (host.openLink as any).mockRejectedValueOnce(new Error('Connection refused'));
 
       const result2 = await backend.callTool('connect', { username: 'fail-test' }, { rawResult: true });
       expect(result2.success).toBe(false);
-      expect(UsageMetricsLogger).toHaveBeenCalledWith('fail-test');
+      expect(UsageMetricsLogger).toHaveBeenCalledWith('fail-test', undefined, '0.1.0');
       expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           tool: 'connect',
@@ -1450,10 +1378,47 @@ describe('AgentSession', () => {
     });
 
     it('includes reload_mcp in debug mode', async () => {
-      const debugBackend = new AgentSession(makeConfig({ debug: true }));
+      const debugBackend = new AgentSession(makeConfig({ debug: true }), host);
       const tools = await debugBackend.listTools();
       const names = tools.map((t: any) => t.name);
       expect(names).toContain('reload_mcp');
     });
+  });
+});
+
+describe('onConnect maps a host version refusal to the legacy block', () => {
+  it('renders the Daemon Version Mismatch text and returns to passive', async () => {
+    const host = createFakeHost({
+      openLink: vi.fn().mockRejectedValue(versionMismatch('0.0.1', '0.1.0', 'Because reasons.')),
+    });
+    const session = new AgentSession(makeConfig(), host);
+    await session.initialize(null as any, {});
+    const res = await session.callTool('connect', { username: 'agent-a' });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('### Daemon Version Mismatch');
+    expect(res.content[0].text).toContain(
+      'A daemon/server version mismatch causes instability and errors (daemon: 0.0.1, server: 0.1.0). Because reasons.',
+    );
+    expect(res.content[0].text).toContain('Restarting the daemon so both match is strongly recommended');
+    expect((session as any).state).toBe('passive');
+  });
+
+  it('a non-mismatch failure still takes the generic connection_failed path', async () => {
+    const host = createFakeHost({ openLink: vi.fn().mockRejectedValue(new Error('socket gone')) });
+    const session = new AgentSession(makeConfig(), host);
+    await session.initialize(null as any, {});
+    const res = await session.callTool('connect', { username: 'agent-b' }, { rawResult: true });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('connection_failed');
+  });
+
+  it('opens the link with the session identity and the guard on', async () => {
+    const host = createFakeHost();
+    const session = new AgentSession(makeConfig(), host);
+    await session.initialize(null as any, {});
+    await session.callTool('connect', { username: 'agent-c' });
+    expect(host.openLink).toHaveBeenCalledWith(
+      expect.objectContaining({ clientId: 'agent-c', guardVersion: true, serverVersion: '0.1.0' }),
+    );
   });
 });

@@ -33,6 +33,7 @@ import {
   UPGRADE_NOTICE_MESSAGE,
 } from 'shared';
 import { buildConfigService, backendConfigFrom } from './backend-config';
+import { createEngineHost } from './engine-host';
 
 const { version: VERSION } = require('../package.json');
 
@@ -186,7 +187,7 @@ async function main(options: any): Promise<void> {
   }
 
   const config = backendConfigFrom(configService, VERSION, versionCheck.shouldNotify);
-  const backend = new AgentSessionManager(config);
+  const backend = new AgentSessionManager(config, createEngineHost(VERSION));
 
   if ((global as any).DEBUG_MODE) {
     console.error(`[cli] Creating MCP Server v${VERSION}...`);
@@ -250,7 +251,7 @@ program
       }
       const configService = buildConfigService(options, (m) => console.error(`[server] ${m}`));
       const config = backendConfigFrom(configService, VERSION, versionCheck.shouldNotify);
-      await startScriptMode(config);
+      await startScriptMode(config, createEngineHost(VERSION));
       return;
     }
 
@@ -295,7 +296,7 @@ playbook
     // it never invokes.
     try {
       const { runRun } = await import('./playbooks/run-cli');
-      process.exitCode = await runRun(name, flags);
+      process.exitCode = await runRun(name, flags, { host: createEngineHost(VERSION) });
     } catch (err) {
       console.error(`[playbook] ${err instanceof Error ? err.message : String(err)}`);
       process.exitCode = 1;

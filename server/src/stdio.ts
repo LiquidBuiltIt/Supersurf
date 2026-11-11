@@ -15,10 +15,11 @@
 import readline from 'readline';
 import { AgentSessionManager } from './agent-session-manager';
 import type { BackendConfig } from './backend';
+import type { EngineHost } from './host';
 
 /** Initialize script mode: create backend, wire up readline for JSON-RPC, register signal handlers. */
-export async function startScriptMode(config: BackendConfig): Promise<void> {
-  const backend = new AgentSessionManager(config);
+export async function startScriptMode(config: BackendConfig, host: EngineHost): Promise<void> {
+  const backend = new AgentSessionManager(config, host);
   await backend.initialize(null, {});
 
   const rl = readline.createInterface({

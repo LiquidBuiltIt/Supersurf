@@ -8,6 +8,7 @@ import { readRunRecords } from '../src/playbooks/runs';
 import { validateParams, runPlaybook, defaultEnableExperiments, type RunnerBackend } from '../src/playbooks/runner';
 import { getSession } from '../src/experimental/mouse-humanization/index';
 import type { ValidationRecord } from '../src/security/validate';
+import { createFakeHost } from './helpers/fake-host';
 
 let dir: string;
 beforeEach(() => {
@@ -83,6 +84,7 @@ describe('runPlaybook', () => {
   it('connects with its own username, opens its own tab, closes it, disconnects', async () => {
     const { backend, calls } = fakeBackend();
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async () => ({ ok: true, result: 'done', durationMs: 5 }),
@@ -100,6 +102,7 @@ describe('runPlaybook', () => {
     const { USERNAME_RE } = await import('../src/backend/handlers');
     const { backend, calls } = fakeBackend();
     await runPlaybook({
+      host: createFakeHost(),
       record: record({ name: 'n'.repeat(70) }), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async () => ({ ok: true, result: 'done', durationMs: 5 }),
@@ -113,6 +116,7 @@ describe('runPlaybook', () => {
   it('passes the profile through to connect', async () => {
     const { backend, calls } = fakeBackend();
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', profile: 'reselling-fb',
       createBackend: () => backend,
       runScript: async () => ({ ok: true, durationMs: 1 }),
@@ -123,6 +127,7 @@ describe('runPlaybook', () => {
   it('routes an onCommand call through the command map to callTool', async () => {
     const { backend, calls } = fakeBackend();
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async (opts) => {
@@ -138,6 +143,7 @@ describe('runPlaybook', () => {
     const { backend } = fakeBackend({ browser_interact: { success: false, error: 'Element not found' } });
     let thrown: string | null = null;
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async (opts) => {
@@ -158,6 +164,7 @@ describe('runPlaybook', () => {
     });
     let thrown: string | null = null;
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async (opts) => {
@@ -172,6 +179,7 @@ describe('runPlaybook', () => {
   it('does not capture evidence on success', async () => {
     const { backend, calls } = fakeBackend();
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async () => ({ ok: true, durationMs: 1 }),
@@ -184,6 +192,7 @@ describe('runPlaybook', () => {
     const { backend, calls } = fakeBackend();
     const enabled: string[] = [];
     await runPlaybook({
+      host: createFakeHost(),
       record: record({ meta: { description: 'd', experiments: true } as any }),
       params: {}, caller: 'agent',
       createBackend: () => backend,
@@ -205,6 +214,7 @@ describe('runPlaybook', () => {
     const { backend } = fakeBackend();
     let seen = '';
     await runPlaybook({
+      host: createFakeHost(),
       record: record({ meta: { description: 'd', experiments: true } as any }),
       params: {}, caller: 'agent',
       createBackend: () => backend,
@@ -218,6 +228,7 @@ describe('runPlaybook', () => {
     const { backend } = fakeBackend();
     let seen = '';
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       enableExperiments: (clientId: string) => { seen = clientId; },
@@ -230,6 +241,7 @@ describe('runPlaybook', () => {
     const { backend } = fakeBackend();
     let touched = false;
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       enableExperiments: () => { touched = true; },
@@ -248,6 +260,7 @@ describe('runPlaybook', () => {
       },
     };
     await runPlaybook({
+      host: createFakeHost(),
       record: record({ meta: { description: 'd', experiments: true } as any }),
       params: {}, caller: 'agent',
       createBackend: () => backend,
@@ -260,6 +273,7 @@ describe('runPlaybook', () => {
   it('appends a run record with the caller and the params', async () => {
     const { backend } = fakeBackend();
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', profile: 'dev',
       createBackend: () => backend,
       runScript: async () => ({ ok: true, durationMs: 12 }),
@@ -272,6 +286,7 @@ describe('runPlaybook', () => {
   it('closes the tab and disconnects even when connect succeeds but the script throws', async () => {
     const { backend, calls } = fakeBackend();
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async () => { throw new Error('host exploded'); },
@@ -291,6 +306,7 @@ describe('runPlaybook', () => {
       },
     };
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async () => ({ ok: true, durationMs: 1 }),
@@ -311,6 +327,7 @@ describe('runPlaybook', () => {
       },
     };
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async () => ({ ok: true, durationMs: 1 }),
@@ -331,6 +348,7 @@ describe('runPlaybook', () => {
       },
     };
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async () => ({ ok: true, durationMs: 1 }),
@@ -344,6 +362,7 @@ describe('runPlaybook', () => {
   it('refuses a record with no meta', async () => {
     const { backend } = fakeBackend();
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record({ valid: false, meta: undefined, error: 'blocked API: require' }),
       params: {}, caller: 'agent',
       createBackend: () => backend,
@@ -356,6 +375,7 @@ describe('runPlaybook', () => {
   it('collects the script\'s log lines', async () => {
     const { backend } = fakeBackend();
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'agent',
       createBackend: () => backend,
       runScript: async (opts) => { opts.onLog('step 1'); opts.onLog('step 2'); return { ok: true, durationMs: 1 }; },
@@ -368,6 +388,7 @@ describe('typed run failures', () => {
   it('types a validation refusal without touching the browser', async () => {
     const { backend, calls } = fakeBackend();
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record({ valid: false, error: 'parse error at line 3', meta: undefined }),
       params: {}, caller: 'cli', createBackend: () => backend,
     });
@@ -380,6 +401,7 @@ describe('typed run failures', () => {
   it('types a bad param set as Refused', async () => {
     const { backend } = fakeBackend();
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: {}, caller: 'cli', createBackend: () => backend,
     });
     expect(out.type).toBe('Refused');
@@ -400,6 +422,7 @@ describe('typed run failures', () => {
   it('types a withheld method as Refused and persists that type to the sidecar', async () => {
     const { backend } = fakeBackend();
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
       runScript: async (opts: any) => {
         await opts.onCommand('connect', {});
@@ -415,6 +438,7 @@ describe('typed run failures', () => {
   it('types an unknown method as Refused too', async () => {
     const { backend } = fakeBackend();
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
       runScript: async (opts: any) => {
         await opts.onCommand('teleport', {});
@@ -429,6 +453,7 @@ describe('typed run failures', () => {
       async callTool(n) { return n === 'connect' ? { success: false, message: 'no daemon' } : { success: true }; },
     };
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
     });
     expect(out.type).toBe('HarnessUnavailable');
@@ -443,6 +468,7 @@ describe('typed run failures', () => {
       },
     };
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
     });
     expect(out.type).toBe('HarnessUnavailable');
@@ -457,6 +483,7 @@ describe('typed run failures', () => {
       browser_interact: { success: false, error: 'Element not found: .Layout-sidebar' },
     });
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: realRecord(`export default async function ({ supersurf }) {
   await supersurf.goto('https://example.com');
   await supersurf.click('.Layout-sidebar');
@@ -480,6 +507,7 @@ describe('typed run failures', () => {
       },
     };
     const out = await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
       runScript: async () => ({
         ok: false, error: 'Element not found: .Layout-sidebar',
@@ -495,6 +523,7 @@ describe('typed run failures', () => {
       browser_evaluate: { url: 'https://example.com', title: 'Ex', candidates: [{ selector: 'div.SidebarAbout' }] },
     });
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
       runScript: async () => ({
         ok: false, error: 'Element not found: .Layout-sidebar',
@@ -515,6 +544,7 @@ describe('typed run failures', () => {
         async callTool(n) { calls.push(n); return { success: true }; },
       };
       const out = await runPlaybook({
+      host: createFakeHost(),
         record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
         runScript: async () => ({ ok: false, error: 'x', type, durationMs: 1 }),
       });
@@ -527,6 +557,7 @@ describe('typed run failures', () => {
   it('persists the stack for every in-child throw', async () => {
     const { backend } = fakeBackend();
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
       runScript: async () => ({
         ok: false, error: 'boom', type: 'ScriptAssertion',
@@ -551,6 +582,7 @@ describe('typed run failures', () => {
       },
     };
     await runPlaybook({
+      host: createFakeHost(),
       record: record(), params: { text: 'hi' }, caller: 'cli', createBackend: () => backend,
       runScript: async () => ({
         ok: false, error: 'Element not found: .x',

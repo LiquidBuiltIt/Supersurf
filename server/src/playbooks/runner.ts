@@ -17,7 +17,7 @@
 
 // runner → backend is the intended direction; backend never imports runner statically (see backend/load-bridge.ts).
 import { AgentSession } from '../backend';
-import { buildConfigService, backendConfigFrom } from '../backend-config';
+import type { EngineHost } from '../host';
 import { mapCommand } from './command-map';
 import { experimentRegistry } from '../experimental';
 import { initSession as initHumanization } from '../experimental/mouse-humanization/index';
@@ -37,8 +37,6 @@ import {
 } from './errors';
 import { captureCandidates, type Candidate } from './candidates';
 
-const { version: PACKAGE_VERSION } = require('../../package.json');
-
 /** The sandbox-host entrypoint, seam-able for unit tests. */
 type RunScript = (opts: PlaybookRunOptions) => Promise<PlaybookRunResult>;
 
@@ -51,6 +49,7 @@ export interface RunPlaybookOptions {
   record: ValidationRecord;
   params: Record<string, unknown>;
   caller: 'agent' | 'cli';
+  host: EngineHost;
   /** Overrides `meta.profile`, which is only a default. */
   profile?: string;
   onLog?: (msg: string) => void;
@@ -81,8 +80,8 @@ export interface RunOutcome {
   evidence?: { url?: string; title?: string; candidates?: Candidate[] };
 }
 
-function defaultBackend(): RunnerBackend {
-  return new AgentSession(backendConfigFrom(buildConfigService({}), PACKAGE_VERSION));
+function defaultBackend(host: EngineHost): RunnerBackend {
+  return new AgentSession(host.runConfig(), host);
 }
 
 /**
@@ -224,7 +223,7 @@ export async function runPlaybook(opts: RunPlaybookOptions): Promise<RunOutcome>
   }
 
   const runScript: RunScript = opts.runScript ?? runPlaybookScript;
-  const backend = (opts.createBackend ?? defaultBackend)();
+  const backend = (opts.createBackend ?? (() => defaultBackend(opts.host)))();
 
   // Own session. The daemon rejects a duplicate id, so this must not collide
   // with the parent MCP session's username.

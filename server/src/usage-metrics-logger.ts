@@ -14,15 +14,6 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const PKG_VERSION: string = (() => {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-    return pkg.version ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
-})();
-
 const METRICS_DIR = path.join(os.homedir(), '.supersurf', 'logs', 'sessions');
 
 const SENSITIVE_KEYS = new Set(['value', 'password', 'token', 'secret', 'credential']);
@@ -58,7 +49,7 @@ export interface MetricsEntry {
 export class UsageMetricsLogger {
   readonly filePath: string;
 
-  constructor(sessionId: string, metricsDir?: string) {
+  constructor(sessionId: string, metricsDir?: string, private readonly version = 'unknown') {
     const dir = metricsDir ?? METRICS_DIR;
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -69,7 +60,7 @@ export class UsageMetricsLogger {
   write(entry: Omit<MetricsEntry, 'ts' | 'version'>): void {
     const line = JSON.stringify({
       ts: new Date().toISOString(),
-      version: PKG_VERSION,
+      version: this.version,
       ...entry,
       params: redactParams(entry.params),
     });

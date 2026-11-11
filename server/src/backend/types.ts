@@ -11,6 +11,7 @@
 import type { IExtensionTransport } from '../bridge';
 import type { UsageMetricsLogger } from '../usage-metrics-logger';
 import type { ConfigService } from 'shared';
+import type { EngineHost } from '../host';
 
 /** Server configuration resolved from CLI options and environment variables. */
 export interface BackendConfig {
@@ -56,6 +57,7 @@ export interface ToolSchema {
  */
 export interface AgentSessionAPI {
   config: BackendConfig;
+  readonly host: EngineHost;
   debugMode: boolean;
   state: BackendState;
   bridge: any;

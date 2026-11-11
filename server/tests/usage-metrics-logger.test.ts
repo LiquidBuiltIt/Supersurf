@@ -313,4 +313,17 @@ describe('UsageMetricsLogger', () => {
     expect(entry.client).toBeUndefined();
     expect(entry.experiments).toBeUndefined();
   });
+
+  it('stamps each entry with the version it was constructed with', () => {
+    const logger = new UsageMetricsLogger('version-test', tempDir, '9.9.9');
+    logger.write({
+      session_id: 'version-test',
+      tool: 'browser_navigate',
+      params: {},
+      result: 'ok',
+      duration_ms: 1,
+    });
+    const entry = JSON.parse(fs.readFileSync(logger.getPath(), 'utf8').trim().split('\n').pop()!);
+    expect(entry.version).toBe('9.9.9');
+  });
 });

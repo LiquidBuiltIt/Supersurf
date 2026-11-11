@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Readable } from 'stream';
 import { ConfigService } from 'shared';
+import { createFakeHost } from './helpers/fake-host';
 
-// Mock the logger and DaemonClient (replaces ExtensionServer)
+// Mock the logger
 vi.mock('shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('shared')>();
   return {
@@ -13,32 +14,8 @@ vi.mock('shared', async (importOriginal) => {
       disable: vi.fn(),
     }),
     createLog: () => (..._args: unknown[]) => {},
-    DaemonClient: vi.fn(function (this: any) {
-      Object.assign(this, {
-        start: vi.fn().mockResolvedValue(undefined),
-        stop: vi.fn().mockResolvedValue(undefined),
-        notifyClientId: vi.fn(),
-        sendCmd: vi.fn().mockResolvedValue(undefined),
-        connected: true,
-        buildTime: null,
-        browser: 'chrome',
-        version: '0.1.0',
-        extensionConnected: true,
-        isConfigDrifted: vi.fn(() => false),
-        onReconnect: null,
-        onTabInfoUpdate: null,
-      });
-    }),
   };
 });
-
-// Mock daemon-spawn
-vi.mock('../src/daemon-spawn', () => ({
-  ensureDaemon: vi.fn().mockResolvedValue(undefined),
-  stopDaemon: vi.fn().mockResolvedValue(undefined),
-  getSockPath: vi.fn().mockReturnValue('/tmp/test-daemon.sock'),
-  queryDaemonStatus: vi.fn().mockResolvedValue(null),
-}));
 
 // Mock experimental registry
 vi.mock('../src/experimental/index', () => ({
@@ -111,7 +88,7 @@ describe('stdio (script mode)', () => {
       port: 5555,
       server: { name: 'supersurf', version: '0.1.0' },
       configService: new ConfigService({ cli: {}, env: {}, file: { agents: { multi_agent: multiAgent } } as any }),
-    });
+    }, createFakeHost());
 
     // Every non-blank input line yields exactly one output line (a batch yields one array line).
     const waitForOutputs = (n: number) => vi.waitFor(() => expect(capturedOutput.length).toBeGreaterThanOrEqual(n), { timeout: 5000, interval: 10 });
