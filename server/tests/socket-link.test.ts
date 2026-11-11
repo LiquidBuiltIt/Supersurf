@@ -94,6 +94,17 @@ describe('openSocketLink', () => {
     expect(err.reason).toContain('2 other sessions are currently active on it');
   });
 
+  it('mismatch with only this session live restarts the daemon once and reconnects', async () => {
+    const first = client({ version: '4.0.0', activeSessionCount: 1 });
+    const second = client({ version: '4.1.0' });
+    queue.push(first, second);
+    const link = await openSocketLink(OPTS);
+    expect(stopDaemon).toHaveBeenCalledOnce();
+    expect(ensureDaemon).toHaveBeenCalledTimes(2);
+    expect(second.start).toHaveBeenCalledOnce();
+    expect(link).toMatchObject({ version: '4.1.0' });
+  });
+
   it('mismatch with an unknown session count restarts the daemon once and reconnects', async () => {
     const first = client({ version: '4.0.0', activeSessionCount: null });
     const second = client({ version: '4.1.0' });

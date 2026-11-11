@@ -203,6 +203,14 @@ describe('playbooks — script surface', () => {
     expect(seen.caller).toBe('agent');
   });
 
+  it('run forwards the agent session host to the runner', async () => {
+    const host = { sentinel: true };
+    let seen: any = null;
+    await onPlaybooks({ ...ctx, agentSession: { ...ctx.agentSession, host } }, { action: 'run', name: 'post_tweet', params: { text: 'hi' } }, {},
+      { runPlaybook: async (o: any) => { seen = o; return { ok: true, durationMs: 1, logs: [] }; } });
+    expect(seen.host).toBe(host);
+  });
+
   it('run renders logs, the result and the duration', async () => {
     const out = await onPlaybooks(ctx, { action: 'run', name: 'post_tweet', params: { text: 'hi' } }, {},
       { runPlaybook: async () => ({ ok: true, result: { id: 7 }, durationMs: 1234, logs: ['step 1'] }) });
