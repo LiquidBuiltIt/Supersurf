@@ -24,7 +24,7 @@ import { PassThrough } from 'stream';
 
 import type { AgentSessionManager } from 'engine';
 import { loadEngine } from './engine-loader';
-import { type DebugMode } from 'shared';
+import { type DebugMode, getRegistry, getLogger } from 'shared';
 import {
   checkAndTouchVersionState,
   UPGRADE_NOTICE_MESSAGE,
@@ -169,12 +169,17 @@ async function main(options: any): Promise<void> {
       : false;
   (global as any).DEBUG_MODE = !!debugMode;
 
+  // The server's own `shared` copy is a separate registry from the engine's: configure both.
+  // Both loggers are built before any line is written (each constructor truncates the log file).
   const reg = engine.getRegistry();
   reg.debugMode = debugMode;
+  getRegistry().debugMode = debugMode;
 
   const logger = engine.getLogger(options.logFile);
+  const serverLogger = getLogger(options.logFile);
   if (debugMode) {
     logger.enable();
+    serverLogger.enable();
     logger.log('[cli] Starting SuperSurf MCP server in PASSIVE mode');
     logger.log('[cli] Version:', VERSION);
     logger.log('[cli] Debug mode:', debugMode);
