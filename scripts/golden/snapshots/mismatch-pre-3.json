@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "success": false,
+    "error": "version_mismatch",
+    "message": "A daemon/server version mismatch causes instability and errors (daemon: pre-3.0, server: <SERVER_VERSION>). The daemon was NOT restarted because 2 other sessions are currently active on it, and a restart would disconnect them. Restarting the daemon so both match is strongly recommended: `npx supersurf-daemon@latest restart`"
+  }
+}

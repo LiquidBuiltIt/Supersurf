@@ -1,0 +1,23 @@
+{
+  "connect": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "success": true,
+      "state": "active",
+      "browser": "chrome",
+      "client_id": "golden-connect",
+      "port": 5555
+    }
+  },
+  "disconnect": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+      "success": true,
+      "state": "passive",
+      "peer_count": 0,
+      "message": "Session released. Your tabs are closed and tabs you attached to are released. No other agents connected."
+    }
+  }
+}
