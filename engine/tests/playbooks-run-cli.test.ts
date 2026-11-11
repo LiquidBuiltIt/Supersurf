@@ -391,7 +391,7 @@ describe('the security.playbook_eval bypass stays unreachable from an agent', ()
   // Nothing else asserts this. Every other test in this file checks how the
   // bypass BEHAVES; this one checks that it stays out of the agent's reach.
   // Without it the gate can evaporate silently with the suite still green.
-  const SERVER_SRC = path.resolve(__dirname, '..', 'src');
+  const ENGINE_SRC = path.resolve(__dirname, '..', 'src');
 
   function walkTs(dir: string, rel = ''): string[] {
     const out: string[] = [];
@@ -407,13 +407,13 @@ describe('the security.playbook_eval bypass stays unreachable from an agent', ()
   }
 
   it('is imported by exactly one module — the engine barrel behind the terminal CLI entrypoint', () => {
-    const files = walkTs(SERVER_SRC);
+    const files = walkTs(ENGINE_SRC);
     // Non-vacuity: an empty walk would make this pass for the wrong reason.
     expect(files.length).toBeGreaterThan(20);
 
     const importers = files.filter((rel) =>
       /['"][^'"]*playbooks\/run-cli['"]/.test(
-        fs.readFileSync(path.join(SERVER_SRC, rel), 'utf8'),
+        fs.readFileSync(path.join(ENGINE_SRC, rel), 'utf8'),
       ),
     );
     // Task 5: `cli.ts` left for the server; the engine barrel is now the one importer
@@ -421,11 +421,44 @@ describe('the security.playbook_eval bypass stays unreachable from an agent', ()
     expect(importers).toEqual(['index.ts']);
   });
 
-  it('names `caller` as cli in exactly one place across the server source', () => {
-    const files = walkTs(SERVER_SRC);
+  it('names `caller` as cli in exactly one place across the engine source', () => {
+    const files = walkTs(ENGINE_SRC);
     const sites = files.filter((rel) =>
-      /caller:\s*['"]cli['"]/.test(fs.readFileSync(path.join(SERVER_SRC, rel), 'utf8')),
+      /caller:\s*['"]cli['"]/.test(fs.readFileSync(path.join(ENGINE_SRC, rel), 'utf8')),
     );
     expect(sites).toEqual(['playbooks/run-cli.ts']);
+  });
+
+  // The barrel re-exports `runPlaybookCli` (caller: 'cli', no gate). The importer
+  // check above only sees the barrel, so also lock that nothing in the engine
+  // can reach it through the barrel. Paths are resolved, not string-matched:
+  // `'../index'` inside experimental/fingerprinting/ is experimental/index.ts.
+  const BARREL = path.join(ENGINE_SRC, 'index');
+  const nonBarrel = () => walkTs(ENGINE_SRC).filter((rel) => rel !== 'index.ts');
+
+  it('names `runPlaybookCli` only in the engine barrel', () => {
+    expect(nonBarrel().length).toBeGreaterThan(20);
+    const users = nonBarrel().filter((rel) =>
+      /\brunPlaybookCli\b/.test(fs.readFileSync(path.join(ENGINE_SRC, rel), 'utf8')),
+    );
+    expect(users).toEqual([]);
+  });
+
+  it('is never reached through the engine barrel by another engine module', () => {
+    const spec = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"]([^'"]+)['"]/g;
+    const reachesBarrel = (rel: string): boolean => {
+      const src = fs.readFileSync(path.join(ENGINE_SRC, rel), 'utf8');
+      for (const m of src.matchAll(spec)) {
+        if (m[1] === 'engine') return true;
+        if (!m[1].startsWith('.')) continue;
+        const target = path
+          .resolve(path.dirname(path.join(ENGINE_SRC, rel)), m[1])
+          .replace(/\.(?:ts|js)$/, '');
+        // The bare directory (`..`, `.`) also resolves to the barrel.
+        if (target === BARREL || target === ENGINE_SRC) return true;
+      }
+      return false;
+    };
+    expect(nonBarrel().filter(reachesBarrel)).toEqual([]);
   });
 });
