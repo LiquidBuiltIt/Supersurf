@@ -19,7 +19,7 @@ export { diffSnapshots, calculateConfidence, formatDiffSection } from './page-di
 export type { PageState, DiffResult } from './page-diffing';
 
 import type { ToolSchema, ToolContext } from '../tools/lib/types';
-import type { IExtensionTransport } from '../bridge';
+import type { IExtensionTransport } from 'shared';
 import type { Config } from 'shared';
 
 /** All recognized session-toggleable experiment names. */

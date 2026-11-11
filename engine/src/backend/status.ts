@@ -10,7 +10,7 @@
  */
 
 import type { BackendConfig, BackendState, TabInfo } from './types';
-import type { IExtensionTransport } from '../bridge';
+import type { IExtensionTransport } from 'shared';
 
 /** All the state needed to build the status header, passed in to keep the function pure. */
 interface StatusInput {

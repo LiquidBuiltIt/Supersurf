@@ -22,12 +22,8 @@ import { Command } from 'commander';
 import { spawn } from 'child_process';
 import { PassThrough } from 'stream';
 
-import { AgentSessionManager } from './agent-session-manager';
-import { getLogger, getRegistry, type DebugMode } from 'shared';
-import { startScriptMode } from './stdio';
-import { loadDotenv } from './dotenv';
-import { setSkillsInstalled } from './tips';
-import { detectPluginSkills } from './plugin-detect';
+import { AgentSessionManager, startScriptMode, runPlaybookCli, loadDotenv, setSkillsInstalled, detectPluginSkills, getRegistry, getLogger } from 'engine';
+import { type DebugMode } from 'shared';
 import {
   checkAndTouchVersionState,
   UPGRADE_NOTICE_MESSAGE,
@@ -295,8 +291,7 @@ playbook
     // and the experiment registry. An MCP start must not pay for a subcommand
     // it never invokes.
     try {
-      const { runRun } = await import('./playbooks/run-cli');
-      process.exitCode = await runRun(name, flags, { host: createEngineHost(VERSION) });
+      process.exitCode = await runPlaybookCli(name, flags, { host: createEngineHost(VERSION) });
     } catch (err) {
       console.error(`[playbook] ${err instanceof Error ? err.message : String(err)}`);
       process.exitCode = 1;

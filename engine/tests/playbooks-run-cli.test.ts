@@ -406,7 +406,7 @@ describe('the security.playbook_eval bypass stays unreachable from an agent', ()
     return out;
   }
 
-  it('is imported by exactly one module — the terminal CLI entrypoint', () => {
+  it('is imported by exactly one module — the engine barrel behind the terminal CLI entrypoint', () => {
     const files = walkTs(SERVER_SRC);
     // Non-vacuity: an empty walk would make this pass for the wrong reason.
     expect(files.length).toBeGreaterThan(20);
@@ -416,7 +416,9 @@ describe('the security.playbook_eval bypass stays unreachable from an agent', ()
         fs.readFileSync(path.join(SERVER_SRC, rel), 'utf8'),
       ),
     );
-    expect(importers).toEqual(['cli.ts']);
+    // Task 5: `cli.ts` left for the server; the engine barrel is now the one importer
+    // and re-exports it as `runPlaybookCli`, which only the server's `cli.ts` calls.
+    expect(importers).toEqual(['index.ts']);
   });
 
   it('names `caller` as cli in exactly one place across the server source', () => {

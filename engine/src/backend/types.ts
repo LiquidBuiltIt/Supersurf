@@ -8,7 +8,7 @@
  * @module backend/types
  */
 
-import type { IExtensionTransport } from '../bridge';
+import type { IExtensionTransport } from 'shared';
 import type { UsageMetricsLogger } from '../usage-metrics-logger';
 import type { ConfigService } from 'shared';
 import type { EngineHost } from '../host';

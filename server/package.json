@@ -61,18 +61,15 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
-    "acorn": "^8.14.0",
-    "acorn-walk": "^8.3.4",
     "commander": "^14.0.1",
-    "image-size": "^2.0.2",
     "jsonpath-plus": "^10.3.0",
-    "sharp": "^0.34.5",
     "supersurf-daemon": "4.1.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.10",
+    "engine": "*",
     "shared": "*",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0",

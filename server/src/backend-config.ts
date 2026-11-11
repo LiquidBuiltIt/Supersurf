@@ -18,7 +18,7 @@ import {
   loadEnvConfig,
   type PartialConfig,
 } from 'shared';
-import type { BackendConfig } from './backend';
+import type { BackendConfig } from 'engine';
 
 /** Translate parsed Commander options into a PartialConfig slice. */
 export function cliToPartial(options: any): PartialConfig {

@@ -4,7 +4,7 @@
  *
  * @module engine-host
  */
-import type { EngineHost } from './host';
+import type { EngineHost } from 'engine';
 import { openSocketLink } from './socket-link';
 import { queryDaemonStatus } from './daemon-spawn';
 import { buildConfigService, backendConfigFrom } from './backend-config';

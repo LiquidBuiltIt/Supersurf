@@ -9,7 +9,7 @@
  * @module tools
  */
 
-import type { IExtensionTransport } from './bridge';
+import type { IExtensionTransport } from 'shared';
 import type { ToolSchema, ToolContext } from './tools/lib/types';
 import { createLog } from 'shared';
 import { UsageMetricsLogger } from './usage-metrics-logger';

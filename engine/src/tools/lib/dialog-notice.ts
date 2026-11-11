@@ -9,7 +9,7 @@
  * @module tools/lib/dialog-notice
  */
 
-import type { DialogEvent } from '../../bridge';
+import type { DialogEvent } from 'shared';
 
 /** Render one warning line per buffered dialog event. */
 export function dialogNoticeLines(events: DialogEvent[]): string[] {

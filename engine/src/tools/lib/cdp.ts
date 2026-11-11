@@ -3,7 +3,7 @@
 // CDP/eval primitives. Pure functions over an IExtensionTransport — no class
 // state, no implicit `this`. Used by ToolContext and the element resolver.
 
-import type { IExtensionTransport } from '../../bridge';
+import type { IExtensionTransport } from 'shared';
 
 /**
  * Send a CDP command through the extension's `forwardCDPCommand` handler.

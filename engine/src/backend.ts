@@ -22,7 +22,7 @@
  */
 
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import type { IExtensionTransport } from './bridge';
+import type { IExtensionTransport } from 'shared';
 import { UsageMetricsLogger } from './usage-metrics-logger';
 import { createLog } from 'shared';
 import type { EngineHost } from './host';

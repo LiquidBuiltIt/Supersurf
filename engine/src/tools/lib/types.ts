@@ -7,7 +7,7 @@
  * @module tools/types
  */
 
-import type { IExtensionTransport } from '../../bridge';
+import type { IExtensionTransport } from 'shared';
 import type { ConfigService } from 'shared';
 import type { AgentSessionAPI } from '../../backend/types';
 import type { HandleMeta } from '../../experimental/fingerprinting/handle-meta';

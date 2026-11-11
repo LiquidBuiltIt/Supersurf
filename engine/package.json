@@ -1,0 +1,30 @@
+{
+  "name": "engine",
+  "version": "4.1.0",
+  "private": true,
+  "description": "The SuperSurf MCP engine: sessions, tools, playbooks, security. Bundled into supersurf-daemon; never published on its own.",
+  "license": "SEE LICENSE IN LICENSE",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc",
+    "typecheck.tests": "tsc -p tsconfig.test.json",
+    "test": "npm run typecheck.tests && vitest run",
+    "test.watch": "vitest"
+  },
+  "dependencies": {
+    "acorn": "^8.14.0",
+    "acorn-walk": "^8.3.4",
+    "image-size": "^2.0.2",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "@types/node": "^22.0.0",
+    "shared": "*",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^4.0.18"
+  }
+}
