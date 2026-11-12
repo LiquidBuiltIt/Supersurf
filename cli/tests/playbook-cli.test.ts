@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { setPlaybooksDirForTests, playbookFile } from '../../server/src/playbooks/paths';
-import { resetRegistryForTests, setValidatorForTests } from '../../server/src/playbooks/registry';
+import { setPlaybooksDirForTests, playbookFile } from '../../engine/src/playbooks/paths';
+import { resetRegistryForTests, setValidatorForTests } from '../../engine/src/playbooks/registry';
 import {
   buildPlaybookProgram, runLs, runInspect, runValidate, runRun, parseParamFlags,
 } from '../src/playbook-cli';
-import type { ValidationRecord } from '../../server/src/security/validate';
+import type { ValidationRecord } from '../../engine/src/security/validate';
 import { VERSION } from '../src/version';
 
 /**

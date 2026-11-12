@@ -16,7 +16,7 @@ describe('root test chain', () => {
   });
 });
 
-const PKGS = ['shared', 'daemon', 'server', 'cli', 'extension'];
+const PKGS = ['shared', 'daemon', 'engine', 'server', 'cli', 'extension'];
 
 describe.each(PKGS)('%s test chain', (pkg) => {
   const read = (f: string) => JSON.parse(readFileSync(resolve(__dirname, '..', pkg, f), 'utf8'));
@@ -32,8 +32,8 @@ describe.each(PKGS)('%s test chain', (pkg) => {
   });
 });
 
-it('no server test defines its own mock ToolContext without importing helpers/mock-ctx', () => {
-  const dir = resolve(__dirname, '..', 'server', 'tests');
+it('no engine test defines its own mock ToolContext without importing helpers/mock-ctx', () => {
+  const dir = resolve(__dirname, '..', 'engine', 'tests');
   const offenders = (readdirSync(dir, { recursive: true }) as string[])
     .filter((f) => f.endsWith('.ts') && !f.startsWith('helpers'))
     .filter((f) => {
@@ -47,4 +47,11 @@ it.each(['daemon', 'server'])('%s prepublishOnly builds shared before its own bu
   const s = JSON.parse(readFileSync(resolve(__dirname, '..', pkg, 'package.json'), 'utf8')).scripts.prepublishOnly;
   expect(s).toContain('run build.shared');
   expect(s.indexOf('run build.shared')).toBeLessThan(s.lastIndexOf('npm run build'));
+});
+
+it.each(['daemon', 'server'])('%s prepublishOnly builds the engine after shared and before its own build', (pkg) => {
+  const s = JSON.parse(readFileSync(resolve(__dirname, '..', pkg, 'package.json'), 'utf8')).scripts.prepublishOnly;
+  expect(s).toContain('run build.engine');
+  expect(s.indexOf('run build.shared')).toBeLessThan(s.indexOf('run build.engine'));
+  expect(s.indexOf('run build.engine')).toBeLessThan(s.lastIndexOf('npm run build'));
 });

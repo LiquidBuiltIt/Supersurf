@@ -240,7 +240,7 @@ describe('the supersurf-daemon bin still has a home', () => {
 });
 
 describe('runtime hint strings name a package npm will actually serve', () => {
-  const SRC = path.resolve(__dirname, '..', 'src');
+  const ROOT = path.resolve(__dirname, '..', '..');
 
   // The bare `supersurf` npm name is a permanently-squatted 0.0.1 placeholder
   // that is not this project (dispute refused 2026-06-09). Anything that tells
@@ -248,21 +248,21 @@ describe('runtime hint strings name a package npm will actually serve', () => {
   // package. `supersurf <sub>` with no npx prefix is fine -- that is the
   // standalone compiled binary built from cli/.
   const files = [
-    'tools/playbooks.ts',
-    'tools.ts',
-    'bridge.ts',
-    'backend/handlers.ts',
-    'backend/status.ts',
-    'daemon-spawn.ts',
+    'engine/src/tools/playbooks.ts',
+    'engine/src/tools.ts',
+    'server/src/bridge.ts',
+    'engine/src/backend/handlers.ts',
+    'engine/src/backend/status.ts',
+    'server/src/daemon-spawn.ts',
   ];
 
   it.each(files)('%s never prints `npx supersurf` bare', (rel) => {
-    const src = fs.readFileSync(path.join(SRC, rel), 'utf8');
+    const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     expect(src).not.toMatch(/npx supersurf(?!-)/);
   });
 
   it.each(files)('%s pins @latest on every npx supersurf-daemon hint', (rel) => {
-    const src = fs.readFileSync(path.join(SRC, rel), 'utf8');
+    const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     const hits = src.match(/npx supersurf-daemon(@latest)?/g) ?? [];
     for (const hit of hits) {
       expect(hit).toBe('npx supersurf-daemon@latest');

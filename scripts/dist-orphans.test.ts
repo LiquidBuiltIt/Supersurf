@@ -23,12 +23,12 @@ describe('extension/dist orphans', () => {
 describe('tracked dist', () => {
   const ls = (p: string) => execFileSync('git', ['ls-files', p], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
 
-  it('tracks no shared, daemon or server build output', () => {
-    expect([...ls('shared/dist'), ...ls('daemon/dist'), ...ls('server/dist')]).toEqual([]);
+  it('tracks no shared, daemon, engine or server build output', () => {
+    expect([...ls('shared/dist'), ...ls('daemon/dist'), ...ls('engine/dist'), ...ls('server/dist')]).toEqual([]);
   });
 
-  it('ignores shared, daemon and server build output', () => {
-    for (const f of ['shared/dist/index.js', 'daemon/dist/main.js', 'server/dist/cli.js'])
+  it('ignores shared, daemon, engine and server build output', () => {
+    for (const f of ['shared/dist/index.js', 'daemon/dist/main.js', 'engine/dist/index.js', 'server/dist/cli.js'])
       expect(spawnSync('git', ['check-ignore', '-q', f], { cwd: root }).status, f).toBe(0);
   });
 

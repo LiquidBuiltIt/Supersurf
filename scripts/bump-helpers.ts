@@ -12,6 +12,7 @@ export const VERSION_TARGETS = [
   'extension/manifest.json',
   'daemon/package.json',
   'shared/package.json',
+  'engine/package.json',
   'cli/package.json',
 ];
 

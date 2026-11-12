@@ -22,17 +22,15 @@ import { Command } from 'commander';
 import { spawn } from 'child_process';
 import { PassThrough } from 'stream';
 
-import { AgentSessionManager } from './agent-session-manager';
-import { getLogger, getRegistry, type DebugMode } from 'shared';
-import { startScriptMode } from './stdio';
-import { loadDotenv } from './dotenv';
-import { setSkillsInstalled } from './tips';
-import { detectPluginSkills } from './plugin-detect';
+import type { AgentSessionManager } from 'engine';
+import { loadEngine } from './engine-loader';
+import { type DebugMode, getRegistry, getLogger } from 'shared';
 import {
   checkAndTouchVersionState,
   UPGRADE_NOTICE_MESSAGE,
 } from 'shared';
 import { buildConfigService, backendConfigFrom } from './backend-config';
+import { createEngineHost } from './engine-host';
 
 const { version: VERSION } = require('../package.json');
 
@@ -149,9 +147,10 @@ function setupExitWatchdog(backend: AgentSessionManager, server: Server): void {
 
 /** Boot the MCP server: init logging, create AgentSessionManager, wire MCP handlers, start stdio transport. */
 async function main(options: any): Promise<void> {
+  const engine = loadEngine();
   // Load .env from cwd before anything reads process.env
-  loadDotenv(process.cwd());
-  setSkillsInstalled(detectPluginSkills());
+  engine.loadDotenv(process.cwd());
+  engine.setSkillsInstalled(engine.detectPluginSkills());
 
   // This process is always a JSON-RPC transport over stdout (MCP protocol) —
   // the upgrade notice MUST go to stderr, never stdout, or it corrupts the
@@ -170,12 +169,17 @@ async function main(options: any): Promise<void> {
       : false;
   (global as any).DEBUG_MODE = !!debugMode;
 
-  const reg = getRegistry();
+  // The server's own `shared` copy is a separate registry from the engine's: configure both.
+  // Both loggers are built before any line is written (each constructor truncates the log file).
+  const reg = engine.getRegistry();
   reg.debugMode = debugMode;
+  getRegistry().debugMode = debugMode;
 
-  const logger = getLogger(options.logFile);
+  const logger = engine.getLogger(options.logFile);
+  const serverLogger = getLogger(options.logFile);
   if (debugMode) {
     logger.enable();
+    serverLogger.enable();
     logger.log('[cli] Starting SuperSurf MCP server in PASSIVE mode');
     logger.log('[cli] Version:', VERSION);
     logger.log('[cli] Debug mode:', debugMode);
@@ -186,7 +190,7 @@ async function main(options: any): Promise<void> {
   }
 
   const config = backendConfigFrom(configService, VERSION, versionCheck.shouldNotify);
-  const backend = new AgentSessionManager(config);
+  const backend = new engine.AgentSessionManager(config, createEngineHost(VERSION));
 
   if ((global as any).DEBUG_MODE) {
     console.error(`[cli] Creating MCP Server v${VERSION}...`);
@@ -242,7 +246,8 @@ program
   .option('--multi-agent', 'Opt in to username-based multi-agent mode: one server process serves many agents, each passing its own `username` (equivalent to SUPERSURF_MULTI_AGENT=1)')
   .action(async (options) => {
     if (options.scriptMode) {
-      loadDotenv(process.cwd());
+      const engine = loadEngine();
+      engine.loadDotenv(process.cwd());
       // Script mode is JSON-RPC over stdio too — same stderr-only rule as MCP mode.
       const versionCheck = checkAndTouchVersionState(VERSION);
       if (versionCheck.shouldNotify) {
@@ -250,7 +255,7 @@ program
       }
       const configService = buildConfigService(options, (m) => console.error(`[server] ${m}`));
       const config = backendConfigFrom(configService, VERSION, versionCheck.shouldNotify);
-      await startScriptMode(config);
+      await engine.startScriptMode(config, createEngineHost(VERSION));
       return;
     }
 
@@ -294,8 +299,7 @@ playbook
     // and the experiment registry. An MCP start must not pay for a subcommand
     // it never invokes.
     try {
-      const { runRun } = await import('./playbooks/run-cli');
-      process.exitCode = await runRun(name, flags);
+      process.exitCode = await loadEngine().runPlaybookCli(name, flags, { host: createEngineHost(VERSION) });
     } catch (err) {
       console.error(`[playbook] ${err instanceof Error ? err.message : String(err)}`);
       process.exitCode = 1;

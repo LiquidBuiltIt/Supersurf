@@ -23,7 +23,7 @@
  */
 
 /** Snapshot of the page DOM at capture time, used for page diffing.
- *  SYNC: mirrored in server/src/experimental/page-diffing.ts */
+ *  SYNC: mirrored in engine/src/experimental/page-diffing.ts */
 export interface PageState {
   /** Count of visible, non-zero-dimension elements. */
   elementCount: number;

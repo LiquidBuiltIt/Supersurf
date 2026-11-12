@@ -325,11 +325,11 @@ install_latest() {
   ( cd "$SRC_DIR" && npm ci --no-audit --no-fund --loglevel=error ) \
     || die "npm ci failed in $SRC_DIR."
 
-  # shared, daemon and server dist/ are not in git: build them. Never
+  # shared, engine, daemon and server dist/ are not in git: build them. Never
   # build.extension: extension/dist IS tracked, any drift dirties the clone,
   # and a dirty clone is deleted and cloned again on the next --latest.
-  step "Building shared, daemon and server"
-  ( cd "$SRC_DIR" && npm run build.shared && npm run build.daemon && npm run build.server ) \
+  step "Building shared, engine, daemon and server"
+  ( cd "$SRC_DIR" && npm run build.shared && npm run build.engine && npm run build.daemon && npm run build.server ) \
     || die "npm run build failed in $SRC_DIR."
 
   # tsx is a server devDependency; npm may or may not hoist it, so ask node.

@@ -1,7 +1,7 @@
 /**
  * Shadow-DOM-piercing element queries — page-context source, not Node code.
  *
- * `server/src/tools/lib/element-resolver.ts` builds a plain
+ * `engine/src/tools/lib/element-resolver.ts` builds a plain
  * `document.querySelector(...)` expression that gets injected into the page
  * via CDP `Runtime.evaluate`. That's blind to elements nested inside open
  * shadow roots. These two functions fix that: light DOM is tried first,

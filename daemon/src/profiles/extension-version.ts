@@ -11,7 +11,7 @@
  * change; 3.0.1 (a PATCH) added `config_drift`, purely additive.
  *
  * Deliberately NOT the exact-match rule used by the server<->daemon guard in
- * server/src/backend/handlers.ts. Those two npm packages are published in
+ * engine/src/backend/handlers.ts. Those two npm packages are published in
  * lockstep so any difference is a stale process. A CWS-installed extension
  * auto-updates on Google's schedule and can legitimately lead or lag the npm
  * packages by days; exact-match would false-positive constantly.

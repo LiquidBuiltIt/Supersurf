@@ -86,5 +86,6 @@ cli/build/
 # prepublishOnly rebuilds it for npm. extension/dist/ stays tracked: installed
 # daemons download it from the latest tag's source tarball.
 shared/dist/
+engine/dist/
 daemon/dist/
 server/dist/
