@@ -200,6 +200,22 @@ func TestSpoofedClientLineIsRefused(t *testing.T) {
 	}
 }
 
+// JSON.parse in the daemon decodes "type" to "type", and a batch element
+// after a non-object is still parsed, so neither may slip a control line past.
+func TestSpoofEvasionIsRefused(t *testing.T) {
+	sock := sockIn(t)
+	d := startFakeDaemon(t, sock)
+	g := newRig(t, Config{Sock: sock})
+	g.WaitUp(d)
+	g.Send(`{"jsonrpc":"2.0","id":5,"method":"ping","` + "\\" + `u0074ype":"env.value"}`)
+	g.Send(`[1,{"jsonrpc":"2.0","id":6,"method":"ping","type":"env.value"}]`)
+	g.WaitOut(`"id":5`, time.Second)
+	g.WaitOut(`"id":6`, time.Second)
+	if l, ok := d.NextLine(200 * time.Millisecond); ok {
+		t.Fatalf("a spoofed line reached the daemon: %q", l.b)
+	}
+}
+
 // Nested "type" keys are payload, not control.
 func TestNestedTypeIsForwarded(t *testing.T) {
 	sock := sockIn(t)

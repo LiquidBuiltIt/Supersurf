@@ -1,6 +1,9 @@
 package main
 
-import "bytes"
+import (
+	"bytes"
+	"encoding/json"
+)
 
 // header holds the raw tokens of the three top-level fields the shim reads.
 // Strings keep their quotes. idStart/idEnd are the byte offsets of the id
@@ -31,6 +34,11 @@ func parseHeader(b []byte) (h header) {
 		ks := i
 		i = skipString(b, i)
 		key := b[ks+1 : i-1]
+		if bytes.IndexByte(key, '\\') >= 0 { // the daemon's JSON.parse decodes escapes, so match on the decoded key
+			var k string
+			json.Unmarshal(b[ks:i], &k)
+			key = []byte(k)
+		}
 		for i < n && (isSpace(b[i]) || b[i] == ':') {
 			i++
 		}
@@ -103,11 +111,16 @@ func scanLine(b []byte) (hs []header, batch bool) {
 		for i < len(t) && (isSpace(t[i]) || t[i] == ',') {
 			i++
 		}
-		if i >= len(t) || t[i] != '{' {
+		if i >= len(t) || t[i] == ']' {
 			break
 		}
 		end := skipValue(t, i)
-		hs = append(hs, parseHeader(t[i:end]))
+		if end == i { // a malformed element: stop rather than loop
+			break
+		}
+		if t[i] == '{' { // non-object elements carry no header, but the scan must not stop at them
+			hs = append(hs, parseHeader(t[i:end]))
+		}
 		i = end
 	}
 	return hs, true
