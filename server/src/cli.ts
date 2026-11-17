@@ -198,7 +198,7 @@ async function main(options: any): Promise<void> {
 
   const server = new Server(
     { name: config.server.name, version: config.server.version },
-    { capabilities: { tools: {}, logging: {} } }
+    { capabilities: { tools: { listChanged: true }, logging: {} } }
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {

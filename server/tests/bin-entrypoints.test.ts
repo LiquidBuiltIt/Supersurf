@@ -207,6 +207,33 @@ describe('supersurf-mcp bin — boot path (where argv splicing is visible)', () 
   });
 });
 
+describe('supersurf-mcp bin — declared capabilities', () => {
+  // engine/src/backend.ts sends notifications/tools/list_changed on connect and
+  // disconnect. A client only expects it if `initialize` declares
+  // `tools.listChanged`, so the built artifact must say so.
+  it('declares tools.listChanged in its initialize result', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'supersurf-initprobe-'));
+    try {
+      const init = {
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'probe', version: '0' } },
+      };
+      const r = spawnSync('node', [MCP_BIN], {
+        encoding: 'utf8',
+        env: { ...childEnv(), HOME: home },
+        input: JSON.stringify(init) + '\n',
+        timeout: 20000,
+      });
+      if (r.error) throw r.error;
+      const reply = (r.stdout ?? '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((m) => m.id === 1);
+      expect(reply?.result?.capabilities, r.stderr).toBeDefined();
+      expect(reply.result.capabilities.tools?.listChanged).toBe(true);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('the supersurf-daemon bin still has a home', () => {
   // supersurf-mcp used to ship a duplicate `supersurf-daemon` bin, reachable
   // only through a global install. Item 28 drops it. What must remain true is

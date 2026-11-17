@@ -41,6 +41,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- fix: **`connect` and `disconnect` now send `notifications/tools/list_changed` to the MCP client, and the server declares `tools.listChanged` in its capabilities.** A typo in the method name made the notification a silent no-op, so clients never heard that the tool list changed.
 - fix: **The `browser_performance_metrics` description now lists what the tool returns: TTFB, FCP, DOMContentLoaded and Load.** It no longer claims LCP or CLS, which the tool never measured.
 - chore: **`install.sh --latest` now builds the clone's `shared`, `daemon` and `server` packages after installing dependencies.** Their `dist/` output is no longer committed; `extension/dist` still is.
 - fix: **`install.sh --latest` installs from the tracked lockfile with `npm ci`.** A dev install now gets the exact dependency tree the release was tested with, and no longer resolves an old nested `supersurf-daemon`.

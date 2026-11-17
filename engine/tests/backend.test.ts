@@ -115,7 +115,7 @@ function makeConfig(overrides: Partial<BackendConfig> = {}): BackendConfig {
 
 function makeMockServer() {
   return {
-    sendToolsListChanged: vi.fn().mockResolvedValue(undefined),
+    sendToolListChanged: vi.fn().mockResolvedValue(undefined),
   } as any;
 }
 
@@ -171,9 +171,9 @@ describe('AgentSession', () => {
       const clientInfo = { name: 'test-client', version: '1.0' };
       await backend.initialize(server, clientInfo);
 
-      // Verify server is stored by connecting — it should call sendToolsListChanged
+      // Verify server is stored by connecting — it should call sendToolListChanged
       await backend.callTool('connect', { username: 'test' });
-      expect(server.sendToolsListChanged).toHaveBeenCalled();
+      expect(server.sendToolListChanged).toHaveBeenCalled();
     });
   });
 
