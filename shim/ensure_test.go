@@ -306,3 +306,20 @@ func TestParseArgs(t *testing.T) {
 		t.Fatalf("unknown flags from an older MCP config must be ignored: %v", err)
 	}
 }
+
+// Only a supersurf-daemon package with a plain version may be installed; the
+// version names a directory under versions/.
+func TestEnsureRefusesForeignOrUnsafePackage(t *testing.T) {
+	for _, pkg := range []string{
+		`{"name":"supersurf-shim-linux-x64","version":"5.0.0"}`,
+		`{"name":"supersurf-daemon","version":"../../escape"}`,
+	} {
+		r := newEnsureRig(t, "5.0.0")
+		src := t.TempDir()
+		os.WriteFile(filepath.Join(src, "package.json"), []byte(pkg), 0o644)
+		r.opts.BundledDir, r.opts.InstallDir = "", src
+		if err := Ensure(r.opts); err == nil || !strings.Contains(err.Error(), "not a supersurf-daemon package") {
+			t.Fatalf("%s: error %v", pkg, err)
+		}
+	}
+}

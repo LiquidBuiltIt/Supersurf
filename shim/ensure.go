@@ -250,8 +250,10 @@ func pkgVersion(dir string) (version, main string) {
 	if err != nil {
 		return "", ""
 	}
-	var p struct{ Version, Main string }
-	if json.Unmarshal(raw, &p) != nil || p.Version == "" {
+	var p struct{ Name, Version, Main string }
+	// the version names a directory under versions/, so it may not hold a path separator
+	if json.Unmarshal(raw, &p) != nil || p.Name != "supersurf-daemon" || p.Version == "" ||
+		strings.ContainsAny(p.Version, `/\`) || strings.HasPrefix(p.Version, ".") {
 		return "", ""
 	}
 	if p.Main == "" {
@@ -355,7 +357,7 @@ func Ensure(o EnsureOpts) error {
 		cv, mainRel = pkgVersion(src)
 	}
 	if explicit && cv == "" {
-		return fmt.Errorf("--install %s: no package.json with a version", src)
+		return fmt.Errorf("--install %s: not a supersurf-daemon package (no package.json with that name and a version)", src)
 	}
 
 	plan := planEntry(cur, cv, explicit, recs, now)
