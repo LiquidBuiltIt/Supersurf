@@ -77,7 +77,7 @@ function makeConfig(): BackendConfig {
 }
 
 function makeMockServer() {
-  return { sendToolsListChanged: vi.fn().mockResolvedValue(undefined) } as any;
+  return { sendToolListChanged: vi.fn().mockResolvedValue(undefined) } as any;
 }
 
 async function connectManager(clientId: string): Promise<AgentSession> {

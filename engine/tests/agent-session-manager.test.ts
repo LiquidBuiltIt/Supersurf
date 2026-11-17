@@ -100,7 +100,7 @@ const mockHost = createFakeHost({
   queryDaemonStatus: () => mocks.queryDaemonStatus(),
 });
 
-const fakeServer = { sendToolsListChanged: vi.fn().mockResolvedValue(undefined) } as any;
+const fakeServer = { sendToolListChanged: vi.fn().mockResolvedValue(undefined) } as any;
 
 async function managerWith(names: string[], fileOverrides: Record<string, unknown> = {}): Promise<AgentSessionManager> {
   const m = new AgentSessionManager(makeConfig(fileOverrides), mockHost);

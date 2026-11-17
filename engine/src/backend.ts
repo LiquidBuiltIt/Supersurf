@@ -376,7 +376,7 @@ export class AgentSession implements AgentSessionAPI {
   async notifyToolsListChanged(): Promise<void> {
     if (this.server) {
       try {
-        await (this.server as any).sendToolsListChanged?.();
+        await this.server.sendToolListChanged();
       } catch {
         // Client may not support this notification
       }
