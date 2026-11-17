@@ -225,7 +225,7 @@ export async function onConnect(
     // Handle extension reconnections — re-query the attached tab so its URL is
     // restored immediately, rather than waiting for the next navigation event.
     // Note: `client` here is always a DaemonClient, and DaemonClient never
-    // invokes `onReconnect` (only the legacy bridge.ts ExtensionServer does,
+    // invokes `onReconnect` (only the deleted bridge.ts ExtensionServer did,
     // on a raw WS reconnect) — so this hook does not currently fire in the
     // live daemon transport. `extensionConnected` intentionally stays
     // whatever it was last set to (seeded false/true at connect, then
