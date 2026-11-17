@@ -1,7 +1,7 @@
 /**
  * Transport-layer contract between an MCP session and whatever owns the
- * extension WebSocket. Lives in `shared/` because both `server/` (ExtensionServer,
- * AgentSession) and the compiled `cli/` binary (DaemonClient) implement or
+ * extension WebSocket. Lives in `shared/` because both the engine
+ * (AgentSession) and the compiled `cli/` binary (DaemonClient) implement or
  * consume it, and neither may import the other.
  *
  * @module daemon-ipc/types

@@ -250,7 +250,6 @@ describe('runtime hint strings name a package npm will actually serve', () => {
   const files = [
     'engine/src/tools/playbooks.ts',
     'engine/src/tools.ts',
-    'server/src/bridge.ts',
     'engine/src/backend/handlers.ts',
     'engine/src/backend/status.ts',
     'server/src/daemon-spawn.ts',
