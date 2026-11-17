@@ -29,6 +29,7 @@
     "test.shared": "cd shared && npm test",
     "test.cli": "cd cli && npm run typecheck && npm test",
     "test.scripts": "vitest run",
+    "test.shim": "cd shim && go vet ./... && go test ./...",
     "pretest": "npm run build",
     "test": "npm run test.shared && npm run test.engine && npm run test.daemon && npm run test.server && npm run test.cli && npm run test.extension && npm run test.scripts && npm run smoke.register && npm run smoke.hints && npm run smoke.parallel",
     "mcp": "claude mcp add supersurf -- node server/dist/cli.js",
