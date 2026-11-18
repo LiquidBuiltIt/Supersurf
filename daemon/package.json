@@ -47,6 +47,7 @@
     "test.watch": "vitest"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
     "acorn": "^8.14.0",
     "acorn-walk": "^8.3.4",
     "image-size": "^2.0.2",
