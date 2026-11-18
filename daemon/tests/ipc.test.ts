@@ -3,7 +3,8 @@ import net from 'net';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { IPCServer, type IPCServerMeta } from '../src/ipc';
+import { IPCServer, socketSink, type IPCServerMeta } from '../src/ipc';
+import type { SessionSink } from '../src/types';
 import { SessionRegistry } from '../src/session';
 import { RequestScheduler } from '../src/scheduler';
 import { DaemonExperimentRegistry } from '../src/experiments/index';
@@ -981,6 +982,138 @@ describe('IPCServer', () => {
         process.off('uncaughtException', onErr);
         process.off('unhandledRejection', onErr);
       }
+    });
+  });
+
+  describe('SessionHost sinks (E1b)', () => {
+    function fakeSink() {
+      return {
+        sent: [] as any[],
+        ended: 0,
+        send(m: object) { this.sent.push(m); },
+        end() { this.ended++; },
+      };
+    }
+
+    it('register acks with an object, counts the session and fires the count callback', () => {
+      const counts: number[] = [];
+      ipc.setSessionCountCallback((n) => counts.push(n));
+      const fake = fakeSink();
+
+      expect(ipc.register('m1', fake)).toBe(true);
+
+      expect(typeof fake.sent[0]).toBe('object');
+      expect(fake.sent[0]).toEqual({
+        type: 'session_ack',
+        browser: 'chrome',
+        buildTimestamp: '2026-01-01T00:00:00Z',
+        version: '9.9.9-test',
+        extensionConnected: false,
+        extensionVersionError: null,
+        activeSessionCount: 1,
+        peers: [],
+      });
+      expect(sessions.has('m1')).toBe(true);
+      expect(counts).toEqual([1]);
+    });
+
+    it('a sink session is refused when a socket session holds the id', async () => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'x' });
+      await readLine(client);
+      const fake = fakeSink();
+
+      expect(ipc.register('x', fake)).toBe(false);
+
+      expect(fake.sent).toHaveLength(1);
+      expect(fake.sent[0].type).toBe('session_reject');
+      expect(fake.sent[0].reason).toContain('"x" is already in use');
+      expect(fake.ended).toBe(1);
+      expect(sessions.count).toBe(1);
+      client.end();
+    });
+
+    it('a socket session is refused when a sink session holds the id', async () => {
+      await ipc.start();
+      const fake = fakeSink();
+      ipc.register('y', fake);
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'y' });
+      const reject = await readLine(client);
+
+      expect(reject.type).toBe('session_reject');
+      expect(fake.ended).toBe(0);
+      expect(sessions.get('y')!.sink).toBe(fake);
+      client.end();
+    });
+
+    it('request answers with an object that carries peers, and config_drift when flagged', async () => {
+      const fake = fakeSink();
+      ipc.register('m1', fake);
+      const msg = { jsonrpc: '2.0', id: 1, method: 'experiments.getOne', params: { experiment: 'nope' } };
+
+      await ipc.request('m1', fake, msg);
+      expect(fake.sent[1]).toEqual({
+        jsonrpc: '2.0', id: 1, result: { experiment: 'nope', enabled: false }, peers: [],
+      });
+
+      ipc.setConfigDrift(true);
+      await ipc.request('m1', fake, msg);
+      expect(fake.sent[2].config_drift).toBe(true);
+    });
+
+    it('close tears the session down once, and a stale sink is ignored', () => {
+      const counts: number[] = [];
+      ipc.setSessionCountCallback((n) => counts.push(n));
+      const del = vi.spyOn(experiments, 'deleteSession');
+      const fake = fakeSink();
+      ipc.register('m1', fake);
+      sessions.addCreatedTab('m1', 7);
+
+      ipc.close('m1', fakeSink());
+      expect(sessions.has('m1')).toBe(true);
+      expect(bridge.sendCmd).not.toHaveBeenCalled();
+
+      ipc.close('m1', fake);
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'm1', closeTabIds: [7] }, 5000);
+      expect(sessions.has('m1')).toBe(false);
+      expect(del).toHaveBeenCalledWith('m1');
+      expect(counts).toEqual([1, 0]);
+    });
+
+    it('stop ends a registered sink session', async () => {
+      await ipc.start();
+      const fake = fakeSink();
+      ipc.register('m1', fake);
+      await ipc.stop();
+      expect(fake.ended).toBe(1);
+    });
+
+    it('buildStatusResponse lists a sink session', () => {
+      ipc.register('m1', fakeSink());
+      expect(ipc.buildStatusResponse().sessions.map((s: any) => s.sessionId)).toEqual(['m1']);
+    });
+
+    describe('socketSink', () => {
+      it('writes one NDJSON line', () => {
+        const socket = { writable: true, write: vi.fn(), end: vi.fn() } as any;
+        socketSink(socket).send({ a: 1 });
+        expect(socket.write).toHaveBeenCalledWith('{"a":1}\n');
+      });
+
+      it('writes nothing when the socket is not writable', () => {
+        const socket = { writable: false, write: vi.fn(), end: vi.fn() } as any;
+        socketSink(socket).send({ a: 1 });
+        expect(socket.write).not.toHaveBeenCalled();
+      });
+
+      it('end ends the socket', () => {
+        const socket = { writable: true, write: vi.fn(), end: vi.fn() } as any;
+        socketSink(socket).end();
+        expect(socket.end).toHaveBeenCalledTimes(1);
+      });
     });
   });
 

@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RequestScheduler } from '../src/scheduler';
 import { SessionRegistry } from '../src/session';
 import type { ExtensionBridge } from '../src/extension-bridge';
-import net from 'net';
+import type { SessionSink } from '../src/types';
 
-function mockSocket(): net.Socket {
-  return { writable: true } as any;
+function mockSocket(): SessionSink {
+  return { send() {}, end() {} };
 }
 
 function mockBridge(overrides: Partial<ExtensionBridge> = {}): ExtensionBridge {
