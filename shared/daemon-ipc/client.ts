@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import type { IExtensionTransport, DialogEvent } from './types';
 import { createLog } from '../logger/registry';
 import { redactForLog } from './redact';
+import { takePiggyback } from './piggyback';
 
 const log = createLog('[Daemon]');
 
@@ -180,18 +181,7 @@ export class DaemonClient implements IExtensionTransport {
                 if (msg.error) {
                   pending.reject(new Error(msg.error.message || JSON.stringify(msg.error)));
                 } else {
-                  // Piggyback: extract tab info from response if present
-                  const result = msg.result;
-                  if (result && typeof result === 'object' && 'currentTab' in result && this.onTabInfoUpdate) {
-                    this.onTabInfoUpdate(result.currentTab);
-                  }
-                  if (result && typeof result === 'object' && Array.isArray((result as any)._dialogs)) {
-                    const dialogs = (result as any)._dialogs as DialogEvent[];
-                    if (dialogs.length > 0) {
-                      for (const d of dialogs) this.dialogEventBuffer.push(d);
-                    }
-                    delete (result as any)._dialogs;
-                  }
+                  this.dialogEventBuffer.push(...takePiggyback(msg.result, this.onTabInfoUpdate));
                   pending.resolve(msg.result);
                 }
               }
