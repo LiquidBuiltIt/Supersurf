@@ -44,6 +44,8 @@ export interface MetricsEntry {
   tip?: string;
   client?: { name: string; version: string };
   experiments?: Record<string, boolean>;
+  /** UTF-8 bytes of the JSON response the client received, before `data` stripping. */
+  response_bytes?: number;
   /** Why this connect (re)spawned the daemon: 'not_running' | 'version_mismatch'. Absent when it reused one. */
   daemon_spawn?: string;
 }
@@ -59,11 +61,18 @@ export class UsageMetricsLogger {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  write(entry: Omit<MetricsEntry, 'ts' | 'version'>): void {
+  write(entry: Omit<MetricsEntry, 'ts' | 'version'>, response?: unknown): void {
+    let response_bytes: number | undefined;
+    if (response !== undefined) {
+      try {
+        response_bytes = Buffer.byteLength(JSON.stringify(response));
+      } catch { /* logging never throws: circular or BigInt response omits the field */ }
+    }
     const line = JSON.stringify({
       ts: new Date().toISOString(),
       version: this.version,
       ...entry,
+      ...(response_bytes !== undefined ? { response_bytes } : {}),
       params: redactParams(entry.params),
     });
     fs.appendFileSync(this.filePath, line + '\n');

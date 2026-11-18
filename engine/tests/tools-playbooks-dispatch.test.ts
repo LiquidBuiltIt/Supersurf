@@ -65,3 +65,17 @@ describe('dispatchTool — per-call action ids', () => {
     expect(trailFor('test').get(1)!.outcome).toBe('error');
   });
 });
+
+describe('dispatchTool — metrics response', () => {
+  it('passes the final result (after the dialog notice) to the metrics write', async () => {
+    _resetTrailsForTest();
+    // snapshot at call time: the write must see what the client receives, `#<id> ` prefix included
+    const seen: string[] = [];
+    const write = vi.fn((_e: unknown, r: unknown) => { seen.push(JSON.stringify(r)); });
+    const res = await dispatchTool(makeCtx(), 'browser_snapshot', {}, {}, { ...env, metricsLogger: { write } as any });
+    expect(write).toHaveBeenCalledOnce();
+    expect(write.mock.calls[0][1]).toBe(res);
+    expect(seen[0]).toBe(JSON.stringify(res));
+    expect(res.content[0].text).toMatch(/^#1 /);
+  });
+});

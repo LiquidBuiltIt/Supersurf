@@ -327,3 +327,41 @@ describe('UsageMetricsLogger', () => {
     expect(entry.version).toBe('9.9.9');
   });
 });
+
+describe('UsageMetricsLogger response_bytes', () => {
+  const base = { session_id: 's', tool: 't', params: {}, result: 'ok' as const, duration_ms: 1 };
+  const last = (l: UsageMetricsLogger) => JSON.parse(fs.readFileSync(l.filePath, 'utf8').trim().split('\n').pop()!);
+
+  it('is the UTF-8 byte length of the JSON response, not the char count', () => {
+    const l = new UsageMetricsLogger('b1', tempDir);
+    const response = { content: [{ type: 'text', text: 'héllo → 日本' }] };
+    l.write(base, response);
+    const bytes = Buffer.byteLength(JSON.stringify(response));
+    expect(bytes).toBeGreaterThan(JSON.stringify(response).length);
+    expect(last(l).response_bytes).toBe(bytes);
+  });
+
+  it('counts a data field that params stripping would drop', () => {
+    const l = new UsageMetricsLogger('b2', tempDir);
+    const response = { content: [{ type: 'image', data: 'A'.repeat(5000) }] };
+    l.write(base, response);
+    expect(last(l).response_bytes).toBe(Buffer.byteLength(JSON.stringify(response)));
+    expect(last(l).response_bytes).toBeGreaterThan(5000);
+  });
+
+  it('is absent when no response is passed', () => {
+    const l = new UsageMetricsLogger('b3', tempDir);
+    l.write(base);
+    expect('response_bytes' in last(l)).toBe(false);
+  });
+
+  it('a circular response does not throw and omits the field', () => {
+    const l = new UsageMetricsLogger('b4', tempDir);
+    const response: any = {};
+    response.self = response;
+    expect(() => l.write(base, response)).not.toThrow();
+    const row = last(l);
+    expect(row.tool).toBe('t');
+    expect('response_bytes' in row).toBe(false);
+  });
+});

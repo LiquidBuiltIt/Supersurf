@@ -1244,7 +1244,8 @@ describe('AgentSession', () => {
           session_id: 'audit-test',
           tool: 'connect',
           result: 'ok',
-        })
+        }),
+        expect.anything(),
       );
     });
 
@@ -1253,6 +1254,7 @@ describe('AgentSession', () => {
       await backend.callTool('connect', { username: 'spawn-test' });
       expect(mockMetricsWrite).toHaveBeenCalledWith(
         expect.objectContaining({ tool: 'connect', daemon_spawn: 'version_mismatch' }),
+        expect.anything(),
       );
 
       await backend.callTool('disconnect');
@@ -1260,6 +1262,14 @@ describe('AgentSession', () => {
       await backend.callTool('connect', { username: 'spawn-test' });
       const entry = mockMetricsWrite.mock.calls.find(c => c[0].tool === 'connect')![0];
       expect('daemon_spawn' in entry).toBe(false);
+    });
+
+    it('a backend-tool write passes the result as the response', async () => {
+      await backend.callTool('connect', { username: 'resp-test' });
+      mockMetricsWrite.mockClear();
+      const result = await backend.callTool('status');
+      const call = mockMetricsWrite.mock.calls.find(c => c[0].tool === 'status')!;
+      expect(call[1]).toBe(result);
     });
 
     it('disconnect logs to the audit logger', async () => {
@@ -1272,7 +1282,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'disconnect',
           result: 'ok',
-        })
+        }),
+        expect.anything(),
       );
     });
 
@@ -1286,7 +1297,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'status',
           result: 'ok',
-        })
+        }),
+        expect.anything(),
       );
     });
 
@@ -1301,7 +1313,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'status',
           url: 'https://example.com/page',
-        })
+        }),
+        expect.anything(),
       );
     });
 
@@ -1326,7 +1339,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'connect',
           client: { name: 'claude-desktop', version: '2.1.0' },
-        })
+        }),
+        expect.anything(),
       );
     });
 
@@ -1349,7 +1363,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'connect',
           result: 'error',
-        })
+        }),
+        expect.anything(),
       );
     });
   });

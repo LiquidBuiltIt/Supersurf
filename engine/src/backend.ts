@@ -296,7 +296,7 @@ export class AgentSession implements AgentSessionAPI {
         if (name === 'connect' && !isError && this.daemonSpawnReason) {
           entry.daemon_spawn = this.daemonSpawnReason;
         }
-        this.metricsLogger?.write(entry);
+        this.metricsLogger?.write(entry, result);
 
         return result;
       } catch (err: any) {

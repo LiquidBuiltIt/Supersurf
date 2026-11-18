@@ -131,18 +131,6 @@ export async function dispatchTool(
       ? getTip(name, args, callResult, callError, env.clientId ?? null)
       : null;
 
-    env.metricsLogger?.write({
-      session_id: sessionId,
-      tool: name,
-      params: args,
-      result: callResult,
-      error: callError,
-      url,
-      experiments: experimentRegistry.getStates(env.clientId ?? null),
-      duration_ms: Date.now() - start,
-      ...(tip ? { tip } : {}),
-    });
-
     // Action id. `browser_interact` is excluded because onInteract already
     // recorded one entry per action in its array — a call-level entry here
     // would double-count. `playbooks` is excluded because it is the tool that
@@ -170,6 +158,19 @@ export async function dispatchTool(
     if (tip && result?.content?.[0]?.type === 'text') {
       result.content[0].text += `\n\n---\n${tip}`;
     }
+
+    // Last, so response_bytes counts the `#<id> ` prefix and tip the client receives.
+    env.metricsLogger?.write({
+      session_id: sessionId,
+      tool: name,
+      params: args,
+      result: callResult,
+      error: callError,
+      url,
+      experiments: experimentRegistry.getStates(env.clientId ?? null),
+      duration_ms: Date.now() - start,
+      ...(tip ? { tip } : {}),
+    }, result);
   }
 }
 
