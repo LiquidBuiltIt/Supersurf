@@ -293,7 +293,7 @@ export class AgentSession implements AgentSessionAPI {
             };
           }
         }
-        if (name === 'connect' && !isError && this.daemonSpawnReason) {
+        if (name === 'connect' && this.daemonSpawnReason) {
           entry.daemon_spawn = this.daemonSpawnReason;
         }
         this.metricsLogger?.write(entry, result);

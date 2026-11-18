@@ -188,6 +188,9 @@ export async function onConnect(
       return versionMismatchFailure(mgr, e.daemonVersion, e.serverVersion, e.reason, options);
     }
 
+    // Record the spawn before any later failure: a restart followed by a failed connect is the silent restart the metric counts.
+    mgr.daemonSpawnReason = client.spawnReason ?? null;
+
     // A version-rejected extension. Without this the session proceeds, the
     // matchmaker refuses every slot, and the agent discovers the problem as a
     // 50s profiles.connect timeout with no cause attached.
@@ -223,7 +226,6 @@ export async function onConnect(
     }
 
     mgr.extensionServer = client;
-    mgr.daemonSpawnReason = client.spawnReason ?? null;
 
     // Handle extension reconnections — re-query the attached tab so its URL is
     // restored immediately, rather than waiting for the next navigation event.

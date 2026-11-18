@@ -1264,6 +1264,28 @@ describe('AgentSession', () => {
       expect('daemon_spawn' in entry).toBe(false);
     });
 
+    it('connect keeps daemon_spawn on the row when the spawning connect then fails', async () => {
+      (host.openLink as any).mockResolvedValueOnce({
+        ...mockDaemonClientInstance,
+        spawnReason: 'version_mismatch',
+        extensionVersionError: 'x',
+        extensionConnected: false,
+      });
+      await backend.callTool('connect', { username: 'spawn-fail' });
+      const entry = mockMetricsWrite.mock.calls.find(c => c[0].tool === 'connect')![0];
+      expect(entry.result).toBe('error');
+      expect(entry.daemon_spawn).toBe('version_mismatch');
+    });
+
+    it('a repeat connect while connected does not re-log the earlier spawn', async () => {
+      (host.openLink as any).mockResolvedValueOnce({ ...mockDaemonClientInstance, spawnReason: 'version_mismatch' });
+      await backend.callTool('connect', { username: 'spawn-twice' });
+      mockMetricsWrite.mockClear();
+      await backend.callTool('connect', { username: 'spawn-twice' });
+      const entry = mockMetricsWrite.mock.calls.find(c => c[0].tool === 'connect')![0];
+      expect('daemon_spawn' in entry).toBe(false);
+    });
+
     it('a backend-tool write passes the result as the response', async () => {
       await backend.callTool('connect', { username: 'resp-test' });
       mockMetricsWrite.mockClear();
