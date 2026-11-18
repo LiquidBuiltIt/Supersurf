@@ -42,7 +42,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 ## Unreleased
 
 - feat: **The extension now reports its protocol number (`extProtocol: 1`) in the handshake.** The daemon does not act on it yet.
-- fix: **Two daemons starting at once can no longer delete each other's pidfile and socket.** The pidfile is now a create-exclusive lock, each daemon removes only a pidfile that holds its own pid and a socket it bound itself, the spawn path waits for a daemon that is still starting instead of wiping its pidfile, and the socket opens before the extension download so the download no longer widens the race.
+- fix: **Two daemons starting at once can no longer delete each other's pidfile and socket.** The pidfile is now a create-exclusive lock, each daemon removes only a pidfile that holds its own pid and a socket it bound itself, the spawn path waits up to 10 seconds for a daemon that is still starting instead of wiping its pidfile, then treats a pidfile with no socket as stale and spawns, and the socket opens before the extension download so the download no longer widens the race.
 - security: **`~/.supersurf` is now mode 0700, and `daemon.sock` and `daemon.pid` are 0600.**
 - fix: **A daemon crash (uncaught exception or unhandled rejection) now logs the error to `daemon.log` and removes its own pidfile and socket.**
 - fix: **Daemon shutdown no longer stalls when an MCP client holds an idle connection.** Open sockets are destroyed after a 500 ms grace period.

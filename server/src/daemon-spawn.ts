@@ -136,15 +136,15 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   }
 
   // The pidfile names a live process but its socket is not up: that daemon is
-  // still starting. Wait for it. Deleting its pidfile and spawning a second one
-  // is the race the daemon's own pidfile lock now backstops.
+  // still starting. Wait for it: deleting its pidfile and spawning a second one
+  // is the race the daemon's own pidfile lock now backstops. A real daemon binds
+  // its socket within seconds, so no socket after 10 s means the pid was reused
+  // by an unrelated process (reboot, OOM, SIGKILL): fall through, clear the
+  // stale files and spawn.
   if (isDaemonRunning()) {
     log('Daemon is starting, waiting for its socket...');
     if (await waitForSocket(10000)) return;
-    throw new Error(
-      `Daemon (pid ${readDaemonPid()}) is running but its socket never appeared within 10 seconds. ` +
-      `See ${supersurfDir()}/logs/daemon.log.`,
-    );
+    log(`Pidfile pid ${readDaemonPid()} never opened a socket in 10 seconds: treating it as stale.`);
   }
 
   log('Daemon not running, spawning...');
