@@ -54,4 +54,15 @@ describe('FileLogger maxBytes', () => {
     expect(fs.readFileSync(file + '.1', 'utf8')).toBe('x'.repeat(290));
     expect(fs.readFileSync(file, 'utf8')).toContain('hello');
   });
+  it('a second writer rotating first does not destroy the first writer\'s history', () => {
+    const a = new FileLogger(file, { maxBytes: 1000 });
+    a.enable();
+    let n = 0;
+    while (fs.statSync(file).size < 900) a.log(`a-line-${n++} ${'x'.repeat(30)}`);
+    const b = new FileLogger(file, { maxBytes: 1000 });
+    b.enable();
+    while (!fs.existsSync(file + '.1')) b.log(`b-line ${'y'.repeat(30)}`);
+    a.log('a-after', 'z'.repeat(100));
+    expect(fs.readFileSync(file + '.1', 'utf8')).toContain('a-line-0');
+  });
 });

@@ -33,7 +33,6 @@ export class FileLogger {
   enabled: boolean = false;
   private _truncate: boolean = true;
   private _maxBytes?: number;
-  private _size: number = 0;
 
   constructor(logFilePath: string, opts?: { maxBytes?: number }) {
     this.logFilePath = logFilePath;
@@ -44,12 +43,8 @@ export class FileLogger {
       fs.mkdirSync(logDir, { recursive: true });
     }
 
-    if (this._maxBytes === undefined) {
-      if (fs.existsSync(this.logFilePath)) {
-        fs.truncateSync(this.logFilePath, 0);
-      }
-    } else {
-      try { this._size = fs.statSync(this.logFilePath).size; } catch { this._size = 0; }
+    if (this._maxBytes === undefined && fs.existsSync(this.logFilePath)) {
+      fs.truncateSync(this.logFilePath, 0);
     }
   }
 
@@ -82,16 +77,19 @@ export class FileLogger {
     const logLine = `[${timestamp}] ${message}\n`;
     if (this._maxBytes !== undefined) this.rotateIfNeeded(Buffer.byteLength(logLine));
     fs.appendFileSync(this.logFilePath, logLine, 'utf8');
-    this._size += Buffer.byteLength(logLine);
     console.error(message);
   }
 
-  /** Move the file to `.1` when `incoming` bytes would pass the cap. A failed rename never throws. */
+  /**
+   * Move the file to `.1` when `incoming` bytes would pass the cap. A failed rename never throws.
+   * The size is read from disk each time: another process may share the file and rotate it.
+   */
   private rotateIfNeeded(incoming: number): void {
-    if (this._size === 0 || this._size + incoming <= this._maxBytes!) return;
+    let size = 0;
+    try { size = fs.statSync(this.logFilePath).size; } catch { /* missing file counts as empty */ }
+    if (size === 0 || size + incoming <= this._maxBytes!) return;
     try {
       fs.renameSync(this.logFilePath, this.logFilePath + '.1');
-      this._size = 0;
     } catch {
       // keep appending to the same file rather than lose the line
     }
