@@ -12,8 +12,7 @@
  */
 
 import fs from 'fs';
-import net from 'net';
-import { isProcessAlive } from 'shared';
+import { isProcessAlive, isSocketLive } from 'shared';
 
 const readPid = (pidFile: string): number | null => {
   const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
@@ -79,13 +78,7 @@ export function releaseFiles(pidFile: string, sockFile: string, bound: SockIdent
  */
 export async function clearStaleSocket(sockFile: string): Promise<boolean> {
   if (!fs.existsSync(sockFile)) return true;
-  const live = await new Promise<boolean>((resolve) => {
-    const s = net.createConnection(sockFile);
-    const done = (v: boolean) => { s.destroy(); resolve(v); };
-    s.once('connect', () => done(true));
-    s.once('error', () => done(false));
-    s.setTimeout(1000, () => done(true)); // unresponsive: assume live, never delete
-  });
+  const live = await isSocketLive(sockFile);
   if (live) return false;
   try { fs.unlinkSync(sockFile); } catch {}
   return true;

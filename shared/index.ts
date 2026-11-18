@@ -60,4 +60,5 @@ export {
   readDaemonPid,
   isProcessAlive,
   isDaemonRunning,
+  isSocketLive,
 } from './daemon-paths';

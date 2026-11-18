@@ -11,7 +11,7 @@
  */
 import * as fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { supersurfDir, sockPath, pidPath, isDaemonRunning } from 'shared';
+import { supersurfDir, sockPath, pidPath, isDaemonRunning, isSocketLive } from 'shared';
 import { packageCommand } from './shell-out';
 
 export { isDaemonRunning };
@@ -34,6 +34,9 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
     if (await waitForSocket()) return;
     throw new Error(WAIT_FAILED);
   }
+
+  // A daemon that lost its pidfile still listens: reuse it, never unlink its socket.
+  if (await isSocketLive(sockPath())) return;
 
   try { if (fs.existsSync(sockPath())) fs.unlinkSync(sockPath()); } catch { /* stale */ }
   if (!fs.existsSync(supersurfDir())) fs.mkdirSync(supersurfDir(), { recursive: true });

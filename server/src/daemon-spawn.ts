@@ -13,7 +13,7 @@
 import fs from 'fs';
 import net from 'net';
 import { spawn } from 'child_process';
-import { createLog, supersurfDir, sockPath, pidPath, readDaemonPid, isProcessAlive, isDaemonRunning } from 'shared';
+import { createLog, supersurfDir, sockPath, pidPath, readDaemonPid, isProcessAlive, isDaemonRunning, isSocketLive } from 'shared';
 
 export { isDaemonRunning };
 
@@ -148,6 +148,13 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   }
 
   log('Daemon not running, spawning...');
+
+  // A daemon that lost its pidfile still listens: reuse it. Unlinking its
+  // socket would cut it off, and a replacement would die on the port.
+  if (await isSocketLive(sockPath())) {
+    log('Daemon is listening on its socket without a pidfile, reusing it');
+    return;
+  }
 
   // Clean stale files
   try { if (fs.existsSync(sockPath())) fs.unlinkSync(sockPath()); } catch {}
