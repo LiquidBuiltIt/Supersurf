@@ -141,6 +141,16 @@ describe('env failures', () => {
     expect((await reply(w, 2)).error).toBeTruthy();
   });
 
+  it('a caller whose socket is no longer writable gets the gone error, not a timeout', async () => {
+    const w = recording();
+    await ipc.start();
+    const shim = newShim();
+    await shim.register();
+    w.emit('message', { t: 'end', cid }); // server-side end(): not writable now, close not yet fired
+    w.emit('message', { t: 'env', rid: 7, cid, op: 'get', name: 'X' });
+    expect((await reply(w, 7)).error).toMatch(/gone/i);
+  });
+
   it('pending requests reject at once when the socket closes', async () => {
     const w = recording();
     setup({ startWorker: () => w, envTimeoutMs: 5000 });
