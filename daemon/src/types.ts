@@ -4,12 +4,16 @@
  * @module types
  */
 
-import type net from 'net';
+/** Where a session's outbound messages go. A socket sink serializes; an in-process sink takes the object as is. */
+export interface SessionSink {
+  send(msg: object): void;
+  end(): void;
+}
 
 /** State tracked per connected MCP session. */
 export interface DaemonSession {
   sessionId: string;
-  socket: net.Socket;
+  sink: SessionSink;
   ownedTabs: Set<number>;
   /** Tabs this session created (not claimed) — closed when the session ends. */
   createdTabs: Set<number>;

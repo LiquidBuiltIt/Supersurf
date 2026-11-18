@@ -1,7 +1,9 @@
 /**
  * IPC Server — Unix socket server for MCP session connections.
  *
- * Accepts connections from MCP servers over a Unix domain socket.
+ * Accepts connections from MCP servers over a Unix domain socket. Session
+ * work (register, request, close) goes through `SessionHost` and a
+ * `SessionSink`, so a non-socket link can use the same code.
  * Protocol:
  *   1. MCP server sends: { type: "session_register", sessionId: "..." }\n
  *   2. Daemon responds: { type: "session_ack", browser: "...", buildTimestamp: "...",
@@ -22,6 +24,7 @@ import type { FileLogger } from 'shared';
 import { daemonCommand } from 'shared';
 import type { ExtensionBridge } from './extension-bridge';
 import type { SessionRegistry } from './session';
+import type { SessionSink } from './types';
 import type { RequestScheduler } from './scheduler';
 import type { DaemonExperimentRegistry } from './experiments/index';
 import { isExperimentMethod } from './experiments/types';
@@ -64,11 +67,35 @@ export interface IPCServerMeta {
   extensionReady?: Promise<unknown>;
 }
 
+/** A sink that writes one NDJSON line per message to a socket. */
+export function socketSink(socket: net.Socket): SessionSink {
+  return {
+    send(msg) {
+      if (!socket.writable) return;
+      socket.write(JSON.stringify(msg) + '\n');
+    },
+    end() {
+      socket.end();
+    },
+  };
+}
+
+/** What a link needs from the daemon to run a session, whatever carries its bytes. */
+export interface SessionHost {
+  /** Register a session. On a duplicate id, sends the reject, ends the sink and returns false. */
+  register(sessionId: string, sink: SessionSink): boolean;
+  /** Route one JSON-RPC request from a registered session. */
+  request(sessionId: string, sink: SessionSink, msg: any): Promise<void>;
+  /** End a session. Ignored when `sink` is no longer the one that holds the id. */
+  close(sessionId: string, sink: SessionSink): void;
+  buildStatusResponse(): any;
+}
+
 /**
  * Unix domain socket server for MCP session connections.
  * Handles session handshake, NDJSON message routing, and cleanup.
  */
-export class IPCServer {
+export class IPCServer implements SessionHost {
   private server: net.Server | null = null;
   /** Every accepted socket, so stop() can destroy the ones that will not leave. */
   private sockets = new Set<net.Socket>();
@@ -135,6 +162,7 @@ export class IPCServer {
     this.sockets.add(socket);
     socket.on('close', () => this.sockets.delete(socket));
 
+    const sink = socketSink(socket);
     let buffer = '';
     let sessionId: string | null = null;
     let handshakeComplete = false;
@@ -154,74 +182,34 @@ export class IPCServer {
 
           if (!handshakeComplete) {
             // Pre-auth status query — no handshake needed
-            if (msg.type === 'daemon_status') {
-              this.sendLine(socket, this.buildStatusResponse());
-              socket.end();
+            if (msg?.type === 'daemon_status') {
+              this.send(sink, this.buildStatusResponse());
+              sink.end();
               return;
             }
 
             // Expecting session_register handshake
-            if (msg.type === 'session_register' && msg.sessionId) {
-              if (this.sessions.has(msg.sessionId)) {
-                this.sendLine(socket, {
-                  type: 'session_reject',
-                  reason:
-                    `Username "${msg.sessionId}" is already in use by a live agent. ` +
-                    `Pick another username and call \`connect\` again.`,
-                });
-                socket.end();
-                return;
-              }
-
+            if (msg?.type === 'session_register' && msg.sessionId) {
               // Only after the duplicate check: a rejected socket's close handler
               // must not see a sessionId and tear down the live session.
+              if (!this.register(msg.sessionId, sink)) return;
               sessionId = msg.sessionId;
-
-              // Register the session
-              this.sessions.add(sessionId!, socket);
-              this.scheduler.addSession(sessionId!);
-
-              this.sendLine(socket, {
-                type: 'session_ack',
-                browser: this.bridge.browser,
-                buildTimestamp: this.bridge.buildTime,
-                version: this.meta.version,
-                // Unmanaged-slot extension presence. The session is not yet
-                // profile-bound at ack time; a later profiles.connect success
-                // is itself proof of a live extension for that slot.
-                extensionConnected: this.bridge.matchmaker.getConnectionForProfile(null) !== null,
-                // A version-rejected extension. Managed sessions learn via the
-                // profiles.connect rejection; an unmanaged session has no such
-                // round trip, so the ack is the only place to tell it.
-                extensionVersionError: this.bridge.extensionVersionError ?? null,
-                // Count AFTER this.sessions.add() above, so it includes the
-                // caller itself. Lets a version-mismatch handler on the server
-                // tell "just me" (count 1, safe to restart) from "someone
-                // else is mid-workflow on this daemon" (count > 1, don't kill it).
-                activeSessionCount: this.sessions.count,
-              });
-
               handshakeComplete = true;
-              debugLog(`Session registered: "${sessionId}"`);
-
-              if (this.onSessionCountChange) {
-                this.onSessionCountChange(this.sessions.count);
-              }
             } else {
-              this.sendLine(socket, {
+              this.send(sink, {
                 type: 'session_reject',
                 reason: 'Expected session_register handshake',
               });
-              socket.end();
+              sink.end();
             }
           } else {
             // Post-handshake: JSON-RPC 2.0 requests
-            this.handleRequest(sessionId!, socket, msg);
+            this.request(sessionId!, sink, msg);
           }
         } catch (err: any) {
           debugLog('Parse error:', err.message);
           if (handshakeComplete && sessionId) {
-            this.sendLine(socket, {
+            this.send(sink, {
               jsonrpc: '2.0',
               id: null,
               error: { code: -32700, message: `Parse error: ${err.message}` },
@@ -232,58 +220,7 @@ export class IPCServer {
     });
 
     socket.on('close', () => {
-      // A stale close from an old socket must not delete a newer session of the same id.
-      if (sessionId && this.sessions.get(sessionId)?.socket === socket) {
-        debugLog(`Session disconnected: "${sessionId}"`);
-
-        // Read before remove(): the extension closes these tabs on disconnect
-        const closeTabIds = [...(this.sessions.get(sessionId)?.createdTabs ?? [])];
-
-        // Unbind profile if set
-        const profileId = this.sessions.getProfileId(sessionId!);
-        if (profileId) {
-          this.sessions.setProfileId(sessionId!, null);
-        }
-
-        this.scheduler.removeSession(sessionId);
-        this.sessions.remove(sessionId);
-        this.experiments.deleteSession(sessionId);
-
-        // Notify extension to ungroup the session's tabs
-        if (profileId) {
-          this.bridge.sendCmdToProfile(profileId, 'sessionDisconnect', { sessionId, closeTabIds }, 5000).catch(() => {});
-
-          // Kill Chromium if no other sessions are using this profile.
-          // User-owned browsers (launched via `supersurf profiles open`) are
-          // never killed by session lifecycle — the human closes them.
-          // Daemon-owned browsers are killed unless keepBrowserOnSessionEnd is true.
-          const remaining = this.sessions.getSessionsForProfile(profileId);
-          if (remaining.length === 0) {
-            const pid = this.profileRegistry.getRunningPid(profileId);
-            const extConn = this.bridge.matchmaker.getConnectionForProfile(profileId);
-            if (
-              pid &&
-              !this.profileRegistry.isUserOwned(profileId) &&
-              !shouldKeepBrowserOnSessionEnd(extConn)
-            ) {
-              debugLog(`Last session for profile "${profileId}" disconnected — killing Chromium (pid ${pid})`);
-              try {
-                process.kill(pid, 'SIGTERM');
-                appendPidLog({ action: 'kill', profile: profileId, pid, ts: new Date().toISOString() });
-              } catch {}
-              this.profileRegistry.clearRunningPid(profileId);
-            } else if (pid && shouldKeepBrowserOnSessionEnd(extConn)) {
-              debugLog(`Last session for profile "${profileId}" disconnected — keeping Chromium (pid ${pid})`);
-            }
-          }
-        } else {
-          this.bridge.sendCmd('sessionDisconnect', { sessionId, closeTabIds }, 5000).catch(() => {});
-        }
-
-        if (this.onSessionCountChange) {
-          this.onSessionCountChange(this.sessions.count);
-        }
-      }
+      if (sessionId) this.close(sessionId, sink);
     });
 
     socket.on('error', (error) => {
@@ -291,12 +228,110 @@ export class IPCServer {
     });
   }
 
+  /** Register a session under `sessionId`. Returns false (after sending the reject and ending the sink) when the id is taken. */
+  register(sessionId: string, sink: SessionSink): boolean {
+    if (this.sessions.has(sessionId)) {
+      this.send(sink, {
+        type: 'session_reject',
+        reason:
+          `Username "${sessionId}" is already in use by a live agent. ` +
+          `Pick another username and call \`connect\` again.`,
+      });
+      sink.end();
+      return false;
+    }
+
+    this.sessions.add(sessionId, sink);
+    this.scheduler.addSession(sessionId);
+
+    this.send(sink, {
+      type: 'session_ack',
+      browser: this.bridge.browser,
+      buildTimestamp: this.bridge.buildTime,
+      version: this.meta.version,
+      // Unmanaged-slot extension presence. The session is not yet
+      // profile-bound at ack time; a later profiles.connect success
+      // is itself proof of a live extension for that slot.
+      extensionConnected: this.bridge.matchmaker.getConnectionForProfile(null) !== null,
+      // A version-rejected extension. Managed sessions learn via the
+      // profiles.connect rejection; an unmanaged session has no such
+      // round trip, so the ack is the only place to tell it.
+      extensionVersionError: this.bridge.extensionVersionError ?? null,
+      // Count AFTER this.sessions.add() above, so it includes the
+      // caller itself. Lets a version-mismatch handler on the server
+      // tell "just me" (count 1, safe to restart) from "someone
+      // else is mid-workflow on this daemon" (count > 1, don't kill it).
+      activeSessionCount: this.sessions.count,
+    });
+
+    debugLog(`Session registered: "${sessionId}"`);
+
+    if (this.onSessionCountChange) {
+      this.onSessionCountChange(this.sessions.count);
+    }
+    return true;
+  }
+
+  /** End a session: release its tabs, profile and state. A stale close from an old sink must not delete a newer session of the same id. */
+  close(sessionId: string, sink: SessionSink): void {
+    if (this.sessions.get(sessionId)?.sink !== sink) return;
+    debugLog(`Session disconnected: "${sessionId}"`);
+
+    // Read before remove(): the extension closes these tabs on disconnect
+    const closeTabIds = [...(this.sessions.get(sessionId)?.createdTabs ?? [])];
+
+    // Unbind profile if set
+    const profileId = this.sessions.getProfileId(sessionId);
+    if (profileId) {
+      this.sessions.setProfileId(sessionId, null);
+    }
+
+    this.scheduler.removeSession(sessionId);
+    this.sessions.remove(sessionId);
+    this.experiments.deleteSession(sessionId);
+
+    // Notify extension to ungroup the session's tabs
+    if (profileId) {
+      this.bridge.sendCmdToProfile(profileId, 'sessionDisconnect', { sessionId, closeTabIds }, 5000).catch(() => {});
+
+      // Kill Chromium if no other sessions are using this profile.
+      // User-owned browsers (launched via `supersurf profiles open`) are
+      // never killed by session lifecycle — the human closes them.
+      // Daemon-owned browsers are killed unless keepBrowserOnSessionEnd is true.
+      const remaining = this.sessions.getSessionsForProfile(profileId);
+      if (remaining.length === 0) {
+        const pid = this.profileRegistry.getRunningPid(profileId);
+        const extConn = this.bridge.matchmaker.getConnectionForProfile(profileId);
+        if (
+          pid &&
+          !this.profileRegistry.isUserOwned(profileId) &&
+          !shouldKeepBrowserOnSessionEnd(extConn)
+        ) {
+          debugLog(`Last session for profile "${profileId}" disconnected — killing Chromium (pid ${pid})`);
+          try {
+            process.kill(pid, 'SIGTERM');
+            appendPidLog({ action: 'kill', profile: profileId, pid, ts: new Date().toISOString() });
+          } catch {}
+          this.profileRegistry.clearRunningPid(profileId);
+        } else if (pid && shouldKeepBrowserOnSessionEnd(extConn)) {
+          debugLog(`Last session for profile "${profileId}" disconnected — keeping Chromium (pid ${pid})`);
+        }
+      }
+    } else {
+      this.bridge.sendCmd('sessionDisconnect', { sessionId, closeTabIds }, 5000).catch(() => {});
+    }
+
+    if (this.onSessionCountChange) {
+      this.onSessionCountChange(this.sessions.count);
+    }
+  }
+
   /** Route a JSON-RPC 2.0 request — experiment methods are handled directly, everything else goes to the scheduler. */
-  private async handleRequest(sessionId: string, socket: net.Socket, msg: any): Promise<void> {
-    if (msg.jsonrpc !== '2.0' || !msg.method || msg.id === undefined) {
-      this.sendLine(socket, {
+  async request(sessionId: string, sink: SessionSink, msg: any): Promise<void> {
+    if (msg?.jsonrpc !== '2.0' || !msg.method || msg.id === undefined) {
+      this.send(sink, {
         jsonrpc: '2.0',
-        id: msg.id ?? null,
+        id: msg?.id ?? null,
         error: { code: -32600, message: 'Invalid JSON-RPC 2.0 request' },
       });
       return;
@@ -306,9 +341,9 @@ export class IPCServer {
     if (isProfileMethod(msg.method)) {
       try {
         const result = await this.handleProfileRequest(sessionId, msg.method, msg.params || {});
-        this.sendLine(socket, { jsonrpc: '2.0', id: msg.id, result });
+        this.send(sink, { jsonrpc: '2.0', id: msg.id, result });
       } catch (error: any) {
-        this.sendLine(socket, {
+        this.send(sink, {
           jsonrpc: '2.0',
           id: msg.id,
           error: { code: -32000, message: error.message || String(error) },
@@ -321,9 +356,9 @@ export class IPCServer {
     if (isExperimentMethod(msg.method)) {
       try {
         const result = this.handleExperimentRequest(sessionId, msg.method, msg.params || {});
-        this.sendLine(socket, { jsonrpc: '2.0', id: msg.id, result });
+        this.send(sink, { jsonrpc: '2.0', id: msg.id, result });
       } catch (error: any) {
-        this.sendLine(socket, {
+        this.send(sink, {
           jsonrpc: '2.0',
           id: msg.id,
           error: { code: -32000, message: error.message || String(error) },
@@ -339,9 +374,9 @@ export class IPCServer {
         msg.params || {},
         msg.timeout || 30000,
       );
-      this.sendLine(socket, { jsonrpc: '2.0', id: msg.id, result });
+      this.send(sink, { jsonrpc: '2.0', id: msg.id, result });
     } catch (error: any) {
-      this.sendLine(socket, {
+      this.send(sink, {
         jsonrpc: '2.0',
         id: msg.id,
         error: { code: -32000, message: error.message || String(error) },
@@ -603,7 +638,7 @@ export class IPCServer {
   }
 
   /** Build a status response from live daemon state. */
-  private buildStatusResponse(): any {
+  buildStatusResponse(): any {
     const sessions: any[] = [];
     for (const session of this.sessions.values()) {
       sessions.push({
@@ -626,33 +661,32 @@ export class IPCServer {
     };
   }
 
-  /** Find the session id whose socket is the given one.
+  /** Find the session id whose sink is the given one.
    *  ponytail: O(n) scan over single-digit sessions. Swap in a
-   *  WeakMap<net.Socket, string> if the session count ever grows — no
+   *  WeakMap<SessionSink, string> if the session count ever grows — no
    *  call-site churn either way. */
-  private socketSessionId(socket: net.Socket): string | null {
+  private sinkSessionId(sink: SessionSink): string | null {
     for (const session of this.sessions.values()) {
-      if (session.socket === socket) return session.sessionId;
+      if (session.sink === sink) return session.sessionId;
     }
     return null;
   }
 
-  /** Write an NDJSON line to a socket. Injects `config_drift` and `peers`
+  /** Send a message to a sink. Injects `config_drift` and `peers`
    *  into session_ack and JSON-RPC response envelopes: `config_drift` when
    *  the config file has changed since daemon startup, `peers` with the
    *  other live session ids so a caller can tell the truth about who else
    *  is holding the browser. */
-  private sendLine(socket: net.Socket, data: any): void {
-    if (!socket.writable) return;
+  private send(sink: SessionSink, data: any): void {
     const isEnvelope = data && typeof data === 'object'
       && (data.type === 'session_ack' || data.jsonrpc === '2.0');
     if (isEnvelope) {
       if (this.configDrift) data = { ...data, config_drift: true };
-      const self = this.socketSessionId(socket);
+      const self = this.sinkSessionId(sink);
       const peers = this.sessions.ids().filter((id) => id !== self);
       data = { ...data, peers };
     }
-    socket.write(JSON.stringify(data) + '\n');
+    sink.send(data);
   }
 
   /** Gracefully shut down the IPC server. */
@@ -665,7 +699,7 @@ export class IPCServer {
 
       // Close all session sockets
       for (const session of this.sessions.values()) {
-        session.socket.end();
+        session.sink.end();
       }
 
       // server.close() waits for every connection, and an idle client never

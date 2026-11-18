@@ -4,22 +4,21 @@
  * @module session
  */
 
-import type net from 'net';
-import type { DaemonSession } from './types';
+import type { DaemonSession, SessionSink } from './types';
 
 /**
  * Manages the set of active MCP sessions connected to the daemon.
- * Each session owns a socket, a set of tabs, and an attached tab ID.
+ * Each session owns a sink, a set of tabs, and an attached tab ID.
  */
 export class SessionRegistry {
   private sessions: Map<string, DaemonSession> = new Map();
 
   /** Register a new session. Returns false if sessionId already exists. */
-  add(sessionId: string, socket: net.Socket): boolean {
+  add(sessionId: string, sink: SessionSink): boolean {
     if (this.sessions.has(sessionId)) return false;
     this.sessions.set(sessionId, {
       sessionId,
-      socket,
+      sink,
       ownedTabs: new Set(),
       createdTabs: new Set(),
       attachedTabId: null,

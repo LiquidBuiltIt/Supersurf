@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import net from 'net';
+import type { SessionSink } from '../../src/types';
 import { ProfileRegistry } from '../../src/profiles/registry';
 import { SessionRegistry } from '../../src/session';
 
@@ -122,7 +122,7 @@ describe('ProfileRegistry', () => {
 
     it('throws when active sessions are connected', () => {
       registry.create('active');
-      sessions.add('s1', { writable: true } as net.Socket);
+      sessions.add('s1', { send() {}, end() {} } as SessionSink);
       sessions.setProfileId('s1', 'active');
       expect(() => registry.delete('active', sessions)).toThrow('active sessions are connected');
     });
@@ -166,7 +166,7 @@ describe('ProfileRegistry', () => {
 
       it('still refuses on active sessions before checking running state', () => {
         registry.create('active');
-        sessions.add('s1', { writable: true } as net.Socket);
+        sessions.add('s1', { send() {}, end() {} } as SessionSink);
         sessions.setProfileId('s1', 'active');
         expect(() => registry.delete('active', sessions, { refuseIfRunning: true }))
           .toThrow('active sessions are connected');
@@ -226,7 +226,7 @@ describe('ProfileRegistry', () => {
 
     it('throws when active sessions are connected', () => {
       registry.create('active');
-      sessions.add('s1', { writable: true } as net.Socket);
+      sessions.add('s1', { send() {}, end() {} } as SessionSink);
       sessions.setProfileId('s1', 'active');
       expect(() => registry.rename('active', 'renamed', sessions)).toThrow('active sessions are connected');
       expect(registry.exists('active')).toBe(true);

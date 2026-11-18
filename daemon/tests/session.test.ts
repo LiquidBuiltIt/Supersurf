@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SessionRegistry } from '../src/session';
-import net from 'net';
+import type { SessionSink } from '../src/types';
 
-function mockSocket(): net.Socket {
-  return { writable: true } as any;
+function mockSocket(): SessionSink {
+  return { send() {}, end() {} };
 }
 
 describe('SessionRegistry', () => {
@@ -47,7 +47,7 @@ describe('SessionRegistry', () => {
       const session = registry.get('s1');
       expect(session).toBeDefined();
       expect(session!.sessionId).toBe('s1');
-      expect(session!.socket).toBe(sock);
+      expect(session!.sink).toBe(sock);
     });
 
     it('returns undefined for missing session', () => {
