@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -347,6 +347,21 @@ describe('UsageMetricsLogger response_bytes', () => {
     l.write(base, response);
     expect(last(l).response_bytes).toBe(Buffer.byteLength(JSON.stringify(response)));
     expect(last(l).response_bytes).toBeGreaterThan(5000);
+  });
+
+  it('counts a 2 MiB string exactly without stringifying it a second time', () => {
+    const l = new UsageMetricsLogger('b5', tempDir);
+    const response = { content: [{ type: 'image', data: 'A'.repeat(2 * 1024 * 1024) }] };
+    const expected = Buffer.byteLength(JSON.stringify(response));
+    const spy = vi.spyOn(JSON, 'stringify');
+    try {
+      l.write(base, response);
+      const longest = Math.max(0, ...spy.mock.results.map((r) => (typeof r.value === 'string' ? r.value.length : 0)));
+      expect(longest).toBeLessThanOrEqual(1 << 20);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(last(l).response_bytes).toBe(expected);
   });
 
   it('is absent when no response is passed', () => {

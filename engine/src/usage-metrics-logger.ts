@@ -65,7 +65,13 @@ export class UsageMetricsLogger {
     let response_bytes: number | undefined;
     if (response !== undefined) {
       try {
-        response_bytes = Buffer.byteLength(JSON.stringify(response));
+        // shortcut: escape bytes inside strings over 1 MiB are not counted (base64 has none); count them if large text responses need exact sizes.
+        let big = 0;
+        const json = JSON.stringify(response, (_k, v) => {
+          if (typeof v === 'string' && v.length > 1 << 20) { big += Buffer.byteLength(v); return ''; }
+          return v;
+        });
+        response_bytes = Buffer.byteLength(json) + big;
       } catch { /* logging never throws: circular or BigInt response omits the field */ }
     }
     const line = JSON.stringify({
