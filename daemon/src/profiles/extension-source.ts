@@ -20,6 +20,13 @@ import { devSource } from 'shared';
 const SUPERSURF_DIR = path.join(os.homedir(), '.supersurf');
 const EXTENSION_DIR = path.join(SUPERSURF_DIR, 'extension');
 const GITHUB_REPO = 'LiquidBuiltIt/Supersurf';
+/** Socket idle limit for the tags call and the tarball download; a stalled network must reject, not hang. */
+const REQUEST_TIMEOUT_MS = 15_000;
+
+/** Fail a request that sits idle past REQUEST_TIMEOUT_MS; the 'error' handler rejects the caller. */
+function destroyOnTimeout(req: { on(ev: string, cb: () => void): unknown; destroy(err: Error): unknown }): void {
+  req.on('timeout', () => req.destroy(new Error(`GitHub request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`)));
+}
 
 const debugLog = (...args: unknown[]) => {
   const logger = (global as any).DAEMON_LOGGER as FileLogger | undefined;
@@ -56,9 +63,10 @@ export function getLatestTag(): Promise<string> {
         'User-Agent': 'supersurf-daemon',
         'Accept': 'application/vnd.github.v3+json',
       },
+      timeout: REQUEST_TIMEOUT_MS,
     };
 
-    https.get(url, options, (res) => {
+    const req = https.get(url, options, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302) {
         reject(new Error(`GitHub API redirected (${res.statusCode})`));
         return;
@@ -82,7 +90,9 @@ export function getLatestTag(): Promise<string> {
           reject(new Error(`Failed to parse GitHub tags: ${err.message}`));
         }
       });
-    }).on('error', reject);
+    });
+    destroyOnTimeout(req);
+    req.on('error', reject);
   });
 }
 
@@ -90,7 +100,7 @@ export function getLatestTag(): Promise<string> {
 function downloadFile(url: string, dest: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = (targetUrl: string) => {
-      https.get(targetUrl, (res) => {
+      const req = https.get(targetUrl, { timeout: REQUEST_TIMEOUT_MS }, (res) => {
         // Follow redirects
         if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
           res.resume(); // drain the response
@@ -104,6 +114,12 @@ function downloadFile(url: string, dest: string): Promise<void> {
         }
         const file = fs.createWriteStream(dest);
         res.pipe(file);
+        // A stall after the headers destroys the response, not the request: reject here.
+        res.on('error', (err) => {
+          file.close();
+          try { fs.unlinkSync(dest); } catch {}
+          reject(err);
+        });
         file.on('finish', () => {
           file.close();
           resolve();
@@ -113,7 +129,9 @@ function downloadFile(url: string, dest: string): Promise<void> {
           try { fs.unlinkSync(dest); } catch {}
           reject(err);
         });
-      }).on('error', (err) => {
+      });
+      destroyOnTimeout(req);
+      req.on('error', (err) => {
         try { fs.unlinkSync(dest); } catch {}
         reject(err);
       });
