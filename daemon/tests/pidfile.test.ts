@@ -44,6 +44,12 @@ describe('pidfile lock (M4)', () => {
       expect(acquirePidFile(pidFile)).toEqual({ acquired: true });
     });
 
+    it('takes over a pidfile that holds this process own pid', () => {
+      fs.writeFileSync(pidFile, String(process.pid));
+      expect(acquirePidFile(pidFile)).toEqual({ acquired: true });
+      expect(fs.readFileSync(pidFile, 'utf8')).toBe(String(process.pid));
+    });
+
     it('waits out a writer that created the pidfile but has not written it yet', async () => {
       // A rival daemon: open(O_EXCL) leaves the file empty until the write lands.
       const script = `const fs=require('fs');fs.writeFileSync(${JSON.stringify(pidFile)},'',{flag:'wx'});`

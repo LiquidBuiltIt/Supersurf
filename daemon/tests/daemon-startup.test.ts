@@ -92,8 +92,25 @@ describe('daemon hardening (M4)', () => {
     await until(() => a.out().includes('Daemon ready'));
     const b = start(home, port);
     expect(await b.exited).toBe(1);
+    expect(b.out()).toContain('Daemon already running');
     expect(fs.readFileSync(sup(home, 'daemon.pid'), 'utf8')).toBe(String(a.child.pid));
     expect((await status(sup(home, 'daemon.sock')))?.type).toBeTruthy();
+  }, 30000);
+
+  it('starts over a dead socket file left by a killed daemon', async () => {
+    const home = makeHome();
+    fs.mkdirSync(path.join(home, '.supersurf'), { mode: 0o700 });
+    const sock = sup(home, 'daemon.sock');
+    // A listener killed with SIGKILL leaves its socket file behind and nothing listening.
+    const script = `require('net').createServer().listen(${JSON.stringify(sock)},()=>console.log('ready'))`;
+    const dead = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'ignore'] });
+    await new Promise<void>((r) => dead.stdout!.once('data', () => r()));
+    dead.kill('SIGKILL');
+    await new Promise((r) => dead.on('exit', r));
+    expect(fs.existsSync(sock)).toBe(true);
+    const d = start(home, await freePort());
+    await until(() => d.out().includes('Daemon ready'));
+    expect((await status(sock))?.type).toBeTruthy();
   }, 30000);
 
   it('a loser whose pidfile check was bypassed still leaves the winner socket alone', async () => {
