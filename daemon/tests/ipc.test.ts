@@ -87,6 +87,22 @@ function readLine(socket: net.Socket): Promise<any> {
   });
 }
 
+/** First line as raw bytes, trailing newline included, no JSON.parse. */
+function readRawLine(socket: net.Socket): Promise<string> {
+  return new Promise((resolve) => {
+    let buffer = '';
+    const onData = (data: Buffer) => {
+      buffer += data.toString();
+      const idx = buffer.indexOf('\n');
+      if (idx !== -1) {
+        socket.removeListener('data', onData);
+        resolve(buffer.slice(0, idx + 1));
+      }
+    };
+    socket.on('data', onData);
+  });
+}
+
 function writeLine(socket: net.Socket, data: any): void {
   socket.write(JSON.stringify(data) + '\n');
 }
@@ -400,12 +416,12 @@ describe('IPCServer', () => {
     writeLine(client, { type: 'session_register', sessionId: 'count-test' });
     await readLine(client);
 
-    expect(countCb).toHaveBeenCalledWith(1);
+    expect(countCb.mock.calls).toEqual([[1]]);
 
     client.end();
     await new Promise(r => setTimeout(r, 50));
 
-    expect(countCb).toHaveBeenCalledWith(0);
+    expect(countCb.mock.calls).toEqual([[1], [0]]);
   });
 
   it('handles concurrent sessions', async () => {
@@ -862,6 +878,112 @@ describe('IPCServer', () => {
     });
   });
 
+  describe('wire bytes (E1b golden)', () => {
+    const ackHead =
+      '{"type":"session_ack","browser":"chrome","buildTimestamp":"2026-01-01T00:00:00Z",' +
+      '"version":"9.9.9-test","extensionConnected":false,"extensionVersionError":null,';
+
+    it('session_ack bytes, no drift, single session', async () => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'g1' });
+      expect(await readRawLine(client)).toBe(ackHead + '"activeSessionCount":1,"peers":[]}\n');
+      client.end();
+    });
+
+    it('session_ack bytes with drift and a peer: config_drift before peers', async () => {
+      await ipc.start();
+      const first = await connectToSocket(sockPath);
+      writeLine(first, { type: 'session_register', sessionId: 'first' });
+      await readLine(first);
+      ipc.setConfigDrift(true);
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'g2' });
+      expect(await readRawLine(client)).toBe(
+        ackHead + '"activeSessionCount":2,"config_drift":true,"peers":["first"]}\n',
+      );
+      first.end();
+      client.end();
+    });
+
+    it('post-handshake JSON-RPC result bytes include peers', async () => {
+      await ipc.start();
+      const first = await connectToSocket(sockPath);
+      writeLine(first, { type: 'session_register', sessionId: 'first' });
+      await readLine(first);
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'g3' });
+      await readLine(client);
+
+      writeLine(client, {
+        jsonrpc: '2.0', id: 'q1', method: 'experiments.getOne', params: { experiment: 'nope' },
+      });
+      expect(await readRawLine(client)).toBe(
+        '{"jsonrpc":"2.0","id":"q1","result":{"experiment":"nope","enabled":false},"peers":["first"]}\n',
+      );
+      first.end();
+      client.end();
+    });
+
+    it('duplicate session_reject bytes carry no peers and no config_drift', async () => {
+      await ipc.start();
+      const live = await connectToSocket(sockPath);
+      writeLine(live, { type: 'session_register', sessionId: 'dup' });
+      await readLine(live);
+      ipc.setConfigDrift(true);
+
+      const second = await connectToSocket(sockPath);
+      writeLine(second, { type: 'session_register', sessionId: 'dup' });
+      expect(await readRawLine(second)).toBe(
+        '{"type":"session_reject","reason":"Username \\"dup\\" is already in use by a live agent. ' +
+        'Pick another username and call `connect` again."}\n',
+      );
+      live.end();
+      second.end();
+    });
+
+    it('missing-handshake session_reject bytes', async () => {
+      await ipc.start();
+      ipc.setConfigDrift(true);
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { jsonrpc: '2.0', id: '1', method: 'navigate' });
+      expect(await readRawLine(client)).toBe(
+        '{"type":"session_reject","reason":"Expected session_register handshake"}\n',
+      );
+      client.end();
+    });
+
+    it('a socket that closes before its response is ready: nothing throws, session cleaned up', async () => {
+      const errors: unknown[] = [];
+      const onErr = (e: unknown) => errors.push(e);
+      process.on('uncaughtException', onErr);
+      process.on('unhandledRejection', onErr);
+      try {
+        let release!: (v: unknown) => void;
+        (bridge.sendCmd as any).mockImplementationOnce(() => new Promise((r) => { release = r; }));
+
+        await ipc.start();
+        const client = await connectToSocket(sockPath);
+        writeLine(client, { type: 'session_register', sessionId: 'early' });
+        await readLine(client);
+        writeLine(client, { jsonrpc: '2.0', id: 'r1', method: 'navigate', params: {} });
+        await vi.waitFor(() => expect(bridge.sendCmd).toHaveBeenCalledTimes(1));
+
+        client.destroy();
+        await vi.waitFor(() => expect(sessions.has('early')).toBe(false));
+
+        release({ success: true });
+        await new Promise((r) => setTimeout(r, 50));
+        expect(errors).toEqual([]);
+        expect(sessions.has('early')).toBe(false);
+      } finally {
+        process.off('uncaughtException', onErr);
+        process.off('unhandledRejection', onErr);
+      }
+    });
+  });
+
   describe('profiles.launch + user-owned lifecycle', () => {
     it('rejects launch of a nonexistent profile', async () => {
       await ipc.start();
@@ -1110,9 +1232,11 @@ describe('IPCServer', () => {
       const client = await connectToSocket(sockPath);
       writeLine(client, { type: 'session_register', sessionId: 'quiet' });
       await readLine(client);
+      const ended = new Promise<void>((r) => client.once('end', () => r()));
       const t0 = Date.now();
       await ipc.stop();
-      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(Date.now() - t0).toBeLessThan(400); // under the 500 ms destroy grace: end() did it
+      await ended; // the server ended the session's socket
       client.destroy();
     });
   });
