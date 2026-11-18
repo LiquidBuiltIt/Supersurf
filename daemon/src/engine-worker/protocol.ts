@@ -8,6 +8,8 @@
  * @module engine-worker/protocol
  */
 
+import type { ShimConfigInputs } from './shim-config';
+
 /** A JSON-RPC request as `DaemonClient.sendCmd` writes it; main feeds it to `SessionHost.request`. */
 export interface LinkRequest {
   jsonrpc: '2.0';
@@ -18,8 +20,8 @@ export interface LinkRequest {
 }
 
 export type MainToWorker =
-  /** `config` is a full `BackendConfig` (E2b builds it from the handshake); `resume` is reserved. */
-  | { t: 'open'; cid: string; config: unknown; resume?: unknown }
+  /** `config` is plain-object inputs from the handshake; the worker builds the `ConfigService` and `BackendConfig`. `resume` is reserved. */
+  | { t: 'open'; cid: string; config: ShimConfigInputs; resume?: unknown }
   | { t: 'line'; cid: string; data: string }
   | { t: 'close'; cid: string }
   | { t: 'shutdown' }
@@ -34,7 +36,7 @@ export type WorkerToMain =
   /** One MCP server line, UTF-8, transferred (never a pooled Buffer slab). */
   | { t: 'line'; cid: string; buf: Uint8Array }
   | { t: 'end'; cid: string }
-  | { t: 'link-open'; lid: number; sessionId: string }
+  | { t: 'link-open'; lid: number; sessionId: string; cid?: string }
   | { t: 'req'; lid: number; msg: LinkRequest }
   | { t: 'link-close'; lid: number }
   | { t: 'status'; rid: number }

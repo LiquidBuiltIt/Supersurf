@@ -1197,6 +1197,18 @@ describe('IPCServer', () => {
 
     afterEach(() => { for (const p of ports.splice(0)) p.close(); });
 
+    it('registered fires once per accepted link with the session id and cid, never on a refused duplicate', async () => {
+      await ipc.start();
+      const calls: Array<[string, string | undefined]> = [];
+      const { router } = portRig({ registered: (id, cid) => { calls.push([id, cid]); } });
+      await router.open('a1', 'shim-x');
+      await router.open('a2');
+      expect(calls).toEqual([['a1', 'shim-x'], ['a2', undefined]]);
+
+      await expect(router.open('a1', 'shim-x')).rejects.toThrow('already in use');
+      expect(calls).toHaveLength(2);
+    });
+
     it('the same id over a socket then a port: the port start() rejects', async () => {
       await ipc.start();
       const client = await connectToSocket(sockPath);

@@ -26,6 +26,8 @@ export interface EnginePortHooks {
   /** One MCP server line (UTF-8, no newline) for shim connection `cid`. */
   line?(cid: string, buf: Uint8Array): void;
   end?(cid: string): void;
+  /** Right after a successful `host.register` of `sessionId`, opened for connection `cid` (if the worker said). Not called on a refused register. */
+  registered?(sessionId: string, cid: string | undefined): void;
   /** Answer an env lookup for `cid`: `value` for `get`, `keys` for `keys`. No hook: the worker gets an error. */
   env?(cid: string, op: 'get' | 'keys', name?: string): Promise<{ value?: string; keys?: string[] }>;
 }
@@ -72,7 +74,10 @@ export function attachEnginePort(port: EnginePort, host: SessionHost, hooks: Eng
           links.delete(m.lid);
           host.close(link.sessionId, sink);
         });
-        if (host.register(m.sessionId, sink)) links.set(m.lid, { sessionId: m.sessionId, sink });
+        if (host.register(m.sessionId, sink)) {
+          links.set(m.lid, { sessionId: m.sessionId, sink });
+          hooks.registered?.(m.sessionId, m.cid);
+        }
         break;
       }
       case 'req': {
