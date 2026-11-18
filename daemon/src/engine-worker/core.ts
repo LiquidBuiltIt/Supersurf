@@ -60,6 +60,7 @@ export function createEngineSide(port: WorkerPort, engine: EngineModule): { shut
     new Promise((resolve) => {
       const rid = nextRid++;
       const timer = setTimeout(() => { replies.delete(rid); resolve(null); }, REPLY_TIMEOUT_MS);
+      timer.unref();
       replies.set(rid, (m) => { clearTimeout(timer); resolve(m); });
       port.postMessage(build(rid));
     });
@@ -118,6 +119,8 @@ export function createEngineSide(port: WorkerPort, engine: EngineModule): { shut
   };
 
   const shutdown = async (): Promise<void> => {
+    // Settle pending asks now: their timers would otherwise run on after shutdown.
+    for (const [rid, settle] of [...replies]) { replies.delete(rid); settle(null); }
     await Promise.all([...connections.keys()].map(close));
   };
 

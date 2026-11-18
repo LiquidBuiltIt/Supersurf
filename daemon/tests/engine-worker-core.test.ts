@@ -188,4 +188,14 @@ describe('engine worker core: status and env round trips (fake engine)', () => {
     expect(await s).toBeNull();
     await assertion;
   });
+
+  it('shutdown settles pending replies at once instead of leaving their timers', async () => {
+    vi.useFakeTimers();
+    const f = fake();
+    const s = f.host().queryDaemonStatus();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    await f.side.shutdown();
+    expect(await s).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
