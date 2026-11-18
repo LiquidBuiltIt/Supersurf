@@ -1244,8 +1244,54 @@ describe('AgentSession', () => {
           session_id: 'audit-test',
           tool: 'connect',
           result: 'ok',
-        })
+        }),
+        expect.anything(),
       );
+    });
+
+    it('connect logs daemon_spawn when the link reports a respawn, and omits it otherwise', async () => {
+      (host.openLink as any).mockResolvedValueOnce({ ...mockDaemonClientInstance, spawnReason: 'version_mismatch' });
+      await backend.callTool('connect', { username: 'spawn-test' });
+      expect(mockMetricsWrite).toHaveBeenCalledWith(
+        expect.objectContaining({ tool: 'connect', daemon_spawn: 'version_mismatch' }),
+        expect.anything(),
+      );
+
+      await backend.callTool('disconnect');
+      mockMetricsWrite.mockClear();
+      await backend.callTool('connect', { username: 'spawn-test' });
+      const entry = mockMetricsWrite.mock.calls.find(c => c[0].tool === 'connect')![0];
+      expect('daemon_spawn' in entry).toBe(false);
+    });
+
+    it('connect keeps daemon_spawn on the row when the spawning connect then fails', async () => {
+      (host.openLink as any).mockResolvedValueOnce({
+        ...mockDaemonClientInstance,
+        spawnReason: 'version_mismatch',
+        extensionVersionError: 'x',
+        extensionConnected: false,
+      });
+      await backend.callTool('connect', { username: 'spawn-fail' });
+      const entry = mockMetricsWrite.mock.calls.find(c => c[0].tool === 'connect')![0];
+      expect(entry.result).toBe('error');
+      expect(entry.daemon_spawn).toBe('version_mismatch');
+    });
+
+    it('a repeat connect while connected does not re-log the earlier spawn', async () => {
+      (host.openLink as any).mockResolvedValueOnce({ ...mockDaemonClientInstance, spawnReason: 'version_mismatch' });
+      await backend.callTool('connect', { username: 'spawn-twice' });
+      mockMetricsWrite.mockClear();
+      await backend.callTool('connect', { username: 'spawn-twice' });
+      const entry = mockMetricsWrite.mock.calls.find(c => c[0].tool === 'connect')![0];
+      expect('daemon_spawn' in entry).toBe(false);
+    });
+
+    it('a backend-tool write passes the result as the response', async () => {
+      await backend.callTool('connect', { username: 'resp-test' });
+      mockMetricsWrite.mockClear();
+      const result = await backend.callTool('status');
+      const call = mockMetricsWrite.mock.calls.find(c => c[0].tool === 'status')!;
+      expect(call[1]).toBe(result);
     });
 
     it('disconnect logs to the audit logger', async () => {
@@ -1258,7 +1304,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'disconnect',
           result: 'ok',
-        })
+        }),
+        expect.anything(),
       );
     });
 
@@ -1272,7 +1319,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'status',
           result: 'ok',
-        })
+        }),
+        expect.anything(),
       );
     });
 
@@ -1287,7 +1335,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'status',
           url: 'https://example.com/page',
-        })
+        }),
+        expect.anything(),
       );
     });
 
@@ -1312,7 +1361,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'connect',
           client: { name: 'claude-desktop', version: '2.1.0' },
-        })
+        }),
+        expect.anything(),
       );
     });
 
@@ -1335,7 +1385,8 @@ describe('AgentSession', () => {
         expect.objectContaining({
           tool: 'connect',
           result: 'error',
-        })
+        }),
+        expect.anything(),
       );
     });
   });

@@ -41,6 +41,11 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- feat: **The metrics trail now records `response_bytes` on every tool-call row.** It is the UTF-8 byte length of the JSON the client receives, screenshot data included, so response size is measurable per tool.
+- feat: **The server tells the daemon why it starts it (`--start-reason=not_running` or `version_mismatch`), and a `connect` row in the metrics trail carries `daemon_spawn` when that connect had to start or restart the daemon.** Before this, an automatic version-mismatch restart left no trace in the trail.
+- fix: **`daemon.log` is now append-only and rotates at 5 MB to `daemon.log.1`.** A second daemon that lost the lock used to truncate the running daemon's log, and every restart wiped the previous run; `supersurf-daemon observe` now follows the file across rotation.
+- feat: **The daemon's start line names its version and why it started (`start_reason=`).** The value comes from `--start-reason=<r>` (the `start` and `restart` commands set it), `shim` for a shim spawn, else `unknown`.
+- feat: **The daemon's shutdown line names the cause (`reason=SIGTERM`, `SIGINT` or `idle_timeout`).**
 - feat: **The extension now reports its protocol number (`extProtocol: 1`) in the handshake.** The daemon does not act on it yet.
 - fix: **Two daemons starting at once can no longer delete each other's pidfile and socket.** The pidfile is now a create-exclusive lock, each daemon removes only a pidfile that holds its own pid and a socket it bound itself, the spawn path waits up to 10 seconds for a daemon that is still starting instead of wiping its pidfile, then treats a pidfile with no socket as stale and spawns, and the socket opens before the extension download so the download no longer widens the race.
 - security: **`~/.supersurf` is now mode 0700, and `daemon.sock` and `daemon.pid` are 0600.**

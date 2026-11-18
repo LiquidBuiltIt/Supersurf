@@ -106,6 +106,8 @@ export async function onConnect(
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
+  // Reset first: an already-connected or invalid call must not re-log the previous spawn.
+  mgr.daemonSpawnReason = null;
   // Default mode (4.0.0 parity): the agent's name is `client_id`; the manager maps it onto `username`.
   const multi = isMultiAgent(mgr.config);
   const idKey = multi ? 'username' : 'client_id';
@@ -185,6 +187,9 @@ export async function onConnect(
       mgr.state = 'passive';
       return versionMismatchFailure(mgr, e.daemonVersion, e.serverVersion, e.reason, options);
     }
+
+    // Record the spawn before any later failure: a restart followed by a failed connect is the silent restart the metric counts.
+    mgr.daemonSpawnReason = client.spawnReason ?? null;
 
     // A version-rejected extension. Without this the session proceeds, the
     // matchmaker refuses every slot, and the agent discovers the problem as a

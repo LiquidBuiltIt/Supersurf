@@ -27,12 +27,14 @@ export const LOG_FILE = path.join(SUPERSURF_DIR, 'logs', 'daemon.log');
 
 // ─── CLI Parsing ──────────────────────────────────────────────
 
-export function parseArgs(argv: string[]): { port: number; debug: boolean; verbose: boolean; command?: string; portExplicit: boolean } {
+export function parseArgs(argv: string[]): { port: number; debug: boolean; verbose: boolean; command?: string; portExplicit: boolean; startReason: string } {
   let port = HARDCODED_DEFAULTS.daemon.port;
   let portExplicit = false;
   let debug = false;
   let verbose = false;
   let command: string | undefined;
+  let startReason: string | undefined;
+  let spawnedByShim = false;
 
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--port' && argv[i + 1]) {
@@ -47,6 +49,10 @@ export function parseArgs(argv: string[]): { port: number; debug: boolean; verbo
       debug = true;
     } else if (argv[i] === '--verbose') {
       verbose = true;
+    } else if (argv[i].startsWith('--start-reason=')) {
+      startReason = argv[i].slice('--start-reason='.length);
+    } else if (argv[i] === '--spawned-by=shim') {
+      spawnedByShim = true;
     } else if (argv[i] === 'start') {
       command = 'start';
     } else if (argv[i] === 'stop') {
@@ -60,7 +66,9 @@ export function parseArgs(argv: string[]): { port: number; debug: boolean; verbo
     }
   }
 
-  return { port, debug, verbose, command, portExplicit };
+  // Only [a-z_]+ reaches the log line; anything else is not trusted.
+  const reason = startReason !== undefined && /^[a-z_]+$/.test(startReason) ? startReason : spawnedByShim ? 'shim' : 'unknown';
+  return { port, debug, verbose, command, portExplicit, startReason: reason };
 }
 
 // ─── Status Command ──────────────────────────────────────────
@@ -208,7 +216,7 @@ export function observe(): void {
   }
 
   console.log(`Tailing ${LOG_FILE} (Ctrl+C to stop)\n`);
-  const tail = spawn('tail', ['-f', LOG_FILE], { stdio: 'inherit' });
+  const tail = spawn('tail', ['-F', LOG_FILE], { stdio: 'inherit' });
   tail.on('exit', (code) => process.exit(code ?? 0));
   process.on('SIGINT', () => { tail.kill(); process.exit(0); });
 }

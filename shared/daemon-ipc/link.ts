@@ -15,7 +15,7 @@ import type { DaemonClient } from './client';
 export type DaemonLink = IExtensionTransport &
   Pick<
     DaemonClient,
-    'version' | 'extensionConnected' | 'extensionVersionError' | 'activeSessionCount' | 'isConfigDrifted' | 'getPeerSessions'
+    'version' | 'extensionConnected' | 'extensionVersionError' | 'activeSessionCount' | 'isConfigDrifted' | 'getPeerSessions' | 'spawnReason'
   >;
 
 export interface OpenLinkOptions {

@@ -127,12 +127,14 @@ async function waitForSocket(maxWaitMs: number): Promise<boolean> {
  *
  * @param port - WebSocket port for the extension connection (default 5555)
  * @param debug - Enable daemon debug logging
+ * @param startReason - Why this call would spawn; logged by the daemon (`[a-z_]+` only)
+ * @returns true only when this call spawned a daemon and its socket came up
  * @throws If daemon fails to start within 10 seconds
  */
-export async function ensureDaemon(port: number = 5555, debug: boolean = false, experiments: string[] = []): Promise<void> {
+export async function ensureDaemon(port: number = 5555, debug: boolean = false, experiments: string[] = [], startReason: string = 'not_running'): Promise<boolean> {
   if (isDaemonRunning() && fs.existsSync(sockPath())) {
     log('Daemon already running');
-    return;
+    return false;
   }
 
   // The pidfile names a live process but its socket is not up: that daemon is
@@ -143,7 +145,7 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   // stale files and spawn.
   if (isDaemonRunning()) {
     log('Daemon is starting, waiting for its socket...');
-    if (await waitForSocket(10000)) return;
+    if (await waitForSocket(10000)) return false;
     log(`Pidfile pid ${readDaemonPid()} never opened a socket in 10 seconds: treating it as stale.`);
   }
 
@@ -153,7 +155,7 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   // socket would cut it off, and a replacement would die on the port.
   if (await isSocketLive(sockPath())) {
     log('Daemon is listening on its socket without a pidfile, reusing it');
-    return;
+    return false;
   }
 
   // Clean stale files
@@ -169,7 +171,7 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   const daemonPath = resolveDaemonEntry();
   log('Daemon entry resolved:', daemonPath);
   const command: string = process.execPath;
-  const args: string[] = [daemonPath, '--port', String(port)];
+  const args: string[] = [daemonPath, '--port', String(port), `--start-reason=${startReason}`];
 
   if (debug) args.push('--debug');
 
@@ -218,7 +220,8 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   while (waited < maxWait) {
     if (fs.existsSync(sockPath())) {
       log('Daemon socket ready');
-      return;
+      // A spawned daemon that already exited lost the pidfile race: the socket is the winner's.
+      return !exited;
     }
     // A spawned daemon that lost the pidfile race exits 1 while the winner is still
     // starting: keep waiting for the winner's socket instead of failing.

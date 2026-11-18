@@ -43,6 +43,9 @@ export class DaemonClient implements IExtensionTransport {
   private _activeSessionCount: number | null = null;
   private dialogEventBuffer: DialogEvent[] = [];
 
+  /** Set by the host that opened this link when it (re)spawned the daemon for it; read for the metrics trail. */
+  spawnReason?: 'not_running' | 'version_mismatch';
+
   onReconnect: (() => void) | null = null;
   onTabInfoUpdate: ((tabInfo: any) => void) | null = null;
 
