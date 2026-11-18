@@ -88,6 +88,10 @@ describe('PortLink', () => {
     const assertion = expect(p).rejects.toThrow('Timeout connecting to daemon');
     await vi.advanceTimersByTimeAsync(10000);
     await assertion;
+    vi.useRealTimers();
+    await new Promise((res) => setTimeout(res, 30));
+    // Main registered the session on link-open; without a link-close it would leak.
+    expect(r.seen.filter((m) => m.t === 'link-close')).toEqual([{ t: 'link-close', lid: 1 }]);
   });
 
   it('sendCmd posts a req and resolves with the result', async () => {
