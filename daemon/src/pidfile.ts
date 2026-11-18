@@ -32,8 +32,14 @@ export function acquirePidFile(pidFile: string): { acquired: true } | { acquired
     } catch (err: any) {
       if (err.code !== 'EEXIST') throw err;
     }
-    let held: string;
-    try { held = fs.readFileSync(pidFile, 'utf8'); } catch { continue; } // vanished: retry the create
+    let held = '';
+    // Empty means a writer sits between create and write (this lock, or a 4.x daemon's truncate):
+    // wait it out for up to ~1 s before calling the file stale.
+    for (let wait = 0; wait < 20 && held.trim() === ''; wait++) {
+      if (wait) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      try { held = fs.readFileSync(pidFile, 'utf8'); } catch { held = ''; break; }
+    }
+    if (held === '' && !fs.existsSync(pidFile)) continue; // vanished: retry the create
     const pid = parseInt(held.trim(), 10);
     if (pid > 0 && pid !== process.pid && isProcessAlive(pid)) return { acquired: false, pid };
     // shortcut: read-then-unlink is not atomic; a rival that replaces the stale file in

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { spawn } from 'child_process';
 import fs from 'fs';
 import net from 'net';
 import os from 'os';
@@ -41,6 +42,20 @@ describe('pidfile lock (M4)', () => {
     it('replaces an unparsable pidfile', () => {
       fs.writeFileSync(pidFile, 'garbage');
       expect(acquirePidFile(pidFile)).toEqual({ acquired: true });
+    });
+
+    it('waits out a writer that created the pidfile but has not written it yet', async () => {
+      // A rival daemon: open(O_EXCL) leaves the file empty until the write lands.
+      const script = `const fs=require('fs');fs.writeFileSync(${JSON.stringify(pidFile)},'',{flag:'wx'});`
+        + `console.log('ready');setTimeout(()=>fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid)),150);setTimeout(()=>{},3000);`;
+      const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'ignore'] });
+      try {
+        await new Promise<void>((r) => child.stdout!.once('data', () => r()));
+        expect(acquirePidFile(pidFile)).toEqual({ acquired: false, pid: child.pid });
+        expect(fs.readFileSync(pidFile, 'utf8')).toBe(String(child.pid));
+      } finally {
+        child.kill('SIGKILL');
+      }
     });
   });
 
