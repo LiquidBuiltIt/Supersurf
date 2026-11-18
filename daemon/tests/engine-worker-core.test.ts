@@ -6,6 +6,7 @@ import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import { ConfigService } from 'shared';
 import { attachEnginePort, type EnginePortHooks } from '../src/engine-worker/main-side';
 import { startEngineSide } from '../src/engine-worker/worker';
+import { createEngineSide } from '../src/engine-worker/core';
 import type { SessionHost } from '../src/ipc';
 
 /** `engine/src/index` injected into the core: the inline path the brief asks for. */
@@ -123,5 +124,68 @@ describe('engine worker core (inline, engine/src injected)', () => {
     await r.call('shim-d', 1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } });
     r.mainEnd.postMessage({ t: 'shutdown' });
     await r.until(() => r.events.includes('end:shim-d') && r.events.includes('end:shim-e'));
+  });
+});
+
+describe('engine worker core: status and env round trips (fake engine)', () => {
+  /** A fake engine that hands the per-connection host to the test; a hand-driven port. */
+  function fake() {
+    let host: any;
+    let onMsg!: (m: any) => void;
+    const posted: any[] = [];
+    const port = { postMessage: (m: any) => { posted.push(m); }, on: (_e: string, fn: any) => { onMsg = fn; } };
+    class Mgr {
+      constructor(_config: any, h: any) { host = h; }
+      async initialize() {}
+      async listTools() { return []; }
+      async callTool() { return {}; }
+      async serverClosed() {}
+    }
+    const side = createEngineSide(port, { AgentSessionManager: Mgr } as any);
+    onMsg({ t: 'open', cid: 'c1', config: { server: { name: 's', version: '0' } } });
+    const last = (t: string) => [...posted].reverse().find((m) => m.t === t);
+    return { host: () => host, onMsg, posted, last, side };
+  }
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('queryDaemonStatus returns the status-res value', async () => {
+    const f = fake();
+    const p = f.host().queryDaemonStatus();
+    const ask = f.last('status');
+    f.onMsg({ t: 'status-res', rid: ask.rid, status: { type: 'daemon_status', sessions: [] } });
+    expect(await p).toEqual({ type: 'daemon_status', sessions: [] });
+  });
+
+  it('envGet and envKeys return the env-res values for their connection', async () => {
+    const f = fake();
+    const g = f.host().envGet('KEY');
+    const ask = f.last('env');
+    expect(ask).toMatchObject({ cid: 'c1', op: 'get', name: 'KEY' });
+    f.onMsg({ t: 'env-res', rid: ask.rid, value: 'v' });
+    expect(await g).toBe('v');
+
+    const k = f.host().envKeys();
+    const ask2 = f.last('env');
+    expect(ask2).toMatchObject({ cid: 'c1', op: 'keys' });
+    f.onMsg({ t: 'env-res', rid: ask2.rid, keys: ['A', 'B'] });
+    expect(await k).toEqual(['A', 'B']);
+  });
+
+  it('an env-res error rejects', async () => {
+    const f = fake();
+    const g = f.host().envGet('KEY');
+    f.onMsg({ t: 'env-res', rid: f.last('env').rid, error: 'shim gone' });
+    await expect(g).rejects.toThrow('shim gone');
+  });
+
+  it('a missing reply times out: status null, env rejects', async () => {
+    vi.useFakeTimers();
+    const f = fake();
+    const s = f.host().queryDaemonStatus();
+    const e = f.host().envGet('KEY');
+    const assertion = expect(e).rejects.toThrow('Timed out');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await s).toBeNull();
+    await assertion;
   });
 });
