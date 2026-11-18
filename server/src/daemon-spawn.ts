@@ -113,6 +113,15 @@ export function resolveDaemonEntry(): string {
   }
 }
 
+/** Poll for the daemon socket file (100ms interval); true once it exists. */
+async function waitForSocket(maxWaitMs: number): Promise<boolean> {
+  for (let waited = 0; waited < maxWaitMs; waited += 100) {
+    if (fs.existsSync(sockPath())) return true;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return false;
+}
+
 /**
  * Ensure the daemon is running. If not, spawn it and wait for the socket file.
  *
@@ -124,6 +133,18 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
   if (isDaemonRunning() && fs.existsSync(sockPath())) {
     log('Daemon already running');
     return;
+  }
+
+  // The pidfile names a live process but its socket is not up: that daemon is
+  // still starting. Wait for it. Deleting its pidfile and spawning a second one
+  // is the race the daemon's own pidfile lock now backstops.
+  if (isDaemonRunning()) {
+    log('Daemon is starting, waiting for its socket...');
+    if (await waitForSocket(10000)) return;
+    throw new Error(
+      `Daemon (pid ${readDaemonPid()}) is running but its socket never appeared within 10 seconds. ` +
+      `See ${supersurfDir()}/logs/daemon.log.`,
+    );
   }
 
   log('Daemon not running, spawning...');
@@ -192,7 +213,9 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
       log('Daemon socket ready');
       return;
     }
-    if (exited) {
+    // A spawned daemon that lost the pidfile race exits 1 while the winner is still
+    // starting: keep waiting for the winner's socket instead of failing.
+    if (exited && !isDaemonRunning()) {
       const info = exited as { code: number | null; signal: NodeJS.Signals | null };
       let captured = '';
       try { captured = fs.readFileSync(startupLogPath(), 'utf8'); } catch {}

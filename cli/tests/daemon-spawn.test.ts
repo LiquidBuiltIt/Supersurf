@@ -77,6 +77,16 @@ describe('ensureDaemon', () => {
     expect(spawned[0].args.join(' ')).not.toContain('@latest');
   });
 
+  it('waits for the socket of a daemon that is still starting instead of spawning a second one (M4)', async () => {
+    const dir = path.join(tmpHome, '.supersurf');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'daemon.pid'), String(process.pid)); // alive, not listening yet
+    setTimeout(() => fs.writeFileSync(sockPath, ''), 300);
+    const { ensureDaemon } = await import('../src/daemon-spawn');
+    await expect(ensureDaemon(5555)).resolves.toBeUndefined();
+    expect(spawned).toHaveLength(0);
+  });
+
   it('throws naming the exit status and the pinned package on a non-zero exit', async () => {
     result.status = 3;
     const { ensureDaemon } = await import('../src/daemon-spawn');

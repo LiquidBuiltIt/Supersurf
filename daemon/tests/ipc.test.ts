@@ -1085,6 +1085,69 @@ describe('IPCServer', () => {
     });
   });
 
+  describe('socket and shutdown hardening (M4)', () => {
+    it('binds the socket mode 0600', async () => {
+      // Short path: a sun_path over 107 bytes (a deep worktree) is silently truncated.
+      const short = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ipcm-')), 's.sock');
+      ipc = new IPCServer(short, bridge, sessions, scheduler, experiments, profileRegistry, { port: 5555, version: '9.9.9-test' });
+      await ipc.start();
+      expect(fs.statSync(short).mode & 0o777).toBe(0o600);
+      await ipc.stop();
+      fs.rmSync(path.dirname(short), { recursive: true, force: true });
+    });
+
+    it('stop() resolves within its deadline while an idle client stays connected', async () => {
+      await ipc.start();
+      const idle = await connectToSocket(sockPath); // never handshakes, never closes
+      const t0 = Date.now();
+      await ipc.stop();
+      expect(Date.now() - t0).toBeLessThan(2000);
+      idle.destroy();
+    });
+
+    it('stop() also ends a registered session that never closes its end', async () => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'quiet' });
+      await readLine(client);
+      const t0 = Date.now();
+      await ipc.stop();
+      expect(Date.now() - t0).toBeLessThan(2000);
+      client.destroy();
+    });
+  });
+
+  describe('managed spawn waits for the extension pull (M4)', () => {
+    it('holds profiles.connect until extensionReady settles, then reports the pull error', async () => {
+      profileRegistry.create('dev');
+      let settle!: () => void;
+      const meta: IPCServerMeta = {
+        port: 5555,
+        version: '9.9.9-test',
+        extensionPullError: null,
+        extensionReady: new Promise<void>((r) => { settle = r; }),
+      };
+      ipc = new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry, meta);
+      vi.mocked(isExtensionCached).mockReturnValue(false);
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'sess-1' });
+      await readLine(client);
+      writeLine(client, { jsonrpc: '2.0', id: 'r1', method: 'profiles.connect', params: { profile: 'dev' } });
+
+      let answered = false;
+      const answer = readLine(client).then((r) => { answered = true; return r; });
+      await new Promise((r) => setTimeout(r, 150));
+      expect(answered).toBe(false);
+
+      meta.extensionPullError = 'getaddrinfo ENOTFOUND api.github.com';
+      settle();
+      const res = await answer;
+      expect(res.error.message).toMatch(/ENOTFOUND api\.github\.com/);
+      client.end();
+    });
+  });
+
   describe('extension pull failure', () => {
     function makeIpcServer(metaOverrides: Partial<IPCServerMeta> = {}): IPCServer {
       return new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry, {
