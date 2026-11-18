@@ -183,6 +183,14 @@ describe('DaemonExperimentRegistry', () => {
       expect(registry.getAll('odd')).toMatchObject({ page_diffing: false });
     });
 
+    it('an unknown name mixed with a known one is dropped: not enabled, no getAll key, the known one is on', () => {
+      registry.initSession('mixed', ['bogus', 'page_diffing']);
+      const all = registry.getAll('mixed');
+      expect('bogus' in all).toBe(false); // getAll only walks the known names, so this alone cannot see a kept one
+      expect(registry.isEnabled('mixed', 'bogus')).toBe(false);
+      expect(all.page_diffing).toBe(true);
+    });
+
     it('a list does not reset an initialized session; deleteSession clears it', () => {
       registry.applyDefaults(['page_diffing']);
       registry.initSession('s', ['fingerprinting']);
