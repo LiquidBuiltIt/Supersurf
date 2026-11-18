@@ -41,6 +41,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- feat: **The daemon now serves MCP to a `supersurf-shim` connection (`shim_register`) through an engine worker thread.** The worker starts at the first shim connection; each shim connection takes its flags, allowlisted env and experiment defaults from its own handshake, and `secure_fill` reads env values from that shim, not from the daemon. Legacy `session_register` clients are unchanged.
 - feat: **The metrics trail now records `response_bytes` on every tool-call row.** It is the UTF-8 byte length of the JSON the client receives, screenshot data included, so response size is measurable per tool.
 - feat: **The server tells the daemon why it starts it (`--start-reason=not_running` or `version_mismatch`), and a `connect` row in the metrics trail carries `daemon_spawn` when that connect had to start or restart the daemon.** Before this, an automatic version-mismatch restart left no trace in the trail.
 - fix: **`daemon.log` is now append-only and rotates at 5 MB to `daemon.log.1`.** A second daemon that lost the lock used to truncate the running daemon's log, and every restart wiped the previous run; `supersurf-daemon observe` now follows the file across rotation.
