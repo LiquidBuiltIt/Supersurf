@@ -13,12 +13,18 @@ const walk = (d: string): string[] =>
     e.isDirectory() ? walk(path.join(d, e.name)) : e.name.endsWith('.ts') ? [path.join(d, e.name)] : []);
 // `engine-worker/...` is the daemon's own directory, not the engine.
 const NAMES_ENGINE = /(from|require\()\s*['"][^'"]*\bengine\b(?!-)[^'"]*['"]/;
+// Also catches `require(path.join(__dirname, '../engine/index.js'))`: any string literal naming the engine entry.
+const NAMES_ENGINE_ENTRY = /['"`][^'"`\n]*\bengine\/index[^'"`\n]*['"`]/;
 
 describe('E1: the daemon carries the engine but does not load it', () => {
   it('no daemon source imports or requires the engine, except the worker file', () => {
     const bad = walk(SRC)
       .map((f) => path.relative(SRC, f))
-      .filter((rel) => rel !== WORKER_FILE && NAMES_ENGINE.test(fs.readFileSync(path.join(SRC, rel), 'utf8')));
+      .filter((rel) => {
+        if (rel === WORKER_FILE) return false;
+        const text = fs.readFileSync(path.join(SRC, rel), 'utf8');
+        return NAMES_ENGINE.test(text) || NAMES_ENGINE_ENTRY.test(text);
+      });
     expect(bad).toEqual([]);
   });
 
