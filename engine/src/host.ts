@@ -16,4 +16,8 @@ export interface EngineHost {
   queryDaemonStatus(): Promise<DaemonStatusReply | null>;
   /** A fresh BackendConfig for a playbook run's own session. */
   runConfig(): BackendConfig;
+  /** One env var for `secure_fill`; absent: the engine reads `process.env`. A worker host asks the shim that owns the session. */
+  envGet?(name: string): Promise<string | undefined>;
+  /** The credential names `secure_fill list` shows; absent: the names loaded from `.env`. */
+  envKeys?(): Promise<string[]>;
 }

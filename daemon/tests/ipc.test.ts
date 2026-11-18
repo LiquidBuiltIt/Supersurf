@@ -10,6 +10,10 @@ import { RequestScheduler } from '../src/scheduler';
 import { DaemonExperimentRegistry } from '../src/experiments/index';
 import { ProfileRegistry } from '../src/profiles/registry';
 import type { ExtensionBridge } from '../src/extension-bridge';
+import { MessageChannel, type MessagePort } from 'node:worker_threads';
+import { attachEnginePort, portSink, type EnginePortHooks } from '../src/engine-worker/main-side';
+import { PortLinkRouter } from '../src/engine-worker/port-link';
+import type { MainToWorker, WorkerToMain } from '../src/engine-worker/protocol';
 import { isExtensionCached } from '../src/profiles/extension-source';
 
 // spawnProfile calls spawnChromium for real. The pull-error guard currently
@@ -1172,6 +1176,193 @@ describe('IPCServer', () => {
         socketSink(socket).end();
         expect(socket.end).toHaveBeenCalledTimes(1);
       });
+    });
+  });
+
+  describe('engine port link (E2a)', () => {
+    const ports: MessagePort[] = [];
+    const settle = () => new Promise((r) => setTimeout(r, 20));
+
+    /** Real MessageChannel: attachEnginePort on the main end, the real PortLinkRouter on the worker end. */
+    function portRig(hooks: EnginePortHooks = {}) {
+      const { port1: mainEnd, port2: workerEnd } = new MessageChannel();
+      ports.push(mainEnd, workerEnd);
+      const router = new PortLinkRouter(workerEnd);
+      const seen: MainToWorker[] = [];
+      const fromWorker: WorkerToMain[] = [];
+      workerEnd.on('message', (m: MainToWorker) => { seen.push(m); router.handle(m); });
+      const attached = attachEnginePort(mainEnd, ipc, hooks);
+      return { router, seen, fromWorker, workerEnd, attached };
+    }
+
+    afterEach(() => { for (const p of ports.splice(0)) p.close(); });
+
+    it('the same id over a socket then a port: the port start() rejects', async () => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'dup' });
+      await readLine(client);
+      const { router } = portRig();
+
+      await expect(router.open('dup')).rejects.toThrow('"dup" is already in use');
+      expect(sessions.count).toBe(1);
+      client.end();
+    });
+
+    it('the same id over a port then a socket: the socket gets session_reject', async () => {
+      await ipc.start();
+      const { router } = portRig();
+      await router.open('dup');
+
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'dup' });
+      const reject = await readLine(client);
+
+      expect(reject.type).toBe('session_reject');
+      client.end();
+    });
+
+    it('link close sends sessionDisconnect with closeTabIds and fires the count hook', async () => {
+      const counts: number[] = [];
+      ipc.setSessionCountCallback((n) => counts.push(n));
+      const { router } = portRig();
+      const link = await router.open('p1');
+      sessions.addCreatedTab('p1', 7);
+
+      await link.stop();
+      await settle();
+
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'p1', closeTabIds: [7] }, 5000);
+      expect(sessions.has('p1')).toBe(false);
+      expect(counts).toEqual([1, 0]);
+    });
+
+    it('IPCServer.stop() ends port sinks and closes their sessions, like the socket path', async () => {
+      await ipc.start();
+      const { router } = portRig();
+      await router.open('p1');
+      expect(sessions.count).toBe(1);
+
+      await ipc.stop();
+      await settle();
+
+      expect(sessions.count).toBe(0);
+    });
+
+    it('the port sink gets objects, with config_drift and peers', async () => {
+      const { router, seen } = portRig();
+      ipc.setConfigDrift(true);
+      const link = await router.open('p1');
+
+      const ackMsg = (seen.find((m) => m.t === 'msg') as Extract<MainToWorker, { t: 'msg' }>).msg;
+      expect(typeof ackMsg).toBe('object');
+      expect(ackMsg.type).toBe('session_ack');
+      expect(ackMsg.config_drift).toBe(true);
+      expect(ackMsg.peers).toEqual([]);
+      expect(link.isConfigDrifted()).toBe(true);
+    });
+
+    it('a req round trip resolves through PortLink.sendCmd', async () => {
+      const { router } = portRig();
+      const link = await router.open('p1');
+
+      const result = await link.sendCmd('experiments.getOne', { experiment: 'nope' });
+
+      expect(result).toEqual({ experiment: 'nope', enabled: false });
+    });
+
+    it('status answers with buildStatusResponse', async () => {
+      const { workerEnd } = portRig();
+      const reply = new Promise<MainToWorker>((resolve) => workerEnd.once('message', resolve));
+      workerEnd.postMessage({ t: 'status', rid: 5 } satisfies WorkerToMain);
+      const res = await reply as Extract<MainToWorker, { t: 'status-res' }>;
+      // uptimeSeconds moves with the clock between the two calls; compare the rest.
+      const { uptimeSeconds, ...status } = res.status as any;
+      const { uptimeSeconds: _later, ...expected } = JSON.parse(JSON.stringify(ipc.buildStatusResponse()));
+      expect(typeof uptimeSeconds).toBe('number');
+      expect(res).toMatchObject({ t: 'status-res', rid: 5 });
+      expect(status).toEqual(expected);
+    });
+
+    it('env without a hook answers with an error', async () => {
+      const { workerEnd } = portRig();
+      const reply = new Promise<MainToWorker>((resolve) => workerEnd.once('message', resolve));
+      workerEnd.postMessage({ t: 'env', rid: 1, cid: 'c', op: 'get', name: 'X' } satisfies WorkerToMain);
+      const res = await reply as Extract<MainToWorker, { t: 'env-res' }>;
+      expect(res.t).toBe('env-res');
+      expect(res.rid).toBe(1);
+      expect(res.error).toBeTruthy();
+    });
+
+    it('env with a hook answers with its value and keys, and a throwing hook answers an error', async () => {
+      const env = vi.fn(async (_cid: string, op: 'get' | 'keys', name?: string) =>
+        op === 'get' ? { value: `v-${name}` } : { keys: ['A', 'B'] });
+      const { workerEnd } = portRig({ env });
+      const next = () => new Promise<any>((resolve) => workerEnd.once('message', resolve));
+
+      let p = next();
+      workerEnd.postMessage({ t: 'env', rid: 1, cid: 'c1', op: 'get', name: 'X' } satisfies WorkerToMain);
+      expect(await p).toEqual({ t: 'env-res', rid: 1, value: 'v-X' });
+      expect(env).toHaveBeenCalledWith('c1', 'get', 'X');
+
+      p = next();
+      workerEnd.postMessage({ t: 'env', rid: 2, cid: 'c1', op: 'keys' } satisfies WorkerToMain);
+      expect(await p).toEqual({ t: 'env-res', rid: 2, keys: ['A', 'B'] });
+
+      env.mockRejectedValueOnce(new Error('shim gone'));
+      p = next();
+      workerEnd.postMessage({ t: 'env', rid: 3, cid: 'c1', op: 'get', name: 'X' } satisfies WorkerToMain);
+      expect(await p).toEqual({ t: 'env-res', rid: 3, error: 'shim gone' });
+    });
+
+    it('ready, line and end go to the hooks; junk is ignored', async () => {
+      const hooks = { ready: vi.fn(), line: vi.fn(), end: vi.fn() };
+      const { workerEnd } = portRig(hooks);
+      const buf = new TextEncoder().encode('{"a":1}');
+      workerEnd.postMessage({ t: 'ready' } satisfies WorkerToMain);
+      workerEnd.postMessage({ t: 'line', cid: 'c1', buf } satisfies WorkerToMain);
+      workerEnd.postMessage({ t: 'end', cid: 'c1' } satisfies WorkerToMain);
+      workerEnd.postMessage(null);
+      workerEnd.postMessage('x');
+      workerEnd.postMessage({ t: 'nope' });
+      workerEnd.postMessage({ t: 'req', lid: 99, msg: {} });
+      workerEnd.postMessage({ t: 'link-close', lid: 99 });
+      await settle();
+
+      expect(hooks.ready).toHaveBeenCalledTimes(1);
+      expect(hooks.line).toHaveBeenCalledWith('c1', buf);
+      expect(hooks.end).toHaveBeenCalledWith('c1');
+    });
+
+    it('detach closes every open link', async () => {
+      const { router, attached } = portRig();
+      await router.open('a');
+      await router.open('b');
+      sessions.addCreatedTab('a', 1);
+      expect(sessions.count).toBe(2);
+
+      attached.detach();
+
+      expect(sessions.count).toBe(0);
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'a', closeTabIds: [1] }, 5000);
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'b', closeTabIds: [] }, 5000);
+    });
+
+    it('closing the port detaches', async () => {
+      const { router, workerEnd } = portRig();
+      await router.open('a');
+      workerEnd.close();
+      await settle();
+      expect(sessions.count).toBe(0);
+    });
+
+    it('portSink posts msg and link-end without stringifying', () => {
+      const port = { postMessage: vi.fn() };
+      const sink = portSink(port, 4);
+      sink.send({ a: 1 });
+      sink.end();
+      expect(port.postMessage).toHaveBeenNthCalledWith(1, { t: 'msg', lid: 4, msg: { a: 1 } });
+      expect(port.postMessage).toHaveBeenNthCalledWith(2, { t: 'link-end', lid: 4 });
     });
   });
 

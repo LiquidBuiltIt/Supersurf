@@ -46,6 +46,7 @@ export type { KeychainBackend, CredentialEntry } from './keychain/index';
 
 export { DaemonClient } from './daemon-ipc/client';
 export type { IExtensionTransport, DialogEvent } from './daemon-ipc/types';
+export { takePiggyback } from './daemon-ipc/piggyback';
 export { versionMismatch, isVersionMismatch } from './daemon-ipc/link';
 export type { DaemonLink, OpenLinkOptions, DaemonStatusReply, VersionMismatchError } from './daemon-ipc/link';
 export { LoggerRegistry, getLogger, getRegistry, createLog } from './logger/registry';

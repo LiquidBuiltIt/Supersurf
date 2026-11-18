@@ -342,3 +342,49 @@ describe('secure_fill schema', () => {
     expect(schema?.description).toContain('being deprecated');
   });
 });
+
+describe('onSecureFill() through the session host', () => {
+  const withHost = (host: object): ToolContext => {
+    const ctx = createMockCtx();
+    ctx.agentSession = { host } as any;
+    return ctx;
+  };
+
+  it('fill reads the value from host.envGet, not process.env', async () => {
+    process.env.HOST_SECRET = 'daemon-value';
+    const envGet = vi.fn().mockResolvedValue('shim-value');
+    const ctx = withHost({ envGet });
+    const result = await onSecureFill(ctx, { action: 'fill', selector: '#pw', credential_env: 'HOST_SECRET' }, {});
+    delete process.env.HOST_SECRET;
+
+    expect(envGet).toHaveBeenCalledWith('HOST_SECRET');
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('secure_fill', { selector: '#pw', value: 'shim-value' });
+    expect(result.content[0].text).not.toContain('shim-value');
+  });
+
+  it('fill with host.envGet returning undefined reports not set, listing host.envKeys', async () => {
+    process.env.HOST_SECRET = 'daemon-value';
+    const ctx = withHost({ envGet: async () => undefined, envKeys: async () => ['SHIM_ONLY'] });
+    await onSecureFill(ctx, { action: 'fill', selector: '#pw', credential_env: 'HOST_SECRET' }, {});
+    delete process.env.HOST_SECRET;
+
+    expect(ctx.ext.sendCmd).not.toHaveBeenCalled();
+    expect(ctx.error).toHaveBeenCalledWith(expect.stringContaining('SHIM_ONLY'), expect.anything());
+  });
+
+  it('list reads names from host.envKeys', async () => {
+    const ctx = withHost({ envKeys: async () => ['A_KEY', 'B_KEY'] });
+    const raw = await onSecureFill(ctx, { action: 'list' }, { rawResult: true });
+    expect(raw.credentials).toEqual(['A_KEY', 'B_KEY']);
+    const text = await onSecureFill(ctx, { action: 'list' }, {});
+    expect(text.content[0].text).toContain('`A_KEY`');
+  });
+
+  it('a host without envGet/envKeys keeps today\'s process.env behaviour', async () => {
+    process.env.PLAIN_SECRET = 'plain';
+    const ctx = withHost({});
+    await onSecureFill(ctx, { action: 'fill', selector: '#pw', credential_env: 'PLAIN_SECRET' }, {});
+    delete process.env.PLAIN_SECRET;
+    expect(ctx.ext.sendCmd).toHaveBeenCalledWith('secure_fill', { selector: '#pw', value: 'plain' });
+  });
+});
