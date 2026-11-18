@@ -113,7 +113,7 @@ describe('env.get / env.keys reach the caller\'s shim', () => {
 });
 
 describe('env failures', () => {
-  const cid = 'shim-0123456789abcdef';
+  const cid = 'shim-0123456789abcdef#1'; // `<sessionId>#<seq>`, seq starts at 1 per ShimServer
   const reply = (w: RecordingWorker, rid: number) => until(() => w.of('env-res').some((m) => m.rid === rid)).then(() => w.of('env-res').find((m) => m.rid === rid));
 
   function recording() {

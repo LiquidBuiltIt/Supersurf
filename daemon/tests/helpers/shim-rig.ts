@@ -19,7 +19,7 @@ export interface FakeEngineLog {
 class FakeManager {
   links: any[] = [];
   closed = false;
-  constructor(readonly config: any, readonly host: any, readonly log: FakeEngineLog) {
+  constructor(readonly config: any, readonly host: any, readonly log: FakeEngineLog, readonly closeDelayMs = 0) {
     log.managers.push(this);
   }
   async initialize(): Promise<void> {}
@@ -51,15 +51,17 @@ class FakeManager {
   }
   async serverClosed(): Promise<void> {
     this.closed = true;
+    if (this.closeDelayMs) await new Promise((r) => setTimeout(r, this.closeDelayMs));
     for (const l of this.links) await l.stop();
   }
 }
 
-export function fakeEngine(): { engine: EngineModule; log: FakeEngineLog } {
+/** `closeDelayMs` makes `serverClosed` slow, so a close is still in flight when the same shim re-registers. */
+export function fakeEngine(closeDelayMs = 0): { engine: EngineModule; log: FakeEngineLog } {
   const log: FakeEngineLog = { configs: [], managers: [] };
   const engine = {
     AgentSessionManager: class extends FakeManager {
-      constructor(config: any, host: any) { super(config, host, log); log.configs.push(config); }
+      constructor(config: any, host: any) { super(config, host, log, closeDelayMs); log.configs.push(config); }
     },
   } as unknown as EngineModule;
   return { engine, log };

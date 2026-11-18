@@ -41,6 +41,7 @@ interface Pending {
 }
 
 interface Conn {
+  sessionId: string;
   socket: net.Socket;
   /** This connection's enabled experiments (H14), applied to every link it opens. */
   experiments: string[];
@@ -90,7 +91,11 @@ function lineSplitter(onLine: (line: Buffer) => void): (chunk: Buffer) => void {
 }
 
 export class ShimServer {
+  /** By port cid (`<sessionId>#<seq>`): every accepted socket gets its own, so a late message of a closed socket never reaches a re-registered one. */
   private conns = new Map<string, Conn>();
+  /** Live sockets by handshake sessionId, for the duplicate check only. */
+  private live = new Map<string, Conn>();
+  private nextSeq = 1;
   private worker: ShimWorker | null = null;
   private attached: { detach(): void } | null = null;
   private nextEnvId = 1;
@@ -106,11 +111,11 @@ export class ShimServer {
       socket.write(JSON.stringify({ type: 'shim_reject', reason }) + '\n');
       socket.end();
     };
-    const cid = hs?.sessionId;
+    const sessionId = hs?.sessionId;
     if (hs?.protocol !== 1) return refuse(`Unsupported shim protocol ${JSON.stringify(hs?.protocol)}; this daemon speaks 1`);
     if (hs.mode !== 'mcp') return refuse(`Unsupported shim mode ${JSON.stringify(hs.mode)}; this daemon accepts "mcp"`);
-    if (typeof cid !== 'string' || !cid) return refuse('Handshake needs a sessionId string');
-    if (this.conns.has(cid)) return refuse(`Shim session "${cid}" is already connected`);
+    if (typeof sessionId !== 'string' || !sessionId) return refuse('Handshake needs a sessionId string');
+    if (this.live.has(sessionId)) return refuse(`Shim session "${sessionId}" is already connected`);
 
     let worker: ShimWorker;
     let inputs: ReturnType<typeof shimConfigInputs>;
@@ -121,13 +126,16 @@ export class ShimServer {
       return refuse(`The daemon could not start the engine worker: ${e?.message ?? e}`);
     }
 
-    const conn: Conn = { socket, experiments: enabledExperiments(inputs), pending: new Map() };
+    const cid = `${sessionId}#${this.nextSeq++}`;
+    const conn: Conn = { sessionId, socket, experiments: enabledExperiments(inputs), pending: new Map() };
     this.conns.set(cid, conn);
+    this.live.set(sessionId, conn);
     const feed = lineSplitter((line) => this.onLine(cid, conn, line));
     socket.on('data', feed);
     socket.on('error', () => {});
     socket.on('close', () => {
       this.rejectPending(conn, 'The shim connection closed');
+      if (this.live.get(sessionId) === conn) this.live.delete(sessionId);
       if (this.conns.get(cid) !== conn) return;
       this.conns.delete(cid);
       this.worker?.postMessage({ t: 'close', cid });
@@ -176,6 +184,7 @@ export class ShimServer {
     this.worker = null;
     this.attached?.detach();
     this.attached = null;
+    this.live.clear();
     for (const [cid, conn] of [...this.conns]) {
       this.conns.delete(cid);
       this.rejectPending(conn, 'The engine worker stopped');

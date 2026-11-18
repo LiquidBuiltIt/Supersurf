@@ -70,7 +70,7 @@ describe('lazy worker and open', () => {
     await newShim({ sessionId: 'shim-a' }).register();
     await newShim({ sessionId: 'shim-b' }).register();
     expect(workers).toHaveLength(1);
-    expect(workers[0].of('open').map((m) => m.cid)).toEqual(['shim-a', 'shim-b']);
+    expect(workers[0].of('open').map((m) => m.cid)).toEqual(['shim-a#1', 'shim-b#2']);
   });
 
   it('a refused handshake starts no worker', async () => {
@@ -124,7 +124,7 @@ describe('line relay', () => {
     shim.socket.write(':2}\n{"c":3}\n');
     await until(() => workers[0].of('line').length === 3);
     expect(workers[0].of('line').map((m) => m.data)).toEqual(['{"a":1}', '{"b":2}', '{"c":3}']);
-    expect(workers[0].of('line')[0].cid).toBe('shim-0123456789abcdef');
+    expect(workers[0].of('line')[0].cid).toBe('shim-0123456789abcdef#1');
   });
 
   it('keeps a multibyte character that is split across two chunks', async () => {
@@ -168,10 +168,10 @@ describe('line relay', () => {
   it('worker line is written as buf then a newline; worker end ends the socket', async () => {
     const shim = newShim();
     await shim.register();
-    workers[0].emit('message', { t: 'line', cid: 'shim-0123456789abcdef', buf: new TextEncoder().encode('{"r":1}') });
+    workers[0].emit('message', { t: 'line', cid: 'shim-0123456789abcdef#1', buf: new TextEncoder().encode('{"r":1}') });
     await until(() => shim.lines.length === 2);
     expect(shim.lines[1]).toBe('{"r":1}');
-    workers[0].emit('message', { t: 'end', cid: 'shim-0123456789abcdef' });
+    workers[0].emit('message', { t: 'end', cid: 'shim-0123456789abcdef#1' });
     await until(() => shim.ended);
   });
 
@@ -187,7 +187,7 @@ describe('close and worker failure', () => {
     shim.close();
     await until(() => workers[0].of('close').length === 1);
     await wait(30);
-    expect(workers[0].of('close')).toEqual([{ t: 'close', cid: 'shim-0123456789abcdef' }]);
+    expect(workers[0].of('close')).toEqual([{ t: 'close', cid: 'shim-0123456789abcdef#1' }]);
   });
 
   for (const event of ['exit', 'error'] as const) {
@@ -196,7 +196,7 @@ describe('close and worker failure', () => {
       const b = newShim({ sessionId: 'shim-b' });
       await a.register();
       await b.register();
-      workers[0].emit('message', { t: 'link-open', lid: 1, sessionId: 'agent-1', cid: 'shim-a' });
+      workers[0].emit('message', { t: 'link-open', lid: 1, sessionId: 'agent-1', cid: 'shim-a#1' });
 
       workers[0].emit(event, event === 'exit' ? 1 : new Error('boom'));
 
@@ -213,7 +213,7 @@ describe('close and worker failure', () => {
   it('stop() ends shim sockets, closes links and terminates the worker', async () => {
     const shim = newShim();
     await shim.register();
-    workers[0].emit('message', { t: 'link-open', lid: 1, sessionId: 'agent-1', cid: 'shim-0123456789abcdef' });
+    workers[0].emit('message', { t: 'link-open', lid: 1, sessionId: 'agent-1', cid: 'shim-0123456789abcdef#1' });
     shimServer.stop();
     await until(() => shim.ended);
     expect(host.closed).toEqual(['agent-1']);
@@ -225,11 +225,42 @@ describe('close and worker failure', () => {
   });
 });
 
+describe('re-register of the same sessionId (F1)', () => {
+  it('a slow close of the old connection does not end the new socket or write to it', async () => {
+    const { engine } = fakeEngine(100);
+    const w: any = inlineWorker(engine);
+    shimServer.stop();
+    shimServer = new ShimServer({
+      host, experiments, daemon: { configPath: path.join(dir, 'config.json'), port: 5599, version: '9.9.9-test' },
+      startWorker: () => w,
+    });
+    const first = newShim({ sessionId: 'shim-redial' });
+    await first.register();
+    first.close();
+    await wait(20);
+    const again = newShim({ sessionId: 'shim-redial' });
+    expect((await again.register()).type).toBe('shim_ack');
+    await wait(150); // the old connection's end arrives in this window
+    expect(again.ended).toBe(false);
+    expect(again.lines).toHaveLength(1); // the ack only
+    await w.terminate();
+  });
+
+  it('a second LIVE socket with the same sessionId is still refused, and a re-register after close is accepted at once', async () => {
+    const first = newShim({ sessionId: 'shim-dup' });
+    await first.register();
+    expect((await newShim({ sessionId: 'shim-dup' }).register()).type).toBe('shim_reject');
+    first.close();
+    await until(() => workers[0].of('close').length === 1);
+    expect((await newShim({ sessionId: 'shim-dup' }).register()).type).toBe('shim_ack');
+  });
+});
+
 describe('H14 experiment defaults', () => {
   it('a link opened for a shim starts from that shim\'s handshake experiments; one with no cid keeps the daemon default', async () => {
     experiments.applyDefaults(['smart_waiting']);
     await newShim({ sessionId: 'shim-a', env: { SUPERSURF_EXPERIMENTS: 'page_diffing' } }).register();
-    workers[0].emit('message', { t: 'link-open', lid: 1, sessionId: 'agent-a', cid: 'shim-a' });
+    workers[0].emit('message', { t: 'link-open', lid: 1, sessionId: 'agent-a', cid: 'shim-a#1' });
     workers[0].emit('message', { t: 'link-open', lid: 2, sessionId: 'other', cid: undefined });
     expect(experiments.getAll('agent-a')).toMatchObject({ page_diffing: true, smart_waiting: false });
     expect(experiments.getAll('other')).toMatchObject({ page_diffing: false, smart_waiting: true });
