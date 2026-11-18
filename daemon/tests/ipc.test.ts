@@ -1264,7 +1264,12 @@ describe('IPCServer', () => {
       const reply = new Promise<MainToWorker>((resolve) => workerEnd.once('message', resolve));
       workerEnd.postMessage({ t: 'status', rid: 5 } satisfies WorkerToMain);
       const res = await reply as Extract<MainToWorker, { t: 'status-res' }>;
-      expect(res).toEqual({ t: 'status-res', rid: 5, status: JSON.parse(JSON.stringify(ipc.buildStatusResponse())) });
+      // uptimeSeconds moves with the clock between the two calls; compare the rest.
+      const { uptimeSeconds, ...status } = res.status as any;
+      const { uptimeSeconds: _later, ...expected } = JSON.parse(JSON.stringify(ipc.buildStatusResponse()));
+      expect(typeof uptimeSeconds).toBe('number');
+      expect(res).toMatchObject({ t: 'status-res', rid: 5 });
+      expect(status).toEqual(expected);
     });
 
     it('env without a hook answers with an error', async () => {
