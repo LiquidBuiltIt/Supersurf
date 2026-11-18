@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -41,10 +44,10 @@ type Relay struct {
 
 	mu        sync.Mutex
 	conn      net.Conn
-	inflight  map[string]struct{}
-	initLine  []byte // client's initialize, id rewritten to reservedID
-	cause     string // why the shim is not connected
-	localSeen bool   // the client got a local answer; send list_changed on connect
+	inflight  map[string][]byte // canonical id -> raw id bytes, kept for the loss error
+	initLine  []byte            // client's initialize, id rewritten to reservedID
+	cause     string            // why the shim is not connected
+	localSeen bool              // the client got a local answer; send list_changed on connect
 
 	done     chan struct{}
 	doneOnce sync.Once
@@ -63,7 +66,7 @@ func NewRelay(cfg Config, out io.Writer) *Relay {
 	if cfg.Dotenv == nil {
 		cfg.Dotenv = &envSource{dot: map[string]string{}}
 	}
-	return &Relay{cfg: cfg, out: out, inflight: map[string]struct{}{}, cause: "connecting to the daemon", done: make(chan struct{})}
+	return &Relay{cfg: cfg, out: out, inflight: map[string][]byte{}, cause: "connecting to the daemon", done: make(chan struct{})}
 }
 
 // Run reads client lines until stdin EOF. The daemon connection is dialed in
@@ -144,7 +147,7 @@ func (r *Relay) fromClient(line []byte) {
 	r.mu.Lock()
 	c := r.conn
 	if c != nil && h.isRequest() {
-		r.inflight[string(h.id)] = struct{}{}
+		r.inflight[canonicalID(h.id)] = bytes.Clone(h.id) // h.id aliases the line: do not pin it
 	}
 	cause := r.cause
 	if c == nil && (method == `"initialize"` || method == `"tools/list"`) {
@@ -178,7 +181,7 @@ func (r *Relay) clientBatch(line []byte, hs []header) {
 	if c != nil {
 		for _, h := range hs {
 			if h.isRequest() {
-				r.inflight[string(h.id)] = struct{}{}
+				r.inflight[canonicalID(h.id)] = bytes.Clone(h.id) // h.id aliases the line: do not pin it
 			}
 		}
 	}
@@ -381,12 +384,12 @@ func (r *Relay) serve(c net.Conn, lr *lineReader) {
 		r.conn = nil
 	}
 	ids := r.inflight
-	r.inflight = map[string]struct{}{}
+	r.inflight = map[string][]byte{}
 	r.cause = "the daemon connection was lost; reconnecting"
 	r.mu.Unlock()
 	c.Close()
-	for id := range ids {
-		r.toClient(errLine([]byte(id), -32000, "daemon connection lost; the call was not retried"))
+	for _, id := range ids {
+		r.toClient(errLine(id, -32000, "daemon connection lost; the call was not retried"))
 	}
 }
 
@@ -409,7 +412,7 @@ func (r *Relay) fromDaemon(c net.Conn, line []byte) bool {
 	r.mu.Lock()
 	for _, h := range hs {
 		if h.id != nil && h.method == nil {
-			delete(r.inflight, string(h.id))
+			delete(r.inflight, canonicalID(h.id))
 		}
 	}
 	r.mu.Unlock()
@@ -448,4 +451,26 @@ func (r *Relay) sendControl(c net.Conn, v map[string]any) {
 		return
 	}
 	r.writeConn(c, append(b, '\n'))
+}
+
+// canonicalID keys an id the way the daemon's JSON.stringify(JSON.parse(x)) echoes it, so
+// a request id 1.0 matches an answer id 1. Strings and anything unparsable stay raw.
+func canonicalID(raw []byte) string {
+	if len(raw) == 0 || (raw[0] != '-' && (raw[0] < '0' || raw[0] > '9')) {
+		return string(raw)
+	}
+	f, err := strconv.ParseFloat(string(raw), 64)
+	if err != nil || math.IsInf(f, 0) {
+		return string(raw)
+	}
+	if f == 0 {
+		return "0" // JSON.stringify(-0) is "0"
+	}
+	if a := math.Abs(f); a >= 1e21 || a < 1e-6 { // JS switches to exponent form outside this range
+		e := strconv.FormatFloat(f, 'e', -1, 64) // Go pads the exponent to two digits: 1e-07
+		m, x, _ := strings.Cut(e, "e")
+		sign, digits := x[:1], strings.TrimLeft(x[1:], "0")
+		return m + "e" + sign + digits
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
 }
