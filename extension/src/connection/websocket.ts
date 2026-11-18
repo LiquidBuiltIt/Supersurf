@@ -277,6 +277,7 @@ export class WebSocketConnection {
         type: 'handshake',
         browser: this._getBrowserName(),
         version: this.browser.runtime.getManifest().version,
+        extProtocol: 1,
         buildTimestamp: this.buildTimestamp,
         keepBrowserOnSessionEnd,
         ...(profile ? { profile } : {}),

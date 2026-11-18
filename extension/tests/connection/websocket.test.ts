@@ -610,6 +610,16 @@ describe('WebSocketConnection', () => {
       // Matches the mock manifest version in extension/tests/__mocks__/chrome.ts.
       expect(sent.version).toBe('0.1.0');
     });
+
+    it('includes the integer extProtocol 1 in the handshake', async () => {
+      mockChrome.storage.local.get.mockResolvedValueOnce({});
+
+      await (ws as any)._handleOpen();
+      await new Promise(r => setTimeout(r, 10));
+
+      const sent = JSON.parse((ws.socket!.send as any).mock.calls[0][0]);
+      expect(sent.extProtocol).toBe(1);
+    });
   });
 
   describe('WebSocketConnection dialog race + short-circuit', () => {
