@@ -85,3 +85,77 @@ describe('E2a: after a worker connection opens, main\'s require.cache has no eng
     expect(leaks(runChild(true).keys).length).toBeGreaterThan(0);
   });
 });
+
+describe('E2b: after a shim_register is acked, main\'s require.cache has no engine or sharp', () => {
+  /**
+   * A child node process plays the daemon's main thread with the BUILT IPCServer + ShimServer and the
+   * real production worker factory (a real `Worker` on dist/engine-worker/worker.js). A plain socket
+   * registers as a shim, lists tools through the worker, then the child prints its require.cache keys.
+   * `loadEngineOnMain` is the mutation: it requires the engine on main, so the check must go red.
+   */
+  function runChild(loadEngineOnMain: boolean): { keys: string[]; tools: string[] } {
+    for (const f of ['ipc.js', 'shim-server.js', 'engine-worker/worker.js', 'engine/index.js']) {
+      if (!fs.existsSync(path.join(DIST, f))) throw new Error(`dist/${f} is missing: run npm run build.engine && npm run build.daemon`);
+    }
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'e2b-cache-'));
+    const d = (f: string) => JSON.stringify(path.join(DIST, f));
+    const script = `
+      const net = require('node:net');
+      const { IPCServer } = require(${d('ipc.js')});
+      const { SessionRegistry } = require(${d('session.js')});
+      const { RequestScheduler } = require(${d('scheduler.js')});
+      const { DaemonExperimentRegistry } = require(${d('experiments/index.js')});
+      const { ProfileRegistry } = require(${d('profiles/registry.js')});
+      const { ShimServer } = require(${d('shim-server.js')});
+      if (${loadEngineOnMain}) require(${d('engine/index.js')});
+      const home = ${JSON.stringify(home)};
+      const sock = home + '/d.sock';
+      const bridge = { connected: false, matchmaker: { getConnectionForProfile: () => null } };
+      const sessions = new SessionRegistry();
+      const experiments = new DaemonExperimentRegistry();
+      const ipc = new IPCServer(sock, bridge, sessions, new RequestScheduler(bridge, sessions), experiments, new ProfileRegistry(home + '/profiles'), { port: 1, version: '0' });
+      const shim = new ShimServer({ host: ipc, experiments, daemon: { configPath: home + '/config.json', port: 1, version: '0' } });
+      ipc.setShimServer(shim);
+      const finish = (code) => { shim.stop(); ipc.stop().then(() => process.exit(code)); };
+      setTimeout(() => { console.error('timeout'); process.exit(2); }, 20000);
+      ipc.start().then(() => {
+        const c = net.createConnection(sock);
+        let buf = '';
+        const send = (o) => c.write(JSON.stringify(o) + '\\n');
+        c.on('connect', () => send({ type: 'shim_register', protocol: 1, mode: 'mcp', sessionId: 'shim-0123456789abcdef', version: '0', cwd: '/', flags: {}, env: {}, caps: [] }));
+        c.on('data', (d) => {
+          buf += d;
+          let i;
+          while ((i = buf.indexOf('\\n')) !== -1) {
+            const m = JSON.parse(buf.slice(0, i));
+            buf = buf.slice(i + 1);
+            if (m.type === 'shim_ack') send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'x', version: '0' } } });
+            else if (m.type === 'shim_reject') { console.error(m.reason); finish(3); }
+            else if (m.id === 1) send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+            else if (m.id === 2) {
+              console.log(JSON.stringify({ tools: m.result.tools.map((t) => t.name), keys: Object.keys(require.cache) }));
+              finish(0);
+            }
+          }
+        });
+      });
+    `;
+    const r = spawnSync(process.execPath, ['-e', script], { env: { ...process.env, HOME: home }, encoding: 'utf8', timeout: 30000 });
+    fs.rmSync(home, { recursive: true, force: true });
+    if (r.status !== 0) throw new Error(`child failed (${r.status}): ${r.stderr}`);
+    const out = JSON.parse(r.stdout.trim().split('\n').pop()!);
+    return { keys: out.keys, tools: out.tools };
+  }
+  const leaks = (keys: string[]) => keys.filter((k) => /[\\/]engine[\\/]/.test(k) || /sharp/.test(k));
+
+  it('lists tools for a shim through the real worker while main loads no engine file and no sharp', () => {
+    const { keys, tools } = runChild(false);
+    expect(tools).toContain('connect');
+    expect(keys.some((k) => k.endsWith('shim-server.js'))).toBe(true); // the shim path really ran in this process
+    expect(leaks(keys)).toEqual([]);
+  }, 45000);
+
+  it('the check goes red when main requires the engine', () => {
+    expect(leaks(runChild(true).keys).length).toBeGreaterThan(0);
+  }, 45000);
+});
