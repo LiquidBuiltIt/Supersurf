@@ -30,11 +30,11 @@ export interface EnginePortHooks {
   env?(cid: string, op: 'get' | 'keys', name?: string): Promise<{ value?: string; keys?: string[] }>;
 }
 
-/** A sink that posts objects to the worker (no stringify); `end` posts `link-end`. */
-export function portSink(port: Pick<EnginePort, 'postMessage'>, lid: number): SessionSink {
+/** A sink that posts objects to the worker (no stringify); `end` posts `link-end`, then runs `onEnd`. */
+export function portSink(port: Pick<EnginePort, 'postMessage'>, lid: number, onEnd?: () => void): SessionSink {
   return {
     send(msg) { port.postMessage({ t: 'msg', lid, msg: msg as Record<string, unknown> }); },
-    end() { port.postMessage({ t: 'link-end', lid }); },
+    end() { port.postMessage({ t: 'link-end', lid }); onEnd?.(); },
   };
 }
 
@@ -65,7 +65,13 @@ export function attachEnginePort(port: EnginePort, host: SessionHost, hooks: Eng
       case 'end': hooks.end?.(m.cid); break;
       case 'link-open': {
         if (links.has(m.lid) || typeof m.sessionId !== 'string') break;
-        const sink = portSink(port, m.lid);
+        // A socket's 'close' follows `end()` and closes the session; a port has no such event, so `end` closes it.
+        const sink: SessionSink = portSink(port, m.lid, () => {
+          const link = links.get(m.lid);
+          if (link?.sink !== sink) return;
+          links.delete(m.lid);
+          host.close(link.sessionId, sink);
+        });
         if (host.register(m.sessionId, sink)) links.set(m.lid, { sessionId: m.sessionId, sink });
         break;
       }

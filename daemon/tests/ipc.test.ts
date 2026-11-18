@@ -1237,6 +1237,18 @@ describe('IPCServer', () => {
       expect(counts).toEqual([1, 0]);
     });
 
+    it('IPCServer.stop() ends port sinks and closes their sessions, like the socket path', async () => {
+      await ipc.start();
+      const { router } = portRig();
+      await router.open('p1');
+      expect(sessions.count).toBe(1);
+
+      await ipc.stop();
+      await settle();
+
+      expect(sessions.count).toBe(0);
+    });
+
     it('the port sink gets objects, with config_drift and peers', async () => {
       const { router, seen } = portRig();
       ipc.setConfigDrift(true);
