@@ -183,8 +183,12 @@ export async function onDrag(ctx: ToolContext, args: any, options: any): Promise
 export async function onSecureFill(ctx: ToolContext, args: any, options: any): Promise<any> {
   const action = args.action as string;
 
+  // The session's host may own the environment (a shim's, not the daemon's); absent, use this process's.
+  const host = ctx.agentSession?.host;
+  const listKeys = async (): Promise<string[]> => (host?.envKeys ? host.envKeys() : getDotenvKeys());
+
   if (action === 'list') {
-    const keys = getDotenvKeys();
+    const keys = await listKeys();
 
     if (options.rawResult) {
       return { success: true, credentials: keys };
@@ -209,9 +213,9 @@ export async function onSecureFill(ctx: ToolContext, args: any, options: any): P
     return ctx.error('Both `selector` and `credential_env` are required for the `fill` action.', options);
   }
 
-  const value = process.env[envName];
+  const value = host?.envGet ? await host.envGet(envName) : process.env[envName];
   if (value === undefined) {
-    const keys = getDotenvKeys();
+    const keys = await listKeys();
     const available = keys.length > 0 ? ` Available credentials: ${keys.join(', ')}` : ' No credentials found in .env file.';
     return ctx.error(
       `Environment variable "${envName}" is not set.${available}`,
