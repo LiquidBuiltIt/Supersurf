@@ -19,7 +19,7 @@ export class PortTransport implements Transport {
 
   constructor(
     private readonly cid: string,
-    private readonly port: { postMessage(msg: WorkerToMain, transfer?: Transferable[]): void },
+    private readonly port: { postMessage(msg: WorkerToMain, transfer?: ArrayBuffer[]): void },
   ) {}
 
   async start(): Promise<void> {}

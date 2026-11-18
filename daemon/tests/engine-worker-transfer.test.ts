@@ -25,13 +25,13 @@ describe('engine worker transfer (decision 5)', () => {
     const { transport, posted, port2, close } = rig();
     const pooled = Buffer.from('still readable'); // small Buffer.from comes from the shared pool slab
     const received = new Promise<Uint8Array>((r) => port2.once('message', (m) => r(m.buf)));
-    await transport.send({ jsonrpc: '2.0', id: 1, result: 'ok' });
+    await transport.send({ jsonrpc: '2.0', id: 1, result: { ok: true } });
 
     expect(pooled.toString()).toBe('still readable');
     expect(Buffer.from('new').toString()).toBe('new');
     expect(Buffer.allocUnsafe(8).length).toBe(8);
     // the transferred bytes are a dedicated buffer, exactly the line
-    expect(Buffer.from(await received).toString()).toBe('{"jsonrpc":"2.0","id":1,"result":"ok"}');
+    expect(Buffer.from(await received).toString()).toBe('{"jsonrpc":"2.0","id":1,"result":{"ok":true}}');
     expect(posted[0].buf.byteLength).toBe(0);
     close();
   });
