@@ -985,6 +985,64 @@ describe('IPCServer', () => {
     });
   });
 
+  describe('malformed lines', () => {
+    const invalid = (id: unknown = null) => ({
+      jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid JSON-RPC 2.0 request' },
+    });
+
+    it('a null line after the handshake gets -32600, kills nothing, and the session keeps working', async () => {
+      const errors: unknown[] = [];
+      const onErr = (e: unknown) => errors.push(e);
+      process.on('uncaughtException', onErr);
+      process.on('unhandledRejection', onErr);
+      try {
+        await ipc.start();
+        const client = await connectToSocket(sockPath);
+        writeLine(client, { type: 'session_register', sessionId: 'nul' });
+        await readLine(client);
+
+        client.write('null\n');
+        expect(await readLine(client)).toMatchObject(invalid());
+
+        writeLine(client, { jsonrpc: '2.0', id: 'ok', method: 'experiments.getOne', params: { experiment: 'x' } });
+        expect((await readLine(client)).id).toBe('ok');
+        await new Promise((r) => setTimeout(r, 50));
+        expect(errors).toEqual([]);
+        client.end();
+      } finally {
+        process.off('uncaughtException', onErr);
+        process.off('unhandledRejection', onErr);
+      }
+    });
+
+    it.each(['5', '"s"', 'true', '[]'])('a %s line after the handshake gets -32600', async (raw) => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'session_register', sessionId: 'odd' });
+      await readLine(client);
+      client.write(raw + '\n');
+      expect(await readLine(client)).toMatchObject(invalid());
+      client.end();
+    });
+
+    it('request() resolves with -32600 for null', async () => {
+      const sent: unknown[] = [];
+      const sink = { send: (m: object) => sent.push(m), end: () => {} };
+      await expect(ipc.request('m1', sink, null)).resolves.toBeUndefined();
+      expect(sent).toMatchObject([invalid()]);
+    });
+
+    it('a null line before the handshake gets the same session_reject as any other non-handshake line', async () => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      client.write('null\n');
+      expect(await readLine(client)).toEqual({
+        type: 'session_reject', reason: 'Expected session_register handshake',
+      });
+      client.end();
+    });
+  });
+
   describe('SessionHost sinks (E1b)', () => {
     function fakeSink() {
       return {

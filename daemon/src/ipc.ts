@@ -182,14 +182,14 @@ export class IPCServer implements SessionHost {
 
           if (!handshakeComplete) {
             // Pre-auth status query — no handshake needed
-            if (msg.type === 'daemon_status') {
+            if (msg?.type === 'daemon_status') {
               this.send(sink, this.buildStatusResponse());
               sink.end();
               return;
             }
 
             // Expecting session_register handshake
-            if (msg.type === 'session_register' && msg.sessionId) {
+            if (msg?.type === 'session_register' && msg.sessionId) {
               // Only after the duplicate check: a rejected socket's close handler
               // must not see a sessionId and tear down the live session.
               if (!this.register(msg.sessionId, sink)) return;
@@ -328,10 +328,10 @@ export class IPCServer implements SessionHost {
 
   /** Route a JSON-RPC 2.0 request — experiment methods are handled directly, everything else goes to the scheduler. */
   async request(sessionId: string, sink: SessionSink, msg: any): Promise<void> {
-    if (msg.jsonrpc !== '2.0' || !msg.method || msg.id === undefined) {
+    if (msg?.jsonrpc !== '2.0' || !msg.method || msg.id === undefined) {
       this.send(sink, {
         jsonrpc: '2.0',
-        id: msg.id ?? null,
+        id: msg?.id ?? null,
         error: { code: -32600, message: 'Invalid JSON-RPC 2.0 request' },
       });
       return;
