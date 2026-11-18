@@ -39,6 +39,7 @@ import { ExtensionBridge } from './extension-bridge';
 import { SessionRegistry } from './session';
 import { RequestScheduler } from './scheduler';
 import { IPCServer, type IPCServerMeta } from './ipc';
+import { ShimServer } from './shim-server';
 import { acquirePidFile, releaseFiles, clearStaleSocket, sockIdentity, type SockIdentity } from './pidfile';
 import { DaemonExperimentRegistry } from './experiments/index';
 import { ProfileRegistry } from './profiles/registry';
@@ -188,6 +189,9 @@ async function main(): Promise<void> {
   };
   const ipcMeta: IPCServerMeta = { port, version, startupOpts, extensionPullError: null };
   const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, ipcMeta);
+  // The engine worker starts at the first `shim_register`; until then this costs nothing.
+  const shim = new ShimServer({ host: ipc, experiments, daemon: { configPath, port, version } });
+  ipc.setShimServer(shim);
 
   // Watch ~/.supersurf/config.json for post-startup edits. The daemon snapshots
   // config at startup and never hot-reloads — drift means the user's edits won't
@@ -278,6 +282,7 @@ async function main(): Promise<void> {
     }
 
     scheduler.drainAll();
+    shim.stop();
     await ipc.stop();
     await bridge.stop();
     cleanupFiles();
