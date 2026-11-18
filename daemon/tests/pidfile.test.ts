@@ -4,7 +4,7 @@ import fs from 'fs';
 import net from 'net';
 import os from 'os';
 import path from 'path';
-import { acquirePidFile, releaseFiles, clearStaleSocket } from '../src/pidfile';
+import { acquirePidFile, releaseFiles, clearStaleSocket, sockIdentity } from '../src/pidfile';
 
 const DEAD_PID = 99999999; // above kernel.pid_max: reliably dead
 
@@ -80,14 +80,24 @@ describe('pidfile lock (M4)', () => {
 
     it('keeps a socket whose inode is not the one this process bound', () => {
       fs.writeFileSync(sockFile, '');
-      releaseFiles(pidFile, sockFile, fs.lstatSync(sockFile).ino + 1);
+      releaseFiles(pidFile, sockFile, { ...sockIdentity(sockFile), ino: sockIdentity(sockFile).ino + 1 });
       expect(fs.existsSync(sockFile)).toBe(true);
     });
 
     it('removes the socket whose inode this process bound', () => {
       fs.writeFileSync(sockFile, '');
-      releaseFiles(pidFile, sockFile, fs.lstatSync(sockFile).ino);
+      releaseFiles(pidFile, sockFile, sockIdentity(sockFile));
       expect(fs.existsSync(sockFile)).toBe(false);
+    });
+
+    it('keeps a socket with the same inode but a different ctime (inode reuse)', async () => {
+      fs.writeFileSync(sockFile, '');
+      const bound = sockIdentity(sockFile);
+      await new Promise((r) => setTimeout(r, 20));
+      fs.chmodSync(sockFile, 0o600); // bumps ctime, keeps the inode
+      expect(sockIdentity(sockFile).ino).toBe(bound.ino);
+      releaseFiles(pidFile, sockFile, bound);
+      expect(fs.existsSync(sockFile)).toBe(true);
     });
   });
 

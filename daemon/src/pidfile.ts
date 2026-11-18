@@ -3,7 +3,7 @@
  *
  * The pidfile is the single-instance lock (`wx`: create-exclusive), and a
  * daemon only ever removes files it can prove are its own: the pidfile if it
- * still holds this pid, the socket if it still has the inode this process
+ * still holds this pid, the socket if it still has the identity this process
  * bound. A losing daemon, a crash handler or a stray `cleanupFiles` therefore
  * cannot delete a winner's files. Every path is a parameter so tests never
  * touch `~/.supersurf`.
@@ -50,13 +50,26 @@ export function acquirePidFile(pidFile: string): { acquired: true } | { acquired
   throw new Error(`could not take the pidfile lock at ${pidFile}`);
 }
 
+/** Inode plus ctime: a recycled inode number alone does not prove it is the same socket. */
+export interface SockIdentity { ino: number; ctimeMs: number }
+
+export function sockIdentity(sockFile: string): SockIdentity {
+  const { ino, ctimeMs } = fs.lstatSync(sockFile);
+  return { ino, ctimeMs };
+}
+
 /**
- * Remove the pidfile if it holds this pid and the socket if it has the inode
- * this process bound (`sockIno`, null when it never bound one).
+ * Remove the pidfile if it holds this pid and the socket if it still has the
+ * identity this process bound (`bound`, null when it never bound one).
  */
-export function releaseFiles(pidFile: string, sockFile: string, sockIno: number | null): void {
+export function releaseFiles(pidFile: string, sockFile: string, bound: SockIdentity | null): void {
   try { if (readPid(pidFile) === process.pid) fs.unlinkSync(pidFile); } catch {}
-  try { if (sockIno !== null && fs.lstatSync(sockFile).ino === sockIno) fs.unlinkSync(sockFile); } catch {}
+  try {
+    if (bound !== null) {
+      const now = sockIdentity(sockFile);
+      if (now.ino === bound.ino && now.ctimeMs === bound.ctimeMs) fs.unlinkSync(sockFile);
+    }
+  } catch {}
 }
 
 /**

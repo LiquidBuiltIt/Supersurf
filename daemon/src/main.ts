@@ -39,7 +39,7 @@ import { ExtensionBridge } from './extension-bridge';
 import { SessionRegistry } from './session';
 import { RequestScheduler } from './scheduler';
 import { IPCServer, type IPCServerMeta } from './ipc';
-import { acquirePidFile, releaseFiles, clearStaleSocket } from './pidfile';
+import { acquirePidFile, releaseFiles, clearStaleSocket, sockIdentity, type SockIdentity } from './pidfile';
 import { DaemonExperimentRegistry } from './experiments/index';
 import { ProfileRegistry } from './profiles/registry';
 import { ensureExtension, isExtensionCached, getExtensionDir } from './profiles/extension-source';
@@ -63,12 +63,12 @@ const IDLE_TIMEOUT_MS = HARDCODED_DEFAULTS.daemon.idle_timeout_ms;
 
 // ─── PID File Management ──────────────────────────────────────
 
-/** Inode of the socket this process bound; `cleanupFiles` removes only that one. */
-let boundSockIno: number | null = null;
+/** Identity (inode + ctime) of the socket this process bound; `cleanupFiles` removes only that one. */
+let boundSock: SockIdentity | null = null;
 
 /** Remove this daemon's own pidfile and socket — never another daemon's (see pidfile.ts). */
 function cleanupFiles(): void {
-  releaseFiles(PID_FILE, SOCK_FILE, boundSockIno);
+  releaseFiles(PID_FILE, SOCK_FILE, boundSock);
 }
 
 // ─── Main ──────────────────────────────────────────────────────
@@ -310,7 +310,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     await ipc.start();
-    boundSockIno = fs.lstatSync(SOCK_FILE).ino;
+    boundSock = sockIdentity(SOCK_FILE);
     logger.log(`[Daemon] IPC listening on ${SOCK_FILE}`);
   } catch (error: any) {
     console.error(`Failed to start IPC server: ${error.message}`);
