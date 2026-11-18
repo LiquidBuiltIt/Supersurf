@@ -15,6 +15,7 @@
  * @module ipc
  */
 
+import fs from 'fs';
 import net from 'net';
 import crypto from 'crypto';
 import type { FileLogger } from 'shared';
@@ -55,6 +56,12 @@ export interface IPCServerMeta {
    * Chromium that will never connect.
    */
   extensionPullError?: string | null;
+  /**
+   * Settles when the startup extension pull is done (it runs after the socket
+   * is listening). spawnProfile waits for it; unmanaged sessions never do.
+   * `extensionPullError` is set before it settles.
+   */
+  extensionReady?: Promise<unknown>;
 }
 
 /**
@@ -63,6 +70,8 @@ export interface IPCServerMeta {
  */
 export class IPCServer {
   private server: net.Server | null = null;
+  /** Every accepted socket, so stop() can destroy the ones that will not leave. */
+  private sockets = new Set<net.Socket>();
   private socketPath: string;
   private bridge: ExtensionBridge;
   private sessions: SessionRegistry;
@@ -113,6 +122,7 @@ export class IPCServer {
       });
 
       this.server.listen(this.socketPath, () => {
+        try { fs.chmodSync(this.socketPath, 0o600); } catch (err) { debugLog('IPC socket chmod failed:', err); }
         debugLog(`IPC listening on ${this.socketPath}`);
         resolve();
       });
@@ -122,6 +132,8 @@ export class IPCServer {
   /** Handle a new connection from an MCP server. */
   private handleConnection(socket: net.Socket): void {
     debugLog('New IPC connection');
+    this.sockets.add(socket);
+    socket.on('close', () => this.sockets.delete(socket));
 
     let buffer = '';
     let sessionId: string | null = null;
@@ -535,6 +547,10 @@ export class IPCServer {
     const matchmaker = this.bridge.matchmaker;
     const registry = this.profileRegistry;
 
+    // The socket opens before the extension pull ends; wait for it so the
+    // check below sees the pull's outcome, not its absence.
+    await this.meta.extensionReady;
+
     // Refuse before entering the bootstrap queue. Launching Chromium with a
     // --load-extension pointing at a directory that was never downloaded
     // produces a browser that starts fine and never connects — i.e. the exact
@@ -652,7 +668,11 @@ export class IPCServer {
         session.socket.end();
       }
 
+      // server.close() waits for every connection, and an idle client never
+      // leaves: destroy whatever is still open after a short grace period.
+      const grace = setTimeout(() => { for (const s of this.sockets) s.destroy(); }, 500);
       this.server.close(() => {
+        clearTimeout(grace);
         debugLog('IPC server stopped');
         resolve();
       });

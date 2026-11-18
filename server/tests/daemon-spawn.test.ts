@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
+import { EventEmitter } from 'events';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 
@@ -158,5 +160,121 @@ describe('stopDaemon', () => {
     // Signal 0 probe: throws once the process is fully reaped.
     await new Promise(r => setTimeout(r, 200));
     expect(() => process.kill(child.pid!, 0)).toThrow();
+  });
+});
+
+describe('ensureDaemon vs a daemon that is still starting (M4)', () => {
+  let tmpHome: string;
+  let dir: string;
+  const spawnCalls: unknown[][] = [];
+  let spawnImpl: () => any;
+
+  beforeEach(() => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ensured-'));
+    dir = path.join(tmpHome, '.supersurf');
+    fs.mkdirSync(dir, { recursive: true });
+    vi.spyOn(os, 'homedir').mockReturnValue(tmpHome);
+    spawnCalls.length = 0;
+    vi.resetModules();
+    vi.doMock('child_process', async (orig) => ({
+      ...(await orig<typeof import('child_process')>()),
+      spawn: (...a: unknown[]) => { spawnCalls.push(a); return spawnImpl(); },
+    }));
+  });
+
+  afterEach(() => {
+    vi.doUnmock('child_process');
+    vi.restoreAllMocks();
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  it('waits for the socket of a live daemon instead of deleting its pidfile and spawning a second one', async () => {
+    fs.writeFileSync(path.join(dir, 'daemon.pid'), String(process.pid)); // alive, not listening yet
+    spawnImpl = () => { throw new Error('must not spawn'); };
+    setTimeout(() => fs.writeFileSync(path.join(dir, 'daemon.sock'), ''), 300);
+
+    const { ensureDaemon } = await import('../src/daemon-spawn');
+    await ensureDaemon(5555);
+
+    expect(spawnCalls).toHaveLength(0);
+    expect(fs.readFileSync(path.join(dir, 'daemon.pid'), 'utf8')).toBe(String(process.pid));
+  });
+
+  it('reuses a daemon that listens on the socket without a pidfile: no unlink, no spawn', async () => {
+    const sock = path.join(dir, 'daemon.sock');
+    const live = net.createServer((c) => c.end());
+    await new Promise<void>((r) => live.listen(sock, r));
+    try {
+      spawnImpl = () => { throw new Error('must not spawn'); };
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      await ensureDaemon(5555);
+
+      expect(spawnCalls).toHaveLength(0);
+      expect(fs.existsSync(sock)).toBe(true);
+      await new Promise<void>((resolve, reject) => {
+        const c = net.createConnection(sock);
+        c.once('connect', () => { c.destroy(); resolve(); });
+        c.once('error', reject);
+      });
+    } finally {
+      await new Promise((r) => live.close(r));
+    }
+  });
+
+  it('still removes a dead socket file (nothing listening) and spawns', async () => {
+    const sock = path.join(dir, 'daemon.sock');
+    fs.writeFileSync(sock, '');
+    spawnImpl = () => {
+      const child = new EventEmitter() as any;
+      child.pid = 1;
+      child.unref = () => {};
+      setTimeout(() => fs.writeFileSync(sock, 'x'), 200);
+      return child;
+    };
+    const { ensureDaemon } = await import('../src/daemon-spawn');
+    await ensureDaemon(5555);
+
+    expect(spawnCalls).toHaveLength(1);
+  });
+
+  it('treats a pidfile whose live pid never opens a socket as stale (PID reuse) and spawns a fresh daemon', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fs.writeFileSync(path.join(dir, 'daemon.pid'), String(process.pid)); // alive, but never listens
+      spawnImpl = () => {
+        const child = new EventEmitter() as any;
+        child.pid = 1;
+        child.unref = () => {};
+        setTimeout(() => fs.writeFileSync(path.join(dir, 'daemon.sock'), ''), 200);
+        return child;
+      };
+
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      const done = ensureDaemon(5555);
+      const settled = done.then(() => undefined, (e) => e);
+      await vi.advanceTimersByTimeAsync(11000);
+
+      expect(await settled).toBeUndefined();
+      expect(spawnCalls).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps polling when the daemon it spawned lost the pidfile race to a live one', async () => {
+    spawnImpl = () => {
+      const child = new EventEmitter() as any;
+      child.pid = 1;
+      child.unref = () => {};
+      setTimeout(() => {
+        fs.writeFileSync(path.join(dir, 'daemon.pid'), String(process.pid)); // the winner
+        child.emit('exit', 1, null); // the loser: "Daemon already running"
+      }, 50);
+      setTimeout(() => fs.writeFileSync(path.join(dir, 'daemon.sock'), ''), 400);
+      return child;
+    };
+
+    const { ensureDaemon } = await import('../src/daemon-spawn');
+    await expect(ensureDaemon(5555)).resolves.toBeUndefined();
   });
 });

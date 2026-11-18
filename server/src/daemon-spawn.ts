@@ -13,7 +13,7 @@
 import fs from 'fs';
 import net from 'net';
 import { spawn } from 'child_process';
-import { createLog, supersurfDir, sockPath, pidPath, readDaemonPid, isProcessAlive, isDaemonRunning } from 'shared';
+import { createLog, supersurfDir, sockPath, pidPath, readDaemonPid, isProcessAlive, isDaemonRunning, isSocketLive } from 'shared';
 
 export { isDaemonRunning };
 
@@ -113,6 +113,15 @@ export function resolveDaemonEntry(): string {
   }
 }
 
+/** Poll for the daemon socket file (100ms interval); true once it exists. */
+async function waitForSocket(maxWaitMs: number): Promise<boolean> {
+  for (let waited = 0; waited < maxWaitMs; waited += 100) {
+    if (fs.existsSync(sockPath())) return true;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return false;
+}
+
 /**
  * Ensure the daemon is running. If not, spawn it and wait for the socket file.
  *
@@ -126,7 +135,26 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
     return;
   }
 
+  // The pidfile names a live process but its socket is not up: that daemon is
+  // still starting. Wait for it: deleting its pidfile and spawning a second one
+  // is the race the daemon's own pidfile lock now backstops. A real daemon binds
+  // its socket within seconds, so no socket after 10 s means the pid was reused
+  // by an unrelated process (reboot, OOM, SIGKILL): fall through, clear the
+  // stale files and spawn.
+  if (isDaemonRunning()) {
+    log('Daemon is starting, waiting for its socket...');
+    if (await waitForSocket(10000)) return;
+    log(`Pidfile pid ${readDaemonPid()} never opened a socket in 10 seconds: treating it as stale.`);
+  }
+
   log('Daemon not running, spawning...');
+
+  // A daemon that lost its pidfile still listens: reuse it. Unlinking its
+  // socket would cut it off, and a replacement would die on the port.
+  if (await isSocketLive(sockPath())) {
+    log('Daemon is listening on its socket without a pidfile, reusing it');
+    return;
+  }
 
   // Clean stale files
   try { if (fs.existsSync(sockPath())) fs.unlinkSync(sockPath()); } catch {}
@@ -192,7 +220,9 @@ export async function ensureDaemon(port: number = 5555, debug: boolean = false, 
       log('Daemon socket ready');
       return;
     }
-    if (exited) {
+    // A spawned daemon that lost the pidfile race exits 1 while the winner is still
+    // starting: keep waiting for the winner's socket instead of failing.
+    if (exited && !isDaemonRunning()) {
       const info = exited as { code: number | null; signal: NodeJS.Signals | null };
       let captured = '';
       try { captured = fs.readFileSync(startupLogPath(), 'utf8'); } catch {}

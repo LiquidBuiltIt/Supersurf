@@ -5,6 +5,7 @@
  * call time so tests can point HOME at a temp dir after import.
  */
 import * as fs from 'fs';
+import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -47,4 +48,20 @@ export function isProcessAlive(pid: number): boolean {
 export function isDaemonRunning(): boolean {
   const pid = readDaemonPid();
   return pid !== null && isProcessAlive(pid);
+}
+
+/**
+ * True when something accepts a connection on the Unix socket `sockFile`. An
+ * unresponsive listener (no answer in 1 s) counts as live: callers delete a
+ * socket only when this is false, so a wrong "live" is harmless and a wrong
+ * "dead" cuts a running daemon off.
+ */
+export function isSocketLive(sockFile: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const s = net.createConnection(sockFile);
+    const done = (v: boolean) => { s.destroy(); resolve(v); };
+    s.once('connect', () => done(true));
+    s.once('error', () => done(false));
+    s.setTimeout(1000, () => done(true));
+  });
 }

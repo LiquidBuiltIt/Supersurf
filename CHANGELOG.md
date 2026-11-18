@@ -42,6 +42,13 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 ## Unreleased
 
 - feat: **The extension now reports its protocol number (`extProtocol: 1`) in the handshake.** The daemon does not act on it yet.
+- fix: **Two daemons starting at once can no longer delete each other's pidfile and socket.** The pidfile is now a create-exclusive lock, each daemon removes only a pidfile that holds its own pid and a socket it bound itself, the spawn path waits up to 10 seconds for a daemon that is still starting instead of wiping its pidfile, then treats a pidfile with no socket as stale and spawns, and the socket opens before the extension download so the download no longer widens the race.
+- security: **`~/.supersurf` is now mode 0700, and `daemon.sock` and `daemon.pid` are 0600.**
+- fix: **A daemon crash (uncaught exception or unhandled rejection) now logs the error to `daemon.log` and removes its own pidfile and socket.**
+- fix: **Starting an MCP session no longer deletes the socket of a daemon that is still running without its pidfile.** The spawn path now probes the socket and reuses a daemon that answers.
+- fix: **Daemon shutdown no longer stalls when an MCP client holds an idle connection.** Open sockets are destroyed after a 500 ms grace period.
+- fix: **Starting a managed profile waits for the startup extension download to finish.** The daemon's socket now opens before the download, so the profile spawn waits for its outcome and still reports a failed download by name.
+- fix: **The daemon's extension download now times out after 15 seconds of network silence instead of hanging.** A stalled network used to block every managed profile spawn for the daemon's whole life, even with a cached extension.
 - fix: **`connect` and `disconnect` now send `notifications/tools/list_changed` to the MCP client, and the server declares `tools.listChanged` in its capabilities.** A typo in the method name made the notification a silent no-op, so clients never heard that the tool list changed.
 - fix: **The `browser_performance_metrics` description now lists what the tool returns: TTFB, FCP, DOMContentLoaded and Load.** It no longer claims LCP or CLS, which the tool never measured.
 - chore: **`install.sh --latest` now builds the clone's `shared`, `daemon` and `server` packages after installing dependencies.** Their `dist/` output is no longer committed; `extension/dist` still is.

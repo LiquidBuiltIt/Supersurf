@@ -11,7 +11,7 @@
  */
 import * as fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { supersurfDir, sockPath, pidPath, isDaemonRunning } from 'shared';
+import { supersurfDir, sockPath, pidPath, isDaemonRunning, isSocketLive } from 'shared';
 import { packageCommand } from './shell-out';
 
 export { isDaemonRunning };
@@ -27,6 +27,16 @@ export function getPidPath(): string { return pidPath(); }
  */
 export async function ensureDaemon(port: number = 5555): Promise<void> {
   if (isDaemonRunning() && fs.existsSync(sockPath())) return;
+
+  // A live pidfile without a socket is a daemon still starting: wait for it
+  // rather than spawn a second one to race it for the pidfile lock.
+  if (isDaemonRunning()) {
+    if (await waitForSocket()) return;
+    throw new Error(WAIT_FAILED);
+  }
+
+  // A daemon that lost its pidfile still listens: reuse it, never unlink its socket.
+  if (await isSocketLive(sockPath())) return;
 
   try { if (fs.existsSync(sockPath())) fs.unlinkSync(sockPath()); } catch { /* stale */ }
   if (!fs.existsSync(supersurfDir())) fs.mkdirSync(supersurfDir(), { recursive: true });
@@ -53,13 +63,19 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
     );
   }
 
+  if (await waitForSocket()) return;
+  throw new Error(WAIT_FAILED);
+}
+
+const WAIT_FAILED =
+  'Daemon failed to start within 30 seconds (socket never appeared). ' +
+  'Check ~/.supersurf/logs/daemon.log.';
+
+async function waitForSocket(): Promise<boolean> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (fs.existsSync(sockPath())) return;
+    if (fs.existsSync(sockPath())) return true;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(
-    'Daemon failed to start within 30 seconds (socket never appeared). ' +
-    'Check ~/.supersurf/logs/daemon.log.',
-  );
+  return false;
 }
