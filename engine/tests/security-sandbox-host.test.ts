@@ -659,6 +659,12 @@ setTimeout(() => {
     // matching `res` comes back — a real round trip through the host, so the
     // writes can never coalesce regardless of how the OS schedules the
     // parent. No timing constant governs the write cadence anywhere below.
+    // The round trip alone is NOT enough: stderr and stdout are separate
+    // pipes, so the parent can answer `res` before it has read the stderr
+    // chunk, and the next chunk then coalesces with it into one 'data' event
+    // (capped to one entry, so the budget never trips — a REPRODUCED flake
+    // under CPU load). `onCommand` therefore withholds each `res` until the
+    // matching stderr chunk has reached `onLog`.
     // The first 10 exactly fill the 20000-char budget; the 11th trips it.
     // A stdout log() call sent AFTER must then be dropped too.
     const { file, hash } = write('at-stderr-shared-rev', `export default async function () { return 1; }`);
@@ -694,10 +700,13 @@ function afterErr() {
 stepErr();`,
     );
     const logs: string[] = [];
+    let syncs = 0;
     const res = await runPlaybookScript({
       file, hash, params: {}, meta: META, onLog: (m) => logs.push(m),
       onCommand: async (method) => {
         if (method !== 'sync') throw new Error(`unexpected command: ${method}`);
+        syncs++;
+        while (logs.length < syncs) await new Promise((r) => setTimeout(r, 1));
         return {};
       },
     });
