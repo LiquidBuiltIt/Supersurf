@@ -32,12 +32,12 @@ function makeHome(): string {
   return h;
 }
 
-function start(home: string, port: number, opts: { preload?: string; dev?: boolean } = {}): Daemon {
+function start(home: string, port: number, opts: { preload?: string; dev?: boolean; extra?: string[] } = {}): Daemon {
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: home };
   delete env.VITEST;
   delete env.SUPERSURF_DEV_ENVIRONMENT;
   if (opts.dev !== false) env.SUPERSURF_DEV_ENVIRONMENT = REPO;
-  const args = [...(opts.preload ? ['--require', opts.preload] : []), '--import', 'tsx', MAIN, '--port', String(port)];
+  const args = [...(opts.preload ? ['--require', opts.preload] : []), '--import', 'tsx', MAIN, '--port', String(port), ...(opts.extra ?? [])];
   const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   let buf = '';
@@ -170,4 +170,78 @@ describe('daemon hardening (M4)', () => {
     expect(fs.existsSync(sup(home, 'daemon.pid'))).toBe(false);
     expect(fs.readFileSync(sup(home, 'logs/daemon.log'), 'utf8')).toContain('boom-rejected');
   }, 30000);
+
+  describe('daemon.log (M6)', () => {
+    const logOf = (home: string) => fs.readFileSync(sup(home, 'logs/daemon.log'), 'utf8');
+
+    it('a second daemon that loses the lock leaves the winner log intact', async () => {
+      const home = makeHome();
+      const port = await freePort();
+      const a = start(home, port);
+      await until(() => a.out().includes('Daemon ready'));
+      const before = logOf(home);
+      expect(before).toContain('Daemon ready');
+      const b = start(home, port);
+      expect(await b.exited).toBe(1);
+      expect(logOf(home).startsWith(before)).toBe(true);
+    }, 30000);
+
+    it('a daemon stopped and started again keeps the first run lines', async () => {
+      const home = makeHome();
+      const port = await freePort();
+      const a = start(home, port);
+      await until(() => a.out().includes('Daemon ready'));
+      a.child.kill('SIGTERM');
+      await a.exited;
+      const b = start(home, port);
+      await until(() => b.out().includes('Daemon ready'));
+      const log = logOf(home);
+      expect(log.match(/Starting daemon/g)).toHaveLength(2);
+      expect(log).toContain(`pid=${a.child.pid}`);
+      expect(log).toContain(`pid=${b.child.pid}`);
+    }, 30000);
+
+    it('the start line names version and start reason', async () => {
+      const home = makeHome();
+      const d = start(home, await freePort(), { extra: ['--start-reason=not_running'] });
+      await until(() => d.out().includes('Daemon ready'));
+      expect(logOf(home)).toMatch(/Starting daemon \(port=\d+, pid=\d+, version=\S+, start_reason=not_running\)/);
+    }, 30000);
+
+    it('start_reason is shim for --spawned-by=shim and unknown with neither flag', async () => {
+      const home = makeHome();
+      const a = start(home, await freePort(), { extra: ['--spawned-by=shim'] });
+      await until(() => a.out().includes('Daemon ready'));
+      expect(logOf(home)).toContain('start_reason=shim)');
+      a.child.kill('SIGTERM');
+      await a.exited;
+      const b = start(home, await freePort());
+      await until(() => b.out().includes('Daemon ready'));
+      expect(logOf(home)).toContain('start_reason=unknown)');
+    }, 30000);
+
+    it('SIGTERM logs the shutdown cause', async () => {
+      const home = makeHome();
+      const d = start(home, await freePort());
+      await until(() => d.out().includes('Daemon ready'));
+      d.child.kill('SIGTERM');
+      await d.exited;
+      expect(logOf(home)).toContain('Shutting down (reason=SIGTERM)...');
+    }, 30000);
+
+    it('the start CLI command forwards start_reason=start to the detached daemon', async () => {
+      const home = makeHome();
+      const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, SUPERSURF_DEV_ENVIRONMENT: REPO };
+      delete env.VITEST;
+      env.NODE_OPTIONS = '--import tsx'; // the daemonized child re-runs main.ts without execArgv
+      const parent = spawn(process.execPath, ['--import', 'tsx', MAIN, 'start', '--port', String(await freePort())], { env, stdio: 'ignore' });
+      await new Promise((r) => parent.on('exit', r));
+      try {
+        await until(() => fs.existsSync(sup(home, 'logs/daemon.log')) && logOf(home).includes('Daemon ready'));
+        expect(logOf(home)).toContain('start_reason=start)');
+      } finally {
+        try { process.kill(Number(fs.readFileSync(sup(home, 'daemon.pid'), 'utf8')), 'SIGKILL'); } catch {}
+      }
+    }, 30000);
+  });
 });

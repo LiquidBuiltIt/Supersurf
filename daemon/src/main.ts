@@ -74,7 +74,7 @@ function cleanupFiles(): void {
 // ─── Main ──────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { port: cliPort, debug, verbose, command, portExplicit } = parseArgs(process.argv);
+  const { port: cliPort, debug, verbose, command, portExplicit, startReason } = parseArgs(process.argv);
 
   if (command === 'status') {
     await printStatus(verbose);
@@ -122,14 +122,15 @@ async function main(): Promise<void> {
   const idleTimeoutMs = cfg.get().daemon.idle_timeout_ms;
 
   // Initialize logger — always enabled for core events
-  const logger = new FileLogger(LOG_FILE);
+  const logger = new FileLogger(LOG_FILE, { maxBytes: 5 * 1024 * 1024 });
   logger.enable();
   (global as any).DAEMON_LOGGER = logger;
   if (debug) {
     (global as any).DAEMON_DEBUG = true;
   }
 
-  logger.log(`[Daemon] Starting daemon (port=${port}, pid=${process.pid})`);
+  const version = getVersion();
+  logger.log(`[Daemon] Starting daemon (port=${port}, pid=${process.pid}, version=${version}, start_reason=${startReason})`);
 
   // Single-instance lock: create-exclusive pidfile. The loser exits here, before
   // it has any file of its own to clean up.
@@ -152,8 +153,6 @@ async function main(): Promise<void> {
 
   // Experiment defaults come from the resolved config snapshot (file + env merged).
   const expSnapshot = cfg.get().experiments;
-
-  const version = getVersion();
 
   // Initialize components
   const bridge = new ExtensionBridge(port, '127.0.0.1', version);
@@ -228,7 +227,7 @@ async function main(): Promise<void> {
     resetIdleTimer();
     idleTimer = setTimeout(() => {
       logger.log(`[Daemon] Idle timeout — no sessions for ${idleTimeoutMs}ms, exiting`);
-      shutdown();
+      shutdown('idle_timeout');
     }, idleTimeoutMs);
   }
 
@@ -252,11 +251,11 @@ async function main(): Promise<void> {
   // Graceful shutdown
   let shuttingDown = false;
 
-  async function shutdown(): Promise<void> {
+  async function shutdown(reason: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
 
-    logger.log('[Daemon] Shutting down...');
+    logger.log(`[Daemon] Shutting down (reason=${reason})...`);
     resetIdleTimer();
 
     // Kill all managed Chromium processes — except user-owned ones
@@ -286,8 +285,8 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 
   // Start extension WebSocket server. A port held by someone else is a startup
   // failure and exits before the socket exists, so the spawner reports EADDRINUSE.
@@ -362,6 +361,9 @@ export { parseArgs, isProcessAlive, stopDaemon, printStatus, observe, formatUpti
 function daemonize(argv: string[]): void {
   const args = argv.slice(2).filter(a => a !== 'start' && a !== 'restart');
   args.push('--_daemonized');
+  if (!args.some(a => a.startsWith('--start-reason='))) {
+    args.push(`--start-reason=${argv.includes('restart') ? 'restart' : 'start'}`);
+  }
 
   const child = spawn(process.execPath, [__filename, ...args], {
     detached: true,

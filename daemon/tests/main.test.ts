@@ -129,6 +129,27 @@ describe('Daemon main utilities', () => {
       expect(args.verbose).toBe(true);
     });
 
+    it('startReason: reads --start-reason=<r>', () => {
+      expect(parseArgs(['node', 'daemon', '--start-reason=not_running']).startReason).toBe('not_running');
+    });
+
+    it('startReason: falls back to shim on --spawned-by=shim', () => {
+      expect(parseArgs(['node', 'daemon', '--spawned-by=shim']).startReason).toBe('shim');
+    });
+
+    it('startReason: the flag wins over --spawned-by=shim', () => {
+      expect(parseArgs(['node', 'daemon', '--spawned-by=shim', '--start-reason=version_upgrade']).startReason).toBe('version_upgrade');
+    });
+
+    it('startReason: unknown when absent', () => {
+      expect(parseArgs(['node', 'daemon', 'start']).startReason).toBe('unknown');
+    });
+
+    it('startReason: unknown for a value outside [a-z_]+', () => {
+      expect(parseArgs(['node', 'daemon', '--start-reason=Bad Value!']).startReason).toBe('unknown');
+      expect(parseArgs(['node', 'daemon', '--start-reason=']).startReason).toBe('unknown');
+    });
+
     it('parses observe command', () => {
       const args = parseArgs(['node', 'daemon', 'observe']);
       expect(args.command).toBe('observe');
