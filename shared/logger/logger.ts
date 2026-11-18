@@ -24,23 +24,32 @@ export type DebugMode = false | 'truncate' | 'no_truncate';
 
 /**
  * Synchronous, append-only file logger. Writes ISO-timestamped lines and
- * also mirrors to stderr. Truncates the log file on construction to start fresh.
+ * also mirrors to stderr. Truncates the log file on construction to start fresh,
+ * unless `opts.maxBytes` is set: then it appends to the existing file and rotates
+ * it to `<path>.1` (replacing any older one) when a line would pass the cap.
  */
 export class FileLogger {
   logFilePath: string;
   enabled: boolean = false;
   private _truncate: boolean = true;
+  private _maxBytes?: number;
+  private _size: number = 0;
 
-  constructor(logFilePath: string) {
+  constructor(logFilePath: string, opts?: { maxBytes?: number }) {
     this.logFilePath = logFilePath;
+    this._maxBytes = opts?.maxBytes;
 
     const logDir = path.dirname(this.logFilePath);
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
     }
 
-    if (fs.existsSync(this.logFilePath)) {
-      fs.truncateSync(this.logFilePath, 0);
+    if (this._maxBytes === undefined) {
+      if (fs.existsSync(this.logFilePath)) {
+        fs.truncateSync(this.logFilePath, 0);
+      }
+    } else {
+      try { this._size = fs.statSync(this.logFilePath).size; } catch { this._size = 0; }
     }
   }
 
@@ -71,8 +80,21 @@ export class FileLogger {
       .join(' ');
 
     const logLine = `[${timestamp}] ${message}\n`;
+    if (this._maxBytes !== undefined) this.rotateIfNeeded(Buffer.byteLength(logLine));
     fs.appendFileSync(this.logFilePath, logLine, 'utf8');
+    this._size += Buffer.byteLength(logLine);
     console.error(message);
+  }
+
+  /** Move the file to `.1` when `incoming` bytes would pass the cap. A failed rename never throws. */
+  private rotateIfNeeded(incoming: number): void {
+    if (this._size === 0 || this._size + incoming <= this._maxBytes!) return;
+    try {
+      fs.renameSync(this.logFilePath, this.logFilePath + '.1');
+      this._size = 0;
+    } catch {
+      // keep appending to the same file rather than lose the line
+    }
   }
 
   /** Serialize an argument to a log-safe string, applying truncation if enabled. */
