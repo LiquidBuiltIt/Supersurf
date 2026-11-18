@@ -53,7 +53,7 @@ describe('E2a: after a worker connection opens, main\'s require.cache has no eng
       const send = (id, method, params) => w.postMessage({ t: 'line', cid: 'c', data: JSON.stringify({ jsonrpc: '2.0', id, method, params }) });
       attachEnginePort(w, host, {
         ready() {
-          w.postMessage({ t: 'open', cid: 'c', config: { debug: false, port: 1, server: { name: 's', version: '0' } } });
+          w.postMessage({ t: 'open', cid: 'c', config: { cli: {}, env: {}, file: {}, port: 1, version: '0' } });
           send(1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'x', version: '0' } });
         },
         line(cid, buf) {

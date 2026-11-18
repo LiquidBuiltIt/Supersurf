@@ -8,9 +8,10 @@
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { ConfigService } from 'shared';
 import { PortLinkRouter } from './port-link';
 import { PortTransport } from './transport';
+import { configServiceFrom, enabledExperiments } from './shim-config';
+import type { ShimConfigInputs } from './shim-config';
 import type { MainToWorker, WorkerToMain } from './protocol';
 
 /** The slice of the engine barrel the worker uses. */
@@ -38,14 +39,18 @@ interface Connection {
   ready: Promise<void>;
 }
 
-/**
- * `config` arrives through structured clone, which strips the `ConfigService`
- * prototype (its fields survive). Put it back so `.get()` works in the engine.
- */
-function reviveConfig(config: any): any {
-  const cs = config?.configService;
-  if (cs && typeof cs.get !== 'function') Object.setPrototypeOf(cs, ConfigService.prototype);
-  return config;
+/** Same shape as `backendConfigFrom` in `server/src/backend-config.ts` (copied: no cross-package import). */
+function buildConfig(i: ShimConfigInputs) {
+  const configService = configServiceFrom(i);
+  const c = configService.get();
+  return {
+    debug: !!c.logging.debug,
+    port: c.daemon.port,
+    server: { name: 'SuperSurf', version: i.version },
+    enabledExperiments: enabledExperiments(i),
+    configService,
+    showUpgradeNotice: false,
+  };
 }
 
 export function createEngineSide(port: WorkerPort, engine: EngineModule): { shutdown(): Promise<void> } {
@@ -65,7 +70,7 @@ export function createEngineSide(port: WorkerPort, engine: EngineModule): { shut
       port.postMessage(build(rid));
     });
 
-  const makeHost = (cid: string, config: any) => {
+  const makeHost = (cid: string, inputs: ShimConfigInputs, config: ReturnType<typeof buildConfig>) => {
     const env = async (op: 'get' | 'keys', name?: string) => {
       const r = await ask((rid) => ({ t: 'env', rid, cid, op, name }));
       if (!r) throw new Error('Timed out waiting for the shim to answer an env request');
@@ -73,20 +78,21 @@ export function createEngineSide(port: WorkerPort, engine: EngineModule): { shut
       return r;
     };
     return {
-      packageVersion: config.server.version as string,
+      packageVersion: inputs.version,
       // The daemon is in-process behind the port: spawn and version-guard options do not apply.
-      openLink: (opts: { clientId: string }) => router.open(opts.clientId),
+      openLink: (opts: { clientId: string }) => router.open(opts.clientId, cid),
       queryDaemonStatus: async () => (await ask((rid) => ({ t: 'status', rid })))?.status ?? null,
-      runConfig: () => ({ ...config }),
+      // A fresh service per call: a playbook run must not share state with the agent's config.
+      runConfig: () => buildConfig(inputs),
       envGet: async (name: string) => (await env('get', name)).value as string | undefined,
       envKeys: async () => ((await env('keys')).keys ?? []) as string[],
     };
   };
 
-  const open = (cid: string, rawConfig: unknown): void => {
+  const open = (cid: string, inputs: ShimConfigInputs): void => {
     if (connections.has(cid)) return;
-    const config = reviveConfig(rawConfig);
-    const manager = new engine.AgentSessionManager(config, makeHost(cid, config));
+    const config = buildConfig(inputs);
+    const manager = new engine.AgentSessionManager(config, makeHost(cid, inputs, config));
     const transport = new PortTransport(cid, port);
     // Same wiring as server/src/cli.ts.
     const server = new Server(

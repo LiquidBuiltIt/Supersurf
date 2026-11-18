@@ -6,7 +6,6 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { MessageChannel, Worker } from 'node:worker_threads';
-import { ConfigService } from 'shared';
 import { IPCServer } from '../src/ipc';
 import { SessionRegistry } from '../src/session';
 import { RequestScheduler } from '../src/scheduler';
@@ -148,8 +147,7 @@ describe('engine worker keeps heavy work off the daemon main thread', () => {
       await rig.waitReady();
       rig.post({
         t: 'open', cid: 'shim-loop',
-        config: { debug: false, port: 5555, server: { name: 'SuperSurf', version: '9.9.9-test' },
-          configService: new ConfigService({ cli: {}, env: {}, file: {} }) },
+        config: { cli: {}, env: {}, file: {}, port: 5555, version: '9.9.9-test' },
       });
       let nextId = 1;
       const call = (tool: string, method: string, params: object): Promise<void> => {
