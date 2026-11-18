@@ -1248,6 +1248,20 @@ describe('AgentSession', () => {
       );
     });
 
+    it('connect logs daemon_spawn when the link reports a respawn, and omits it otherwise', async () => {
+      (host.openLink as any).mockResolvedValueOnce({ ...mockDaemonClientInstance, spawnReason: 'version_mismatch' });
+      await backend.callTool('connect', { username: 'spawn-test' });
+      expect(mockMetricsWrite).toHaveBeenCalledWith(
+        expect.objectContaining({ tool: 'connect', daemon_spawn: 'version_mismatch' }),
+      );
+
+      await backend.callTool('disconnect');
+      mockMetricsWrite.mockClear();
+      await backend.callTool('connect', { username: 'spawn-test' });
+      const entry = mockMetricsWrite.mock.calls.find(c => c[0].tool === 'connect')![0];
+      expect('daemon_spawn' in entry).toBe(false);
+    });
+
     it('disconnect logs to the audit logger', async () => {
       await backend.callTool('connect', { username: 'test' });
       mockMetricsWrite.mockClear();

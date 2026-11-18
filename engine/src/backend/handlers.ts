@@ -106,6 +106,8 @@ export async function onConnect(
   args: Record<string, unknown> = {},
   options: { rawResult?: boolean } = {}
 ): Promise<any> {
+  // Reset first: an already-connected or invalid call must not re-log the previous spawn.
+  mgr.daemonSpawnReason = null;
   // Default mode (4.0.0 parity): the agent's name is `client_id`; the manager maps it onto `username`.
   const multi = isMultiAgent(mgr.config);
   const idKey = multi ? 'username' : 'client_id';
@@ -221,6 +223,7 @@ export async function onConnect(
     }
 
     mgr.extensionServer = client;
+    mgr.daemonSpawnReason = client.spawnReason ?? null;
 
     // Handle extension reconnections — re-query the attached tab so its URL is
     // restored immediately, rather than waiting for the next navigation event.

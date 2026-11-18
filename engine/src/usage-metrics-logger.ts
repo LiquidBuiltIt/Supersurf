@@ -44,6 +44,8 @@ export interface MetricsEntry {
   tip?: string;
   client?: { name: string; version: string };
   experiments?: Record<string, boolean>;
+  /** Why this connect (re)spawned the daemon: 'not_running' | 'version_mismatch'. Absent when it reused one. */
+  daemon_spawn?: string;
 }
 
 export class UsageMetricsLogger {

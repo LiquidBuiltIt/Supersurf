@@ -13,7 +13,7 @@ const log = createLog('[Conn]');
 
 export async function openSocketLink(opts: OpenLinkOptions): Promise<DaemonLink> {
   log('Ensuring daemon is running...');
-  await ensureDaemon(opts.port, opts.debug, opts.experiments);
+  const spawned = await ensureDaemon(opts.port, opts.debug, opts.experiments);
 
   const sockPath = getSockPath();
   let client = new DaemonClient(sockPath, opts.clientId);
@@ -24,6 +24,7 @@ export async function openSocketLink(opts: OpenLinkOptions): Promise<DaemonLink>
     if (!opts.guardVersion) await client.stop().catch(() => {});
     throw e;
   }
+  if (spawned) client.spawnReason = 'not_running';
   if (!opts.guardVersion) return client;
 
   // Refuse to attach to a daemon of a different generation. ensureDaemon
@@ -53,8 +54,9 @@ export async function openSocketLink(opts: OpenLinkOptions): Promise<DaemonLink>
     log(`Daemon version mismatch (daemon: ${daemonVersion ?? 'pre-3.0'}, server: ${serverVersion}) — restarting daemon`);
     await client.stop().catch(() => {});
     await stopDaemon();
-    await ensureDaemon(opts.port, opts.debug, opts.experiments);
+    await ensureDaemon(opts.port, opts.debug, opts.experiments, 'version_mismatch');
     client = new DaemonClient(sockPath, opts.clientId);
+    client.spawnReason = 'version_mismatch';
     await client.start();
     daemonVersion = client.version;
   }

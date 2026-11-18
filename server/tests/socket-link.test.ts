@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const queue = vi.hoisted(() => [] as any[]);
-const ensureDaemon = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const ensureDaemon = vi.hoisted(() => vi.fn().mockResolvedValue(false));
 const stopDaemon = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock('shared', async (importOriginal) => {
@@ -47,6 +47,7 @@ describe('openSocketLink', () => {
     queue.push(c);
     const link = await openSocketLink(OPTS);
     expect(ensureDaemon).toHaveBeenCalledWith(5555, false, ['fingerprinting']);
+    expect((link as any).spawnReason).toBeUndefined();
     expect(c.start).toHaveBeenCalledOnce();
     expect(link).toMatchObject({ version: '4.1.0' });
     expect(stopDaemon).not.toHaveBeenCalled();
@@ -103,6 +104,15 @@ describe('openSocketLink', () => {
     expect(ensureDaemon).toHaveBeenCalledTimes(2);
     expect(second.start).toHaveBeenCalledOnce();
     expect(link).toMatchObject({ version: '4.1.0' });
+    expect(ensureDaemon).toHaveBeenLastCalledWith(5555, false, ['fingerprinting'], 'version_mismatch');
+    expect((link as any).spawnReason).toBe('version_mismatch');
+  });
+
+  it('a first ensureDaemon that spawned marks the link not_running', async () => {
+    ensureDaemon.mockResolvedValueOnce(true);
+    queue.push(client());
+    const link = await openSocketLink(OPTS);
+    expect((link as any).spawnReason).toBe('not_running');
   });
 
   it('mismatch with an unknown session count restarts the daemon once and reconnects', async () => {

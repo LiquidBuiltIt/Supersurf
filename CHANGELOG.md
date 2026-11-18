@@ -41,6 +41,7 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- feat: **The server tells the daemon why it starts it (`--start-reason=not_running` or `version_mismatch`), and a `connect` row in the metrics trail carries `daemon_spawn` when that connect had to start or restart the daemon.** Before this, an automatic version-mismatch restart left no trace in the trail.
 - fix: **`daemon.log` is now append-only and rotates at 5 MB to `daemon.log.1`.** A second daemon that lost the lock used to truncate the running daemon's log, and every restart wiped the previous run; `supersurf-daemon observe` now follows the file across rotation.
 - feat: **The daemon's start line names its version and why it started (`start_reason=`).** The value comes from `--start-reason=<r>` (the `start` and `restart` commands set it), `shim` for a shim spawn, else `unknown`.
 - feat: **The daemon's shutdown line names the cause (`reason=SIGTERM`, `SIGINT` or `idle_timeout`).**

@@ -64,6 +64,7 @@ export class AgentSession implements AgentSessionAPI {
   /** Reason the last `connect` attempt failed (e.g. wedged-port EADDRINUSE).
    *  Surfaced in the passive status header; cleared on the next connect attempt. */
   lastConnectError: string | null = null;
+  daemonSpawnReason: string | null = null;
   server: Server | null = null;
   clientInfo: Record<string, unknown> = {};
   /** Tracks whether the config-drift warning has already been surfaced this session
@@ -291,6 +292,9 @@ export class AgentSession implements AgentSessionAPI {
               version: String(ci.version || 'unknown'),
             };
           }
+        }
+        if (name === 'connect' && !isError && this.daemonSpawnReason) {
+          entry.daemon_spawn = this.daemonSpawnReason;
         }
         this.metricsLogger?.write(entry);
 

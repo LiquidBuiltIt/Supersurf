@@ -81,6 +81,8 @@ export interface AgentSessionAPI {
    *  header so `status` reports the real cause (e.g. port held / EADDRINUSE)
    *  instead of a bare cached "Disabled". Cleared on the next connect attempt. */
   lastConnectError: string | null;
+  /** Why the last `connect` had to (re)spawn the daemon, from the link; null when it reused one. */
+  daemonSpawnReason: string | null;
   statusHeader(): string;
   getAttachedTab(): TabInfo | null;
   setAttachedTab(tab: TabInfo | null): void;

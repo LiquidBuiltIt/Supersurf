@@ -194,7 +194,7 @@ describe('ensureDaemon vs a daemon that is still starting (M4)', () => {
     setTimeout(() => fs.writeFileSync(path.join(dir, 'daemon.sock'), ''), 300);
 
     const { ensureDaemon } = await import('../src/daemon-spawn');
-    await ensureDaemon(5555);
+    expect(await ensureDaemon(5555)).toBe(false);
 
     expect(spawnCalls).toHaveLength(0);
     expect(fs.readFileSync(path.join(dir, 'daemon.pid'), 'utf8')).toBe(String(process.pid));
@@ -207,7 +207,7 @@ describe('ensureDaemon vs a daemon that is still starting (M4)', () => {
     try {
       spawnImpl = () => { throw new Error('must not spawn'); };
       const { ensureDaemon } = await import('../src/daemon-spawn');
-      await ensureDaemon(5555);
+      expect(await ensureDaemon(5555)).toBe(false);
 
       expect(spawnCalls).toHaveLength(0);
       expect(fs.existsSync(sock)).toBe(true);
@@ -232,9 +232,24 @@ describe('ensureDaemon vs a daemon that is still starting (M4)', () => {
       return child;
     };
     const { ensureDaemon } = await import('../src/daemon-spawn');
-    await ensureDaemon(5555);
+    expect(await ensureDaemon(5555)).toBe(true);
 
     expect(spawnCalls).toHaveLength(1);
+    // the daemon argv rides inside the login-shell command string
+    expect((spawnCalls[0][1] as string[])[1]).toContain("'--start-reason=not_running'");
+  });
+
+  it('passes the given start reason to the daemon', async () => {
+    spawnImpl = () => {
+      const child = new EventEmitter() as any;
+      child.pid = 1;
+      child.unref = () => {};
+      setTimeout(() => fs.writeFileSync(path.join(dir, 'daemon.sock'), 'x'), 100);
+      return child;
+    };
+    const { ensureDaemon } = await import('../src/daemon-spawn');
+    expect(await ensureDaemon(5555, false, [], 'version_mismatch')).toBe(true);
+    expect((spawnCalls[0][1] as string[])[1]).toContain("'--start-reason=version_mismatch'");
   });
 
   it('treats a pidfile whose live pid never opens a socket as stale (PID reuse) and spawns a fresh daemon', async () => {
@@ -251,10 +266,10 @@ describe('ensureDaemon vs a daemon that is still starting (M4)', () => {
 
       const { ensureDaemon } = await import('../src/daemon-spawn');
       const done = ensureDaemon(5555);
-      const settled = done.then(() => undefined, (e) => e);
+      const settled = done.catch((e) => e);
       await vi.advanceTimersByTimeAsync(11000);
 
-      expect(await settled).toBeUndefined();
+      expect(await settled).toBe(true);
       expect(spawnCalls).toHaveLength(1);
     } finally {
       vi.useRealTimers();
@@ -275,6 +290,6 @@ describe('ensureDaemon vs a daemon that is still starting (M4)', () => {
     };
 
     const { ensureDaemon } = await import('../src/daemon-spawn');
-    await expect(ensureDaemon(5555)).resolves.toBeUndefined();
+    await expect(ensureDaemon(5555)).resolves.toBe(false);
   });
 });
