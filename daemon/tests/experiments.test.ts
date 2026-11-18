@@ -165,6 +165,33 @@ describe('DaemonExperimentRegistry', () => {
       registry.initSession('s'); // should NOT reset
       expect(registry.isEnabled('s', 'page_diffing')).toBe(false);
     });
+
+    it('with a list, starts from that list and ignores the daemon-wide defaults', () => {
+      registry.applyDefaults(['page_diffing']);
+      registry.initSession('s', ['fingerprinting']);
+      expect(registry.isEnabled('s', 'fingerprinting')).toBe(true);
+      expect(registry.isEnabled('s', 'page_diffing')).toBe(false);
+      expect(registry.isEnabled('legacy', 'page_diffing')).toBe(true);
+      expect(registry.isEnabled('legacy', 'fingerprinting')).toBe(false);
+    });
+
+    it('an empty list means no experiments, and unknown names are dropped', () => {
+      registry.applyDefaults(['page_diffing']);
+      registry.initSession('none', []);
+      registry.initSession('odd', ['nope']);
+      expect(registry.isEnabled('none', 'page_diffing')).toBe(false);
+      expect(registry.getAll('odd')).toMatchObject({ page_diffing: false });
+    });
+
+    it('a list does not reset an initialized session; deleteSession clears it', () => {
+      registry.applyDefaults(['page_diffing']);
+      registry.initSession('s', ['fingerprinting']);
+      registry.initSession('s', []);
+      expect(registry.isEnabled('s', 'fingerprinting')).toBe(true);
+      registry.deleteSession('s');
+      expect(registry.isEnabled('s', 'fingerprinting')).toBe(false);
+      expect(registry.isEnabled('s', 'page_diffing')).toBe(true);
+    });
   });
 
   // ── isAvailable / listAvailable ─────────────────────────────
