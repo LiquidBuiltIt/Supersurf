@@ -39,11 +39,14 @@ export class PortTransport implements Transport {
   async send(message: JSONRPCMessage): Promise<void> {
     if (this.closed) return;
     this.post(message);
-    const m = message as { id?: unknown; result?: any };
-    if (m.id === undefined || !m.result) return;
-    // G4, shim only: after the answer, never before it.
-    if (this.replayIds.delete(m.id)) this.post({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
-    if (this.listIds.delete(m.id) && Array.isArray(m.result.tools)) this.post({ type: 'tools_hash', hash: toolsHash(m.result.tools) });
+    const m = message as { id?: unknown; result?: any; error?: unknown };
+    if (m.id === undefined || (!m.result && !m.error)) return;
+    // Any reply, result or error, ends the id's bookkeeping.
+    const replay = this.replayIds.delete(m.id);
+    const list = this.listIds.delete(m.id);
+    // G4, shim only: after a result, never before it.
+    if (replay && m.result) this.post({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+    if (list && Array.isArray(m.result?.tools)) this.post({ type: 'tools_hash', hash: toolsHash(m.result.tools) });
   }
 
   private post(obj: object): void {
