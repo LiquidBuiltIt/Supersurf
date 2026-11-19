@@ -158,6 +158,32 @@ func TestAnsweredCallIsNotFailedOnDisconnect(t *testing.T) {
 	g.NoOut(`"error"`, 300*time.Millisecond)
 }
 
+// The daemon's JSON parser answers id 1.0 as 1; the entry must still clear.
+func TestAnswerInOtherIDFormClearsInflight(t *testing.T) {
+	sock := sockIn(t)
+	d := startFakeDaemon(t, sock)
+	g := newRig(t, Config{Sock: sock})
+	g.WaitUp(d)
+	g.Send(`{"jsonrpc":"2.0","id":1.0,"method":"ping"}`)
+	d.NextLine(time.Second)
+	d.Send(0, `{"jsonrpc":"2.0","id":1,"result":{}}`)
+	g.WaitOut(`"result"`, time.Second)
+	d.Drop(0)
+	g.NoOut(`"error"`, 300*time.Millisecond)
+}
+
+func TestCanonicalID(t *testing.T) {
+	for in, want := range map[string]string{
+		`1.0`: `1`, `1`: `1`, `1.50`: `1.5`, `100`: `100`, `-0`: `0`, `0.0`: `0`, `1e21`: `1e+21`, `1E2`: `100`,
+		`1e-7`: `1e-7`, `0.000001`: `0.000001`, `123456789012345680000`: `123456789012345680000`,
+		`"a"`: `"a"`, `"1.0"`: `"1.0"`, `null`: `null`,
+	} {
+		if got := canonicalID([]byte(in)); got != want {
+			t.Errorf("canonicalID(%s) = %s, want %s", in, got, want)
+		}
+	}
+}
+
 // A batch registers every request id, so a lost connection fails each one.
 func TestBatchIDsFailedOnDisconnect(t *testing.T) {
 	sock := sockIn(t)

@@ -80,6 +80,11 @@ export function socketSink(socket: net.Socket): SessionSink {
   };
 }
 
+/** Takes over a socket whose first line was `shim_register` (`ShimServer`). `rest` is what was already read after that line. */
+export interface ShimHook {
+  accept(socket: net.Socket, handshake: any, rest: Buffer): void;
+}
+
 /** What a link needs from the daemon to run a session, whatever carries its bytes. */
 export interface SessionHost {
   /** Register a session. On a duplicate id, sends the reject, ends the sink and returns false. */
@@ -109,6 +114,7 @@ export class IPCServer implements SessionHost {
   private startedAt: number = Date.now();
   private meta: IPCServerMeta;
   private configDrift: boolean = false;
+  private shim: ShimHook | null = null;
 
   constructor(
     socketPath: string,
@@ -131,6 +137,11 @@ export class IPCServer implements SessionHost {
   /** Set a callback for session count changes (used by idle timeout). */
   setSessionCountCallback(cb: SessionCountCallback): void {
     this.onSessionCountChange = cb;
+  }
+
+  /** Let `shim_register` connections through to `shim`. Without it they get the usual `session_reject`. */
+  setShimServer(shim: ShimHook): void {
+    this.shim = shim;
   }
 
   /** Mark that the on-disk config has changed since daemon startup. */
@@ -167,7 +178,7 @@ export class IPCServer implements SessionHost {
     let sessionId: string | null = null;
     let handshakeComplete = false;
 
-    socket.on('data', (data) => {
+    const onData = (data: Buffer): void => {
       buffer += data.toString();
 
       let newlineIdx: number;
@@ -185,6 +196,14 @@ export class IPCServer implements SessionHost {
             if (msg?.type === 'daemon_status') {
               this.send(sink, this.buildStatusResponse());
               sink.end();
+              return;
+            }
+
+            // The shim hook owns the socket from here: stop reading it.
+            // shortcut: the remainder is re-encoded from the decoded string, so a multibyte character split across chunks would break; the shim waits for the ack before it sends more.
+            if (msg?.type === 'shim_register' && this.shim) {
+              socket.removeListener('data', onData);
+              this.shim.accept(socket, msg, Buffer.from(buffer));
               return;
             }
 
@@ -217,7 +236,8 @@ export class IPCServer implements SessionHost {
           }
         }
       }
-    });
+    };
+    socket.on('data', onData);
 
     socket.on('close', () => {
       if (sessionId) this.close(sessionId, sink);

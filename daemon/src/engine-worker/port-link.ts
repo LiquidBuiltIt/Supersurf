@@ -48,6 +48,7 @@ export class PortLink implements DaemonLink {
   constructor(
     readonly lid: number,
     readonly sessionId: string,
+    private readonly cid: string | undefined,
     private readonly port: PortLike,
     private readonly onGone: (lid: number) => void,
   ) {}
@@ -81,7 +82,7 @@ export class PortLink implements DaemonLink {
         resolve: () => { clearTimeout(timer); resolve(); },
         reject: (e) => { clearTimeout(timer); reject(e); },
       };
-      this.port.postMessage({ t: 'link-open', lid: this.lid, sessionId: this.sessionId });
+      this.port.postMessage({ t: 'link-open', lid: this.lid, sessionId: this.sessionId, ...(this.cid !== undefined && { cid: this.cid }) });
     });
   }
 
@@ -177,10 +178,10 @@ export class PortLinkRouter {
 
   constructor(private readonly port: PortLike) {}
 
-  /** Open a link for the daemon session `sessionId` and wait for its ack. */
-  async open(sessionId: string): Promise<PortLink> {
+  /** Open a link for the daemon session `sessionId` (opened for shim connection `cid`) and wait for its ack. */
+  async open(sessionId: string, cid?: string): Promise<PortLink> {
     const lid = this.nextLid++;
-    const link = new PortLink(lid, sessionId, this.port, (l) => this.links.delete(l));
+    const link = new PortLink(lid, sessionId, cid, this.port, (l) => this.links.delete(l));
     this.links.set(lid, link);
     await link.start();
     return link;

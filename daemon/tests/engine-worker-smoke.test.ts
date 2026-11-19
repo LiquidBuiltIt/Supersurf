@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { ConfigService } from 'shared';
 import { IPCServer } from '../src/ipc';
 import { SessionRegistry } from '../src/session';
 import { RequestScheduler } from '../src/scheduler';
@@ -71,8 +70,7 @@ describe('engine worker smoke (built dist, real Worker)', () => {
     await until(() => events.includes('ready'));
     worker.postMessage({
       t: 'open', cid: 'shim-smoke',
-      config: { debug: false, port: 5555, server: { name: 'SuperSurf', version: '9.9.9-test' },
-        configService: new ConfigService({ cli: {}, env: {}, file: {} }) },
+      config: { cli: {}, env: {}, file: {}, port: 5555, version: '9.9.9-test' },
     });
     await call(1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'smoke', version: '0' } });
     send({ jsonrpc: '2.0', method: 'notifications/initialized' });

@@ -115,10 +115,17 @@ export class DaemonExperimentRegistry {
     debugLog(`Session deleted: ${sessionId}`);
   }
 
-  /** Initialize a session with defaults. No-op if already initialized. */
-  initSession(sessionId: string): void {
+  /**
+   * Initialize a session. No-op if already initialized. With `defaults` the set
+   * starts from that list (a shim connection's own defaults) instead of the
+   * daemon-wide ones.
+   */
+  initSession(sessionId: string, defaults?: readonly string[]): void {
     if (!this._sessions.has(sessionId)) {
-      this._sessions.set(sessionId, new Set(this._defaults));
+      this._sessions.set(
+        sessionId,
+        new Set(defaults ? defaults.filter((n) => this.isAvailable(n)) : this._defaults),
+      );
     }
   }
 

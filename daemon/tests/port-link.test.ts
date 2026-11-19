@@ -63,6 +63,14 @@ describe('PortLink', () => {
     expect(link.spawnReason).toBeUndefined();
   });
 
+  it('open puts the connection cid on link-open, and omits it when none is given', async () => {
+    const r = rig();
+    await r.router.open('alice', 'shim-1');
+    await r.router.open('bob');
+    expect(r.seen[0]).toMatchObject({ t: 'link-open', sessionId: 'alice', cid: 'shim-1' });
+    expect((r.seen[1] as any).cid).toBeUndefined();
+  });
+
   it('a bare ack leaves the defaults (pre-upgrade daemon)', async () => {
     const r = rig();
     r.onOpen = (m) => void r.send({ t: 'msg', lid: m.lid, msg: { type: 'session_ack' } });

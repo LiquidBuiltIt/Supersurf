@@ -15,6 +15,8 @@ import { attachEnginePort, portSink, type EnginePortHooks } from '../src/engine-
 import { PortLinkRouter } from '../src/engine-worker/port-link';
 import type { MainToWorker, WorkerToMain } from '../src/engine-worker/protocol';
 import { isExtensionCached } from '../src/profiles/extension-source';
+import { ShimServer } from '../src/shim-server';
+import { FakeShim, fakeEngine, inlineWorker, until, wait } from './helpers/shim-rig';
 
 // spawnProfile calls spawnChromium for real. The pull-error guard currently
 // throws before it is reached, but a regression that removed the guard would
@@ -1197,6 +1199,18 @@ describe('IPCServer', () => {
 
     afterEach(() => { for (const p of ports.splice(0)) p.close(); });
 
+    it('registered fires once per accepted link with the session id and cid, never on a refused duplicate', async () => {
+      await ipc.start();
+      const calls: Array<[string, string | undefined]> = [];
+      const { router } = portRig({ registered: (id, cid) => { calls.push([id, cid]); } });
+      await router.open('a1', 'shim-x');
+      await router.open('a2');
+      expect(calls).toEqual([['a1', 'shim-x'], ['a2', undefined]]);
+
+      await expect(router.open('a1', 'shim-x')).rejects.toThrow('already in use');
+      expect(calls).toHaveLength(2);
+    });
+
     it('the same id over a socket then a port: the port start() rejects', async () => {
       await ipc.start();
       const client = await connectToSocket(sockPath);
@@ -1363,6 +1377,147 @@ describe('IPCServer', () => {
       sink.end();
       expect(port.postMessage).toHaveBeenNthCalledWith(1, { t: 'msg', lid: 4, msg: { a: 1 } });
       expect(port.postMessage).toHaveBeenNthCalledWith(2, { t: 'link-end', lid: 4 });
+    });
+  });
+
+  describe('shim register (E2b)', () => {
+    const shims: FakeShim[] = [];
+    const workers: Array<{ terminate(): Promise<unknown> }> = [];
+    let shimServer: ShimServer;
+    let engineLog: ReturnType<typeof fakeEngine>['log'];
+
+    function withShimServer(): void {
+      const { engine, log } = fakeEngine();
+      engineLog = log;
+      shimServer = new ShimServer({
+        host: ipc,
+        experiments,
+        daemon: { configPath: path.join(tmpDir, 'config.json'), port: 5599, version: '9.9.9-test' },
+        startWorker: () => { const w = inlineWorker(engine); workers.push(w); return w; },
+      });
+      ipc.setShimServer(shimServer);
+    }
+    const newShim = (o: ConstructorParameters<typeof FakeShim>[1] = {}) => { const s = new FakeShim(sockPath, o); shims.push(s); return s; };
+
+    afterEach(async () => {
+      for (const s of shims.splice(0)) s.close();
+      shimServer?.stop();
+      for (const w of workers.splice(0)) await w.terminate();
+    });
+
+    it('shim_register is acked with exact bytes', async () => {
+      withShimServer();
+      await ipc.start();
+      const shim = newShim();
+      await shim.connect();
+      shim.socket.write(shim.handshakeLine());
+      await until(() => shim.lines.length > 0);
+      expect(shim.lines[0] + '\n').toBe('{"type":"shim_ack","protocol":1,"version":"9.9.9-test"}\n');
+    });
+
+    it('a shim_register line followed by a client line in the same write is not lost', async () => {
+      withShimServer();
+      await ipc.start();
+      const shim = newShim();
+      await shim.connect();
+      const init = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } } });
+      shim.socket.write(shim.handshakeLine() + init + '\n');
+      await until(() => shim.lines.length >= 2);
+      expect(JSON.parse(shim.lines[0]).type).toBe('shim_ack');
+      expect(JSON.parse(shim.lines[1]).id).toBe(1);
+    });
+
+    it.each([
+      ['protocol 2', { protocol: 2 }],
+      ['mode script', { mode: 'script' }],
+      ['missing sessionId', { sessionId: undefined }],
+      ['numeric sessionId', { sessionId: 7 }],
+      ['empty sessionId', { sessionId: '' }],
+    ])('a bad handshake (%s) gets shim_reject and the socket ends', async (_n, patch) => {
+      withShimServer();
+      await ipc.start();
+      const shim = newShim({ handshake: patch as Record<string, unknown> });
+      const reply = await shim.register();
+      expect(reply.type).toBe('shim_reject');
+      expect(typeof reply.reason).toBe('string');
+      expect(reply.reason.length).toBeGreaterThan(0);
+      await until(() => shim.ended);
+    });
+
+    it('a second live shim with the same sessionId gets shim_reject and the first stays up', async () => {
+      withShimServer();
+      await ipc.start();
+      const first = newShim();
+      expect((await first.register()).type).toBe('shim_ack');
+      const second = newShim();
+      const reject = await second.register();
+      expect(reject.type).toBe('shim_reject');
+      expect(reject.reason).toContain('shim-0123456789abcdef');
+      await until(() => second.ended);
+
+      await first.initialize();
+      expect(await first.call('connect', { client_id: 'still-up' })).toBe('connected');
+    });
+
+    it('the same sessionId can register again after the first shim is gone', async () => {
+      withShimServer();
+      await ipc.start();
+      const first = newShim();
+      await first.register();
+      first.close();
+      await wait(50);
+      const again = newShim();
+      expect((await again.register()).type).toBe('shim_ack');
+    });
+
+    it('without a shim hook shim_register gets the same session_reject bytes as any non-handshake line', async () => {
+      await ipc.start();
+      const client = await connectToSocket(sockPath);
+      writeLine(client, { type: 'shim_register', protocol: 1, mode: 'mcp', sessionId: 'shim-0123456789abcdef' });
+      expect(await readRawLine(client)).toBe(
+        '{"type":"session_reject","reason":"Expected session_register handshake"}\n',
+      );
+      client.end();
+    });
+
+    it('a legacy client and a shim live on one daemon', async () => {
+      withShimServer();
+      await ipc.start();
+      const legacy = await connectToSocket(sockPath);
+      writeLine(legacy, { type: 'session_register', sessionId: 'legacy-1' });
+      expect((await readLine(legacy)).type).toBe('session_ack');
+
+      const shim = newShim();
+      expect((await shim.register()).type).toBe('shim_ack');
+      await shim.initialize();
+      expect(await shim.call('connect', { client_id: 'agent-1' })).toBe('connected');
+      await until(() => sessions.has('agent-1'));
+      expect(sessions.has('legacy-1')).toBe(true);
+
+      writeLine(legacy, { jsonrpc: '2.0', id: 'e1', method: 'experiments.get', params: {} });
+      expect((await readLine(legacy)).id).toBe('e1');
+      expect(sessions.count).toBe(2);
+      legacy.end();
+    });
+
+    it('socket close sends sessionDisconnect with closeTabIds and fires the count hook', async () => {
+      withShimServer();
+      const counts: number[] = [];
+      ipc.setSessionCountCallback((n) => counts.push(n));
+      await ipc.start();
+      const shim = newShim();
+      await shim.register();
+      await shim.initialize();
+      await shim.call('connect', { client_id: 'agent-9' });
+      await until(() => sessions.has('agent-9'));
+      sessions.addCreatedTab('agent-9', 7);
+
+      shim.close();
+      await until(() => !sessions.has('agent-9'));
+      await until(() => engineLog.managers[0].closed);
+
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'agent-9', closeTabIds: [7] }, 5000);
+      expect(counts).toEqual([1, 0]);
     });
   });
 

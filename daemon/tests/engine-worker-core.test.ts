@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
-import { ConfigService } from 'shared';
 import { attachEnginePort, type EnginePortHooks } from '../src/engine-worker/main-side';
 import { startEngineSide } from '../src/engine-worker/worker';
 import { createEngineSide } from '../src/engine-worker/core';
@@ -57,10 +56,7 @@ function rig(eng: any = engine) {
       await new Promise<void>((r) => { waiters.push(r); setTimeout(r, 50); });
     }
   };
-  const config = {
-    debug: false, port: 5555, server: { name: 'SuperSurf', version: '9.9.9-test' },
-    configService: new ConfigService({ cli: {}, env: {}, file: {} }),
-  };
+  const config = { cli: {}, env: {}, file: {}, port: 5555, version: '9.9.9-test' };
   const send = (cid: string, msg: object) => mainEnd.postMessage({ t: 'line', cid, data: JSON.stringify(msg) });
   const call = async (cid: string, id: number, method: string, params: object = {}) => {
     send(cid, { jsonrpc: '2.0', id, method, params });
@@ -142,7 +138,7 @@ describe('engine worker core: status and env round trips (fake engine)', () => {
       async serverClosed() {}
     }
     const side = createEngineSide(port, { AgentSessionManager: Mgr } as any);
-    onMsg({ t: 'open', cid: 'c1', config: { server: { name: 's', version: '0' } } });
+    onMsg({ t: 'open', cid: 'c1', config: { cli: {}, env: {}, file: {}, port: 5555, version: '0' } });
     const last = (t: string) => [...posted].reverse().find((m) => m.t === t);
     return { host: () => host, onMsg, posted, last, side };
   }
@@ -197,5 +193,46 @@ describe('engine worker core: status and env round trips (fake engine)', () => {
     await f.side.shutdown();
     expect(await s).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('engine worker core: config built from the open inputs', () => {
+  function fakeWith(inputs: any) {
+    let host: any;
+    let ctorConfig: any;
+    let onMsg!: (m: any) => void;
+    const port = { postMessage: () => {}, on: (_e: string, fn: any) => { onMsg = fn; } };
+    class Mgr {
+      constructor(c: any, h: any) { ctorConfig = c; host = h; }
+      async initialize() {}
+      async listTools() { return []; }
+      async callTool() { return {}; }
+      async serverClosed() {}
+    }
+    createEngineSide(port, { AgentSessionManager: Mgr } as any);
+    onMsg({ t: 'open', cid: 'c1', config: inputs });
+    return { host, ctorConfig };
+  }
+
+  it('runConfig reflects handshake env and flags, and the daemon port and version win', () => {
+    const f = fakeWith({
+      cli: { agents: { multi_agent: true } },
+      env: { logging: { debug: 'truncate' }, experiments: { page_diffing: true } },
+      file: { daemon: { port: 1 }, experiments: { fingerprinting: true } },
+      port: 5599, version: '7.7.7',
+    });
+    const c = f.host.runConfig();
+    const cfg = c.configService.get();
+    expect(cfg.agents.multi_agent).toBe(true);
+    expect(cfg.logging.debug).toBe('truncate');
+    expect(cfg.daemon.port).toBe(5599);
+    expect(c.port).toBe(5599);
+    expect(c.debug).toBe(true);
+    expect(c.server).toEqual({ name: 'SuperSurf', version: '7.7.7' });
+    expect(f.host.packageVersion).toBe('7.7.7');
+    expect(c.enabledExperiments.sort()).toEqual(['fingerprinting', 'page_diffing']);
+    expect(typeof c.configService.get).toBe('function');
+    expect(f.host.runConfig()).not.toBe(c);
+    expect(f.ctorConfig.port).toBe(5599);
   });
 });
