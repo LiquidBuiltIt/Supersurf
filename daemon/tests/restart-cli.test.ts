@@ -5,7 +5,8 @@
  * gated case also needs a Go toolchain (skipped with a reason otherwise).
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { spawnSync } from 'child_process';
+import { spawnSync, spawn } from 'child_process';
+import net from 'net';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -28,6 +29,70 @@ function recorder(dir: string): { bin: string; ran: string } {
   fs.writeFileSync(bin, `#!/bin/sh\necho "$@" >> '${ran}'\nexit 0\n`, { mode: 0o755 });
   return { bin, ran };
 }
+
+/** A fake daemon socket: answers `daemon_status` with `status` and `daemon_restart` with `restartReply`, and records every line type it got. */
+function fakeDaemon(sock: string, status: object, restartReply?: object): Promise<{ got: string[]; close: () => void }> {
+  const got: string[] = [];
+  const server = net.createServer((c) => {
+    let buf = '';
+    c.on('error', () => {});
+    c.on('data', (d) => {
+      buf += d;
+      let i: number;
+      while ((i = buf.indexOf('\n')) !== -1) {
+        const line = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
+        got.push(line.type);
+        if (line.type === 'daemon_status') c.write(JSON.stringify({ type: 'daemon_status', ...status }) + '\n');
+        else if (line.type === 'daemon_restart' && restartReply) { c.write(JSON.stringify(restartReply) + '\n'); c.end(); }
+      }
+    });
+  });
+  return new Promise((resolve) => server.listen(sock, () => resolve({ got, close: () => server.close() })));
+}
+
+describe.skipIf(missing)('restart CLI against a fake status socket (S3)', () => {
+  const SHIM = { pid: 4242, protocol: 1, shimModel: true, shimSessions: 1 };
+
+  it('a 4.x reply without `protocol`: the stop path, no ensure, no daemon_restart', async () => {
+    rig = new DaemonRig();
+    rig.port = await (await import('./helpers/real-daemon')).freePort();
+    const rec = recorder(rig.home);
+    const victim = spawn('sleep', ['300'], { stdio: 'ignore' });
+    rig.extraPids.add(victim.pid!);
+    fs.writeFileSync(rig.pidFile, String(victim.pid));
+    const fake = await fakeDaemon(rig.sock, { pid: victim.pid, shimModel: true, shimSessions: 2 });
+    try {
+      const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: rec.bin });
+      expect(r.out).toContain(`Daemon stopped (pid ${victim.pid})`);
+      expect(fs.existsSync(rec.ran)).toBe(false);
+      expect(fake.got).not.toContain('daemon_restart');
+      expect(fs.existsSync(path.join(rig.daemonDir, 'entry'))).toBe(false);
+    } finally { fake.close(); }
+  }, 60000);
+
+  it('handoff_failed: prints the reason and the startup log, exit 1', async () => {
+    rig = new DaemonRig();
+    const rec = recorder(rig.home);
+    const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321 }, { type: 'handoff_failed', reason: 'boom', startupLog: 'STARTUP-LOG-LINE' });
+    try {
+      const r = await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: rec.bin });
+      expect(r.code).toBe(1);
+      expect(r.out).toContain('Restart failed: boom. The old daemon keeps running.');
+      expect(r.out).toContain('STARTUP-LOG-LINE');
+    } finally { fake.close(); }
+  }, 30000);
+
+  it('handoff_in_progress: says so, exit 1', async () => {
+    rig = new DaemonRig();
+    const rec = recorder(rig.home);
+    const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321 }, { type: 'handoff_in_progress' });
+    try {
+      const r = await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: rec.bin });
+      expect(r.code).toBe(1);
+      expect(r.out).toContain('A restart or shutdown is already in progress');
+    } finally { fake.close(); }
+  }, 30000);
+});
 
 describe.skipIf(missing)('restart CLI (real daemon)', () => {
   it('legacy daemon: the old stop-and-start path; no ensure, no entry, no daemon_restart', async () => {
