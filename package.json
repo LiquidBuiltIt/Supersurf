@@ -31,7 +31,7 @@
     "test.scripts": "vitest run",
     "test.shim": "cd shim && go vet ./... && go test ./...",
     "pretest": "npm run build",
-    "test": "npm run test.shared && npm run test.engine && npm run test.daemon && npm run test.server && npm run test.cli && npm run test.extension && npm run test.scripts && npm run smoke.register && npm run smoke.hints && npm run smoke.parallel",
+    "test": "npm run test.shared && npm run test.engine && npm run test.daemon && npm run test.server && npm run test.cli && npm run test.extension && npm run test.scripts && npm run smoke.register && npm run smoke.hints && npm run smoke.parallel && npm run smoke.restart",
     "mcp": "claude mcp add supersurf -- node server/dist/cli.js",
     "filesize": "find ./{shared,engine,cli,extension,server,daemon} -type f ! -path \"*/node_modules/*\" ! -path \"*/dist/*\" ! -name \"package-lock.json\"  -name *.ts   -exec wc -l {} + | sort -nr",
     "version.bump": "npx tsx scripts/version.bump.ts",
@@ -42,6 +42,7 @@
     "smoke.register": "npx tsx scripts/smoke-register.ts",
     "smoke.hints": "npx tsx scripts/smoke-hints.ts",
     "smoke.parallel": "npx tsx scripts/smoke-parallel.ts",
+    "smoke.restart": "npx tsx scripts/smoke-restart.ts",
     "tree": "npx tsx scripts/tree.ts",
     "changelog": "npx tsx scripts/changelog.ts"
   },
