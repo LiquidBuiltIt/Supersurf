@@ -194,6 +194,27 @@ describe('engine worker core: status and env round trips (fake engine)', () => {
     expect(await s).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('a ping is answered with a pong at once, even while a connection is still starting', () => {
+    const f = fake();
+    f.onMsg({ t: 'ping' });
+    expect(f.posted.filter((m) => m.t === 'pong')).toHaveLength(1);
+  });
+
+  it('shutdown posts stopped after every connection is closed', async () => {
+    const f = fake();
+    await f.side.shutdown();
+    const ends = f.posted.findIndex((m) => m.t === 'end' && m.cid === 'c1');
+    const stopped = f.posted.findIndex((m) => m.t === 'stopped');
+    expect(ends).toBeGreaterThanOrEqual(0);
+    expect(stopped).toBeGreaterThan(ends);
+  });
+
+  it('a shutdown message posts stopped', async () => {
+    const f = fake();
+    f.onMsg({ t: 'shutdown' });
+    await vi.waitFor(() => expect(f.posted.some((m) => m.t === 'stopped')).toBe(true));
+  });
 });
 
 describe('engine worker core: config built from the open inputs', () => {

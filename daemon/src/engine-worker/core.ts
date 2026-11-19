@@ -128,9 +128,11 @@ export function createEngineSide(port: WorkerPort, engine: EngineModule): { shut
     // Settle pending asks now: their timers would otherwise run on after shutdown.
     for (const [rid, settle] of [...replies]) { replies.delete(rid); settle(null); }
     await Promise.all([...connections.keys()].map(close));
+    port.postMessage({ t: 'stopped' });
   };
 
   port.on('message', (m) => {
+    if (m.t === 'ping') { port.postMessage({ t: 'pong' }); return; }
     if (router.handle(m)) return;
     switch (m.t) {
       case 'open': open(m.cid, m.config); break;
