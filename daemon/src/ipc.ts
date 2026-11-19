@@ -65,6 +65,21 @@ export interface IPCServerMeta {
    * `extensionPullError` is set before it settles.
    */
   extensionReady?: Promise<unknown>;
+  /**
+   * Successor of a hand-off: settles when the old daemon is gone and the extension
+   * pull is done. spawnProfile waits for it before the bootstrap queue (N1).
+   */
+  spawnGate?: Promise<unknown>;
+}
+
+/** What the restart hand-off (`handoff.ts`, wired in `main.ts`) adds to the IPC surface. */
+export interface HandoffHook {
+  /** A `daemon_restart` line: call `reply` once with the outcome (`handoff_committed`, `handoff_failed` or `handoff_in_progress`). */
+  restart(reply: (m: any) => void): void;
+  /** Extra `daemon_status` fields (`takeover`, `bindError`, `shimSessions`). */
+  status(): Record<string, unknown>;
+  /** Successor only: the old daemon's `takeover_commit` line. */
+  takeoverCommit?(msg: any): void;
 }
 
 /** A sink that writes one NDJSON line per message to a socket. */
@@ -115,6 +130,8 @@ export class IPCServer implements SessionHost {
   private meta: IPCServerMeta;
   private configDrift: boolean = false;
   private shim: ShimHook | null = null;
+  private handoff: HandoffHook | null = null;
+  private restarting = false;
 
   constructor(
     socketPath: string,
@@ -142,6 +159,20 @@ export class IPCServer implements SessionHost {
   /** Let `shim_register` connections through to `shim`. Without it they get the usual `session_reject`. */
   setShimServer(shim: ShimHook): void {
     this.shim = shim;
+  }
+
+  setHandoffHook(h: HandoffHook): void {
+    this.handoff = h;
+  }
+
+  /** After the hand-off commit: every new pre-handshake line gets `restarting` and the socket ends. */
+  setRestarting(): void {
+    this.restarting = true;
+  }
+
+  /** End every legacy session socket; their normal close path runs. Never closes the listener. */
+  async endSessions(): Promise<void> {
+    for (const session of this.sessions.values()) session.sink.end();
   }
 
   /** Mark that the on-disk config has changed since daemon startup. */
@@ -192,6 +223,23 @@ export class IPCServer implements SessionHost {
           const msg = JSON.parse(line);
 
           if (!handshakeComplete) {
+            if (this.restarting) {
+              this.send(sink, { type: 'restarting' });
+              sink.end();
+              return;
+            }
+
+            if (msg?.type === 'takeover_commit' && this.handoff?.takeoverCommit) {
+              this.handoff.takeoverCommit(msg);
+              return;
+            }
+
+            // Restart hand-off request: one reply line, then the socket ends.
+            if (msg?.type === 'daemon_restart' && this.handoff) {
+              this.handoff.restart((m) => { this.send(sink, m); sink.end(); });
+              return;
+            }
+
             // Pre-auth status query — no handshake needed
             if (msg?.type === 'daemon_status') {
               this.send(sink, this.buildStatusResponse());
@@ -602,6 +650,9 @@ export class IPCServer implements SessionHost {
     const matchmaker = this.bridge.matchmaker;
     const registry = this.profileRegistry;
 
+    // A hand-off successor holds spawns until the old daemon is gone (N1).
+    await this.meta.spawnGate;
+
     // The socket opens before the extension pull ends; wait for it so the
     // check below sees the pull's outcome, not its absence.
     await this.meta.extensionReady;
@@ -678,6 +729,9 @@ export class IPCServer implements SessionHost {
       extensionBrowser: this.bridge.browser,
       sessions,
       schedulerQueueDepth: this.scheduler.getQueueDepth(),
+      pid: process.pid,
+      protocol: 1,
+      ...(this.handoff?.status() ?? {}),
     };
   }
 

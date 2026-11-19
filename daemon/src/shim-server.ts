@@ -108,6 +108,7 @@ export class ShimServer {
   /** Live sockets by handshake sessionId, for the duplicate check only. */
   private live = new Map<string, Conn>();
   private nextSeq = 1;
+  private _served = false;
   private worker: ShimWorker | null = null;
   private attached: { detach(): void } | null = null;
   private nextEnvId = 1;
@@ -179,9 +180,23 @@ export class ShimServer {
       this.worker?.postMessage({ t: 'close', cid });
     });
 
-    worker.postMessage({ t: 'open', cid, config: inputs });
+    // G4: the shim's last tool-list hash; anything but a string of 1-128 chars is dropped, never refused.
+    const th = typeof hs.toolsHash === 'string' && hs.toolsHash.length >= 1 && hs.toolsHash.length <= 128 ? hs.toolsHash : undefined;
+    worker.postMessage({ t: 'open', cid, config: inputs, ...(th ? { toolsHash: th } : {}) });
     socket.write(JSON.stringify({ type: 'shim_ack', protocol: 1, version: this.opts.daemon.version }) + '\n');
+    this._served = true;
     if (rest.length) feed(rest);
+  }
+
+  /** True once this daemon accepted a `shim_register` (sticky): the shim model is in use. */
+  get served(): boolean { return this._served; }
+
+  /** Live shim sockets. */
+  get liveCount(): number { return this.live.size; }
+
+  /** Hand-off committed: tell every shim socket to reconnect at once (to the successor). */
+  notifyRestarting(): void {
+    for (const c of this.conns.values()) { if (c.socket.writable) c.socket.write('{"type":"restarting"}\n'); }
   }
 
   /**

@@ -9,7 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import net from 'net';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import {
   HARDCODED_DEFAULTS,
   daemonCommand,
@@ -27,7 +27,7 @@ export const LOG_FILE = path.join(SUPERSURF_DIR, 'logs', 'daemon.log');
 
 // ─── CLI Parsing ──────────────────────────────────────────────
 
-export function parseArgs(argv: string[]): { port: number; debug: boolean; verbose: boolean; command?: string; portExplicit: boolean; startReason: string } {
+export function parseArgs(argv: string[]): { port: number; debug: boolean; verbose: boolean; command?: string; portExplicit: boolean; startReason: string; takeover?: number } {
   let port = HARDCODED_DEFAULTS.daemon.port;
   let portExplicit = false;
   let debug = false;
@@ -35,6 +35,7 @@ export function parseArgs(argv: string[]): { port: number; debug: boolean; verbo
   let command: string | undefined;
   let startReason: string | undefined;
   let spawnedByShim = false;
+  let takeover: number | undefined;
 
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--port' && argv[i + 1]) {
@@ -44,6 +45,11 @@ export function parseArgs(argv: string[]): { port: number; debug: boolean; verbo
         process.exit(1);
       }
       portExplicit = true;
+      i++;
+    } else if (argv[i] === '--takeover' && argv[i + 1]) {
+      // Hand-off successor: the old daemon's pid. Anything but a positive integer is ignored.
+      const n = Number(argv[i + 1]);
+      if (Number.isInteger(n) && n > 0) takeover = n;
       i++;
     } else if (argv[i] === '--debug') {
       debug = true;
@@ -68,7 +74,7 @@ export function parseArgs(argv: string[]): { port: number; debug: boolean; verbo
 
   // Only [a-z_]+ reaches the log line; anything else is not trusted.
   const reason = startReason !== undefined && /^[a-z_]+$/.test(startReason) ? startReason : spawnedByShim ? 'shim' : 'unknown';
-  return { port, debug, verbose, command, portExplicit, startReason: reason };
+  return { port, debug, verbose, command, portExplicit, startReason: reason, takeover };
 }
 
 // ─── Status Command ──────────────────────────────────────────
@@ -160,9 +166,13 @@ export async function printStatus(verbose: boolean): Promise<void> {
   try {
     const status = await queryDaemonStatus(verbose);
 
+    const pendingLine = status.upgradePending
+      ? `Upgrade pending: ${status.upgradePending.from} -> ${status.upgradePending.to}; the daemon restarts when no agent is connected (${status.sessions.length} session${status.sessions.length === 1 ? '' : 's'}, legacy and shim counted together).`
+      : null;
     if (verbose) {
       const version = status.version || getVersion();
       console.log(`SuperSurf Daemon v${version}`);
+      if (pendingLine) console.log(pendingLine);
       console.log(`  PID:        ${pid}`);
       console.log(`  Uptime:     ${formatUptime(status.uptimeSeconds)}`);
       console.log(`  Port:       ${status.port}`);
@@ -192,6 +202,7 @@ export async function printStatus(verbose: boolean): Promise<void> {
       const version = status.version || getVersion();
       const ext = status.extensionConnected ? 'connected' : 'disconnected';
       console.log(`SuperSurf Daemon v${version} (pid ${pid})`);
+      if (pendingLine) console.log(pendingLine);
       console.log(`  Uptime:      ${formatUptime(status.uptimeSeconds)}`);
       console.log(`  Extension:   ${ext}`);
       console.log(`  Sessions:    ${status.sessions.length} active`);
@@ -273,4 +284,92 @@ export function stopDaemon(): boolean {
   try { fs.unlinkSync(PID_FILE); } catch {}
   try { fs.unlinkSync(SOCK_FILE); } catch {}
   return true;
+}
+
+
+/** The `supersurf-daemon` package root: the nearest `package.json` above this file with that name. */
+export function daemonPackageRoot(): string {
+  let dir = __dirname;
+  for (;;) {
+    try {
+      if (JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name === 'supersurf-daemon') return dir;
+    } catch { /* no package.json here */ }
+    const up = path.dirname(dir);
+    if (up === dir) throw new Error('supersurf-daemon package root not found');
+    dir = up;
+  }
+}
+
+/** `SUPERSURF_SHIM_BIN` (absolute, this process's env) first, then `<package root>/bin/supersurf-shim`. */
+export function findShimBinary(root: string): string | null {
+  const env = process.env.SUPERSURF_SHIM_BIN;
+  const candidates = [...(env && path.isAbsolute(env) ? [env] : []), path.join(root, 'bin', 'supersurf-shim')];
+  return candidates.find((c) => { try { return fs.statSync(c).isFile(); } catch { return false; } }) ?? null;
+}
+
+/** Send `daemon_restart` and wait for the one reply line (`timeoutMs` covers the whole hand-off). */
+function requestHandoff(timeoutMs: number): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(SOCK_FILE);
+    let buf = '';
+    const t = setTimeout(() => { socket.destroy(); reject(new Error(`no reply from the daemon in ${Math.round(timeoutMs / 1000)} s`)); }, timeoutMs);
+    socket.on('connect', () => socket.write(JSON.stringify({ type: 'daemon_restart' }) + '\n'));
+    socket.on('data', (d) => {
+      buf += d.toString();
+      const i = buf.indexOf('\n');
+      if (i === -1) return;
+      clearTimeout(t);
+      socket.destroy();
+      try { resolve(JSON.parse(buf.slice(0, i))); } catch { reject(new Error('invalid reply from the daemon')); }
+    });
+    // The old daemon ends the socket after its reply; no reply line before that is a failure.
+    socket.on('close', () => { clearTimeout(t); reject(new Error('the daemon closed the connection without a reply')); });
+    socket.on('error', (err) => { clearTimeout(t); reject(err); });
+  });
+}
+
+/**
+ * `restart`. Returns `'start'` when the caller must stop the daemon (if any) and start a fresh one
+ * the old way, or the process exit code when the gated hand-off path handled it.
+ * Gate: a running 5.x daemon (reply has `protocol`) with the shim model in use, or a live shim session.
+ */
+export async function restartDaemon(port: number): Promise<'start' | 0 | 1> {
+  let status: any;
+  try { status = await queryDaemonStatus(false); } catch { return 'start'; }
+  const gated = typeof status?.protocol === 'number' && (status.shimModel === true || (status.shimSessions ?? 0) > 0);
+  if (!gated) return 'start';
+
+  const root = daemonPackageRoot();
+  const shimBin = findShimBinary(root);
+  if (!shimBin) {
+    console.error('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
+    return 1;
+  }
+  const ens = spawnSync(shimBin, ['ensure', '--install', root, '--port', String(status.port ?? port)], { encoding: 'utf8', timeout: 60_000 });
+  if (ens.status !== 0) {
+    console.error(`supersurf-shim ensure failed${ens.error ? `: ${ens.error.message}` : ''}; the daemon was not restarted.`);
+    if (ens.stderr) console.error(ens.stderr.trim());
+    return 1;
+  }
+
+  let reply: any;
+  try { reply = await requestHandoff(30_000); } catch (err: any) {
+    console.error(`Restart failed: ${err.message}. Check ${LOG_FILE}.`);
+    return 1;
+  }
+  if (reply?.type === 'handoff_committed') {
+    console.log(`Daemon restarted (pid ${status.pid} -> ${reply.pid}). Legacy sessions on that daemon have ended; shim sessions reconnect by themselves.`);
+    return 0;
+  }
+  if (reply?.type === 'handoff_failed') {
+    console.error(`Restart failed: ${reply.reason}. The old daemon keeps running.`);
+    if (reply.startupLog) console.error(reply.startupLog);
+    return 1;
+  }
+  if (reply?.type === 'handoff_in_progress') {
+    console.error('A restart or shutdown is already in progress; try again in a moment.');
+    return 1;
+  }
+  console.error(`Restart failed: unexpected reply ${JSON.stringify(reply?.type)}.`);
+  return 1;
 }

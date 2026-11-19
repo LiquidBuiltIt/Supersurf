@@ -48,6 +48,7 @@ type Relay struct {
 	initLine  []byte            // client's initialize, id rewritten to reservedID
 	cause     string            // why the shim is not connected
 	localSeen bool              // the client got a local answer; send list_changed on connect
+	toolsHash string            // the daemon's last tools_hash (G4), sent in the next shim_register
 
 	done     chan struct{}
 	doneOnce sync.Once
@@ -319,11 +320,17 @@ func (r *Relay) dialRegister() (net.Conn, *lineReader, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("the daemon is not running (no socket at %s)", r.cfg.Sock)
 	}
-	reg, _ := json.Marshal(map[string]any{
+	hello := map[string]any{
 		"type": "shim_register", "protocol": protocolVersion, "mode": "mcp",
 		"sessionId": r.cfg.SessionID, "version": r.cfg.Version, "cwd": r.cfg.Cwd,
 		"flags": r.cfg.Flags, "env": r.cfg.Env, "caps": []string{"env.get", "env.keys"},
-	})
+	}
+	r.mu.Lock()
+	if r.toolsHash != "" {
+		hello["toolsHash"] = r.toolsHash
+	}
+	r.mu.Unlock()
+	reg, _ := json.Marshal(hello)
 	c.SetDeadline(time.Now().Add(10 * time.Second))
 	if _, err := c.Write(append(reg, '\n')); err != nil {
 		c.Close()
@@ -397,6 +404,7 @@ type control struct {
 	Type string          `json:"type"`
 	ID   json.RawMessage `json:"id"`
 	Name string          `json:"name"`
+	Hash any             `json:"hash"`
 }
 
 // fromDaemon handles one daemon line. It returns true when the connection must end.
@@ -428,6 +436,12 @@ func (r *Relay) control(c net.Conn, line []byte) bool {
 	switch m.Type {
 	case "restarting":
 		return true
+	case "tools_hash": // G4: kept for the next register; a bad value is ignored
+		if h, ok := m.Hash.(string); ok && len(h) >= 1 && len(h) <= 128 {
+			r.mu.Lock()
+			r.toolsHash = h
+			r.mu.Unlock()
+		}
 	case "env.get":
 		v, ok := r.cfg.Dotenv.get(m.Name)
 		reply := map[string]any{"type": "env.value", "id": m.ID, "name": m.Name, "found": ok}

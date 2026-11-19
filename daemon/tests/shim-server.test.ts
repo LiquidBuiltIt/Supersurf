@@ -67,6 +67,20 @@ afterEach(async () => {
 
 const newShim = (o = {}) => { const s = new FakeShim(sockPath, o); shims.push(s); return s; };
 
+describe('served (the D3 / restart shim-model signal)', () => {
+  it('is false until a shim_register is accepted, then true for good, even after the socket closes', async () => {
+    expect(shimServer.served).toBe(false);
+    await newShim({ handshake: { protocol: 9 } }).register();
+    expect(shimServer.served).toBe(false);
+    const shim = newShim({ sessionId: 'shim-s' });
+    await shim.register();
+    expect(shimServer.served).toBe(true);
+    shim.close();
+    await until(() => shimServer.liveCount === 0);
+    expect(shimServer.served).toBe(true);
+  });
+});
+
 describe('lazy worker and open', () => {
   it('starts no worker until the first shim_register, then one worker for every shim', async () => {
     expect(workers).toHaveLength(0);
@@ -93,6 +107,24 @@ describe('lazy worker and open', () => {
     expect(open.config.env.daemon).toBeUndefined();
     expect(open.config.port).toBe(5599);
     expect(open.config.version).toBe('9.9.9-test');
+  });
+
+  it('open carries a valid toolsHash from the handshake (G4)', async () => {
+    const hash = 'a'.repeat(64);
+    await newShim({ handshake: { toolsHash: hash } }).register();
+    expect(workers[0].of('open')[0].toolsHash).toBe(hash);
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['empty', ''],
+    ['too long', 'a'.repeat(129)],
+    ['a number', 7],
+    ['an object', { x: 1 }],
+  ])('open has no toolsHash when the handshake value is %s, and the shim is still accepted (G4)', async (_n, v) => {
+    const reply = await newShim({ handshake: v === undefined ? {} : { toolsHash: v } }).register();
+    expect(reply.type).toBe('shim_ack');
+    expect(workers[0].of('open')[0].toolsHash).toBeUndefined();
   });
 
   it('open is posted before the ack is written', async () => {
@@ -301,5 +333,30 @@ describe('worker-built config (inline fake engine)', () => {
     expect(cfg.enabledExperiments).toEqual(['fingerprinting']);
     expect(cfg.server).toEqual({ name: 'SuperSurf', version: '9.9.9-test' });
     await w.terminate();
+  });
+});
+
+describe('hand-off support (E4)', () => {
+  it('liveCount counts registered shims and drops a closed one', async () => {
+    expect(shimServer.liveCount).toBe(0);
+    const a = newShim({ sessionId: 'shim-a' });
+    await a.register();
+    await newShim({ sessionId: 'shim-b' }).register();
+    expect(shimServer.liveCount).toBe(2);
+    a.close();
+    await until(() => shimServer.liveCount === 1);
+  });
+
+  it('notifyRestarting writes {"type":"restarting"} to every shim socket', async () => {
+    const a = newShim({ sessionId: 'shim-a' });
+    const b = newShim({ sessionId: 'shim-b' });
+    await a.register();
+    await b.register();
+    shimServer.notifyRestarting();
+    await until(() => a.lines.includes('{"type":"restarting"}') && b.lines.includes('{"type":"restarting"}'));
+  });
+
+  it('notifyRestarting with no shims is a no-op', () => {
+    expect(() => shimServer.notifyRestarting()).not.toThrow();
   });
 });

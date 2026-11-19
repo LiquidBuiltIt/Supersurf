@@ -1809,6 +1809,105 @@ describe('IPCServer', () => {
     });
   });
 
+  describe('restart hand-off hook (E4)', () => {
+    const hookWith = (over: Partial<import('../src/ipc').HandoffHook> = {}) => ({
+      restart: vi.fn((reply: (m: any) => void) => reply({ type: 'handoff_committed', pid: 7 })),
+      status: () => ({ shimSessions: 2, takeover: 'ready' }),
+      ...over,
+    });
+
+    it('daemon_restart reaches the hook; its one reply is written and the socket ends', async () => {
+      const hook = hookWith();
+      ipc.setHandoffHook(hook);
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      const ended = new Promise<void>((r) => c.once('end', () => r()));
+      writeLine(c, { type: 'daemon_restart' });
+      expect(await readLine(c)).toEqual({ type: 'handoff_committed', pid: 7 });
+      await ended;
+      expect(hook.restart).toHaveBeenCalledTimes(1);
+      c.destroy();
+    });
+
+    it('takeover_commit reaches takeoverCommit when the hook has one, and is not a status query', async () => {
+      const takeoverCommit = vi.fn();
+      ipc.setHandoffHook(hookWith({ takeoverCommit }));
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'takeover_commit', oldpid: 5, userOwned: [] });
+      await vi.waitFor(() => expect(takeoverCommit).toHaveBeenCalledWith({ type: 'takeover_commit', oldpid: 5, userOwned: [] }));
+      c.destroy();
+    });
+
+    it('daemon_status carries pid, protocol 1 and the hook fields', async () => {
+      ipc.setHandoffHook(hookWith());
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'daemon_status' });
+      const st = await readLine(c);
+      expect(st).toMatchObject({ type: 'daemon_status', pid: process.pid, protocol: 1, shimSessions: 2, takeover: 'ready' });
+      c.destroy();
+    });
+
+    it('daemon_status without a hook still has pid and protocol', async () => {
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'daemon_status' });
+      const st = await readLine(c);
+      expect(st).toMatchObject({ pid: process.pid, protocol: 1 });
+      expect(st.takeover).toBeUndefined();
+      c.destroy();
+    });
+
+    it('after setRestarting a new connection gets {type:"restarting"} and the socket ends, for any first line', async () => {
+      ipc.setHandoffHook(hookWith());
+      await ipc.start();
+      ipc.setRestarting();
+      for (const first of [{ type: 'daemon_status' }, { type: 'session_register', sessionId: 'late' }, { type: 'daemon_restart' }]) {
+        const c = await connectToSocket(sockPath);
+        const ended = new Promise<void>((r) => c.once('end', () => r()));
+        writeLine(c, first);
+        expect(await readLine(c)).toEqual({ type: 'restarting' });
+        await ended;
+        c.destroy();
+      }
+    });
+
+    it('endSessions ends registered sessions but leaves the listener accepting', async () => {
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'session_register', sessionId: 'legacy' });
+      await readLine(c);
+      const ended = new Promise<void>((r) => c.once('end', () => r()));
+      await ipc.endSessions();
+      await ended;
+      const again = await connectToSocket(sockPath);
+      again.destroy();
+      c.destroy();
+    });
+
+    it('spawnGate holds profiles.connect until it settles (N1)', async () => {
+      profileRegistry.create('dev');
+      let open!: () => void;
+      const meta: IPCServerMeta = { port: 5555, version: '9.9.9-test', spawnGate: new Promise<void>((r) => { open = r; }), extensionReady: Promise.resolve() };
+      ipc = new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry, meta);
+      vi.mocked(isExtensionCached).mockReturnValue(true);
+      (bridge as any).matchmaker.enqueueBootstrap = vi.fn().mockResolvedValue(undefined);
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'session_register', sessionId: 'sess-1' });
+      await readLine(c);
+      writeLine(c, { jsonrpc: '2.0', id: 'r1', method: 'profiles.connect', params: { profile: 'dev' } });
+      let answered = false;
+      const answer = readLine(c).then((r) => { answered = true; return r; });
+      await new Promise((r) => setTimeout(r, 150));
+      expect(answered).toBe(false);
+      open();
+      expect((await answer).result.success).toBe(true);
+      c.end();
+    });
+  });
+
   describe('extension pull failure', () => {
     function makeIpcServer(metaOverrides: Partial<IPCServerMeta> = {}): IPCServer {
       return new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry, {

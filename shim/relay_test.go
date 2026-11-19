@@ -413,3 +413,72 @@ func writeFile(t *testing.T, p, s string) {
 		t.Fatal(err)
 	}
 }
+
+// G4: the daemon's tools_hash control line is kept and sent back in the next shim_register.
+func TestToolsHashIsSentOnNextRegister(t *testing.T) {
+	sock := sockIn(t)
+	d := startFakeDaemon(t, sock)
+	g := newRig(t, Config{Sock: sock})
+	first := g.WaitUp(d)
+	if _, ok := first["toolsHash"]; ok {
+		t.Fatalf("first register must carry no toolsHash: %v", first)
+	}
+	hash := strings.Repeat("ab", 32)
+	d.Send(0, `{"type":"tools_hash","hash":"`+hash+`"}`)
+	// An env.keys round trip proves the tools_hash line was processed first.
+	d.Send(0, `{"type":"env.keys","id":"k"}`)
+	if _, ok := d.NextLine(2 * time.Second); !ok {
+		t.Fatal("no env.keys reply")
+	}
+	d.Drop(0)
+	second := d.WaitReg(2 * time.Second)
+	if second["toolsHash"] != hash {
+		t.Fatalf("toolsHash on re-register = %v, want %s", second["toolsHash"], hash)
+	}
+}
+
+// An invalid tools_hash is ignored: nothing stored, and a stored one is kept.
+func TestInvalidToolsHashIsIgnored(t *testing.T) {
+	sock := sockIn(t)
+	d := startFakeDaemon(t, sock)
+	g := newRig(t, Config{Sock: sock})
+	g.WaitUp(d)
+	good := "c0ffee"
+	for i, bad := range []string{`{"type":"tools_hash"}`, `{"type":"tools_hash","hash":""}`, `{"type":"tools_hash","hash":7}`,
+		`{"type":"tools_hash","hash":"` + strings.Repeat("a", 129) + `"}`} {
+		d.Send(0, bad)
+		d.Send(0, `{"type":"env.keys","id":"k"}`)
+		if _, ok := d.NextLine(2 * time.Second); !ok {
+			t.Fatalf("no env.keys reply after bad line %d", i)
+		}
+	}
+	d.Drop(0)
+	if r := d.WaitReg(2 * time.Second); r["toolsHash"] != nil {
+		t.Fatalf("an invalid hash was stored: %v", r["toolsHash"])
+	}
+	d.Send(1, `{"type":"tools_hash","hash":"`+good+`"}`)
+	d.Send(1, `{"type":"tools_hash","hash":""}`)
+	d.Send(1, `{"type":"env.keys","id":"k"}`)
+	if _, ok := d.NextLine(2 * time.Second); !ok {
+		t.Fatal("no env.keys reply")
+	}
+	d.Drop(1)
+	if r := d.WaitReg(2 * time.Second); r["toolsHash"] != good {
+		t.Fatalf("a later invalid hash replaced the stored one: %v", r["toolsHash"])
+	}
+}
+
+// The control line is not for the client: it never reaches stdout.
+func TestToolsHashIsNotForwardedToClient(t *testing.T) {
+	sock := sockIn(t)
+	d := startFakeDaemon(t, sock)
+	g := newRig(t, Config{Sock: sock})
+	g.WaitUp(d)
+	d.Send(0, `{"type":"tools_hash","hash":"abc123"}`)
+	d.Send(0, `{"type":"env.keys","id":"k"}`)
+	if _, ok := d.NextLine(2 * time.Second); !ok {
+		t.Fatal("no env.keys reply")
+	}
+	g.NoOut("tools_hash", 200*time.Millisecond)
+	g.NoOut("abc123", 10*time.Millisecond)
+}

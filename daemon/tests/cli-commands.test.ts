@@ -28,3 +28,12 @@ it('never imports main.ts, so importing it cannot reach the entry block', () => 
   expect(src).not.toMatch(/from '\.\/main'/);
   expect(src).not.toMatch(/isDirectRun|\bmain\(\)/);
 });
+
+it('parseArgs reads --takeover <pid> as a positive integer and ignores anything else', () => {
+  const a = (...x: string[]) => cli.parseArgs(['node', 'main.js', ...x]).takeover;
+  expect(a('--takeover', '4242', '--port', '6001')).toBe(4242);
+  expect(a('--port', '6001')).toBeUndefined();
+  for (const bad of ['0', '-3', '1.5', 'abc', '']) expect(a('--takeover', bad), bad).toBeUndefined();
+  expect(a('--takeover')).toBeUndefined();
+  expect(cli.parseArgs(['node', 'main.js', '--takeover', '4242', '--port', '6001']).port).toBe(6001);
+});
