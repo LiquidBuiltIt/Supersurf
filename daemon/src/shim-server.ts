@@ -31,7 +31,19 @@ export interface ShimServerOptions {
   startWorker?: () => ShimWorker;
   /** How long an `env.get` / `env.keys` waits for the shim (default 10 s). */
   envTimeoutMs?: number;
+  /** Clock for the crash budget (default `Date.now`). */
+  now?: () => number;
+  /** Heartbeat period (default 5 s) and how long a silent worker is tolerated (default 15 s). */
+  heartbeatMs?: number;
+  heartbeatTimeoutMs?: number;
+  /** Where crashes, bans, heartbeat kills and shutdown timeouts are logged. */
+  log?: (msg: string) => void;
 }
+
+/** More than `CRASH_LIMIT` crashes within `CRASH_WINDOW_MS` bans shim sessions for `CRASH_BAN_MS`. */
+const CRASH_LIMIT = 3;
+const CRASH_WINDOW_MS = 5 * 60_000;
+const CRASH_BAN_MS = 5 * 60_000;
 
 interface Pending {
   op: 'get' | 'keys';
@@ -100,9 +112,31 @@ export class ShimServer {
   private attached: { detach(): void } | null = null;
   private nextEnvId = 1;
   private readonly envTimeoutMs: number;
+  private readonly now: () => number;
+  private crashes: number[] = [];
+  private bannedUntil = 0;
+  private lastError = '';
+  private stopping = false;
+  private heartbeat: NodeJS.Timeout | null = null;
 
   constructor(private readonly opts: ShimServerOptions) {
     this.envTimeoutMs = opts.envTimeoutMs ?? 10_000;
+    this.now = opts.now ?? Date.now;
+  }
+
+  private log(msg: string): void { this.opts.log?.(`[ShimServer] ${msg}`); }
+
+  /** Count a crash of the current worker; the 4th within the window starts a ban. */
+  private recordCrash(why: string): void {
+    const now = this.now();
+    this.crashes = this.crashes.filter((t) => now - t < CRASH_WINDOW_MS);
+    this.crashes.push(now);
+    this.lastError = why;
+    this.log(`engine worker crashed: ${why}`);
+    if (this.crashes.length > CRASH_LIMIT) {
+      this.bannedUntil = now + CRASH_BAN_MS;
+      this.log(`engine worker crashed ${this.crashes.length} times in 5 minutes; shim sessions banned until ${new Date(this.bannedUntil).toISOString()}`);
+    }
   }
 
   /** Take over `socket` after its first line, `hs`, was `shim_register`. `rest` is what was already read after that line. */
@@ -112,6 +146,10 @@ export class ShimServer {
       socket.end();
     };
     const sessionId = hs?.sessionId;
+    if (this.stopping) return refuse('The daemon is shutting down');
+    if (this.now() < this.bannedUntil) {
+      return refuse(`The engine worker crashed ${this.crashes.length} times in 5 minutes; shim sessions are refused until ${new Date(this.bannedUntil).toISOString()}. Last error: ${this.lastError}`);
+    }
     if (hs?.protocol !== 1) return refuse(`Unsupported shim protocol ${JSON.stringify(hs?.protocol)}; this daemon speaks 1`);
     if (hs.mode !== 'mcp') return refuse(`Unsupported shim mode ${JSON.stringify(hs.mode)}; this daemon accepts "mcp"`);
     if (typeof sessionId !== 'string' || !sessionId) return refuse('Handshake needs a sessionId string');
@@ -146,11 +184,26 @@ export class ShimServer {
     if (rest.length) feed(rest);
   }
 
-  /** Daemon shutdown: close links, end shim sockets, terminate the worker. Full shutdown order is E2c. */
-  stop(): void {
+  /**
+   * Daemon shutdown: refuse new shims, ask the worker to close every connection
+   * (its links close while the extension is still up), wait for `stopped` or
+   * `graceMs`, then close what is left, end the sockets and terminate the worker.
+   */
+  async stop(graceMs = 2000): Promise<void> {
+    this.stopping = true;
     const w = this.worker;
+    if (w) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => { this.log(`engine worker did not stop within ${graceMs} ms; terminating it`); resolve(); }, graceMs);
+        timer.unref();
+        const done = (): void => { clearTimeout(timer); resolve(); };
+        w.on('message', (m: any) => { if (m?.t === 'stopped') done(); });
+        w.on('exit', done);
+        w.postMessage({ t: 'shutdown' });
+      });
+    }
     this.teardown();
-    w?.terminate?.();
+    await w?.terminate?.();
   }
 
   private ensureWorker(): ShimWorker {
@@ -172,16 +225,41 @@ export class ShimServer {
       },
     });
     // A Worker emits exit/error, a MessagePort close: any of them means this worker is gone.
-    const gone = (): void => { if (this.worker === w) this.teardown(); };
-    w.on('exit', gone);
-    w.on('error', gone);
-    w.on('close', gone);
+    // `counted`: an `error` is followed by its `exit`, which must not count again.
+    let counted = false;
+    const gone = (crashWhy?: string): void => {
+      if (this.worker !== w) return;
+      if (crashWhy && !counted && !this.stopping) { counted = true; this.recordCrash(crashWhy); }
+      this.teardown();
+    };
+    // Exit 0 and 42 (debug `reload_mcp`) are not crashes.
+    w.on('exit', (code) => gone(code === 0 || code === 42 ? undefined : `exit code ${code}`));
+    w.on('error', (e: any) => gone(e?.message ?? String(e)));
+    w.on('close', () => gone());
+
+    const timeoutMs = this.opts.heartbeatTimeoutMs ?? 15_000;
+    let lastPong = Date.now();
+    w.on('message', (m: any) => { if (m?.t === 'pong') lastPong = Date.now(); });
+    this.heartbeat = setInterval(() => {
+      if (this.worker !== w) return;
+      if (Date.now() - lastPong > timeoutMs) {
+        const why = `The engine worker did not answer a heartbeat in ${timeoutMs / 1000} s`;
+        this.log(`${why}; terminating it`);
+        gone(why);
+        void w.terminate?.();
+      } else {
+        w.postMessage({ t: 'ping' });
+      }
+    }, this.opts.heartbeatMs ?? 5_000);
+    this.heartbeat.unref();
     return w;
   }
 
   /** Detach from the worker (closing its links), end every shim socket and forget the worker. */
   private teardown(): void {
     this.worker = null;
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = null;
     this.attached?.detach();
     this.attached = null;
     this.live.clear();
