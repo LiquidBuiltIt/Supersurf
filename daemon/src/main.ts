@@ -79,9 +79,11 @@ let crashCleanup: () => void = cleanupFiles;
 
 /**
  * TEST-ONLY crash points for the real-process hand-off tests (`handoff-gap.test.ts`).
- * Read here and nowhere else; inert unless `SUPERSURF_TEST_HANDOFF_FAULT` is set.
+ * Read here and nowhere else; inert unless `SUPERSURF_TEST_HANDOFF_FAULT` and `SUPERSURF_DEV_ENVIRONMENT` are both set.
  */
 function testHandoffFault(): ((point: 'after-spawn' | 'after-pid-rename') => void) | undefined {
+  // Also needs SUPERSURF_DEV_ENVIRONMENT: a server-spawned daemon inherits the MCP client's env.
+  if (!process.env.SUPERSURF_DEV_ENVIRONMENT) return undefined;
   const v = process.env.SUPERSURF_TEST_HANDOFF_FAULT;
   if (v === 'crash-after-spawn') return (p) => { if (p === 'after-spawn') setTimeout(() => { throw new Error('test crash after spawn'); }, 500); };
   if (v === 'kill-after-pid-rename') return (p) => { if (p === 'after-pid-rename') process.kill(process.pid, 'SIGKILL'); };

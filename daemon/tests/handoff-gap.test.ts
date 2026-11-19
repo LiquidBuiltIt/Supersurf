@@ -23,6 +23,8 @@ const SUCCESSOR_FIXTURE = path.resolve(__dirname, 'fixtures/handoff-successor.js
 const PKG_VERSION: string = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8')).version;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const alive = (pid: number) => isProcessAlive(pid);
+/** The fault seam in main.ts reads its variable only when `SUPERSURF_DEV_ENVIRONMENT` is set. */
+const DEV = { SUPERSURF_DEV_ENVIRONMENT: path.resolve(__dirname, '../..') };
 
 let portCounter = 5611 + Math.floor(Math.random() * 40) * 5;
 const nextPort = () => portCounter++;
@@ -426,9 +428,18 @@ describe('hand-off, real processes', () => {
   });
 
   describe('crash between renames (N5)', () => {
-    it('the successor takes over when the old daemon dies after the pid rename', async () => {
+    it('the fault variable alone does nothing: no dev environment, no fault', async () => {
       rig = new Rig();
       const old = await rig.start({ SUPERSURF_TEST_HANDOFF_FAULT: 'kill-after-pid-rename' });
+      const reply = await rig.restart();
+      expect(reply.type).toBe('handoff_committed');
+      await waitFor(() => !alive(old), 10000, 'old exit');
+      expect(rig.exits.get(old)).toBe(0);
+    }, 40000);
+
+    it('the successor takes over when the old daemon dies after the pid rename', async () => {
+      rig = new Rig();
+      const old = await rig.start({ ...DEV, SUPERSURF_TEST_HANDOFF_FAULT: 'kill-after-pid-rename' });
       const probe = startProbe(rig);
       await rig.restart(5000).catch(() => undefined); // the old daemon kills itself: no reply
       await waitFor(() => !alive(old), 5000, 'old death');
@@ -542,7 +553,7 @@ describe('hand-off, real processes', () => {
     it('a crash before the commit kills the successor and unlinks .next', async () => {
       rig = new Rig();
       rig.wrap({ mode: 'hang' });
-      const old = await rig.start({ SUPERSURF_TEST_HANDOFF_FAULT: 'crash-after-spawn' });
+      const old = await rig.start({ ...DEV, SUPERSURF_TEST_HANDOFF_FAULT: 'crash-after-spawn' });
       rig.restart(5000).catch(() => undefined);
       await waitFor(() => !alive(old), 5000, 'old crash exit');
       const succ = rig.successors()[0];
