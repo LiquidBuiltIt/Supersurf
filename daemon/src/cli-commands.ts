@@ -166,9 +166,13 @@ export async function printStatus(verbose: boolean): Promise<void> {
   try {
     const status = await queryDaemonStatus(verbose);
 
+    const pendingLine = status.upgradePending
+      ? `Upgrade pending: ${status.upgradePending.from} -> ${status.upgradePending.to}; the daemon restarts when no agent is connected (${status.sessions.length} session${status.sessions.length === 1 ? '' : 's'}, legacy and shim counted together).`
+      : null;
     if (verbose) {
       const version = status.version || getVersion();
       console.log(`SuperSurf Daemon v${version}`);
+      if (pendingLine) console.log(pendingLine);
       console.log(`  PID:        ${pid}`);
       console.log(`  Uptime:     ${formatUptime(status.uptimeSeconds)}`);
       console.log(`  Port:       ${status.port}`);
@@ -198,6 +202,7 @@ export async function printStatus(verbose: boolean): Promise<void> {
       const version = status.version || getVersion();
       const ext = status.extensionConnected ? 'connected' : 'disconnected';
       console.log(`SuperSurf Daemon v${version} (pid ${pid})`);
+      if (pendingLine) console.log(pendingLine);
       console.log(`  Uptime:      ${formatUptime(status.uptimeSeconds)}`);
       console.log(`  Extension:   ${ext}`);
       console.log(`  Sessions:    ${status.sessions.length} active`);
