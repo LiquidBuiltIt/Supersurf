@@ -8,7 +8,7 @@ import path from 'path';
 import { sockPath, pidPath, supersurfDir } from 'shared';
 import {
   Handoff, type HandoffOptions, nextSockPath, readEntry, writeEntry, appendSpawn, isBanned,
-  wasAbandoned, queryStatusAt, waitForCommit, waitOldExit, bindWithBackoff, hasExited,
+  wasAbandoned, queryStatusAt, waitForCommit, waitOldExit, bindWithBackoff, hasExited, connectTo,
 } from '../src/handoff';
 
 const DEAD_PID = 99999999; // above kernel.pid_max
@@ -506,6 +506,18 @@ describe('a zombie old daemon counts as gone (S1)', () => {
     fs.writeFileSync(pidPath(), String(process.pid));
     const r = await waitForCommit({ oldpid: z, ownIno: null, log: () => {}, pollMs: 5, commitMsg: new Promise(() => {}) });
     expect(r).toMatchObject({ kind: 'commit', viaPoll: true });
+  });
+});
+
+describe('connectTo (the commit channel)', () => {
+  it('keeps an error listener after connect: a second socket error is not uncaught', async () => {
+    const sock = path.join(home, 's.sock');
+    const srv = net.createServer(() => {});
+    servers.push(srv);
+    await new Promise<void>((r) => srv.listen(sock, () => r()));
+    const s = await connectTo(sock);
+    expect(() => { s.emit('error', new Error('one')); s.emit('error', new Error('two')); }).not.toThrow();
+    s.destroy();
   });
 });
 

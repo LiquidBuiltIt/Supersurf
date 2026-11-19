@@ -142,11 +142,11 @@ export function queryStatusAt(sock: string, timeoutMs = 1000): Promise<any> {
   });
 }
 
-function connectTo(sock: string): Promise<net.Socket> {
+export function connectTo(sock: string): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const s = net.createConnection(sock);
     s.once('connect', () => resolve(s));
-    s.once('error', reject);
+    s.on('error', reject); // stays on after connect: a later error must not be uncaught
   });
 }
 
