@@ -50,6 +50,44 @@ export function writeEntry(e: Entry): void {
   fs.renameSync(tmp, entryFile());
 }
 
+/** True when `entry` exists at all (even a broken one): the shim model has written here before. */
+export const entryExists = (): boolean => fs.existsSync(entryFile());
+
+/**
+ * The shim model is in use when this daemon accepted a `shim_register` since it started, was started
+ * `--spawned-by=shim`, or `entry` exists. Gates the D3 exit and the `restart` hand-off; all three false
+ * is a legacy daemon and behaves as before. (E5 adds `agents.relay` to this test.)
+ */
+export function shimModelInUse(o: { servedShim: boolean; startReason: string; entryExists: boolean }): boolean {
+  return o.servedShim || o.startReason === 'shim' || o.entryExists;
+}
+
+function splitVersion(v: string): { n: [number, number, number]; pre: string } {
+  v = v.replace(/^v/, '');
+  let pre = '';
+  const i = v.search(/[-+]/);
+  if (i >= 0) { pre = v.slice(i + 1); v = v.slice(0, i); }
+  const n: [number, number, number] = [0, 0, 0];
+  v.split('.', 3).forEach((p, k) => { n[k] = /^[+-]?\d+$/.test(p) ? parseInt(p, 10) : 0; });
+  return { n, pre };
+}
+
+/** Port of `cmpVersion` in shim/ensure.go: numeric x.y.z, a pre-release suffix sorts below its release. */
+export function cmpVersion(a: string, b: string): number {
+  const x = splitVersion(a), y = splitVersion(b);
+  for (let i = 0; i < 3; i++) if (x.n[i] !== y.n[i]) return x.n[i] < y.n[i] ? -1 : 1;
+  if (x.pre === y.pre) return 0;
+  if (x.pre === '') return 1;
+  if (y.pre === '') return -1;
+  return x.pre < y.pre ? -1 : 1;
+}
+
+/** D3: `entry` names a version newer than this daemon. */
+export function upgradePending(ownVersion: string): { from: string; to: string } | null {
+  const e = readEntry();
+  return e && cmpVersion(e.version, ownVersion) > 0 ? { from: ownVersion, to: e.version } : null;
+}
+
 export interface SpawnRecord { pid?: number; entryVersion: string; outcome: string; reason?: string }
 
 /** One line of `spawns.jsonl`; `ts` is epoch milliseconds, the same as the Go shim writes. */
