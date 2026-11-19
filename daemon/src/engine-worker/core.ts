@@ -31,6 +31,8 @@ export interface WorkerPort {
 }
 
 const REPLY_TIMEOUT_MS = 10_000;
+/** How long `close` waits for a connection's engine start before it closes best effort anyway. */
+const CLOSE_READY_TIMEOUT_MS = 10_000;
 
 interface Connection {
   transport: PortTransport;
@@ -53,7 +55,12 @@ function buildConfig(i: ShimConfigInputs) {
   };
 }
 
-export function createEngineSide(port: WorkerPort, engine: EngineModule): { shutdown(): Promise<void> } {
+export function createEngineSide(
+  port: WorkerPort,
+  engine: EngineModule,
+  opts: { closeReadyMs?: number } = {},
+): { shutdown(): Promise<void> } {
+  const closeReadyMs = opts.closeReadyMs ?? CLOSE_READY_TIMEOUT_MS;
   const router = new PortLinkRouter(port);
   const connections = new Map<string, Connection>();
   const managers = new Map<string, InstanceType<EngineModule['AgentSessionManager']>>();
@@ -116,7 +123,13 @@ export function createEngineSide(port: WorkerPort, engine: EngineModule): { shut
     if (!conn || !manager) return;
     connections.delete(cid);
     managers.delete(cid);
-    await conn.ready.catch(() => {});
+    // A start that never settles must not hold `close` (and the daemon's shutdown) forever.
+    let waitTimer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      conn.ready.catch(() => {}),
+      new Promise<void>((r) => { waitTimer = setTimeout(r, closeReadyMs); waitTimer.unref(); }),
+    ]);
+    clearTimeout(waitTimer);
     try {
       await manager.serverClosed();
       await conn.server.close();

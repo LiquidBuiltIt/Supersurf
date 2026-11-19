@@ -125,7 +125,7 @@ describe('engine worker core (inline, engine/src injected)', () => {
 
 describe('engine worker core: status and env round trips (fake engine)', () => {
   /** A fake engine that hands the per-connection host to the test; a hand-driven port. */
-  function fake() {
+  function fake(opts?: { closeReadyMs?: number }, Eng?: any) {
     let host: any;
     let onMsg!: (m: any) => void;
     const posted: any[] = [];
@@ -137,7 +137,7 @@ describe('engine worker core: status and env round trips (fake engine)', () => {
       async callTool() { return {}; }
       async serverClosed() {}
     }
-    const side = createEngineSide(port, { AgentSessionManager: Mgr } as any);
+    const side = createEngineSide(port, { AgentSessionManager: Eng ?? Mgr } as any, opts);
     onMsg({ t: 'open', cid: 'c1', config: { cli: {}, env: {}, file: {}, port: 5555, version: '0' } });
     const last = (t: string) => [...posted].reverse().find((m) => m.t === t);
     return { host: () => host, onMsg, posted, last, side };
@@ -193,6 +193,32 @@ describe('engine worker core: status and env round trips (fake engine)', () => {
     await f.side.shutdown();
     expect(await s).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('the ask timer is unref\'d: a pending reply cannot keep the worker alive', async () => {
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      const f = fake();
+      const p = f.host().queryDaemonStatus();
+      const idx = spy.mock.calls.findIndex((c) => c[1] === 10_000);
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect((spy.mock.results[idx].value as NodeJS.Timeout).hasRef()).toBe(false);
+      f.onMsg({ t: 'status-res', rid: f.last('status').rid, status: null });
+      await p;
+    } finally { spy.mockRestore(); }
+  });
+
+  it('close posts end within the bound when the engine never finishes starting', async () => {
+    class Stuck {
+      constructor(_c: any, _h: any) {}
+      initialize() { return new Promise<void>(() => {}); }
+      async listTools() { return []; }
+      async callTool() { return {}; }
+      async serverClosed() {}
+    }
+    const f = fake({ closeReadyMs: 50 }, Stuck);
+    f.onMsg({ t: 'close', cid: 'c1' });
+    await vi.waitFor(() => expect(f.posted.some((m) => m.t === 'end' && m.cid === 'c1')).toBe(true), { timeout: 1000 });
   });
 
   it('a ping is answered with a pong at once, even while a connection is still starting', () => {
