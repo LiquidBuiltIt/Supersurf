@@ -30,10 +30,14 @@ describe('engine worker killed mid playbook run (built host, real child)', () =>
   let tmp: string;
   let worker: Worker | undefined;
   const started: number[] = [];
+  const before = new Set<number>();
 
   afterEach(() => {
     void worker?.terminate();
-    for (const pid of started.splice(0)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+    // Also a child spawned before its pid was captured: any new sandbox child of this process is ours.
+    for (const pid of [...started.splice(0), ...sandboxChildren().filter((p) => !before.has(p))]) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+    }
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -45,7 +49,7 @@ describe('engine worker killed mid playbook run (built host, real child)', () =>
     fs.writeFileSync(file, source);
     const hash = crypto.createHash('sha256').update(source, 'utf8').digest('hex');
 
-    const before = new Set(sandboxChildren());
+    for (const p of sandboxChildren()) before.add(p);
     // The command the script sends is never answered, so the run (and its child) never finishes.
     worker = new Worker(`
       const { parentPort, workerData: d } = require('node:worker_threads');
@@ -56,9 +60,10 @@ describe('engine worker killed mid playbook run (built host, real child)', () =>
     `, { eval: true, workerData: { host: HOST, file, hash }, env: { HOME: tmp } });
 
     await new Promise<void>((resolve, reject) => {
-      worker!.once('message', () => resolve());
-      worker!.once('error', reject);
-      setTimeout(() => reject(new Error('the playbook never sent its command')), 10_000);
+      // Below the 10 s testTimeout, so this message (not a bare timeout) reports the failure; cleared on both paths.
+      const timer = setTimeout(() => reject(new Error('the playbook never sent its command')), 8_000);
+      worker!.once('message', () => { clearTimeout(timer); resolve(); });
+      worker!.once('error', (e) => { clearTimeout(timer); reject(e); });
     });
     const pids = sandboxChildren().filter((p) => !before.has(p));
     started.push(...pids);
