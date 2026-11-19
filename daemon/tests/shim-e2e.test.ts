@@ -130,6 +130,8 @@ describe.skipIf(!!missing)('shim end to end (Go shim, built daemon)', () => {
     const version = JSON.parse(fs.readFileSync(path.join(REPO, 'daemon', 'package.json'), 'utf8')).version;
     // Health-only status asks the daemon (`_status` -> buildStatusResponse); the daemon version is the proof.
     expect(text).toMatch(new RegExp(`Daemon: v${version.replace(/\./g, '\\.')}, up \\d+s`));
+    // G4: the daemon sent a tools_hash line after tools/list; the shim consumed it (no control line reaches the client).
+    expect(shimLines.filter((l) => l.type !== undefined)).toEqual([]);
   }, 60000);
 
   it('the shim did not start a daemon of its own', () => {
