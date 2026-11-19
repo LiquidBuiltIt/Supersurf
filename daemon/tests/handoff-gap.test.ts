@@ -1,6 +1,6 @@
 /**
  * Daemon restart hand-off, real processes (E4). Real `daemon/dist/main.js` daemons and real Unix
- * sockets in a throwaway HOME per test, on ports 5611 and up. Never touches ~/.supersurf or port 5555.
+ * sockets in a throwaway HOME per test, on a free port each. Never touches ~/.supersurf or port 5555.
  * Needs `npm run build.daemon` first.
  *
  * Timing and fault points are not env seams. A test shapes the successor with the fixture
@@ -16,6 +16,7 @@ import net from 'net';
 import path from 'path';
 import { isDaemonRunning, sockPath, pidPath, readDaemonPid, isProcessAlive } from 'shared';
 import { queryStatusAt, nextSockPath, readEntry } from '../src/handoff';
+import { freePort } from './helpers/real-daemon';
 
 const MAIN = path.resolve(__dirname, '../dist/main.js');
 const OLD_FIXTURE = path.resolve(__dirname, 'fixtures/handoff-old.js');
@@ -25,9 +26,6 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const alive = (pid: number) => isProcessAlive(pid);
 /** The fault seam in main.ts reads its variable only when `SUPERSURF_DEV_ENVIRONMENT` is set. */
 const DEV = { SUPERSURF_DEV_ENVIRONMENT: path.resolve(__dirname, '../..') };
-
-let portCounter = 5611 + Math.floor(Math.random() * 40) * 5;
-const nextPort = () => portCounter++;
 
 async function waitFor(fn: () => boolean | Promise<boolean>, ms: number, what: string): Promise<void> {
   const until = Date.now() + ms;
@@ -41,7 +39,7 @@ async function waitFor(fn: () => boolean | Promise<boolean>, ms: number, what: s
 /** One throwaway HOME and the processes started in it. */
 class Rig {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'handoff-'));
-  port = nextPort();
+  port = 0; // a free port, set when the first daemon starts
   children: ChildProcess[] = [];
   exits = new Map<number, number | null>();
   extraPids = new Set<number>();
@@ -107,6 +105,7 @@ class Rig {
 
   /** Start the real daemon (not the `start` subcommand, which daemonizes) and wait for IPC. */
   async start(extra: Record<string, string> = {}): Promise<number> {
+    if (!this.port) this.port = await freePort();
     return this.untilServing(this.launch([MAIN, '--_daemonized', '--port', String(this.port)], extra));
   }
 
@@ -114,6 +113,7 @@ class Rig {
   async startOld(cfg: Record<string, unknown>): Promise<number> {
     let prev = {};
     try { prev = JSON.parse(fs.readFileSync(path.join(this.home, 'fixture.json'), 'utf8')); } catch {}
+    if (!this.port) this.port = await freePort();
     this.fixture({ ...prev, port: this.port, successorMain: SUCCESSOR_FIXTURE, ...cfg });
     return this.untilServing(this.launch([OLD_FIXTURE], {}));
   }
@@ -458,7 +458,7 @@ describe('hand-off, real processes', () => {
   describe('bind failure (R3)', () => {
     it('keeps serving IPC, keeps pid and sock, names the busy port, and recovers when it frees', async () => {
       rig = new Rig();
-      const busyPort = nextPort();
+      const busyPort = await freePort();
       rig.wrap({ port: busyPort });
       const old = await rig.start();
       const holder = net.createServer();
