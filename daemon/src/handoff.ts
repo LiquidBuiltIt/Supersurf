@@ -219,13 +219,16 @@ export class Handoff {
     const self: Entry = { node: process.execPath, main: o.mainPath ?? path.join(__dirname, 'main.js'), version: o.version };
     let entry: Entry = self;
     let child: ReturnType<typeof nodeSpawn> | undefined;
+    let cc: net.Socket | undefined;
     const logPath = path.join(handoffDir(), 'successor.log');
 
     const fail = (reason: string): 'failed' => {
       let startupLog = '';
       try { startupLog = fs.readFileSync(logPath, 'utf8').slice(-2000); } catch {}
+      cc?.destroy();
       if (child?.pid && isProcessAlive(child.pid)) this.killPid(child.pid);
       try { fs.unlinkSync(NEXT); } catch {}
+      try { fs.unlinkSync(PID + '.tmp'); } catch {}
       try {
         appendSpawn({ pid: child?.pid, entryVersion: entry.version, outcome: 'handoff_failed', reason }, now);
         // Restore `entry` to this daemon, only while it still names the failed version (a newer writer wins).
@@ -272,17 +275,17 @@ export class Handoff {
       }
 
       // Open the commit channel BEFORE the renames, so a refused connect still rolls back.
-      let cc: net.Socket;
       try { cc = await connectTo(NEXT); } catch { return fail('lost .next after ready'); }
       // A ready seen after the decision is ignored.
-      if (this.aborted) { cc.destroy(); return fail('aborted by shutdown signal'); }
-      if (exited !== undefined) { cc.destroy(); return fail(`successor exited (code ${exited})`); }
-      if (now() > deadline) { cc.destroy(); return fail('ready arrived after the timeout'); }
+      if (this.aborted) return fail('aborted by shutdown signal');
+      if (exited !== undefined) return fail(`successor exited (code ${exited})`);
+      if (now() > deadline) return fail('ready arrived after the timeout');
 
       // Commit: synchronous, pid first, then socket. Both files name a live process throughout.
-      this.state = 'committing';
+      // The point of no return is the pid rename: a failure before it rolls back like any other.
       fs.writeFileSync(PID + '.tmp', String(cpid), { mode: 0o600 });
       fs.renameSync(PID + '.tmp', PID);
+      this.state = 'committing';
       o.fault?.('after-pid-rename');
       fs.renameSync(NEXT, SOCK);
       appendSpawn({ pid: cpid, entryVersion: entry.version, outcome: 'handoff_committed' }, now);

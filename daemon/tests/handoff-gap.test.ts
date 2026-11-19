@@ -361,6 +361,25 @@ describe('hand-off, real processes', () => {
       expect(readEntry()?.version).toBe(PKG_VERSION);
     }, 30000);
 
+    it('(d) the pidfile cannot be written before the commit: handoff_failed, the socket stays live and SIGTERM still stops the daemon', async () => {
+      rig = new Rig();
+      const old = await rig.start();
+      const ino = rig.inode(rig.sock);
+      fs.mkdirSync(pidPath() + '.tmp'); // EISDIR on the tmp write
+      const reply = await rig.restart(15000);
+      expect(reply.type).toBe('handoff_failed');
+      expect(reply.reason).toContain('EISDIR');
+      const failed = rig.spawns().find((s) => s.outcome === 'handoff_failed');
+      expect(failed).toBeTruthy();
+      await waitFor(() => !alive(failed.pid), 3000, 'successor SIGKILLed');
+      expect(rig.pidFile()).toBe(old);
+      expect(rig.inode(rig.sock)).toBe(ino);
+      expect(fs.existsSync(nextSockPath())).toBe(false);
+      expect((await queryStatusAt(rig.sock, 1000)).pid).toBe(old);
+      process.kill(old, 'SIGTERM');
+      await waitFor(() => !alive(old), 5000, 'old daemon stops on SIGTERM');
+    }, 40000);
+
     it('(b) the successor never sends ready: failed after readyMs, successor SIGKILLed, old daemon unchanged', async () => {
       rig = new Rig();
       rig.wrap({ mode: 'hang' });
