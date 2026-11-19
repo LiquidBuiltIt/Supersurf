@@ -455,6 +455,26 @@ describe('hand-off, real processes', () => {
     }, 40000);
   });
 
+  describe('a throw after the pid rename (S2b)', () => {
+    it('the old daemon exits 1 and the successor ends up serving on daemon.sock', async () => {
+      rig = new Rig();
+      const old = await rig.start({ ...DEV, SUPERSURF_TEST_HANDOFF_FAULT: 'throw-after-pid-rename' });
+      const probe = startProbe(rig);
+      await rig.restart(5000).catch(() => undefined); // the old daemon exits before it replies
+      await waitFor(() => !alive(old), 5000, 'old exit');
+      expect(rig.exits.get(old)).toBe(1);
+      let succ = 0;
+      await waitFor(async () => {
+        try { const s = await queryStatusAt(rig.sock, 300); succ = s.pid; return s.pid !== old && s.takeover === 'committed'; } catch { return false; }
+      }, 8000, 'successor serving on daemon.sock');
+      const r = await probe.stop();
+      expect(r.predicateFalse).toBe(0);
+      expect(rig.pidFile()).toBe(succ);
+      expect(alive(succ)).toBe(true);
+      expect(fs.existsSync(nextSockPath())).toBe(false);
+    }, 40000);
+  });
+
   describe('bind failure (R3)', () => {
     it('keeps serving IPC, keeps pid and sock, names the busy port, and recovers when it frees', async () => {
       rig = new Rig();

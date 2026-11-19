@@ -294,6 +294,36 @@ describe('Handoff.run (old side, injected options)', () => {
     expect(h.state).toBe('idle');
   });
 
+  it('a userOwned() that throws rolls back: it is read before the pid rename', async () => {
+    const replies: any[] = [];
+    const h = new Handoff(opts({ userOwned: () => { throw new Error('registry boom'); } }));
+    expect(await h.run((m) => replies.push(m))).toBe('failed');
+    expect(replies[0]).toMatchObject({ type: 'handoff_failed' });
+    expect(replies[0].reason).toContain('registry boom');
+    expect(fs.readFileSync(pidPath(), 'utf8')).toBe(String(process.pid));
+    expect(order).not.toContain('setRestarting');
+  });
+
+  it('a failing handoff_committed record after the pid rename does not stop the commit', async () => {
+    const replies: any[] = [];
+    const h = new Handoff(opts({
+      fault: (p) => { if (p === 'after-pid-rename') fs.mkdirSync(path.join(dir(), 'spawns.jsonl')); }, // appendFile then fails with EISDIR
+    }));
+    expect(await h.run((m) => replies.push(m))).toBe('committed');
+    expect(replies).toEqual([{ type: 'handoff_committed', pid: FAKE }]);
+    await sleep(30);
+    expect(succLines).toHaveLength(1);
+    expect(order).toEqual(['setRestarting', 'killChromium', 'stopShims', 'endSessions', 'exit0']);
+  });
+
+  it('a throw after the pid rename exits 1 in place of staying in committing (S2b)', async () => {
+    const h = new Handoff(opts({ fault: (p) => { if (p === 'after-pid-rename') fs.unlinkSync(nextSockPath()); } })); // the .next rename gets ENOENT
+    await expect(h.run(() => {})).rejects.toThrow();
+    expect(h.state).toBe('committing');
+    expect(order).toEqual(['exit1']);
+    expect(fs.readFileSync(pidPath(), 'utf8')).toBe(String(FAKE)); // the pidfile stays the successor's
+  });
+
   it('rolls back when the spawn yields no pid', async () => {
     const replies: any[] = [];
     const h = new Handoff(opts({ spawn: fakeSpawn({ noPid: true }) }));
@@ -412,6 +442,23 @@ describe('waitForCommit (successor side)', () => {
     expect(r).toEqual({ kind: 'commit', userOwned: [], viaPoll: true });
     expect(fs.existsSync(NEXT())).toBe(false);
     expect(ino(sockPath())).toBe(ownIno);
+  });
+
+  it('old pid gone, daemon.pid mine, but .next is gone and daemon.sock is not mine: leaves and removes its pidfile (S2b)', async () => {
+    const { ownIno } = setup();
+    fs.unlinkSync(NEXT());
+    fs.writeFileSync(pidPath(), String(process.pid));
+    const r = await waitForCommit({ oldpid: DEAD_PID, ownIno, log: () => {}, pollMs: 5, commitMsg: new Promise(() => {}) });
+    expect(r.kind).toBe('leave');
+    expect(fs.existsSync(pidPath())).toBe(false); // nothing serves: the next ensure starts clean
+  });
+
+  it('old pid gone, daemon.pid mine, .next gone but daemon.sock is mine: commits (the old daemon renamed, then died)', async () => {
+    const { ownIno } = setup();
+    fs.renameSync(NEXT(), sockPath());
+    fs.writeFileSync(pidPath(), String(process.pid));
+    const r = await waitForCommit({ oldpid: DEAD_PID, ownIno, log: () => {}, pollMs: 5, commitMsg: new Promise(() => {}) });
+    expect(r).toEqual({ kind: 'commit', userOwned: [], viaPoll: true });
   });
 
   it('old pid gone and daemon.pid not this process: leaves and unlinks its own .next', async () => {

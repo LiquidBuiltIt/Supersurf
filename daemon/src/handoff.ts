@@ -292,18 +292,25 @@ export class Handoff {
 
       // Commit: synchronous, pid first, then socket. Both files name a live process throughout.
       // The point of no return is the pid rename: a failure before it rolls back like any other.
+      // Everything that can throw but the renames is computed before the first one (a throw later has no rollback).
+      const commitLine = JSON.stringify({ type: 'takeover_commit', oldpid: process.pid, userOwned: o.userOwned() }) + '\n';
       fs.writeFileSync(PID + '.tmp', String(cpid), { mode: 0o600 });
       fs.renameSync(PID + '.tmp', PID);
       this.state = 'committing';
       o.fault?.('after-pid-rename');
       fs.renameSync(NEXT, SOCK);
-      appendSpawn({ pid: cpid, entryVersion: entry.version, outcome: 'handoff_committed' }, now);
-      cc.write(JSON.stringify({ type: 'takeover_commit', oldpid: process.pid, userOwned: o.userOwned() }) + '\n');
+      try { appendSpawn({ pid: cpid, entryVersion: entry.version, outcome: 'handoff_committed' }, now); } catch (e: any) { o.log(`[Handoff] commit record failed: ${e?.message ?? e}`); }
+      cc.write(commitLine);
       this.state = 'committed';
       o.setRestarting();
       reply({ type: 'handoff_committed', pid: cpid });
     } catch (err: any) {
-      if (this.past) { o.log(`[Handoff] error after the commit started: ${err?.message ?? err}`); throw err; }
+      if (this.past) {
+        // No rollback: the pidfile names the successor. Leave without cleanup so its N5 poll (old pid gone, daemon.pid mine) commits.
+        o.log(`[Handoff] error after the commit started: ${err?.message ?? err}; exiting for the successor (N5)`);
+        (o.exit ?? process.exit)(1);
+        throw err;
+      }
       return fail(`error: ${err?.message ?? err}`);
     }
 
@@ -367,6 +374,12 @@ export function waitForCommit(w: WaitForCommitOptions): Promise<CommitResult> {
         if (pidIsMe) {
           w.log('old daemon gone, daemon.pid is mine: treating as commit (N5)');
           try { if (fs.existsSync(NEXT)) fs.renameSync(NEXT, SOCK); } catch {}
+          if (inoOf(SOCK) !== w.ownIno) {
+            // `.next` is gone and daemon.sock is not this process's listener: nothing can serve. Free the pidfile.
+            try { fs.unlinkSync(pidPath()); } catch {}
+            finish({ kind: 'leave', reason: 'daemon.sock could not be taken: .next is gone' });
+            return;
+          }
           finish({ kind: 'commit', userOwned: [], viaPoll: true });
           return;
         }

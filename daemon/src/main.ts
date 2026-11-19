@@ -86,6 +86,7 @@ function testHandoffFault(): ((point: 'after-spawn' | 'after-pid-rename') => voi
   if (!process.env.SUPERSURF_DEV_ENVIRONMENT) return undefined;
   const v = process.env.SUPERSURF_TEST_HANDOFF_FAULT;
   if (v === 'crash-after-spawn') return (p) => { if (p === 'after-spawn') setTimeout(() => { throw new Error('test crash after spawn'); }, 500); };
+  if (v === 'throw-after-pid-rename') return (p) => { if (p === 'after-pid-rename') throw new Error('test throw after the pid rename'); };
   if (v === 'kill-after-pid-rename') return (p) => { if (p === 'after-pid-rename') process.kill(process.pid, 'SIGKILL'); };
   return undefined;
 }
