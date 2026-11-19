@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -114,7 +114,8 @@ describe('crash budget', () => {
   });
 
   it('exit codes 0 and 42 are not crashes, but still tear down: sockets end, links close', async () => {
-    for (const [i, code] of [[1, 0], [2, 42], [3, 0], [4, 42], [5, 0]] as const) {
+    // four of each code: counting either one alone would exceed the limit of three
+    for (const [i, code] of [[1, 0], [2, 0], [3, 0], [4, 0], [5, 42], [6, 42], [7, 42], [8, 42]] as const) {
       const s = newShim({ sessionId: `shim-${i}` });
       expect((await s.register()).type).toBe('shim_ack');
       workers.at(-1)!.emit('message', { t: 'link-open', lid: 1, sessionId: `agent-${i}`, cid: `shim-${i}#${i}` });
@@ -144,9 +145,18 @@ describe('crash budget', () => {
     const old = workers[0];
     old.emit('error', new Error('x'));
     await until(() => s.ended);
-    await newShim({ sessionId: 'shim-2' }).register(); // a second worker
+    const s2 = newShim({ sessionId: 'shim-2' });
+    await s2.register(); // a second worker
+    workers[1].emit('message', { t: 'link-open', lid: 1, sessionId: 'agent-2', cid: 'shim-2#2' });
     for (let i = 0; i < 5; i++) old.emit('exit', 1);
+    old.emit('error', new Error('late'));
+    await wait(40);
+    // the late events of the old worker must not tear down the new one
+    expect(s2.ended).toBe(false);
+    expect(host.closed).toEqual([]);
+    expect(workers[1].terminated).toBe(false);
     expect((await newShim({ sessionId: 'shim-3' }).register()).type).toBe('shim_ack');
+    expect(workers).toHaveLength(2);
   });
 
   it('the last error is the exit code when the worker only exited', async () => {
@@ -204,7 +214,7 @@ describe('legacy sessions are untouched by a crash and a ban', () => {
 describe('heartbeat', () => {
   it('posts a ping every heartbeatMs, and a worker that answers is left alone', async () => {
     await shimServer.stop(20);
-    shimServer = make({ heartbeatMs: 20, heartbeatTimeoutMs: 100 });
+    shimServer = make({ heartbeatMs: 20, heartbeatTimeoutMs: 100, now: Date.now });
     await new Promise((r) => server.close(r));
     await listen((s, hs, rest) => shimServer.accept(s, hs, rest));
     const s = newShim();
@@ -221,7 +231,7 @@ describe('heartbeat', () => {
 
   it('a worker that stops answering is torn down and terminated, and counts as one crash with the heartbeat text', async () => {
     await shimServer.stop(20);
-    shimServer = make({ heartbeatMs: 20, heartbeatTimeoutMs: 100 });
+    shimServer = make({ heartbeatMs: 20, heartbeatTimeoutMs: 100, now: Date.now });
     await new Promise((r) => server.close(r));
     await listen((s, hs, rest) => shimServer.accept(s, hs, rest));
     const s = newShim({ sessionId: 'shim-h' });
@@ -248,7 +258,7 @@ describe('heartbeat', () => {
 
   it('the heartbeat text is the last error of a ban', async () => {
     await shimServer.stop(20);
-    shimServer = make({ heartbeatMs: 10, heartbeatTimeoutMs: 40 });
+    shimServer = make({ heartbeatMs: 10, heartbeatTimeoutMs: 40, now: Date.now });
     await new Promise((r) => server.close(r));
     await listen((s, hs, rest) => shimServer.accept(s, hs, rest));
     for (let i = 1; i <= 4; i++) {
@@ -273,6 +283,7 @@ describe('heartbeat', () => {
     shimServer = make({
       heartbeatMs: 25,
       heartbeatTimeoutMs: 200,
+      now: Date.now,
       startWorker: () => (real = new Worker(code, { eval: true })) as any,
     });
     await new Promise((r) => server.close(r));
@@ -282,6 +293,44 @@ describe('heartbeat', () => {
     await Promise.race([once(real, 'exit'), wait(5000).then(() => { throw new Error('worker was not terminated'); })]);
     await until(() => s.ended);
     expect(logs.join('\n')).toMatch(/did not answer a heartbeat/);
+  });
+});
+
+describe('heartbeat timers and clock', () => {
+  const rebuild = async (extra: Partial<ShimServerOptions>) => {
+    await shimServer.stop(20);
+    shimServer = make(extra);
+    await new Promise((r) => server.close(r));
+    await listen((s, hs, rest) => shimServer.accept(s, hs, rest));
+  };
+
+  it('the heartbeat uses the injected clock: a clock jump past the timeout terminates the worker', async () => {
+    await rebuild({ heartbeatMs: 20 }); // default 15 s timeout, injected `now`
+    const s = newShim({ sessionId: 'shim-c' });
+    await s.register();
+    await wait(80);
+    expect(workers[0].terminated).toBe(false);
+    clock += 16_000;
+    await until(() => workers[0].terminated, 2000);
+    await until(() => s.ended);
+    expect(logs.join('\n')).toMatch(/did not answer a heartbeat in 15 s/);
+  });
+
+  it('the interval is unref\'d and cleared when the worker crashes', async () => {
+    const setSpy = vi.spyOn(globalThis, 'setInterval');
+    const clearSpy = vi.spyOn(globalThis, 'clearInterval');
+    try {
+      await rebuild({ heartbeatMs: 7777 });
+      const s = newShim({ sessionId: 'shim-i' });
+      await s.register();
+      const idx = setSpy.mock.calls.findIndex((c) => c[1] === 7777);
+      expect(idx).toBeGreaterThanOrEqual(0);
+      const handle = setSpy.mock.results[idx].value as NodeJS.Timeout;
+      expect(handle.hasRef()).toBe(false);
+      workers[0].emit('error', new Error('boom'));
+      await until(() => s.ended);
+      expect(clearSpy).toHaveBeenCalledWith(handle);
+    } finally { setSpy.mockRestore(); clearSpy.mockRestore(); }
   });
 });
 
@@ -314,6 +363,32 @@ describe('shutdown', () => {
     expect(Date.now() - t0).toBeGreaterThanOrEqual(70);
     expect(workers[0].terminated).toBe(true);
     expect(logs.join('\n')).toMatch(/did not stop within 80 ms/);
+  });
+
+  it('the grace timer is unref\'d', async () => {
+    await newShim().register();
+    workers[0].autoStop = false;
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      const p = shimServer.stop(4343);
+      const idx = spy.mock.calls.findIndex((c) => c[1] === 4343);
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect((spy.mock.results[idx].value as NodeJS.Timeout).hasRef()).toBe(false);
+      workers[0].emit('message', { t: 'stopped' });
+      await p;
+    } finally { spy.mockRestore(); }
+  });
+
+  it('stop resolves at once when the worker exits during the grace wait', async () => {
+    await newShim().register();
+    workers[0].autoStop = false;
+    const t0 = Date.now();
+    const p = shimServer.stop(5000);
+    await wait(30);
+    workers[0].emit('exit', 0);
+    await p;
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(logs.join('\n')).not.toMatch(/did not stop/);
   });
 
   it('while stopping, shim_register is refused with shim_reject and starts no worker', async () => {
@@ -353,6 +428,12 @@ describe('daemon shutdown order (main.ts)', () => {
     for (const later of ['profileRegistry.getRunningPid', 'scheduler.drainAll()', 'await ipc.stop()', 'await bridge.stop()']) {
       expect(stop).toBeLessThan(at(later));
     }
+  });
+
+  it('a throwing shim.stop() is logged and cannot skip the rest of the shutdown', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.ts'), 'utf8');
+    const body = src.slice(src.indexOf('async function shutdown('));
+    expect(body).toMatch(/try \{\s*await shim\.stop\(\);?\s*\} catch \([^)]*\) \{[^}]*logger\.log\(/);
   });
 
   it('main.ts hands the ShimServer the daemon logger', () => {

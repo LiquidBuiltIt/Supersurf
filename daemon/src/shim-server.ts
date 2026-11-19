@@ -238,11 +238,11 @@ export class ShimServer {
     w.on('close', () => gone());
 
     const timeoutMs = this.opts.heartbeatTimeoutMs ?? 15_000;
-    let lastPong = Date.now();
-    w.on('message', (m: any) => { if (m?.t === 'pong') lastPong = Date.now(); });
+    let lastPong = this.now();
+    w.on('message', (m: any) => { if (m?.t === 'pong') lastPong = this.now(); });
     this.heartbeat = setInterval(() => {
       if (this.worker !== w) return;
-      if (Date.now() - lastPong > timeoutMs) {
+      if (this.now() - lastPong > timeoutMs) {
         const why = `The engine worker did not answer a heartbeat in ${timeoutMs / 1000} s`;
         this.log(`${why}; terminating it`);
         gone(why);

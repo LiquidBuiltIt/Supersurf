@@ -263,7 +263,11 @@ async function main(): Promise<void> {
     resetIdleTimer();
 
     // First: the engine worker closes its links while the extension is still up.
-    await shim.stop();
+    try {
+      await shim.stop();
+    } catch (err: any) {
+      logger.log(`[Daemon] Shim server stop failed: ${err?.message ?? err}`);
+    }
 
     // Kill all managed Chromium processes — except user-owned ones
     // (launched via `supersurf profiles open`): the human closes those.
