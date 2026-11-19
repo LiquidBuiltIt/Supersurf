@@ -225,7 +225,8 @@ function startProbe(rig: Rig) {
         if (s.type === 'daemon_status') { r.answered++; r.pids.add(s.pid); }
         // The designed answer of the old daemon's accept backlog after the commit (plan step 6): the
         // socket accepted and a live process replied, so it is not a gap. A refusal, ENOENT or timeout is.
-        else if (s.type === 'restarting') r.restarting++;
+        // It only exists after the commit, so the pidfile must already name another process than the one that answered first.
+        else if (s.type === 'restarting' && rig.pidFile() !== [...r.pids][0]) r.restarting++;
         else r.connectErrors++;
       } catch { r.connectErrors++; }
       await sleep(1);
