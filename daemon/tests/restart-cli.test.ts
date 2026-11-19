@@ -66,6 +66,8 @@ describe.skipIf(missing)('restart CLI against a fake status socket (S3)', () => 
       expect(r.out).toContain(`Daemon stopped (pid ${victim.pid})`);
       expect(fs.existsSync(rec.ran)).toBe(false);
       expect(fake.got).not.toContain('daemon_restart');
+      // The CLI then starts a fresh daemon in this throwaway HOME: wait for its pidfile so cleanup kills it.
+      await waitFor(() => { try { const p = parseInt(fs.readFileSync(rig.pidFile, 'utf8'), 10); if (p !== victim.pid) rig.extraPids.add(p); return p !== victim.pid; } catch { return false; } }, 10000, 'the new daemon.pid');
       expect(fs.existsSync(path.join(rig.daemonDir, 'entry'))).toBe(false);
     } finally { fake.close(); }
   }, 60000);
@@ -90,6 +92,19 @@ describe.skipIf(missing)('restart CLI against a fake status socket (S3)', () => 
       const r = await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: rec.bin });
       expect(r.code).toBe(1);
       expect(r.out).toContain('A restart or shutdown is already in progress');
+    } finally { fake.close(); }
+  }, 30000);
+
+  it('ensure gets the daemon\'s reported port, not the CLI port (N-a)', async () => {
+    rig = new DaemonRig();
+    const rec = recorder(rig.home);
+    const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321 }, { type: 'handoff_in_progress' });
+    try {
+      await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: rec.bin });
+      const ran = fs.readFileSync(rec.ran, 'utf8');
+      expect(ran).toContain('ensure --install');
+      expect(ran).toContain('--port 4321');
+      expect(ran).not.toContain('5001');
     } finally { fake.close(); }
   }, 30000);
 });

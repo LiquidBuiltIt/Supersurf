@@ -345,7 +345,7 @@ export async function restartDaemon(port: number): Promise<'start' | 0 | 1> {
     console.error('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
     return 1;
   }
-  const ens = spawnSync(shimBin, ['ensure', '--install', root, '--port', String(port)], { encoding: 'utf8', timeout: 60_000 });
+  const ens = spawnSync(shimBin, ['ensure', '--install', root, '--port', String(status.port ?? port)], { encoding: 'utf8', timeout: 60_000 });
   if (ens.status !== 0) {
     console.error(`supersurf-shim ensure failed${ens.error ? `: ${ens.error.message}` : ''}; the daemon was not restarted.`);
     if (ens.stderr) console.error(ens.stderr.trim());
