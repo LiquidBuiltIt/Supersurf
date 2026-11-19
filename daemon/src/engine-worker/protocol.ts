@@ -20,8 +20,8 @@ export interface LinkRequest {
 }
 
 export type MainToWorker =
-  /** `config` is plain-object inputs from the handshake; the worker builds the `ConfigService` and `BackendConfig`. `resume` is reserved. */
-  | { t: 'open'; cid: string; config: ShimConfigInputs; resume?: unknown }
+  /** `config` is plain-object inputs from the handshake; the worker builds the `ConfigService` and `BackendConfig`. `resume` is reserved. `toolsHash` (G4): the shim's last `tools_hash`, for the changed-tools fallback notice. */
+  | { t: 'open'; cid: string; config: ShimConfigInputs; resume?: unknown; toolsHash?: string }
   | { t: 'line'; cid: string; data: string }
   | { t: 'close'; cid: string }
   | { t: 'shutdown' }

@@ -109,6 +109,24 @@ describe('lazy worker and open', () => {
     expect(open.config.version).toBe('9.9.9-test');
   });
 
+  it('open carries a valid toolsHash from the handshake (G4)', async () => {
+    const hash = 'a'.repeat(64);
+    await newShim({ handshake: { toolsHash: hash } }).register();
+    expect(workers[0].of('open')[0].toolsHash).toBe(hash);
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['empty', ''],
+    ['too long', 'a'.repeat(129)],
+    ['a number', 7],
+    ['an object', { x: 1 }],
+  ])('open has no toolsHash when the handshake value is %s, and the shim is still accepted (G4)', async (_n, v) => {
+    const reply = await newShim({ handshake: v === undefined ? {} : { toolsHash: v } }).register();
+    expect(reply.type).toBe('shim_ack');
+    expect(workers[0].of('open')[0].toolsHash).toBeUndefined();
+  });
+
   it('open is posted before the ack is written', async () => {
     const shim = newShim();
     await shim.connect();

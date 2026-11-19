@@ -9,7 +9,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { PortLinkRouter } from './port-link';
-import { PortTransport } from './transport';
+import { PortTransport, toolsHash } from './transport';
 import { configServiceFrom, enabledExperiments } from './shim-config';
 import type { ShimConfigInputs } from './shim-config';
 import type { MainToWorker, WorkerToMain } from './protocol';
@@ -31,6 +31,8 @@ export interface WorkerPort {
 }
 
 const REPLY_TIMEOUT_MS = 10_000;
+/** G4 fallback: appended to the first tool result when the tool list changed and the client never refetched it. */
+const TOOLS_CHANGED_TEXT = 'SuperSurf tools changed; run `/mcp reconnect supersurf` to see them.';
 /** How long `close` waits for a connection's engine start before it closes best effort anyway. */
 const CLOSE_READY_TIMEOUT_MS = 10_000;
 
@@ -96,7 +98,7 @@ export function createEngineSide(
     };
   };
 
-  const open = (cid: string, inputs: ShimConfigInputs): void => {
+  const open = (cid: string, inputs: ShimConfigInputs, shimToolsHash?: string): void => {
     if (connections.has(cid)) return;
     const config = buildConfig(inputs);
     const manager = new engine.AgentSessionManager(config, makeHost(cid, inputs, config));
@@ -106,10 +108,22 @@ export function createEngineSide(
       { name: config.server.name, version: config.server.version },
       { capabilities: { tools: { listChanged: true }, logging: {} } },
     );
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: (await manager.listTools()) as any }));
+    // G4 fallback: undecided until the first tools/list (client refetched: nothing more) or tools/call (compare once).
+    let undecided = !!shimToolsHash;
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
+      undecided = false;
+      return { tools: (await manager.listTools()) as any };
+    });
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      return await manager.callTool(name, args ?? {});
+      let changed = false;
+      if (undecided) {
+        undecided = false;
+        changed = toolsHash(await manager.listTools().catch(() => null)) !== shimToolsHash; // a failing list counts as changed
+      }
+      const result = await manager.callTool(name, args ?? {});
+      if (changed && Array.isArray(result?.content)) result.content.push({ type: 'text', text: TOOLS_CHANGED_TEXT });
+      return result;
     });
     const ready = manager.initialize(server, {}).then(() => server.connect(transport));
     connections.set(cid, { transport, server, ready });
@@ -163,7 +177,7 @@ export function createEngineSide(
     if (m.t === 'ping') { port.postMessage({ t: 'pong' }); return; }
     if (router.handle(m)) return;
     switch (m.t) {
-      case 'open': open(m.cid, m.config); break;
+      case 'open': open(m.cid, m.config, m.toolsHash); break;
       case 'line': {
         const conn = connections.get(m.cid);
         if (conn) conn.ready.then(() => conn.transport.feed(m.data), () => {});

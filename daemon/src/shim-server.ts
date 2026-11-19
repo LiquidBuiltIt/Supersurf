@@ -180,7 +180,9 @@ export class ShimServer {
       this.worker?.postMessage({ t: 'close', cid });
     });
 
-    worker.postMessage({ t: 'open', cid, config: inputs });
+    // G4: the shim's last tool-list hash; anything but a string of 1-128 chars is dropped, never refused.
+    const th = typeof hs.toolsHash === 'string' && hs.toolsHash.length >= 1 && hs.toolsHash.length <= 128 ? hs.toolsHash : undefined;
+    worker.postMessage({ t: 'open', cid, config: inputs, ...(th ? { toolsHash: th } : {}) });
     socket.write(JSON.stringify({ type: 'shim_ack', protocol: 1, version: this.opts.daemon.version }) + '\n');
     this._served = true;
     if (rest.length) feed(rest);
