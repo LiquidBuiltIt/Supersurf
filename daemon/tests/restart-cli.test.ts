@@ -31,7 +31,7 @@ function recorder(dir: string): { bin: string; ran: string } {
 }
 
 /** A fake daemon socket: answers `daemon_status` with `status` and `daemon_restart` with `restartReply`, and records every line type it got. */
-function fakeDaemon(sock: string, status: object, restartReply?: object): Promise<{ got: string[]; close: () => void }> {
+function fakeDaemon(sock: string, status: object, restartReply?: object, vanishAfterStatus = false): Promise<{ got: string[]; close: () => void }> {
   const got: string[] = [];
   const server = net.createServer((c) => {
     let buf = '';
@@ -42,7 +42,11 @@ function fakeDaemon(sock: string, status: object, restartReply?: object): Promis
       while ((i = buf.indexOf('\n')) !== -1) {
         const line = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
         got.push(line.type);
-        if (line.type === 'daemon_status') c.write(JSON.stringify({ type: 'daemon_status', ...status }) + '\n');
+        if (line.type === 'daemon_status') {
+          c.write(JSON.stringify({ type: 'daemon_status', ...status }) + '\n');
+          // The stop path starts a real daemon in this HOME next; it must find no live socket in its way.
+          if (vanishAfterStatus) { server.close(); try { fs.unlinkSync(sock); } catch {} }
+        }
         else if (line.type === 'daemon_restart' && restartReply) { c.write(JSON.stringify(restartReply) + '\n'); c.end(); }
       }
     });
@@ -60,7 +64,7 @@ describe.skipIf(missing)('restart CLI against a fake status socket (S3)', () => 
     const victim = spawn('sleep', ['300'], { stdio: 'ignore' });
     rig.extraPids.add(victim.pid!);
     fs.writeFileSync(rig.pidFile, String(victim.pid));
-    const fake = await fakeDaemon(rig.sock, { pid: victim.pid, shimModel: true, shimSessions: 2 });
+    const fake = await fakeDaemon(rig.sock, { pid: victim.pid, shimModel: true, shimSessions: 2 }, undefined, true);
     try {
       const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: rec.bin });
       expect(r.out).toContain(`Daemon stopped (pid ${victim.pid})`);
