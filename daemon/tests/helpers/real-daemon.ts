@@ -106,9 +106,9 @@ export class DaemonRig {
   }
 
   /** Run `main.js <args>` as the CLI, in this HOME; resolves with its output and exit code. */
-  cli(args: string[], extraEnv: Record<string, string> = {}, timeoutMs = 60000): Promise<{ code: number | null; out: string }> {
+  cli(args: string[], extraEnv: Record<string, string> = {}, timeoutMs = 60000, main = MAIN): Promise<{ code: number | null; out: string }> {
     return new Promise((resolve) => {
-      const c = spawn(process.execPath, [MAIN, ...args], { env: this.env(extraEnv), stdio: ['ignore', 'pipe', 'pipe'] });
+      const c = spawn(process.execPath, [main, ...args], { env: this.env(extraEnv), stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '';
       c.stdout!.on('data', (d) => { out += d; });
       c.stderr!.on('data', (d) => { out += d; });

@@ -9,7 +9,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { DaemonRig, MAIN, REPO, PKG_VERSION, waitFor, sleep } from './helpers/real-daemon';
+import { DaemonRig, MAIN, REPO, DAEMON_PKG, PKG_VERSION, waitFor, sleep } from './helpers/real-daemon';
 import { isProcessAlive } from 'shared';
 
 const GO = [process.env.GO, '/home/claudebox/.local/go/bin/go', 'go']
@@ -69,12 +69,18 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     const shimBin = path.join(bd, 'supersurf-shim');
     const b = spawnSync(GO!, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO, 'shim'), encoding: 'utf8' });
     if (b.status !== 0) throw new Error(`go build failed: ${b.stderr}`);
-    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(rig.home, 'node_modules'));
+    // `ensure --install` copies the whole package tree, and the dev tree holds sockets that parallel
+    // tests create under daemon/.tmp-test (copy fails). Run the CLI from a clean package copy, as installed.
+    const pkg = path.join(bd, 'pkg');
+    fs.mkdirSync(pkg);
+    fs.copyFileSync(path.join(DAEMON_PKG, 'package.json'), path.join(pkg, 'package.json'));
+    fs.cpSync(path.join(DAEMON_PKG, 'dist'), path.join(pkg, 'dist'), { recursive: true });
+    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(pkg, 'node_modules'));
     // A banned target version: ensure must append ban_cleared.
     fs.writeFileSync(path.join(rig.daemonDir, 'spawns.jsonl'), JSON.stringify({ ts: Date.now(), pid: 0, entryVersion: PKG_VERSION, outcome: 'handoff_failed', reason: 'seeded' }) + '\n');
     const oldPid = await rig.start(['--spawned-by=shim']);
-    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: shimBin });
-    expect(r.out).toContain(`Daemon restarted (pid ${oldPid} -> `);
+    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: shimBin }, 60000, path.join(pkg, 'dist', 'main.js'));
+    expect(r.out, r.out).toContain(`Daemon restarted (pid ${oldPid} -> `);
     expect(r.out).toContain('Legacy sessions on that daemon have ended; shim sessions reconnect by themselves.');
     expect(r.code).toBe(0);
     const newPid = parseInt(fs.readFileSync(rig.pidFile, 'utf8'), 10);
