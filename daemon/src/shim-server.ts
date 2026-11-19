@@ -108,6 +108,7 @@ export class ShimServer {
   /** Live sockets by handshake sessionId, for the duplicate check only. */
   private live = new Map<string, Conn>();
   private nextSeq = 1;
+  private _served = false;
   private worker: ShimWorker | null = null;
   private attached: { detach(): void } | null = null;
   private nextEnvId = 1;
@@ -181,8 +182,12 @@ export class ShimServer {
 
     worker.postMessage({ t: 'open', cid, config: inputs });
     socket.write(JSON.stringify({ type: 'shim_ack', protocol: 1, version: this.opts.daemon.version }) + '\n');
+    this._served = true;
     if (rest.length) feed(rest);
   }
+
+  /** True once this daemon accepted a `shim_register` (sticky): the shim model is in use. */
+  get served(): boolean { return this._served; }
 
   /** Live shim sockets. */
   get liveCount(): number { return this.live.size; }

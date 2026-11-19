@@ -67,6 +67,20 @@ afterEach(async () => {
 
 const newShim = (o = {}) => { const s = new FakeShim(sockPath, o); shims.push(s); return s; };
 
+describe('served (the D3 / restart shim-model signal)', () => {
+  it('is false until a shim_register is accepted, then true for good, even after the socket closes', async () => {
+    expect(shimServer.served).toBe(false);
+    await newShim({ handshake: { protocol: 9 } }).register();
+    expect(shimServer.served).toBe(false);
+    const shim = newShim({ sessionId: 'shim-s' });
+    await shim.register();
+    expect(shimServer.served).toBe(true);
+    shim.close();
+    await until(() => shimServer.liveCount === 0);
+    expect(shimServer.served).toBe(true);
+  });
+});
+
 describe('lazy worker and open', () => {
   it('starts no worker until the first shim_register, then one worker for every shim', async () => {
     expect(workers).toHaveLength(0);
