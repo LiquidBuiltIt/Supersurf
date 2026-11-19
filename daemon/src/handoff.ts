@@ -320,7 +320,7 @@ export class Handoff {
     while (pids.some(isProcessAlive) && now() < until) await sleep(pollMs);
     for (const p of pids) if (isProcessAlive(p)) { try { process.kill(p, 'SIGKILL'); } catch {} }
     try { await o.stopShims(); } catch (err: any) { o.log(`[Handoff] shim stop failed: ${err?.message ?? err}`); }
-    await o.endSessions();
+    try { await o.endSessions(); } catch (err: any) { o.log(`[Handoff] ending sessions failed: ${err?.message ?? err}`); }
     await sleep(o.drainMs ?? 50); // let accepted-but-unread backlog connections get their `restarting` reply
     (o.exit ?? process.exit)(0);
     return 'committed';

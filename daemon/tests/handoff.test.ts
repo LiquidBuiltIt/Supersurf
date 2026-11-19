@@ -324,6 +324,12 @@ describe('Handoff.run (old side, injected options)', () => {
     expect(fs.readFileSync(pidPath(), 'utf8')).toBe(String(FAKE)); // the pidfile stays the successor's
   });
 
+  it('step 6 still exits 0 when endSessions rejects (N1)', async () => {
+    const h = new Handoff(opts({ endSessions: async () => { throw new Error('end boom'); } }));
+    expect(await h.run(() => {})).toBe('committed');
+    expect(order).toContain('exit0');
+  });
+
   it('rolls back when the spawn yields no pid', async () => {
     const replies: any[] = [];
     const h = new Handoff(opts({ spawn: fakeSpawn({ noPid: true }) }));
