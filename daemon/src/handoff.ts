@@ -150,6 +150,15 @@ function connectTo(sock: string): Promise<net.Socket> {
   });
 }
 
+/** True when `pid` is gone or a zombie (state Z in /proc: dead, but its parent has not reaped it, so `kill(pid, 0)` still succeeds). Without /proc only `isProcessAlive` applies. */
+export function hasExited(pid: number): boolean {
+  if (!isProcessAlive(pid)) return true;
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3) === 'Z';
+  } catch { return false; }
+}
+
 const inoOf = (p: string): number | null => { try { return fs.statSync(p).ino; } catch { return null; } };
 
 // ─── OLD daemon ──────────────────────────────────────────────
@@ -344,7 +353,7 @@ export function waitForCommit(w: WaitForCommitOptions): Promise<CommitResult> {
     w.commitMsg.then((m) => finish({ kind: 'commit', userOwned: m?.userOwned ?? [], viaPoll: false }));
     const NEXT = nextSockPath(), SOCK = sockPath();
     const timer = setInterval(() => {
-      const oldAlive = isProcessAlive(w.oldpid);
+      const oldAlive = !hasExited(w.oldpid);
       let pidIsMe = false;
       try { pidIsMe = parseInt(fs.readFileSync(pidPath(), 'utf8'), 10) === process.pid; } catch {}
       // A late successor binds `.next` after the rollback unlinked it; the failed record is the only sign.
@@ -370,15 +379,25 @@ export function waitForCommit(w: WaitForCommitOptions): Promise<CommitResult> {
   });
 }
 
-/** Wait for the old daemon to exit; after `limitMs` SIGKILL it (N7). */
-export async function waitOldExit(oldpid: number, log: (m: string) => void, limitMs = 15000): Promise<void> {
+/**
+ * Wait for the old daemon to exit; after `limitMs` SIGKILL it (N7), then wait at most `postKillMs`
+ * more: a process nobody reaps or one stuck in the kernel must not wedge the successor.
+ */
+export async function waitOldExit(
+  oldpid: number,
+  log: (m: string) => void,
+  limitMs = 15000,
+  o: { postKillMs?: number; exited?: (pid: number) => boolean; kill?: (pid: number) => void } = {},
+): Promise<void> {
+  const exited = o.exited ?? hasExited;
   const until = Date.now() + limitMs;
-  while (isProcessAlive(oldpid) && Date.now() < until) await sleep(25);
-  if (isProcessAlive(oldpid)) {
-    log(`old daemon ${oldpid} still alive after ${limitMs} ms: SIGKILL (N7)`);
-    try { process.kill(oldpid, 'SIGKILL'); } catch {}
-    while (isProcessAlive(oldpid)) await sleep(25);
-  }
+  while (!exited(oldpid) && Date.now() < until) await sleep(25);
+  if (exited(oldpid)) return;
+  log(`old daemon ${oldpid} still alive after ${limitMs} ms: SIGKILL (N7)`);
+  try { (o.kill ?? ((p: number) => process.kill(p, 'SIGKILL')))(oldpid); } catch {}
+  const postUntil = Date.now() + (o.postKillMs ?? 2000);
+  while (!exited(oldpid) && Date.now() < postUntil) await sleep(25);
+  if (!exited(oldpid)) log(`old daemon ${oldpid} still not gone after the SIGKILL: going on`);
 }
 
 /** R3: bind with backoff (100 ms doubling to 2 s) forever; `setError` names the failure while it lasts. Never exits. */

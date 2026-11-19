@@ -8,7 +8,7 @@ import path from 'path';
 import { sockPath, pidPath, supersurfDir } from 'shared';
 import {
   Handoff, type HandoffOptions, nextSockPath, readEntry, writeEntry, appendSpawn, isBanned,
-  wasAbandoned, queryStatusAt, waitForCommit, waitOldExit, bindWithBackoff,
+  wasAbandoned, queryStatusAt, waitForCommit, waitOldExit, bindWithBackoff, hasExited,
 } from '../src/handoff';
 
 const DEAD_PID = 99999999; // above kernel.pid_max
@@ -466,6 +466,46 @@ describe('waitOldExit', () => {
     expect(logs.join()).toContain('SIGKILL');
     await sleep(50);
     expect(c.exitCode !== null || c.signalCode !== null).toBe(true);
+  });
+});
+
+describe('a zombie old daemon counts as gone (S1)', () => {
+  /** A python parent that never reaps: its child becomes state Z once it exits. Node would reap it. */
+  async function zombie(): Promise<number> {
+    const c = realSpawn('python3', ['-I', '-c', "import subprocess,time;p=subprocess.Popen(['sleep','0.1']);print(p.pid,flush=True);time.sleep(60)"], { stdio: ['ignore', 'pipe', 'ignore'] });
+    children.push(c);
+    const pid = await new Promise<number>((r) => c.stdout!.once('data', (d) => r(parseInt(String(d), 10))));
+    await sleep(400);
+    return pid;
+  }
+
+  it('hasExited is true for a zombie, false for a live process', async () => {
+    const z = await zombie();
+    expect(hasExited(z)).toBe(true);
+    expect(hasExited(process.pid)).toBe(false);
+    expect(hasExited(DEAD_PID)).toBe(true);
+  });
+
+  it('waitOldExit returns for a zombie instead of looping after the SIGKILL', async () => {
+    const z = await zombie();
+    const t = Date.now();
+    await waitOldExit(z, () => {}, 100);
+    expect(Date.now() - t).toBeLessThan(1500);
+  });
+
+  it('waitOldExit gives up after the post-SIGKILL bound when the pid never dies', async () => {
+    const t = Date.now();
+    const logs: string[] = [];
+    await waitOldExit(process.pid + 1, (m) => logs.push(m), 50, { postKillMs: 150, exited: () => false, kill: () => {} });
+    expect(Date.now() - t).toBeLessThan(1500);
+    expect(logs.join()).toContain('SIGKILL');
+  });
+
+  it('waitForCommit treats a zombie old pid with daemon.pid naming this process as a commit (N5)', async () => {
+    const z = await zombie();
+    fs.writeFileSync(pidPath(), String(process.pid));
+    const r = await waitForCommit({ oldpid: z, ownIno: null, log: () => {}, pollMs: 5, commitMsg: new Promise(() => {}) });
+    expect(r).toMatchObject({ kind: 'commit', viaPoll: true });
   });
 });
 
