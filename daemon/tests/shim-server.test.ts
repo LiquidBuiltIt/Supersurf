@@ -34,7 +34,10 @@ function listen(): Promise<void> {
 }
 
 beforeEach(async () => {
-  dir = fs.mkdtempSync(path.join(path.join(__dirname, '..', '.tmp-test'), 'shimsrv-'));
+  // .tmp-test is gitignored; on a fresh clone no earlier test file has made it yet.
+  const baseDir = path.join(__dirname, '..', '.tmp-test');
+  fs.mkdirSync(baseDir, { recursive: true });
+  dir = fs.mkdtempSync(path.join(baseDir, 'shimsrv-'));
   sockPath = path.join(dir, 's.sock');
   workers = [];
   experiments = new DaemonExperimentRegistry();

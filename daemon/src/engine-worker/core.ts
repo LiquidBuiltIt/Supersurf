@@ -31,6 +31,8 @@ export interface WorkerPort {
 }
 
 const REPLY_TIMEOUT_MS = 10_000;
+/** How long `close` waits for a connection's engine start before it closes best effort anyway. */
+const CLOSE_READY_TIMEOUT_MS = 10_000;
 
 interface Connection {
   transport: PortTransport;
@@ -53,7 +55,12 @@ function buildConfig(i: ShimConfigInputs) {
   };
 }
 
-export function createEngineSide(port: WorkerPort, engine: EngineModule): { shutdown(): Promise<void> } {
+export function createEngineSide(
+  port: WorkerPort,
+  engine: EngineModule,
+  opts: { closeReadyMs?: number } = {},
+): { shutdown(): Promise<void> } {
+  const closeReadyMs = opts.closeReadyMs ?? CLOSE_READY_TIMEOUT_MS;
   const router = new PortLinkRouter(port);
   const connections = new Map<string, Connection>();
   const managers = new Map<string, InstanceType<EngineModule['AgentSessionManager']>>();
@@ -110,27 +117,50 @@ export function createEngineSide(port: WorkerPort, engine: EngineModule): { shut
     ready.catch(() => { void close(cid); });
   };
 
-  const close = async (cid: string): Promise<void> => {
+  /** Closes in flight, so `shutdown` posts `stopped` only after their `end`. */
+  const closing = new Set<Promise<void>>();
+  const close = (cid: string): Promise<void> => {
+    const p = closeNow(cid);
+    closing.add(p);
+    void p.finally(() => closing.delete(p));
+    return p;
+  };
+
+  const closeNow = async (cid: string): Promise<void> => {
     const conn = connections.get(cid);
     const manager = managers.get(cid);
     if (!conn || !manager) return;
     connections.delete(cid);
     managers.delete(cid);
-    await conn.ready.catch(() => {});
-    try {
-      await manager.serverClosed();
-      await conn.server.close();
-    } catch { /* best effort: the connection is gone either way */ }
+    // A start that never settles must not hold `close` (and the daemon's shutdown) forever.
+    let waitTimer: NodeJS.Timeout | undefined;
+    let timedOut = false;
+    await Promise.race([
+      conn.ready.catch(() => {}),
+      new Promise<void>((r) => { waitTimer = setTimeout(() => { timedOut = true; r(); }, closeReadyMs); waitTimer.unref(); }),
+    ]);
+    clearTimeout(waitTimer);
+    const closeAll = async (): Promise<void> => {
+      try {
+        await manager.serverClosed();
+        await conn.server.close();
+      } catch { /* best effort: the connection is gone either way */ }
+    };
+    await closeAll();
+    // The start settled after the bound: `server.connect` ran on a closed connection, so close it again.
+    if (timedOut) conn.ready.then(() => closeAll(), () => {});
     port.postMessage({ t: 'end', cid });
   };
 
   const shutdown = async (): Promise<void> => {
     // Settle pending asks now: their timers would otherwise run on after shutdown.
     for (const [rid, settle] of [...replies]) { replies.delete(rid); settle(null); }
-    await Promise.all([...connections.keys()].map(close));
+    await Promise.all([...[...connections.keys()].map(close), ...closing]);
+    port.postMessage({ t: 'stopped' });
   };
 
   port.on('message', (m) => {
+    if (m.t === 'ping') { port.postMessage({ t: 'pong' }); return; }
     if (router.handle(m)) return;
     switch (m.t) {
       case 'open': open(m.cid, m.config); break;

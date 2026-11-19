@@ -25,6 +25,8 @@ export type MainToWorker =
   | { t: 'line'; cid: string; data: string }
   | { t: 'close'; cid: string }
   | { t: 'shutdown' }
+  /** Heartbeat: the worker answers `pong` at once. */
+  | { t: 'ping' }
   /** One object a port sink was sent: session_ack, session_reject, or a JSON-RPC response with `config_drift`/`peers`. */
   | { t: 'msg'; lid: number; msg: Record<string, unknown> }
   | { t: 'link-end'; lid: number }
@@ -33,6 +35,9 @@ export type MainToWorker =
 
 export type WorkerToMain =
   | { t: 'ready' }
+  | { t: 'pong' }
+  /** Posted by `shutdown` after every connection is closed. */
+  | { t: 'stopped' }
   /** One MCP server line, UTF-8, transferred (never a pooled Buffer slab). */
   | { t: 'line'; cid: string; buf: Uint8Array }
   | { t: 'end'; cid: string }

@@ -190,7 +190,7 @@ async function main(): Promise<void> {
   const ipcMeta: IPCServerMeta = { port, version, startupOpts, extensionPullError: null };
   const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, ipcMeta);
   // The engine worker starts at the first `shim_register`; until then this costs nothing.
-  const shim = new ShimServer({ host: ipc, experiments, daemon: { configPath, port, version } });
+  const shim = new ShimServer({ host: ipc, experiments, daemon: { configPath, port, version }, log: (m) => logger.log(m) });
   ipc.setShimServer(shim);
 
   // Watch ~/.supersurf/config.json for post-startup edits. The daemon snapshots
@@ -262,6 +262,13 @@ async function main(): Promise<void> {
     logger.log(`[Daemon] Shutting down (reason=${reason})...`);
     resetIdleTimer();
 
+    // First: the engine worker closes its links while the extension is still up.
+    try {
+      await shim.stop();
+    } catch (err: any) {
+      logger.log(`[Daemon] Shim server stop failed: ${err?.message ?? err}`);
+    }
+
     // Kill all managed Chromium processes — except user-owned ones
     // (launched via `supersurf profiles open`): the human closes those.
     const profiles = profileRegistry.list();
@@ -282,7 +289,6 @@ async function main(): Promise<void> {
     }
 
     scheduler.drainAll();
-    shim.stop();
     await ipc.stop();
     await bridge.stop();
     cleanupFiles();

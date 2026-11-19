@@ -86,7 +86,15 @@ export function inlineWorker(engine: EngineModule): ShimWorker & { terminated: b
 export class RecordingWorker extends EventEmitter {
   posted: any[] = [];
   terminated = false;
-  postMessage(m: unknown): void { this.posted.push(m); }
+  /** Answer `shutdown` with `stopped` (a healthy worker); tests of the grace period turn it off. */
+  autoStop = true;
+  /** Answer `ping` with `pong`; heartbeat tests turn it on. */
+  autoPong = false;
+  postMessage(m: any): void {
+    this.posted.push(m);
+    if (m?.t === 'shutdown' && this.autoStop) setImmediate(() => this.emit('message', { t: 'stopped' }));
+    if (m?.t === 'ping' && this.autoPong) setImmediate(() => this.emit('message', { t: 'pong' }));
+  }
   terminate(): Promise<number> { this.terminated = true; return Promise.resolve(0); }
   of(t: string): any[] { return this.posted.filter((m) => m.t === t); }
 }

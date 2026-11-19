@@ -116,7 +116,7 @@ describe('E2b: after a shim_register is acked, main\'s require.cache has no engi
       const ipc = new IPCServer(sock, bridge, sessions, new RequestScheduler(bridge, sessions), experiments, new ProfileRegistry(home + '/profiles'), { port: 1, version: '0' });
       const shim = new ShimServer({ host: ipc, experiments, daemon: { configPath: home + '/config.json', port: 1, version: '0' } });
       ipc.setShimServer(shim);
-      const finish = (code) => { shim.stop(); ipc.stop().then(() => process.exit(code)); };
+      const finish = (code) => { shim.stop().then(() => ipc.stop()).then(() => process.exit(code)); };
       setTimeout(() => { console.error('timeout'); process.exit(2); }, 20000);
       ipc.start().then(() => {
         const c = net.createConnection(sock);

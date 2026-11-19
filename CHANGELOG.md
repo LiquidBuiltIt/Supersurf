@@ -41,6 +41,10 @@ Format: `feat` = new capability, `fix` = bug fix, `security` = hardening, `chore
 
 ## Unreleased
 
+- feat: **The daemon now limits engine worker crashes.** A worker error, an exit other than 0 or 42, or a missed heartbeat counts as a crash; the 4th crash in 5 minutes makes the daemon refuse `shim_register` with `shim_reject` (count and last error) for 5 minutes. After a crash the next shim connection starts a new worker. Legacy sessions are never affected.
+- feat: **The daemon pings the engine worker every 5 seconds and terminates it after 15 seconds without an answer.** A hung worker used to hold every shim session open with no reply.
+- feat: **On shutdown the daemon closes shim sessions first.** It refuses new shim connections, asks the worker to stop, waits up to 2 seconds, then terminates it, before it kills Chromium and stops the socket; shim sessions end through `sessionDisconnect` while the extension is still connected.
+- fix: **Closing a shim connection whose engine start never finishes no longer hangs.** The worker waits at most 10 seconds for the start, then ends the connection and closes it again if the start finishes later.
 - feat: **The daemon now serves MCP to a `supersurf-shim` connection (`shim_register`) through an engine worker thread.** The worker starts at the first shim connection; each shim connection takes its flags, allowlisted env and experiment defaults from its own handshake, and `secure_fill` reads env values from that shim, not from the daemon. Legacy `session_register` clients are unchanged.
 - feat: **The metrics trail now records `response_bytes` on every tool-call row.** It is the UTF-8 byte length of the JSON the client receives, screenshot data included, so response size is measurable per tool.
 - feat: **The server tells the daemon why it starts it (`--start-reason=not_running` or `version_mismatch`), and a `connect` row in the metrics trail carries `daemon_spawn` when that connect had to start or restart the daemon.** Before this, an automatic version-mismatch restart left no trace in the trail.
