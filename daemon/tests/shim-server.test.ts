@@ -303,3 +303,28 @@ describe('worker-built config (inline fake engine)', () => {
     await w.terminate();
   });
 });
+
+describe('hand-off support (E4)', () => {
+  it('liveCount counts registered shims and drops a closed one', async () => {
+    expect(shimServer.liveCount).toBe(0);
+    const a = newShim({ sessionId: 'shim-a' });
+    await a.register();
+    await newShim({ sessionId: 'shim-b' }).register();
+    expect(shimServer.liveCount).toBe(2);
+    a.close();
+    await until(() => shimServer.liveCount === 1);
+  });
+
+  it('notifyRestarting writes {"type":"restarting"} to every shim socket', async () => {
+    const a = newShim({ sessionId: 'shim-a' });
+    const b = newShim({ sessionId: 'shim-b' });
+    await a.register();
+    await b.register();
+    shimServer.notifyRestarting();
+    await until(() => a.lines.includes('{"type":"restarting"}') && b.lines.includes('{"type":"restarting"}'));
+  });
+
+  it('notifyRestarting with no shims is a no-op', () => {
+    expect(() => shimServer.notifyRestarting()).not.toThrow();
+  });
+});

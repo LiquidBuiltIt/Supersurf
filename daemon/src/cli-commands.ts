@@ -27,7 +27,7 @@ export const LOG_FILE = path.join(SUPERSURF_DIR, 'logs', 'daemon.log');
 
 // ─── CLI Parsing ──────────────────────────────────────────────
 
-export function parseArgs(argv: string[]): { port: number; debug: boolean; verbose: boolean; command?: string; portExplicit: boolean; startReason: string } {
+export function parseArgs(argv: string[]): { port: number; debug: boolean; verbose: boolean; command?: string; portExplicit: boolean; startReason: string; takeover?: number } {
   let port = HARDCODED_DEFAULTS.daemon.port;
   let portExplicit = false;
   let debug = false;
@@ -35,6 +35,7 @@ export function parseArgs(argv: string[]): { port: number; debug: boolean; verbo
   let command: string | undefined;
   let startReason: string | undefined;
   let spawnedByShim = false;
+  let takeover: number | undefined;
 
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--port' && argv[i + 1]) {
@@ -44,6 +45,11 @@ export function parseArgs(argv: string[]): { port: number; debug: boolean; verbo
         process.exit(1);
       }
       portExplicit = true;
+      i++;
+    } else if (argv[i] === '--takeover' && argv[i + 1]) {
+      // Hand-off successor: the old daemon's pid. Anything but a positive integer is ignored.
+      const n = Number(argv[i + 1]);
+      if (Number.isInteger(n) && n > 0) takeover = n;
       i++;
     } else if (argv[i] === '--debug') {
       debug = true;
@@ -68,7 +74,7 @@ export function parseArgs(argv: string[]): { port: number; debug: boolean; verbo
 
   // Only [a-z_]+ reaches the log line; anything else is not trusted.
   const reason = startReason !== undefined && /^[a-z_]+$/.test(startReason) ? startReason : spawnedByShim ? 'shim' : 'unknown';
-  return { port, debug, verbose, command, portExplicit, startReason: reason };
+  return { port, debug, verbose, command, portExplicit, startReason: reason, takeover };
 }
 
 // ─── Status Command ──────────────────────────────────────────

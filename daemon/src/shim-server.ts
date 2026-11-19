@@ -184,6 +184,14 @@ export class ShimServer {
     if (rest.length) feed(rest);
   }
 
+  /** Live shim sockets. */
+  get liveCount(): number { return this.live.size; }
+
+  /** Hand-off committed: tell every shim socket to reconnect at once (to the successor). */
+  notifyRestarting(): void {
+    for (const c of this.conns.values()) { if (c.socket.writable) c.socket.write('{"type":"restarting"}\n'); }
+  }
+
   /**
    * Daemon shutdown: refuse new shims, ask the worker to close every connection
    * (its links close while the extension is still up), wait for `stopped` or
