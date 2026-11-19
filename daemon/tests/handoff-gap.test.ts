@@ -210,9 +210,9 @@ class Rig {
   }
 }
 
-/** Probe: the verbatim 4.x predicate plus a `daemon_status` connect, every ~1 ms. */
+/** Probe: the verbatim 4.x predicate plus a `daemon_status` connect, every ~1 ms. `restarting` replies are counted apart from gaps. */
 function startProbe(rig: Rig) {
-  const r = { iterations: 0, predicateFalse: 0, connectErrors: 0, answered: 0, pids: new Set<number>() };
+  const r = { iterations: 0, predicateFalse: 0, connectErrors: 0, answered: 0, restarting: 0, pids: new Set<number>() };
   let stop = false;
   const done = (async () => {
     while (!stop) {
@@ -220,7 +220,11 @@ function startProbe(rig: Rig) {
       if (!(isDaemonRunning() && fs.existsSync(sockPath()))) r.predicateFalse++;
       try {
         const s = await queryStatusAt(rig.sock, 1000);
-        if (s.type === 'daemon_status') { r.answered++; r.pids.add(s.pid); } else r.connectErrors++;
+        if (s.type === 'daemon_status') { r.answered++; r.pids.add(s.pid); }
+        // The designed answer of the old daemon's accept backlog after the commit (plan step 6): the
+        // socket accepted and a live process replied, so it is not a gap. A refusal, ENOENT or timeout is.
+        else if (s.type === 'restarting') r.restarting++;
+        else r.connectErrors++;
       } catch { r.connectErrors++; }
       await sleep(1);
     }
