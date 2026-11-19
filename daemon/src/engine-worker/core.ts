@@ -117,7 +117,16 @@ export function createEngineSide(
     ready.catch(() => { void close(cid); });
   };
 
-  const close = async (cid: string): Promise<void> => {
+  /** Closes in flight, so `shutdown` posts `stopped` only after their `end`. */
+  const closing = new Set<Promise<void>>();
+  const close = (cid: string): Promise<void> => {
+    const p = closeNow(cid);
+    closing.add(p);
+    void p.finally(() => closing.delete(p));
+    return p;
+  };
+
+  const closeNow = async (cid: string): Promise<void> => {
     const conn = connections.get(cid);
     const manager = managers.get(cid);
     if (!conn || !manager) return;
@@ -125,22 +134,28 @@ export function createEngineSide(
     managers.delete(cid);
     // A start that never settles must not hold `close` (and the daemon's shutdown) forever.
     let waitTimer: NodeJS.Timeout | undefined;
+    let timedOut = false;
     await Promise.race([
       conn.ready.catch(() => {}),
-      new Promise<void>((r) => { waitTimer = setTimeout(r, closeReadyMs); waitTimer.unref(); }),
+      new Promise<void>((r) => { waitTimer = setTimeout(() => { timedOut = true; r(); }, closeReadyMs); waitTimer.unref(); }),
     ]);
     clearTimeout(waitTimer);
-    try {
-      await manager.serverClosed();
-      await conn.server.close();
-    } catch { /* best effort: the connection is gone either way */ }
+    const closeAll = async (): Promise<void> => {
+      try {
+        await manager.serverClosed();
+        await conn.server.close();
+      } catch { /* best effort: the connection is gone either way */ }
+    };
+    await closeAll();
+    // The start settled after the bound: `server.connect` ran on a closed connection, so close it again.
+    if (timedOut) conn.ready.then(() => closeAll(), () => {});
     port.postMessage({ t: 'end', cid });
   };
 
   const shutdown = async (): Promise<void> => {
     // Settle pending asks now: their timers would otherwise run on after shutdown.
     for (const [rid, settle] of [...replies]) { replies.delete(rid); settle(null); }
-    await Promise.all([...connections.keys()].map(close));
+    await Promise.all([...[...connections.keys()].map(close), ...closing]);
     port.postMessage({ t: 'stopped' });
   };
 
