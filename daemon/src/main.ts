@@ -57,6 +57,7 @@ import {
   printStatus,
   observe,
   stopDaemon,
+  restartDaemon,
 } from './cli-commands';
 
 // Retained as a backwards-compatible export; runtime now reads the live value
@@ -570,8 +571,14 @@ if (isDirectRun) {
       // We ARE the detached child — run the daemon
       main().catch(() => { crashCleanup(); process.exit(1); });
     } else {
-      if (command === 'restart') stopDaemon();
-      daemonize(process.argv);
+      void (async () => {
+        if (command === 'restart') {
+          const r = await restartDaemon(parseArgs(process.argv).port);
+          if (r !== 'start') process.exit(r);
+          stopDaemon();
+        }
+        daemonize(process.argv);
+      })();
     }
   } else {
     // No start/restart command: either a query (status/stop/observe) or

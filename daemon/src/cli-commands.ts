@@ -9,7 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import net from 'net';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import {
   HARDCODED_DEFAULTS,
   daemonCommand,
@@ -284,4 +284,92 @@ export function stopDaemon(): boolean {
   try { fs.unlinkSync(PID_FILE); } catch {}
   try { fs.unlinkSync(SOCK_FILE); } catch {}
   return true;
+}
+
+
+/** The `supersurf-daemon` package root: the nearest `package.json` above this file with that name. */
+export function daemonPackageRoot(): string {
+  let dir = __dirname;
+  for (;;) {
+    try {
+      if (JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name === 'supersurf-daemon') return dir;
+    } catch { /* no package.json here */ }
+    const up = path.dirname(dir);
+    if (up === dir) throw new Error('supersurf-daemon package root not found');
+    dir = up;
+  }
+}
+
+/** `SUPERSURF_SHIM_BIN` (absolute, this process's env) first, then `<package root>/bin/supersurf-shim`. */
+export function findShimBinary(root: string): string | null {
+  const env = process.env.SUPERSURF_SHIM_BIN;
+  const candidates = [...(env && path.isAbsolute(env) ? [env] : []), path.join(root, 'bin', 'supersurf-shim')];
+  return candidates.find((c) => { try { return fs.statSync(c).isFile(); } catch { return false; } }) ?? null;
+}
+
+/** Send `daemon_restart` and wait for the one reply line (`timeoutMs` covers the whole hand-off). */
+function requestHandoff(timeoutMs: number): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(SOCK_FILE);
+    let buf = '';
+    const t = setTimeout(() => { socket.destroy(); reject(new Error(`no reply from the daemon in ${Math.round(timeoutMs / 1000)} s`)); }, timeoutMs);
+    socket.on('connect', () => socket.write(JSON.stringify({ type: 'daemon_restart' }) + '\n'));
+    socket.on('data', (d) => {
+      buf += d.toString();
+      const i = buf.indexOf('\n');
+      if (i === -1) return;
+      clearTimeout(t);
+      socket.destroy();
+      try { resolve(JSON.parse(buf.slice(0, i))); } catch { reject(new Error('invalid reply from the daemon')); }
+    });
+    // The old daemon ends the socket after its reply; no reply line before that is a failure.
+    socket.on('close', () => { clearTimeout(t); reject(new Error('the daemon closed the connection without a reply')); });
+    socket.on('error', (err) => { clearTimeout(t); reject(err); });
+  });
+}
+
+/**
+ * `restart`. Returns `'start'` when the caller must stop the daemon (if any) and start a fresh one
+ * the old way, or the process exit code when the gated hand-off path handled it.
+ * Gate: a running 5.x daemon (reply has `protocol`) with the shim model in use, or a live shim session.
+ */
+export async function restartDaemon(port: number): Promise<'start' | 0 | 1> {
+  let status: any;
+  try { status = await queryDaemonStatus(false); } catch { return 'start'; }
+  const gated = typeof status?.protocol === 'number' && (status.shimModel === true || (status.shimSessions ?? 0) > 0);
+  if (!gated) return 'start';
+
+  const root = daemonPackageRoot();
+  const shimBin = findShimBinary(root);
+  if (!shimBin) {
+    console.error('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
+    return 1;
+  }
+  const ens = spawnSync(shimBin, ['ensure', '--install', root, '--port', String(port)], { encoding: 'utf8', timeout: 60_000 });
+  if (ens.status !== 0) {
+    console.error(`supersurf-shim ensure failed${ens.error ? `: ${ens.error.message}` : ''}; the daemon was not restarted.`);
+    if (ens.stderr) console.error(ens.stderr.trim());
+    return 1;
+  }
+
+  let reply: any;
+  try { reply = await requestHandoff(30_000); } catch (err: any) {
+    console.error(`Restart failed: ${err.message}. Check ${LOG_FILE}.`);
+    return 1;
+  }
+  if (reply?.type === 'handoff_committed') {
+    console.log(`Daemon restarted (pid ${status.pid} -> ${reply.pid}). Legacy sessions on that daemon have ended; shim sessions reconnect by themselves.`);
+    return 0;
+  }
+  if (reply?.type === 'handoff_failed') {
+    console.error(`Restart failed: ${reply.reason}. The old daemon keeps running.`);
+    if (reply.startupLog) console.error(reply.startupLog);
+    return 1;
+  }
+  if (reply?.type === 'handoff_in_progress') {
+    console.error('A restart or shutdown is already in progress; try again in a moment.');
+    return 1;
+  }
+  console.error(`Restart failed: unexpected reply ${JSON.stringify(reply?.type)}.`);
+  return 1;
 }
