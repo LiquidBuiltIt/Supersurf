@@ -39,6 +39,7 @@ import { ExtensionBridge } from './extension-bridge';
 import { SessionRegistry } from './session';
 import { RequestScheduler } from './scheduler';
 import { IPCServer, type IPCServerMeta } from './ipc';
+import { Handoff, nextSockPath, appendSpawn, waitForCommit, waitOldExit, bindWithBackoff, type UserOwned } from './handoff';
 import { ShimServer } from './shim-server';
 import { acquirePidFile, releaseFiles, clearStaleSocket, sockIdentity, type SockIdentity } from './pidfile';
 import { DaemonExperimentRegistry } from './experiments/index';
@@ -72,10 +73,24 @@ function cleanupFiles(): void {
   releaseFiles(PID_FILE, SOCK_FILE, boundSock);
 }
 
+/** What a crash must clean up; `main` replaces it once it knows its role in a hand-off. */
+let crashCleanup: () => void = cleanupFiles;
+
+/**
+ * TEST-ONLY crash points for the real-process hand-off tests (`handoff-gap.test.ts`).
+ * Read here and nowhere else; inert unless `SUPERSURF_TEST_HANDOFF_FAULT` is set.
+ */
+function testHandoffFault(): ((point: 'after-spawn' | 'after-pid-rename') => void) | undefined {
+  const v = process.env.SUPERSURF_TEST_HANDOFF_FAULT;
+  if (v === 'crash-after-spawn') return (p) => { if (p === 'after-spawn') setTimeout(() => { throw new Error('test crash after spawn'); }, 500); };
+  if (v === 'kill-after-pid-rename') return (p) => { if (p === 'after-pid-rename') process.kill(process.pid, 'SIGKILL'); };
+  return undefined;
+}
+
 // ─── Main ──────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { port: cliPort, debug, verbose, command, portExplicit, startReason } = parseArgs(process.argv);
+  const { port: cliPort, debug, verbose, command, portExplicit, startReason, takeover } = parseArgs(process.argv);
 
   if (command === 'status') {
     await printStatus(verbose);
@@ -131,22 +146,43 @@ async function main(): Promise<void> {
   }
 
   const version = getVersion();
-  logger.log(`[Daemon] Starting daemon (port=${port}, pid=${process.pid}, version=${version}, start_reason=${startReason})`);
+  logger.log(`[Daemon] Starting daemon (port=${port}, pid=${process.pid}, version=${version}, start_reason=${startReason}${takeover ? `, takeover=${takeover}` : ''})`);
 
   // Single-instance lock: create-exclusive pidfile. The loser exits here, before
-  // it has any file of its own to clean up.
-  const lock = acquirePidFile(PID_FILE);
-  if (!lock.acquired) {
-    console.error(`Daemon already running (pid ${lock.pid})`);
-    process.exit(1);
+  // it has any file of its own to clean up. A hand-off successor skips it: the old
+  // daemon is alive and writes the pidfile for it at the commit.
+  if (!takeover) {
+    const lock = acquirePidFile(PID_FILE);
+    if (!lock.acquired) {
+      console.error(`Daemon already running (pid ${lock.pid})`);
+      process.exit(1);
+    }
   }
 
+  // Restart hand-off state. Old daemon: `handoff`. Successor: `takeoverPhase`, `ownNextIno`.
+  let handoff: Handoff | null = null;
+  let takeoverPhase: 'ready' | 'committed' | null = takeover ? 'ready' : null;
+  /** A successor is whole once the old daemon is gone and the extension pull is done. */
+  let successorWhole = !takeover;
+  let bindError: string | null = null;
+  let ownNextIno: number | null = null;
+  let commitSignal: (msg: any) => void = () => {};
+
   // A crash must not leave this daemon's files behind, and must not touch anyone else's.
+  crashCleanup = () => {
+    if (handoff?.past) return; // the successor owns the files now
+    handoff?.abortSync();
+    if (takeover && takeoverPhase === 'ready') {
+      try { if (fs.statSync(nextSockPath()).ino === ownNextIno) fs.unlinkSync(nextSockPath()); } catch {}
+      return;
+    }
+    cleanupFiles();
+  };
   const onCrash = (kind: string) => (err: unknown) => {
     const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
     logger.log(`[Daemon] ${kind}: ${detail}`);
     console.error(`Daemon ${kind}:`, err);
-    cleanupFiles();
+    crashCleanup();
     process.exit(1);
   };
   process.on('uncaughtException', onCrash('uncaughtException'));
@@ -174,21 +210,31 @@ async function main(): Promise<void> {
   // Initialize profile registry
   const profileRegistry = new ProfileRegistry(path.join(SUPERSURF_DIR, 'profiles'));
 
-  // Kill orphan Chromium processes from previous crash
-  const entries = replayPidLog();
-  const orphans = findOrphanPids(entries);
-  if (orphans.length > 0) {
-    logger.log(`[Daemon] Cleaning up ${orphans.length} orphan Chromium process(es)`);
-    killOrphanPids(orphans);
-  }
-  truncatePidLog();
+  // Kill orphan Chromium processes from previous crash. A hand-off successor does
+  // this only at the commit, and only on the poll path (item 6): the old daemon owns
+  // those browsers until then.
+  const coldStartSweep = (): UserOwned[] => {
+    const entries = replayPidLog();
+    const orphans = findOrphanPids(entries);
+    if (orphans.length > 0) {
+      logger.log(`[Daemon] Cleaning up ${orphans.length} orphan Chromium process(es)`);
+      killOrphanPids(orphans);
+    }
+    truncatePidLog();
+    return entries
+      .filter((e) => e.action === 'spawn' && e.owner === 'user' && isProcessAlive(e.pid) && !entries.some((k) => k.action === 'kill' && k.pid === e.pid))
+      .map((e) => ({ profile: e.profile, pid: e.pid }));
+  };
+  if (!takeover) coldStartSweep();
 
   const startupOpts = {
     disableGpu: cfg.get().profiles.startup_opts.disable_gpu,
     chromePath: cfg.get().profiles.chrome_path,
   };
   const ipcMeta: IPCServerMeta = { port, version, startupOpts, extensionPullError: null };
-  const ipc = new IPCServer(SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, ipcMeta);
+  let openSpawnGate: () => void = () => {};
+  if (takeover) ipcMeta.spawnGate = new Promise<void>((r) => { openSpawnGate = r; });
+  const ipc = new IPCServer(takeover ? nextSockPath() : SOCK_FILE, bridge, sessions, scheduler, experiments, profileRegistry, ipcMeta);
   // The engine worker starts at the first `shim_register`; until then this costs nothing.
   const shim = new ShimServer({ host: ipc, experiments, daemon: { configPath, port, version }, log: (m) => logger.log(m) });
   ipc.setShimServer(shim);
@@ -230,6 +276,7 @@ async function main(): Promise<void> {
   function startIdleTimer(): void {
     resetIdleTimer();
     idleTimer = setTimeout(() => {
+      if (handoff?.busy) return; // never while a hand-off runs (R4)
       logger.log(`[Daemon] Idle timeout — no sessions for ${idleTimeoutMs}ms, exiting`);
       shutdown('idle_timeout');
     }, idleTimeoutMs);
@@ -237,6 +284,7 @@ async function main(): Promise<void> {
 
   ipc.setSessionCountCallback((count: number) => {
     logger.log(`[Daemon] Session count: ${count}`);
+    if (handoff?.busy) return; // the end of the hand-off re-arms the timer
     if (count === 0) {
       if (profileRegistry.hasUserOwnedRunning()) {
         // A human-opened browser is alive — idling out would strand it
@@ -255,7 +303,30 @@ async function main(): Promise<void> {
   // Graceful shutdown
   let shuttingDown = false;
 
+  /** SIGTERM every managed Chromium except user-owned ones (launched via `supersurf profiles open`: the human closes those). Returns the pids signalled. */
+  function killOwnedChromium(): number[] {
+    const killed: number[] = [];
+    for (const p of profileRegistry.list()) {
+      const pid = profileRegistry.getRunningPid(p.name);
+      if (pid !== null) {
+        if (profileRegistry.isUserOwned(p.name)) {
+          logger.log(`[Daemon] Leaving user-owned Chromium for profile "${p.name}" (pid ${pid}) running`);
+          continue;
+        }
+        try {
+          process.kill(pid, 'SIGTERM');
+          logger.log(`[Daemon] Killed Chromium for profile "${p.name}" (pid ${pid})`);
+          appendPidLog({ action: 'kill', profile: p.name, pid, ts: new Date().toISOString() });
+          killed.push(pid);
+        } catch {}
+        profileRegistry.clearRunningPid(p.name);
+      }
+    }
+    return killed;
+  }
+
   async function shutdown(reason: string): Promise<void> {
+    if (handoff?.past) { logger.log(`[Daemon] Ignoring shutdown (reason=${reason}): the hand-off is committed`); return; }
     if (shuttingDown) return;
     shuttingDown = true;
 
@@ -269,24 +340,7 @@ async function main(): Promise<void> {
       logger.log(`[Daemon] Shim server stop failed: ${err?.message ?? err}`);
     }
 
-    // Kill all managed Chromium processes — except user-owned ones
-    // (launched via `supersurf profiles open`): the human closes those.
-    const profiles = profileRegistry.list();
-    for (const p of profiles) {
-      const pid = profileRegistry.getRunningPid(p.name);
-      if (pid !== null) {
-        if (profileRegistry.isUserOwned(p.name)) {
-          logger.log(`[Daemon] Leaving user-owned Chromium for profile "${p.name}" (pid ${pid}) running`);
-          continue;
-        }
-        try {
-          process.kill(pid, 'SIGTERM');
-          logger.log(`[Daemon] Killed Chromium for profile "${p.name}" (pid ${pid})`);
-          appendPidLog({ action: 'kill', profile: p.name, pid, ts: new Date().toISOString() });
-        } catch {}
-        profileRegistry.clearRunningPid(p.name);
-      }
-    }
+    killOwnedChromium();
 
     scheduler.drainAll();
     await ipc.stop();
@@ -296,8 +350,124 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  // Restart hand-off, old side. `daemon_restart` starts it; the idle timer, the session callback
+  // and shutdown all look at it (R4).
+  let handoffRun: Promise<unknown> = Promise.resolve();
+  handoff = new Handoff({
+    version, port, debug,
+    log: (m) => logger.log(m),
+    killOwnedChromium,
+    userOwned: () => profileRegistry.list()
+      .filter((p) => profileRegistry.getRunningPid(p.name) !== null && profileRegistry.isUserOwned(p.name))
+      .map((p) => ({ profile: p.name, pid: profileRegistry.getRunningPid(p.name)! })),
+    setRestarting: () => { ipc.setRestarting(); shim.notifyRestarting(); },
+    stopShims: () => shim.stop(),
+    endSessions: () => ipc.endSessions(),
+    fault: testHandoffFault(),
+  });
+  const handoffNow = handoff;
+  ipc.setHandoffHook({
+    restart: (reply) => {
+      // A successor that is not whole yet, a daemon already handing off or shutting down: refuse.
+      if (!successorWhole || handoffNow.busy || shuttingDown) return reply({ type: 'handoff_in_progress' });
+      resetIdleTimer();
+      handoffRun = handoffNow.run(reply).then((r) => {
+        if (r === 'failed' && !shuttingDown && sessions.count === 0 && !profileRegistry.hasUserOwnedRunning()) startIdleTimer();
+      }).catch((err) => { logger.log(`[Daemon] Hand-off error: ${err?.message ?? err}`); });
+    },
+    status: () => ({
+      ...(takeoverPhase ? { takeover: takeoverPhase } : {}),
+      ...(bindError ? { bindError } : {}),
+      shimSessions: shim.liveCount,
+    }),
+    takeoverCommit: takeover ? (msg) => commitSignal(msg) : undefined,
+  });
+
+  // Before the commit a signal aborts the hand-off and rolls back, then shuts down; after it, it is ignored.
+  const onSignal = (sig: string) => {
+    if (handoffNow.past) { logger.log(`[Daemon] Ignoring ${sig}: the hand-off is committed`); return; }
+    if (handoffNow.busy) {
+      handoffNow.aborted = true;
+      void handoffRun.then(() => shutdown(sig));
+      return;
+    }
+    void shutdown(sig);
+  };
+  process.on('SIGTERM', () => onSignal('SIGTERM'));
+  process.on('SIGINT', () => onSignal('SIGINT'));
+
+  // Pull extension from GitHub if not cached — started only after the socket is
+  // listening, so the network time is not startup time; managed spawns wait on
+  // `extensionReady`, unmanaged sessions never need it. A failure is not fatal at
+  // startup — a cached copy may still be usable, and unmanaged (bring-your-own
+  // Chromium) sessions never touch this directory. But it IS fatal to a managed
+  // profile spawn, so the reason is carried forward to spawnProfile rather than
+  // being swallowed into daemon.log, where it only ever resurfaced as a
+  // 45s match timeout with no cause attached.
+  const startExtensionPull = (): Promise<unknown> => {
+    ipcMeta.extensionReady = ensureExtension().catch((err: any) => {
+      const extensionPullError = err?.message ? String(err.message) : String(err);
+      ipcMeta.extensionPullError = extensionPullError;
+      logger.log(`[Daemon] Failed to pull extension: ${extensionPullError}`);
+      const cached = isExtensionCached();
+      // Note on reach: `daemon start` re-spawns itself via daemonize() with
+      // stdio 'ignore', so this line is only visible on the foreground path.
+      // Under the server it lands in daemon.startup.log, which is read only when
+      // the daemon dies — and a pull failure is not fatal. The throw in
+      // spawnProfile is therefore what actually reaches a human; this is the
+      // cheap second surface, not the primary one.
+      console.error(
+        `SuperSurf: could not download the browser extension — ${extensionPullError}\n` +
+        (cached
+          ? `  Using the cached copy at ${getExtensionDir()}. It may be out of date.`
+          : `  No cached copy at ${getExtensionDir()}. Managed profiles cannot start until this succeeds.`),
+      );
+    });
+    return ipcMeta.extensionReady;
+  };
+
+  if (takeover) {
+    // Hand-off successor: listen on `.next` only, say `takeover:"ready"` and wait for the old daemon's commit.
+    const NEXT = nextSockPath();
+    try {
+      await ipc.start();
+      boundSock = sockIdentity(NEXT);
+      ownNextIno = fs.statSync(NEXT).ino;
+      logger.log(`[Daemon] IPC listening on ${NEXT}; waiting for the commit from pid ${takeover}`);
+    } catch (error: any) {
+      console.error(`Failed to start IPC server on ${NEXT}: ${error.message}`);
+      process.exit(1); // owns no shared file yet
+    }
+
+    const commitMsg = new Promise<any>((resolve) => { commitSignal = resolve; });
+    const res = await waitForCommit({ oldpid: takeover, ownIno: ownNextIno, commitMsg, log: (m) => logger.log(`[Daemon] ${m}`) });
+    if (res.kind === 'leave') {
+      logger.log(`[Daemon] Hand-off did not commit (${res.reason}); exiting without touching daemon.pid or daemon.sock`);
+      process.exit(0);
+    }
+
+    takeoverPhase = 'committed';
+    boundSock = sockIdentity(SOCK_FILE); // the rename changed the ctime; releaseFiles matches inode and ctime
+    let adopted = res.userOwned;
+    if (res.viaPoll) {
+      adopted = coldStartSweep();
+      appendSpawn({ pid: process.pid, entryVersion: version, outcome: 'handoff_committed' });
+    }
+    for (const u of adopted) {
+      profileRegistry.setRunningPid(u.profile, u.pid, 'user');
+      logger.log(`[Daemon] Adopted user-owned Chromium for profile "${u.profile}" (pid ${u.pid})`);
+    }
+
+    await waitOldExit(takeover, (m) => logger.log(`[Daemon] ${m}`));
+    // 5555 was the old daemon's until now. Retry for as long as this daemon runs; never exit on it (R3).
+    void bindWithBackoff(() => bridge.start(), port, (e) => { bindError = e; }, (m) => logger.log(`[Daemon] ${m}`));
+    await startExtensionPull();
+    openSpawnGate();
+    successorWhole = true;
+    startIdleTimer();
+    logger.log('[Daemon] Hand-off complete, daemon ready');
+    return;
+  }
 
   // Start extension WebSocket server. A port held by someone else is a startup
   // failure and exits before the socket exists, so the spawner reports EADDRINUSE.
@@ -329,32 +499,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Pull extension from GitHub if not cached — started only after the socket is
-  // listening, so the network time is not startup time; managed spawns wait on
-  // `extensionReady`, unmanaged sessions never need it. A failure is not fatal at
-  // startup — a cached copy may still be usable, and unmanaged (bring-your-own
-  // Chromium) sessions never touch this directory. But it IS fatal to a managed
-  // profile spawn, so the reason is carried forward to spawnProfile rather than
-  // being swallowed into daemon.log, where it only ever resurfaced as a
-  // 45s match timeout with no cause attached.
-  ipcMeta.extensionReady = ensureExtension().catch((err: any) => {
-    const extensionPullError = err?.message ? String(err.message) : String(err);
-    ipcMeta.extensionPullError = extensionPullError;
-    logger.log(`[Daemon] Failed to pull extension: ${extensionPullError}`);
-    const cached = isExtensionCached();
-    // Note on reach: `daemon start` re-spawns itself via daemonize() with
-    // stdio 'ignore', so this line is only visible on the foreground path.
-    // Under the server it lands in daemon.startup.log, which is read only when
-    // the daemon dies — and a pull failure is not fatal. The throw in
-    // spawnProfile is therefore what actually reaches a human; this is the
-    // cheap second surface, not the primary one.
-    console.error(
-      `SuperSurf: could not download the browser extension — ${extensionPullError}\n` +
-      (cached
-        ? `  Using the cached copy at ${getExtensionDir()}. It may be out of date.`
-        : `  No cached copy at ${getExtensionDir()}. Managed profiles cannot start until this succeeds.`),
-    );
-  });
+  void startExtensionPull();
 
   // Start idle timer (no sessions yet)
   startIdleTimer();
@@ -406,7 +551,7 @@ if (isDirectRun) {
     // Explicit CLI command — self-daemonize (fork + exit parent)
     if (isDaemonized) {
       // We ARE the detached child — run the daemon
-      main().catch(() => { cleanupFiles(); process.exit(1); });
+      main().catch(() => { crashCleanup(); process.exit(1); });
     } else {
       if (command === 'restart') stopDaemon();
       daemonize(process.argv);
@@ -416,7 +561,7 @@ if (isDirectRun) {
     // programmatic spawn (e.g. ensureDaemon) — run main() directly
     main().catch((error) => {
       console.error('Daemon fatal error:', error);
-      cleanupFiles();
+      crashCleanup();
       process.exit(1);
     });
   }
