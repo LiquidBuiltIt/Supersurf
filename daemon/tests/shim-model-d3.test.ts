@@ -10,6 +10,8 @@ import fs from 'fs';
 import net from 'net';
 
 const missing = !fs.existsSync(MAIN);
+const RELAY = { SUPERSURF_RELAY: '1' };
+
 let rig: DaemonRig;
 afterEach(() => rig?.cleanup());
 
@@ -17,7 +19,7 @@ describe.skipIf(missing)('D3 upgrade pending (real daemon)', () => {
   it('entry newer + shim model on + zero sessions: exits with reason upgrade_pending', async () => {
     rig = new DaemonRig();
     rig.writeEntry('99.0.0');
-    const pid = await rig.start();
+    const pid = await rig.start([], RELAY);
     const st = await rig.status();
     expect(st.shimModel).toBe(true);
     expect(st.upgradePending).toEqual({ from: PKG_VERSION, to: '99.0.0' });
@@ -28,7 +30,7 @@ describe.skipIf(missing)('D3 upgrade pending (real daemon)', () => {
   it('a live legacy session blocks the exit; closing it triggers it at once', async () => {
     rig = new DaemonRig();
     rig.writeEntry('99.0.0');
-    const pid = await rig.start();
+    const pid = await rig.start([], RELAY);
     const s = await rig.legacySession('legacy-1');
     await sleep(6500); // past one 5 s tick
     expect(isProcessAlive(pid)).toBe(true);
@@ -36,6 +38,24 @@ describe.skipIf(missing)('D3 upgrade pending (real daemon)', () => {
     s.close();
     await waitFor(() => !isProcessAlive(pid), 3000, 'the exit after the last session closed');
     expect(rig.daemonLog()).toContain('reason=upgrade_pending');
+  }, 20000);
+
+  it('a newer entry alone (relay off, no shim served, not shim-started) is a legacy daemon: no shim model, no upgrade_pending exit', async () => {
+    rig = new DaemonRig();
+    rig.writeEntry('99.0.0');
+    const pid = await rig.start();
+    await sleep(6500);
+    expect(isProcessAlive(pid)).toBe(true);
+    const st = await rig.status();
+    expect(st.shimModel).toBe(false);
+    expect(st.upgradePending).toBeUndefined();
+    expect(rig.daemonLog()).not.toContain('upgrade_pending');
+  }, 20000);
+
+  it('agents.relay on, no entry file: shimModel is true', async () => {
+    rig = new DaemonRig();
+    await rig.start([], RELAY);
+    expect((await rig.status()).shimModel).toBe(true);
   }, 20000);
 
   it('a legacy daemon (no entry, no shim) never exits for this reason and reports no shim model', async () => {
@@ -52,7 +72,7 @@ describe.skipIf(missing)('D3 upgrade pending (real daemon)', () => {
   it('an entry that is not newer is no upgrade', async () => {
     rig = new DaemonRig();
     rig.writeEntry(PKG_VERSION);
-    const pid = await rig.start();
+    const pid = await rig.start([], RELAY);
     await sleep(6500);
     expect(isProcessAlive(pid)).toBe(true);
     const st = await rig.status();
@@ -63,7 +83,7 @@ describe.skipIf(missing)('D3 upgrade pending (real daemon)', () => {
   it('status prints one upgrade-pending line', async () => {
     rig = new DaemonRig();
     rig.writeEntry('99.0.0');
-    await rig.start();
+    await rig.start([], RELAY);
     const s = await rig.legacySession('legacy-2');
     const r = await rig.cli(['status']);
     s.close();

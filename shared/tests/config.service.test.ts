@@ -178,4 +178,17 @@ describe('ConfigService', () => {
     expect(warns).toHaveLength(1);
     expect(warns[0]).toContain('agents.multi_agent');
   });
+
+  it('agents.relay merges CLI over env over file over default, and rejects non-booleans', () => {
+    const warns: string[] = [];
+    const build = (inp: any) => new ConfigService({ cli: {}, env: {}, file: {}, ...inp, onWarn: (m: string) => warns.push(m) });
+    expect(build({}).get().agents.relay).toBe(false);
+    expect(build({ file: { agents: { relay: true } } }).get().agents.relay).toBe(true);
+    expect(build({ file: { agents: { relay: false } }, env: { agents: { relay: true } } }).get().agents.relay).toBe(true);
+    expect(build({ env: { agents: { relay: false } }, cli: { agents: { relay: true } } }).get().agents.relay).toBe(true);
+    expect(warns).toEqual([]);
+    expect(build({ file: { agents: { relay: 'yes' as any } } }).get().agents.relay).toBe(false);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('agents.relay');
+  });
 });

@@ -18,6 +18,7 @@ import {
   pidPath,
   readDaemonPid,
   isProcessAlive,
+  findShimBinary,
 } from 'shared';
 
 export const SUPERSURF_DIR = supersurfDir();
@@ -300,13 +301,6 @@ export function daemonPackageRoot(): string {
   }
 }
 
-/** `SUPERSURF_SHIM_BIN` (absolute, this process's env) first, then `<package root>/bin/supersurf-shim`. */
-export function findShimBinary(root: string): string | null {
-  const env = process.env.SUPERSURF_SHIM_BIN;
-  const candidates = [...(env && path.isAbsolute(env) ? [env] : []), path.join(root, 'bin', 'supersurf-shim')];
-  return candidates.find((c) => { try { return fs.statSync(c).isFile(); } catch { return false; } }) ?? null;
-}
-
 /** Send `daemon_restart` and wait for the one reply line (`timeoutMs` covers the whole hand-off). */
 function requestHandoff(timeoutMs: number): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -341,6 +335,10 @@ export async function restartDaemon(port: number): Promise<'start' | 0 | 1> {
 
   const root = daemonPackageRoot();
   const shimBin = findShimBinary(root);
+  if (!shimBin && (status.shimSessions ?? 0) === 0) {
+    console.log('supersurf-shim not found; no shim session is live, so the daemon restarts by stop and start.');
+    return 'start';
+  }
   if (!shimBin) {
     console.error('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
     return 1;

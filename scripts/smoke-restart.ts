@@ -25,6 +25,7 @@ import path from 'path';
 import { spawn, spawnSync, ChildProcess } from 'child_process';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
+import { findGo } from './find-go';
 
 const require_ = createRequire(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -76,13 +77,6 @@ function request(sock: string, msg: object, timeoutMs = 3000): Promise<any> {
     s.on('close', () => { clearTimeout(t); reject(new Error('closed before reply')); });
     s.on('error', (e) => { clearTimeout(t); reject(e); });
   });
-}
-
-function findGo(): string | null {
-  for (const g of [process.env.GO, '/home/claudebox/.local/go/bin/go', 'go']) {
-    if (g && spawnSync(g, ['version'], { stdio: 'ignore' }).status === 0) return g;
-  }
-  return null;
 }
 
 /** An MCP client on the shim's stdio: NDJSON JSON-RPC, every line kept. */

@@ -107,4 +107,12 @@ describe('loadEnvConfig', () => {
     expect(loadEnvConfig({}).config.agents?.multi_agent).toBeUndefined();
     expect(loadEnvConfig({ SUPERSURF_MULTI_AGENT: '0' }).config.agents?.multi_agent).toBeUndefined();
   });
+
+  it('SUPERSURF_RELAY=1 turns agents.relay on; absent or falsy leaves it untouched; keeps multi_agent', () => {
+    expect(loadEnvConfig({ SUPERSURF_RELAY: '1' }).config.agents?.relay).toBe(true);
+    expect(loadEnvConfig({ SUPERSURF_RELAY: 'on' }).config.agents?.relay).toBe(true);
+    expect(loadEnvConfig({}).config.agents?.relay).toBeUndefined();
+    expect(loadEnvConfig({ SUPERSURF_RELAY: '0' }).config.agents?.relay).toBeUndefined();
+    expect(loadEnvConfig({ SUPERSURF_RELAY: '1', SUPERSURF_MULTI_AGENT: '1' }).config.agents).toEqual({ multi_agent: true, relay: true });
+  });
 });

@@ -31,6 +31,7 @@ import {
 } from 'shared';
 import { buildConfigService, backendConfigFrom } from './backend-config';
 import { createEngineHost } from './engine-host';
+import { relayDecision } from './relay';
 
 const { version: VERSION } = require('../package.json');
 
@@ -244,6 +245,7 @@ program
   .option('--disable-secure-eval', 'Disable secure_eval RCE protection on browser_evaluate (not recommended — equivalent to SUPERSURF_DISABLE_SECURE_EVAL=1)')
   .option('--disable-playbook-eval', 'Refuse agent-invoked playbook scripts that declare the `eval` permission (equivalent to SUPERSURF_DISABLE_PLAYBOOK_EVAL=1). Terminal `supersurf playbook run` is unaffected.')
   .option('--multi-agent', 'Opt in to username-based multi-agent mode: one server process serves many agents, each passing its own `username` (equivalent to SUPERSURF_MULTI_AGENT=1)')
+  .option('--relay', 'Opt in to the Go relay: supersurf-mcp hands its stdio to supersurf-shim, and the daemon hosts the engine (equivalent to SUPERSURF_RELAY=1)')
   .action(async (options) => {
     if (options.scriptMode) {
       const engine = loadEngine();
@@ -257,6 +259,14 @@ program
       const config = backendConfigFrom(configService, VERSION, versionCheck.shouldNotify);
       await engine.startScriptMode(config, createEngineHost(VERSION));
       return;
+    }
+
+    if (!options.child) {
+      const code = await relayDecision(options, argv.slice(2));
+      if (code !== null) {
+        process.exitCode = code;
+        return;
+      }
     }
 
     if (options.debug && !options.child) {

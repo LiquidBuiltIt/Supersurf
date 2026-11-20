@@ -50,16 +50,14 @@ export function writeEntry(e: Entry): void {
   fs.renameSync(tmp, entryFile());
 }
 
-/** True when `entry` exists at all (even a broken one): the shim model has written here before. */
-export const entryExists = (): boolean => fs.existsSync(entryFile());
-
 /**
- * The shim model is in use when this daemon accepted a `shim_register` since it started, was started
- * `--spawned-by=shim`, or `entry` exists. Gates the D3 exit and the `restart` hand-off; all three false
- * is a legacy daemon and behaves as before. (E5 adds `agents.relay` to this test.)
+ * The shim model is in use when `agents.relay` is on, this daemon accepted a `shim_register` since it
+ * started, or was started `--spawned-by=shim`, or is a hand-off successor (`--takeover`: it exists only because the old
+ * daemon was in the shim model). Gates the D3 exit and the `restart` hand-off; all four
+ * false is a legacy daemon and behaves as before. An `entry` file alone does not count: it outlives the switch.
  */
-export function shimModelInUse(o: { servedShim: boolean; startReason: string; entryExists: boolean }): boolean {
-  return o.servedShim || o.startReason === 'shim' || o.entryExists;
+export function shimModelInUse(o: { relay: boolean; servedShim: boolean; startReason: string; takeover: boolean }): boolean {
+  return o.relay || o.servedShim || o.startReason === 'shim' || o.takeover;
 }
 
 function splitVersion(v: string): { n: [number, number, number]; pre: string } {

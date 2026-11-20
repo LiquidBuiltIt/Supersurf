@@ -12,12 +12,13 @@
 import fs from 'fs';
 import path from 'path';
 
-export type DevComponent = 'server' | 'daemon' | 'extension';
+export type DevComponent = 'server' | 'daemon' | 'extension' | 'shim';
 
 const ENTRY: Record<DevComponent, string> = {
   server: 'server/dist/cli.js',
   daemon: 'daemon/dist/main.js',
   extension: 'extension',
+  shim: 'daemon/bin/supersurf-shim',
 };
 
 function sameFile(a: string, b: string | undefined): boolean {

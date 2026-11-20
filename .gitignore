@@ -14,6 +14,9 @@ docs/documentation/
 # Internal implementation plans (not user-facing)
 docs/superpowers/
 
+# Go shim build output (npm run build.shim)
+daemon/bin/
+
 # Dependencies
 node_modules/
 

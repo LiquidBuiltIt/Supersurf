@@ -43,6 +43,11 @@ describe('cliToPartial', () => {
     expect(cliToPartial({})).toEqual({});
   });
 
+  it('maps --relay to agents.relay true and keeps --multi-agent beside it', () => {
+    expect(cliToPartial({ relay: true })).toEqual({ agents: { relay: true } });
+    expect(cliToPartial({ multiAgent: true, relay: true })).toEqual({ agents: { multi_agent: true, relay: true } });
+  });
+
   it('keeps both eval flags when both are passed', () => {
     expect(cliToPartial({ disableSecureEval: true, disablePlaybookEval: true }))
       .toEqual({ security: { secure_eval: false, playbook_eval: false } });

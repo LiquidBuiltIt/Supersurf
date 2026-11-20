@@ -16,6 +16,11 @@ describe('root test chain', () => {
     expect(scripts.test).toMatch(/npm run smoke\.parallel && npm run smoke\.restart$/);
   });
 
+  it('runs test.shim through scripts/test-shim.ts, right after test.scripts', () => {
+    expect(scripts['test.shim']).toBe('npx tsx scripts/test-shim.ts');
+    expect(scripts.test).toContain('npm run test.scripts && npm run test.shim && npm run smoke.register');
+  });
+
   it('type-checks cli in test.cli', () => {
     expect(scripts['test.cli']).toContain('typecheck');
   });

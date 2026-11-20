@@ -104,9 +104,9 @@ class Rig {
   }
 
   /** Start the real daemon (not the `start` subcommand, which daemonizes) and wait for IPC. */
-  async start(extra: Record<string, string> = {}): Promise<number> {
+  async start(extra: Record<string, string> = {}, args: string[] = []): Promise<number> {
     if (!this.port) this.port = await freePort();
-    return this.untilServing(this.launch([MAIN, '--_daemonized', '--port', String(this.port)], extra));
+    return this.untilServing(this.launch([MAIN, '--_daemonized', '--port', String(this.port), ...args], extra));
   }
 
   /** Start the minimal old-daemon fixture that runs the real `Handoff` with options from fixture.json. */
@@ -291,6 +291,16 @@ describe('hand-off, real processes', () => {
       await waitFor(() => !alive(old), 10000, 'old exit');
       await waitFor(async () => (await queryStatusAt(rig.sock)).takeover === 'committed', 5000, 'successor status');
       expect(await queryStatusAt(rig.sock)).toMatchObject({ pid: reply.pid, protocol: 1, shimSessions: 0, takeover: 'committed' });
+    }, 40000);
+
+    it('the successor reports shimModel true with no shim reconnecting (R1)', async () => {
+      rig = new Rig();
+      const old = await rig.start({}, ['--spawned-by=shim']); // the successor's argv carries no such flag
+      expect((await queryStatusAt(rig.sock)).shimModel).toBe(true);
+      await rig.restart();
+      await waitFor(() => !alive(old), 10000, 'old exit');
+      await waitFor(async () => (await queryStatusAt(rig.sock)).takeover === 'committed', 5000, 'successor status');
+      expect(await queryStatusAt(rig.sock)).toMatchObject({ shimModel: true, shimSessions: 0 });
     }, 40000);
 
     it('a legacy session_register client is served by the old daemon before and by the successor after', async () => {

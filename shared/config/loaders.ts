@@ -80,6 +80,10 @@ export function loadEnvConfig(env: Record<string, string | undefined>): LoadResu
     out.agents = { ...(out.agents || {}), multi_agent: true };
   }
 
+  if (isTruthy(env.SUPERSURF_RELAY)) {
+    out.agents = { ...(out.agents || {}), relay: true };
+  }
+
   if (env.SUPERSURF_DEBUG !== undefined) {
     if (env.SUPERSURF_DEBUG === 'no_truncate') {
       out.logging = { ...(out.logging || {}), debug: 'no_truncate' };

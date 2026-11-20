@@ -89,3 +89,22 @@ describe('devSource', () => {
     expect(devSource('server')).toBe(path.join(root, 'server/dist/cli.js'));
   });
 });
+
+describe('devSource shim', () => {
+  afterEach(() => { delete process.env.SUPERSURF_DEV_ENVIRONMENT; vi.restoreAllMocks(); });
+
+  it('routes shim to daemon/bin/supersurf-shim in a clone that has it', () => {
+    const root = fakeRepo();
+    fs.mkdirSync(path.join(root, 'daemon/bin'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'daemon/bin/supersurf-shim'), '');
+    process.env.SUPERSURF_DEV_ENVIRONMENT = root;
+    expect(devSource('shim')).toBe(path.join(root, 'daemon/bin/supersurf-shim'));
+  });
+
+  it('falls back with a build hint when the binary is missing', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.SUPERSURF_DEV_ENVIRONMENT = fakeRepo();
+    expect(devSource('shim')).toBeNull();
+    expect(err.mock.calls[0][0]).toContain('daemon/bin/supersurf-shim is missing');
+  });
+});

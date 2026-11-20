@@ -63,3 +63,6 @@ export {
   isDaemonRunning,
   isSocketLive,
 } from './daemon-paths';
+
+export { validPort, findShimBinary, probeShim, shimArgs, execReplace, readRelaySwitch } from './relay';
+export type { ExecDeps } from './relay';

@@ -137,6 +137,9 @@ export class ConfigService {
         multi_agent: pick('agents.multi_agent',
           inp.cli.agents?.multi_agent, inp.env.agents?.multi_agent,
           inp.file.agents?.multi_agent, D.agents.multi_agent, isBool, warn),
+        relay: pick('agents.relay',
+          inp.cli.agents?.relay, inp.env.agents?.relay,
+          inp.file.agents?.relay, D.agents.relay, isBool, warn),
       },
       logging: {
         debug: pick('logging.debug',
