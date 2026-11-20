@@ -11,7 +11,7 @@
  */
 import * as fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { supersurfDir, sockPath, pidPath, isDaemonRunning, isSocketLive } from 'shared';
+import { supersurfDir, sockPath, pidPath, isDaemonRunning, isSocketLive, devSource, findShimBinary, probeShim, readRelaySwitch } from 'shared';
 import { packageCommand } from './shell-out';
 
 export { isDaemonRunning };
@@ -41,6 +41,11 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
   try { if (fs.existsSync(sockPath())) fs.unlinkSync(sockPath()); } catch { /* stale */ }
   if (!fs.existsSync(supersurfDir())) fs.mkdirSync(supersurfDir(), { recursive: true });
 
+  if (shimEnsure(port)) {
+    if (await waitForSocket()) return;
+    throw new Error(WAIT_FAILED);
+  }
+
   const run = packageCommand('supersurf-daemon');
   const res = spawnSync(run.cmd, [...run.args, 'start', '--port', String(port)], {
     stdio: 'inherit',
@@ -65,6 +70,23 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
 
   if (await waitForSocket()) return;
   throw new Error(WAIT_FAILED);
+}
+
+/**
+ * `agents.relay` on and a shim found: `supersurf-shim ensure --port <port>` starts the daemon.
+ * False (after one stderr line when the shim was tried) means: start it the usual way.
+ */
+function shimEnsure(port: number): boolean {
+  if (!readRelaySwitch([]).relay) return false;
+  const bin = findShimBinary() ?? devSource('shim');
+  if (!bin) return false;
+  try {
+    probeShim(bin);
+    const r = spawnSync(bin, ['ensure', '--port', String(port)], { stdio: 'inherit' });
+    if (!r.error && r.status === 0) return true;
+  } catch { /* fall through to the warning */ }
+  console.error('[supersurf] supersurf-shim ensure failed; starting the daemon the usual way.');
+  return false;
 }
 
 const WAIT_FAILED =

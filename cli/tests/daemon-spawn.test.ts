@@ -26,6 +26,8 @@ const result: { status: number | null; signal: NodeJS.Signals | null; error?: Er
   error: undefined,
 };
 let sockPath = '';
+let shimBin = '';
+const shimResult: { status: number | null; error?: Error } = { status: 0 };
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -33,6 +35,12 @@ vi.mock('node:child_process', async (importOriginal) => {
     ...actual,
     spawnSync: vi.fn((cmd: string, args: string[]) => {
       spawned.push({ cmd, args });
+      if (shimBin && cmd === shimBin) {
+        if (args[0] === '--version') return { status: 0, signal: null } as any; // the probe
+        if (shimResult.error) return { error: shimResult.error, status: null, signal: null } as any;
+        if (shimResult.status === 0) { try { fs.writeFileSync(sockPath, ''); } catch { /* dir not ready */ } }
+        return { status: shimResult.status, signal: null } as any;
+      }
       if (result.error) {
         return { error: result.error, status: null, signal: null } as any;
       }
@@ -48,11 +56,18 @@ vi.mock('node:child_process', async (importOriginal) => {
 // CALL time, so setting process.env.HOME (what os.homedir() reads on
 // Linux/macOS) in beforeEach redirects every path to tmpHome and a miss can
 // never touch the developer's real ~/.supersurf.
+const RELAY_KEYS = ['SUPERSURF_RELAY', 'SUPERSURF_SHIM_BIN', 'SUPERSURF_CONFIG_FILE', 'SUPERSURF_DEV_ENVIRONMENT'];
+
 describe('ensureDaemon', () => {
   let tmpHome: string;
   let origHome: string | undefined;
+  const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
+    for (const k of RELAY_KEYS) { savedEnv[k] = process.env[k]; delete process.env[k]; }
+    shimBin = '';
+    shimResult.status = 0;
+    shimResult.error = undefined;
     origHome = process.env.HOME;
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-spawn-test-'));
     process.env.HOME = tmpHome;
@@ -65,6 +80,7 @@ describe('ensureDaemon', () => {
   });
 
   afterEach(() => {
+    for (const k of RELAY_KEYS) { if (savedEnv[k] === undefined) delete process.env[k]; else process.env[k] = savedEnv[k]; }
     if (origHome === undefined) delete process.env.HOME;
     else process.env.HOME = origHome;
     fs.rmSync(tmpHome, { recursive: true, force: true });
@@ -177,5 +193,74 @@ describe('ensureDaemon', () => {
       delete process.env.SUPERSURF_DEV_ENVIRONMENT;
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  describe('agents.relay', () => {
+    const legacy = () => spawned.filter((c) => c.cmd === 'npx' || c.cmd === 'node');
+    const ensures = () => spawned.filter((c) => c.cmd === shimBin && c.args[0] === 'ensure');
+    let warn: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      shimBin = path.join(tmpHome, 'fake-shim');
+      fs.writeFileSync(shimBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      process.env.SUPERSURF_SHIM_BIN = shimBin;
+      warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => warn.mockRestore());
+
+    it('off: the shim never runs and the legacy spawn happens', async () => {
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      await ensureDaemon(5555);
+      expect(spawned.filter((c) => c.cmd === shimBin)).toEqual([]);
+      expect(legacy()).toHaveLength(1);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('on + binary: runs `ensure --port <n>` and spawns no legacy daemon when it succeeds', async () => {
+      process.env.SUPERSURF_RELAY = '1';
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      await expect(ensureDaemon(5599)).resolves.toBeUndefined();
+      expect(ensures().map((c) => c.args)).toEqual([['ensure', '--port', '5599']]);
+      expect(legacy()).toHaveLength(0);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('on + ensure fails: one warning line, then the legacy spawn', async () => {
+      process.env.SUPERSURF_RELAY = '1';
+      shimResult.status = 1;
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      await expect(ensureDaemon(5555)).resolves.toBeUndefined();
+      expect(ensures()).toHaveLength(1);
+      expect(warn.mock.calls).toEqual([['[supersurf] supersurf-shim ensure failed; starting the daemon the usual way.']]);
+      expect(legacy()).toHaveLength(1);
+    });
+
+    it('on + the shim cannot be spawned: warning, then the legacy spawn', async () => {
+      process.env.SUPERSURF_RELAY = '1';
+      shimResult.error = new Error('spawn EACCES');
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      await expect(ensureDaemon(5555)).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(legacy()).toHaveLength(1);
+    });
+
+    it('on, no binary: the legacy path exactly, no warning', async () => {
+      process.env.SUPERSURF_RELAY = '1';
+      process.env.SUPERSURF_SHIM_BIN = path.join(tmpHome, 'no-such-shim');
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      await ensureDaemon(5555);
+      expect(ensures()).toHaveLength(0);
+      expect(legacy()).toHaveLength(1);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('on, daemon already running: the shim is not run', async () => {
+      process.env.SUPERSURF_RELAY = '1';
+      fs.mkdirSync(path.join(tmpHome, '.supersurf'), { recursive: true });
+      fs.writeFileSync(path.join(tmpHome, '.supersurf', 'daemon.pid'), String(process.pid));
+      fs.writeFileSync(sockPath, '');
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      await ensureDaemon(5555);
+      expect(spawned).toHaveLength(0);
+    });
   });
 });
