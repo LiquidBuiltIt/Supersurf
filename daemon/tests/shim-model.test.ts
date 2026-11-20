@@ -3,17 +3,20 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { supersurfDir } from 'shared';
-import { cmpVersion, shimModelInUse, upgradePending, entryExists } from '../src/handoff';
+import { cmpVersion, shimModelInUse, upgradePending } from '../src/handoff';
 
 describe('shimModelInUse', () => {
-  const base = { servedShim: false, startReason: 'unknown', entryExists: false };
+  const base = { servedShim: false, startReason: 'unknown', relay: false };
   it('is false for a legacy daemon (all three signals off)', () => {
     expect(shimModelInUse(base)).toBe(false);
     expect(shimModelInUse({ ...base, startReason: 'start' })).toBe(false);
   });
   it('is true when a shim_register was accepted', () => expect(shimModelInUse({ ...base, servedShim: true })).toBe(true));
   it('is true when the shim started the daemon', () => expect(shimModelInUse({ ...base, startReason: 'shim' })).toBe(true));
-  it('is true when entry exists', () => expect(shimModelInUse({ ...base, entryExists: true })).toBe(true));
+  it('is true when agents.relay is on', () => expect(shimModelInUse({ ...base, relay: true })).toBe(true));
+  it('is false for an entry file alone: the input does not exist any more', () => {
+    expect(shimModelInUse({ ...base, entryExists: true } as any)).toBe(false);
+  });
 });
 
 describe('cmpVersion (same semantics as shim/ensure.go)', () => {
@@ -53,13 +56,11 @@ describe('upgradePending', () => {
   const writeEntryFile = (version: string) =>
     fs.writeFileSync(path.join(supersurfDir(), 'daemon', 'entry'), JSON.stringify({ node: process.execPath, main: process.execPath, version }));
 
-  it('is null with no entry, and entryExists is false', () => {
+  it('is null with no entry', () => {
     expect(upgradePending('4.1.0')).toBeNull();
-    expect(entryExists()).toBe(false);
   });
   it('names from and to when entry is newer', () => {
     writeEntryFile('5.0.0');
-    expect(entryExists()).toBe(true);
     expect(upgradePending('4.1.0')).toEqual({ from: '4.1.0', to: '5.0.0' });
   });
   it('is null for an equal, older or broken entry', () => {

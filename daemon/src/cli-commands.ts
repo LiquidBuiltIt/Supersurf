@@ -335,6 +335,10 @@ export async function restartDaemon(port: number): Promise<'start' | 0 | 1> {
 
   const root = daemonPackageRoot();
   const shimBin = findShimBinary(root);
+  if (!shimBin && (status.shimSessions ?? 0) === 0) {
+    console.log('supersurf-shim not found; no shim session is live, so the daemon restarts by stop and start.');
+    return 'start';
+  }
   if (!shimBin) {
     console.error('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
     return 1;

@@ -39,7 +39,7 @@ import { ExtensionBridge } from './extension-bridge';
 import { SessionRegistry } from './session';
 import { RequestScheduler } from './scheduler';
 import { IPCServer, type IPCServerMeta } from './ipc';
-import { Handoff, nextSockPath, appendSpawn, waitForCommit, waitOldExit, bindWithBackoff, shimModelInUse, upgradePending, entryExists, type UserOwned } from './handoff';
+import { Handoff, nextSockPath, appendSpawn, waitForCommit, waitOldExit, bindWithBackoff, shimModelInUse, upgradePending, type UserOwned } from './handoff';
 import { ShimServer } from './shim-server';
 import { acquirePidFile, releaseFiles, clearStaleSocket, sockIdentity, type SockIdentity } from './pidfile';
 import { DaemonExperimentRegistry } from './experiments/index';
@@ -331,7 +331,7 @@ async function main(): Promise<void> {
   }
 
   /** The shim model is in use: the D3 exit and the `restart` hand-off apply only then. */
-  const shimModel = (): boolean => shimModelInUse({ servedShim: shim.served, startReason, entryExists: entryExists() });
+  const shimModel = (): boolean => shimModelInUse({ relay: cfg.get().agents.relay, servedShim: shim.served, startReason });
   const pendingUpgrade = (): { from: string; to: string } | null => (shimModel() ? upgradePending(version) : null);
 
   /** D3: `entry` names a newer daemon. Exit only with no session of either model, no hand-off and no user-owned browser. */

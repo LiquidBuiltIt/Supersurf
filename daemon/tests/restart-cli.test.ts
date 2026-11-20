@@ -54,8 +54,9 @@ function fakeDaemon(sock: string, status: object, restartReply?: object, vanishA
   return new Promise((resolve) => server.listen(sock, () => resolve({ got, close: () => server.close() })));
 }
 
+const SHIM = { pid: 4242, protocol: 1, shimModel: true, shimSessions: 1 };
+
 describe.skipIf(missing)('restart CLI against a fake status socket (S3)', () => {
-  const SHIM = { pid: 4242, protocol: 1, shimModel: true, shimSessions: 1 };
 
   it('a 4.x reply without `protocol`: the stop path, no ensure, no daemon_restart', async () => {
     rig = new DaemonRig();
@@ -134,16 +135,30 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     expect(rig.daemonLog()).not.toContain('[Handoff]');
   }, 60000);
 
-  it('shim model, no shim binary: says so, exits 1, daemon untouched', async () => {
+  it('shim model, no shim binary, no live shim session: says so and restarts by stop and start', async () => {
     rig = new DaemonRig();
-    const pid = await rig.start(['--spawned-by=shim']);
+    const oldPid = await rig.start([], { SUPERSURF_RELAY: '1' });
+    expect((await rig.status()).shimModel).toBe(true);
     const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim') });
-    expect(r.code).toBe(1);
-    expect(r.out).toContain('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
-    await sleep(300);
-    expect(isProcessAlive(pid)).toBe(true);
-    expect((await rig.status()).pid).toBe(pid);
-    expect(fs.existsSync(path.join(rig.daemonDir, 'entry'))).toBe(false);
+    expect(r.out).toContain('supersurf-shim not found; no shim session is live, so the daemon restarts by stop and start.');
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('Daemon stopped');
+    expect(r.out).toContain('Daemon started');
+    await waitFor(() => { try { return parseInt(fs.readFileSync(rig.pidFile, 'utf8'), 10) !== oldPid; } catch { return false; } }, 15000, 'a new daemon.pid');
+    expect(isProcessAlive(oldPid)).toBe(false);
+    expect(rig.spawns()).toEqual([]);
+    expect(rig.daemonLog()).not.toContain('[Handoff]');
+  }, 60000);
+
+  it('shim model, no shim binary, a live shim session: says so, exits 1, daemon untouched', async () => {
+    rig = new DaemonRig();
+    const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321 });
+    try {
+      const r = await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim') });
+      expect(r.code).toBe(1);
+      expect(r.out).toContain('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
+      expect(fake.got).toEqual(['daemon_status']);
+    } finally { fake.close(); }
   }, 30000);
 
   it.skipIf(!GO)('shim model, real Go shim: ensure writes entry and ban_cleared, the hand-off commits, new pid', async () => {
