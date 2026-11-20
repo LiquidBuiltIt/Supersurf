@@ -1,5 +1,6 @@
 import { checkAndTouchVersionState, UPGRADE_NOTICE_MESSAGE } from 'shared';
 import { shellOut } from './shell-out';
+import { relayMcp } from './relay';
 import { VERSION } from './version';
 
 export type Target =
@@ -111,7 +112,9 @@ export async function dispatch(argv: string[]): Promise<void> {
     // relay would corrupt the JSON-RPC stream. Pinned to this binary's version.
     // `shellOut` resolves the child's exit code and leaves the exiting to us,
     // the same shape the `export` target below already used.
-    process.exit(await shellOut('supersurf-mcp', remainingArgv.slice(2)));
+    const args = remainingArgv.slice(2);
+    // `agents.relay` on and a shim found: exec it instead (src/relay.ts); otherwise the shell-out, unchanged.
+    process.exit((await relayMcp(args)) ?? (await shellOut('supersurf-mcp', args)));
   } else if (target === 'daemon') {
     process.exit(await shellOut('supersurf-daemon', remainingArgv.slice(2)));
   } else if (target === 'profiles') {

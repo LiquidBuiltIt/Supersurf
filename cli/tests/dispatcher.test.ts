@@ -134,10 +134,14 @@ describe('HELP_TEXT', () => {
 
 describe('dispatch — shells out for the mcp and daemon targets', () => {
   const savedArgv = process.argv;
+  const savedEnv = { cfg: process.env.SUPERSURF_CONFIG_FILE, relay: process.env.SUPERSURF_RELAY };
   let exitCode: number | undefined;
   let exitSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    // The relay switch is off here whatever the developer's own config says (relay.test.ts covers it on).
+    process.env.SUPERSURF_CONFIG_FILE = '/nonexistent/supersurf-config.json';
+    delete process.env.SUPERSURF_RELAY;
     spawned.length = 0;
     childExit.code = 0;
     childExit.signal = null;
@@ -153,6 +157,8 @@ describe('dispatch — shells out for the mcp and daemon targets', () => {
   afterEach(() => {
     exitSpy.mockRestore();
     process.argv = savedArgv;
+    if (savedEnv.cfg === undefined) delete process.env.SUPERSURF_CONFIG_FILE; else process.env.SUPERSURF_CONFIG_FILE = savedEnv.cfg;
+    if (savedEnv.relay === undefined) delete process.env.SUPERSURF_RELAY; else process.env.SUPERSURF_RELAY = savedEnv.relay;
   });
 
   it('mcp target spawns the pinned supersurf-mcp package with inherited stdio, and exits with the child code', async () => {
