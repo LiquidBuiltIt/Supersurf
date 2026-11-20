@@ -6,7 +6,7 @@ import { supersurfDir } from 'shared';
 import { cmpVersion, shimModelInUse, upgradePending } from '../src/handoff';
 
 describe('shimModelInUse', () => {
-  const base = { servedShim: false, startReason: 'unknown', relay: false };
+  const base = { servedShim: false, startReason: 'unknown', relay: false, takeover: false };
   it('is false for a legacy daemon (all three signals off)', () => {
     expect(shimModelInUse(base)).toBe(false);
     expect(shimModelInUse({ ...base, startReason: 'start' })).toBe(false);
@@ -14,6 +14,9 @@ describe('shimModelInUse', () => {
   it('is true when a shim_register was accepted', () => expect(shimModelInUse({ ...base, servedShim: true })).toBe(true));
   it('is true when the shim started the daemon', () => expect(shimModelInUse({ ...base, startReason: 'shim' })).toBe(true));
   it('is true when agents.relay is on', () => expect(shimModelInUse({ ...base, relay: true })).toBe(true));
+  it('is true for a hand-off successor (--takeover): it exists only because the old daemon was in the shim model', () => {
+    expect(shimModelInUse({ ...base, takeover: true })).toBe(true);
+  });
   it('is false for an entry file alone: the input does not exist any more', () => {
     expect(shimModelInUse({ ...base, entryExists: true } as any)).toBe(false);
   });

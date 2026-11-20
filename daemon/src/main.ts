@@ -331,7 +331,7 @@ async function main(): Promise<void> {
   }
 
   /** The shim model is in use: the D3 exit and the `restart` hand-off apply only then. */
-  const shimModel = (): boolean => shimModelInUse({ relay: cfg.get().agents.relay, servedShim: shim.served, startReason });
+  const shimModel = (): boolean => shimModelInUse({ relay: cfg.get().agents.relay, servedShim: shim.served, startReason, takeover: !!takeover });
   const pendingUpgrade = (): { from: string; to: string } | null => (shimModel() ? upgradePending(version) : null);
 
   /** D3: `entry` names a newer daemon. Exit only with no session of either model, no hand-off and no user-owned browser. */
