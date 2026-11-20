@@ -93,6 +93,13 @@ describe('relayMcp', () => {
     expect(err).not.toHaveBeenCalled();
   });
 
+  it('on, port outside 1..65535: null, nothing executed, no warning (the server warns once)', async () => {
+    process.env.SUPERSURF_SHIM_BIN = recBin;
+    expect(await relayMcp(['--relay', '--port', '70000'])).toBeNull();
+    expect(execReplaceMock).not.toHaveBeenCalled();
+    expect(err).not.toHaveBeenCalled();
+  });
+
   it('on, binary from SUPERSURF_DEV_ENVIRONMENT when nothing else names one', async () => {
     const root = path.join(home, 'clone');
     fs.mkdirSync(path.join(root, 'daemon', 'bin'), { recursive: true });

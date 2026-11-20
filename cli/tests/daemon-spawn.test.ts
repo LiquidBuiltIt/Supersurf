@@ -243,6 +243,15 @@ describe('ensureDaemon', () => {
       expect(legacy()).toHaveLength(1);
     });
 
+    it('on + port outside 1..65535: the shim is not run, one warning, then the legacy spawn', async () => {
+      process.env.SUPERSURF_RELAY = '1';
+      const { ensureDaemon } = await import('../src/daemon-spawn');
+      await ensureDaemon(70000);
+      expect(ensures()).toHaveLength(0);
+      expect(warn.mock.calls).toEqual([['[supersurf] agents.relay is on but port 70000 is not in 1-65535; starting the daemon the usual way.']]);
+      expect(legacy()).toHaveLength(1);
+    });
+
     it('on, no binary: the legacy path exactly, no warning', async () => {
       process.env.SUPERSURF_RELAY = '1';
       process.env.SUPERSURF_SHIM_BIN = path.join(tmpHome, 'no-such-shim');

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { findShimBinary, shimArgs, execReplace, readRelaySwitch, probeShim } from '../relay';
+import { validPort, findShimBinary, shimArgs, execReplace, readRelaySwitch, probeShim } from '../relay';
 
 let dir: string;
 const saved: Record<string, string | undefined> = {};
@@ -146,6 +146,13 @@ describe('execReplace', () => {
     process.emit('SIGTERM' as any);
     expect(await p).toBe(9);
     expect(process.listenerCount('SIGTERM')).toBe(before);
+  });
+});
+
+describe('validPort', () => {
+  it('accepts integers 1..65535 only', () => {
+    for (const p of [1, 5555, 65535]) expect(validPort(p)).toBe(true);
+    for (const p of [0, -1, 1.5, 65536, 70000, NaN, Infinity]) expect(validPort(p)).toBe(false);
   });
 });
 

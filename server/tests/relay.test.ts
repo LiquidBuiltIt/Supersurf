@@ -40,6 +40,14 @@ describe('relayDecision', () => {
     expect(err).not.toHaveBeenCalled();
   });
 
+  it('on: a port outside 1..65535 warns once and returns null without exec', async () => {
+    process.env.SUPERSURF_SHIM_BIN = rig.recorder().bin;
+    const exec = vi.fn();
+    expect(await relayDecision({ relay: true, port: 70000 }, [], exec)).toBeNull();
+    expect(exec).not.toHaveBeenCalled();
+    expect(err.mock.calls).toEqual([['[supersurf] agents.relay is on but port 70000 is not in 1-65535; running the Node server.']]);
+  });
+
   it('on: an exec rejection warns once and returns null', async () => {
     process.env.SUPERSURF_SHIM_BIN = rig.recorder().bin;
     const exec = vi.fn().mockRejectedValue(new Error('boom'));

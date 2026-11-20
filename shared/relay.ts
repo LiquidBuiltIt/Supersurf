@@ -23,6 +23,9 @@ export function findShimBinary(root?: string): string | null {
   }) ?? null;
 }
 
+/** The shim exits 2 on any other port, after the exec has already replaced the Node server. */
+export const validPort = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 65535;
+
 /** The shim's argv from an MCP server argv: the resolved port, then only the flags the shim reads. */
 export function shimArgs(argv: string[], port: number): string[] {
   const out = ['--port', String(port)];

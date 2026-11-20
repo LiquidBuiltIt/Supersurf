@@ -11,7 +11,7 @@
  */
 import * as fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { supersurfDir, sockPath, pidPath, isDaemonRunning, isSocketLive, devSource, findShimBinary, probeShim, readRelaySwitch } from 'shared';
+import { validPort, supersurfDir, sockPath, pidPath, isDaemonRunning, isSocketLive, devSource, findShimBinary, probeShim, readRelaySwitch } from 'shared';
 import { packageCommand } from './shell-out';
 
 export { isDaemonRunning };
@@ -78,6 +78,10 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
  */
 function shimEnsure(port: number): boolean {
   if (!readRelaySwitch([]).relay) return false;
+  if (!validPort(port)) {
+    console.error(`[supersurf] agents.relay is on but port ${port} is not in 1-65535; starting the daemon the usual way.`);
+    return false;
+  }
   const bin = findShimBinary() ?? devSource('shim');
   if (!bin) return false;
   try {

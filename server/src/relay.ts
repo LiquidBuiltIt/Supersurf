@@ -6,7 +6,7 @@
  * @module relay
  */
 import * as path from 'node:path';
-import { findShimBinary, probeShim, shimArgs, execReplace } from 'shared';
+import { validPort, findShimBinary, probeShim, shimArgs, execReplace } from 'shared';
 import { buildConfigService } from './backend-config';
 
 /**
@@ -17,6 +17,11 @@ import { buildConfigService } from './backend-config';
 export async function relayDecision(options: any, args: string[], exec: typeof execReplace = execReplace): Promise<number | null> {
   const cfg = buildConfigService(options).get(); // no onWarn: `main` still prints its warnings once
   if (!cfg.agents.relay) return null;
+
+  if (!validPort(cfg.daemon.port)) {
+    console.error(`[supersurf] agents.relay is on but port ${cfg.daemon.port} is not in 1-65535; running the Node server.`);
+    return null;
+  }
 
   let root: string | undefined;
   try { root = path.dirname(require.resolve('supersurf-daemon/package.json')); } catch { /* no daemon package: env only */ }

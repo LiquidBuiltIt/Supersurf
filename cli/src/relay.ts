@@ -7,13 +7,13 @@
  *
  * @module relay
  */
-import { devSource, execReplace, findShimBinary, probeShim, readRelaySwitch, shimArgs } from 'shared';
+import { validPort, devSource, execReplace, findShimBinary, probeShim, readRelaySwitch, shimArgs } from 'shared';
 
 /** @param args the `mcp` argv after the subcommand. @returns the shim's exit code, or `null` to shell out. */
 export async function relayMcp(args: string[]): Promise<number | null> {
   if (args.includes('--script-mode')) return null;
   const { relay, port } = readRelaySwitch(args);
-  if (!relay) return null;
+  if (!relay || !validPort(port)) return null; // an invalid port: the server warns once
   // A compiled binary has no package root, so no `<root>/bin` candidate.
   const bin = findShimBinary() ?? devSource('shim');
   if (!bin) return null;
