@@ -92,7 +92,7 @@ export function readRelaySwitch(argv: string[]): { relay: boolean; port: number 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--relay') cli.agents = { ...(cli.agents || {}), relay: true };
-    else if (a === '--port' && argv[i + 1] !== undefined) cli.daemon = { port: parseInt(argv[++i], 10) };
+    else if (a === '--port' && argv[i + 1] !== undefined && !argv[i + 1].startsWith('-')) cli.daemon = { port: parseInt(argv[++i], 10) };
     else if (a.startsWith('--port=')) cli.daemon = { port: parseInt(a.slice(7), 10) };
   }
   const file = loadJsonConfig(process.env.SUPERSURF_CONFIG_FILE || path.join(os.homedir(), '.supersurf', 'config.json')).config;

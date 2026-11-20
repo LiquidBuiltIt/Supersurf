@@ -161,6 +161,11 @@ describe('readRelaySwitch', () => {
     expect(readRelaySwitch(['--port=6002'])).toEqual({ relay: false, port: 6002 });
   });
 
+  it('does not take a following flag as the --port value', () => {
+    process.env.SUPERSURF_CONFIG_FILE = path.join(dir, 'none.json');
+    expect(readRelaySwitch(['--port', '--relay'])).toEqual({ relay: true, port: 5555 });
+  });
+
   it('reads SUPERSURF_RELAY from the env', () => {
     process.env.SUPERSURF_CONFIG_FILE = path.join(dir, 'none.json');
     process.env.SUPERSURF_RELAY = '1';
