@@ -31,6 +31,7 @@ import {
 } from 'shared';
 import { buildConfigService, backendConfigFrom } from './backend-config';
 import { createEngineHost } from './engine-host';
+import { relayDecision } from './relay';
 
 const { version: VERSION } = require('../package.json');
 
@@ -258,6 +259,14 @@ program
       const config = backendConfigFrom(configService, VERSION, versionCheck.shouldNotify);
       await engine.startScriptMode(config, createEngineHost(VERSION));
       return;
+    }
+
+    if (!options.child) {
+      const code = await relayDecision(options, argv.slice(2));
+      if (code !== null) {
+        process.exitCode = code;
+        return;
+      }
     }
 
     if (options.debug && !options.child) {

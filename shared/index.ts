@@ -64,5 +64,5 @@ export {
   isSocketLive,
 } from './daemon-paths';
 
-export { findShimBinary, shimArgs, execReplace, readRelaySwitch } from './relay';
+export { findShimBinary, probeShim, shimArgs, execReplace, readRelaySwitch } from './relay';
 export type { ExecDeps } from './relay';

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { findShimBinary, shimArgs, execReplace, readRelaySwitch } from '../relay';
+import { findShimBinary, shimArgs, execReplace, readRelaySwitch, probeShim } from '../relay';
 
 let dir: string;
 const saved: Record<string, string | undefined> = {};
@@ -85,6 +85,28 @@ describe('shimArgs', () => {
   for (const [name, argv, want] of cases) {
     it(name, () => expect(shimArgs(argv, 5555)).toEqual(want));
   }
+});
+
+describe('probeShim', () => {
+  // process.execve ABORTS the process when the exec fails (ENOEXEC, wrong architecture): there is no
+  // throw to catch, so the binary is proven runnable first.
+  it('passes when `<bin> --version` exits 0', () => {
+    expect(() => probeShim(script('ok', 'exit 0'))).not.toThrow();
+  });
+
+  it('throws when the binary exits non-zero', () => {
+    expect(() => probeShim(script('bad', 'exit 3'))).toThrow(/exited 3/);
+  });
+
+  it('throws when the file cannot be executed (no shebang, not a binary)', () => {
+    const p = path.join(dir, 'junk');
+    fs.writeFileSync(p, 'not a program\n', { mode: 0o755 });
+    expect(() => probeShim(p)).toThrow(/ENOEXEC|exited 127/);
+  });
+
+  it('throws when it hangs past the timeout', () => {
+    expect(() => probeShim(script('slow', 'sleep 5'), 200)).toThrow(/ETIMEDOUT|timed out/);
+  });
 });
 
 describe('execReplace', () => {

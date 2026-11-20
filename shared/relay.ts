@@ -7,7 +7,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { ConfigService, loadJsonConfig, loadEnvConfig } from './config/index';
 import type { PartialConfig } from './config/index';
 
@@ -36,6 +36,18 @@ export function shimArgs(argv: string[], port: number): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Throws unless `<bin> --version` runs and exits 0. `process.execve` aborts the whole process when
+ * the exec fails (Node 22: ENOEXEC, wrong architecture; no throw to catch), so run this before it.
+ * shortcut: a shebang-less script passes here (the spawn falls back to sh) yet fails execve; the real
+ * shim is an ELF or Mach-O file, so no magic-number check.
+ */
+export function probeShim(bin: string, timeoutMs = 5000): void {
+  const r = spawnSync(bin, ['--version'], { stdio: 'ignore', timeout: timeoutMs });
+  if (r.error) throw new Error(`${bin} --version: ${(r.error as NodeJS.ErrnoException).code ?? r.error.message}`);
+  if (r.status !== 0) throw new Error(`${bin} --version exited ${r.status ?? r.signal}`);
 }
 
 export interface ExecDeps {
