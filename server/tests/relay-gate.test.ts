@@ -76,7 +76,8 @@ describe('relay gate: switch on with a binary', () => {
     const rec = rig.recorder();
     const r = await runServer(['--script-mode', '--relay'], rig.env({ SUPERSURF_SHIM_BIN: rec.bin, SUPERSURF_RELAY: '1' }));
     expect(ran(rec)).toBe(false);
-    expect(r.code).not.toBe(7);
+    expect(fs.existsSync(rec.argv)).toBe(false);
+    expect(r.initReply?.id).toBe(1); // script mode answered the JSON-RPC line itself
   });
 
   it('does not relay in the hot-reload child (--child)', async () => {
