@@ -9,7 +9,6 @@ import path from 'path';
 import { makeRig, runServer, type Rig } from './helpers/relay-rig';
 
 const PORT = '6123';
-const BUILT_SHIM = path.resolve(__dirname, '..', '..', 'daemon', 'bin', 'supersurf-shim');
 const hasExecve = typeof (process as any).execve === 'function';
 
 let rig: Rig;
@@ -89,10 +88,14 @@ describe('relay gate: switch on with a binary', () => {
 });
 
 describe('relay gate: switch on, binary missing', () => {
-  // A binary built with `npm run build.shim` at <daemon>/bin is found by design, so this case cannot run then.
-  it.skipIf(fs.existsSync(BUILT_SHIM))('warns once on stderr and runs the Node server', async () => {
+  // A shim built with `npm run build.shim` sits at <daemon>/bin and would be found, so a preload hides the
+  // daemon package from the BUILT bin (the same try/catch branch as an install with no daemon package).
+  it('warns once on stderr and runs the Node server', async () => {
     rig = makeRig();
-    const r = await runServer(['--relay', '--port', PORT], rig.env({ SUPERSURF_SHIM_BIN: path.join(rig.home, 'absent') }));
+    const hide = path.join(rig.home, 'hide-daemon.js');
+    fs.writeFileSync(hide, `const M = require('module'); const o = M._resolveFilename;
+M._resolveFilename = function (r, ...a) { if (r === 'supersurf-daemon/package.json') throw new Error('hidden'); return o.call(this, r, ...a); };\n`);
+    const r = await runServer(['--relay', '--port', PORT], rig.env({ SUPERSURF_SHIM_BIN: path.join(rig.home, 'absent'), NODE_OPTIONS: `--require ${hide}` }));
     expect(r.initReply?.result?.serverInfo?.name).toBe('SuperSurf');
     const lines = r.stderr.split('\n').filter((l) => /agents\.relay/.test(l));
     expect(lines).toEqual(['[supersurf] agents.relay is on but supersurf-shim was not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); running the Node server.']);
