@@ -19,6 +19,7 @@
     "build.engine": "cd engine && npm run build",
     "build.daemon": "cd daemon && npm run build",
     "build.cli": "npm run build.shared && cd cli && npm run build",
+    "build.shim": "cd shim && go build -o ../daemon/bin/supersurf-shim .",
     "build.blog": "npm --prefix blog run build",
     "build": "npm run build.shared && npm run build.engine && npm run build.daemon && npm run build.server && npm run build.extension",
     "dev.server": "cd server && npx tsx src/cli.ts --debug",

@@ -18,6 +18,7 @@ import {
   pidPath,
   readDaemonPid,
   isProcessAlive,
+  findShimBinary,
 } from 'shared';
 
 export const SUPERSURF_DIR = supersurfDir();
@@ -298,13 +299,6 @@ export function daemonPackageRoot(): string {
     if (up === dir) throw new Error('supersurf-daemon package root not found');
     dir = up;
   }
-}
-
-/** `SUPERSURF_SHIM_BIN` (absolute, this process's env) first, then `<package root>/bin/supersurf-shim`. */
-export function findShimBinary(root: string): string | null {
-  const env = process.env.SUPERSURF_SHIM_BIN;
-  const candidates = [...(env && path.isAbsolute(env) ? [env] : []), path.join(root, 'bin', 'supersurf-shim')];
-  return candidates.find((c) => { try { return fs.statSync(c).isFile(); } catch { return false; } }) ?? null;
 }
 
 /** Send `daemon_restart` and wait for the one reply line (`timeoutMs` covers the whole hand-off). */
