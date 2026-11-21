@@ -22,7 +22,6 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import crypto from 'crypto';
 import { spawn } from 'child_process';
 import {
   FileLogger,
@@ -41,6 +40,7 @@ import { RequestScheduler } from './scheduler';
 import { IPCServer, type IPCServerMeta } from './ipc';
 import { Handoff, nextSockPath, appendSpawn, waitForCommit, waitOldExit, bindWithBackoff, shimModelInUse, upgradePending, type UserOwned } from './handoff';
 import { ShimServer } from './shim-server';
+import { configHash } from './config-drift';
 import { acquirePidFile, releaseFiles, clearStaleSocket, sockIdentity, type SockIdentity } from './pidfile';
 import { DaemonExperimentRegistry } from './experiments/index';
 import { ProfileRegistry } from './profiles/registry';
@@ -247,17 +247,10 @@ async function main(): Promise<void> {
   // config at startup and never hot-reloads — drift means the user's edits won't
   // take effect until restart. We surface this through the IPC envelope so the
   // server can warn the agent on the next response.
-  const hashFile = (p: string): string => {
-    try {
-      return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
-    } catch {
-      return '';
-    }
-  };
-  const initialHash = hashFile(configPath);
+  const initialHash = configHash(configPath);
   try {
     fs.watch(configPath, { persistent: false }, () => {
-      const current = hashFile(configPath);
+      const current = configHash(configPath);
       if (current && current !== initialHash) {
         ipc.setConfigDrift(true);
         logger.log('[Daemon] config.json changed since startup — restart required to apply');
