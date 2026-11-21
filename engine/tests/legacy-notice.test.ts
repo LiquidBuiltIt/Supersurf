@@ -24,6 +24,12 @@ describe('legacy deprecation notice', () => {
     expect(LEGACY_NOTICE_TEXT).toContain('agents.relay');
   });
 
+  it('text is the settled wording', () => {
+    expect(LEGACY_NOTICE_TEXT).toBe(
+      'SuperSurf legacy mode is removed in 5.0.0. To switch now, set `agents.relay` to `true` in `~/.supersurf/config.json`, then restart your MCP client.',
+    );
+  });
+
   it('gate off: no line on any call', () => {
     const s = new AgentSession(config, createFakeHost());
     for (let i = 0; i < 3; i++) expect(s.statusHeader()).not.toContain(LEGACY_NOTICE_TEXT);

@@ -82,3 +82,12 @@ describe('configHash', () => {
     });
   });
 });
+
+describe('main.ts drift wiring', () => {
+  it('uses configHash for the startup hash and the watch hash, and hashes the file nowhere else', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.ts'), 'utf8');
+    expect(src).toMatch(/const initialHash = configHash\(configPath\)/);
+    expect(src).toMatch(/const current = configHash\(configPath\)/);
+    expect(src).not.toMatch(/createHash\(/);
+  });
+});

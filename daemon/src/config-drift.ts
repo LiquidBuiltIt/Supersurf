@@ -6,9 +6,10 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 
 /**
  * Hash of the config file the daemon compares against its startup hash. '' when unreadable.
- * `agents.relay` is left out (only the client reads it, and it needs a client restart, not a
- * daemon restart); an unparsable file hashes as raw bytes. Parsed files hash canonical
- * JSON, so whitespace-only edits no longer flag drift.
+ * `agents.relay` is left out: the switch takes effect on an MCP client restart, not a daemon
+ * restart (the daemon's own startup read only feeds `shimModelInUse`, which a served shim also
+ * opens). An unparsable file hashes as raw bytes. Parsed files hash canonical JSON, so
+ * whitespace-only edits no longer flag drift.
  */
 export function configHash(p: string): string {
   let bytes: Buffer;
