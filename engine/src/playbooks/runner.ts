@@ -80,8 +80,8 @@ export interface RunOutcome {
   evidence?: { url?: string; title?: string; candidates?: Candidate[] };
 }
 
-function defaultBackend(host: EngineHost): RunnerBackend {
-  return new AgentSession(host.runConfig(), host);
+export function defaultBackend(host: EngineHost): RunnerBackend {
+  return new AgentSession(host.runConfig(), host, { legacyNotice: false });
 }
 
 /**

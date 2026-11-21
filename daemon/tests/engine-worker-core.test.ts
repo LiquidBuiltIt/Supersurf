@@ -144,6 +144,10 @@ describe('engine worker core: status and env round trips (fake engine)', () => {
   }
   afterEach(() => { vi.useRealTimers(); });
 
+  it('the host handed to AgentSessionManager is worker-hosted (no legacy notice on shim sessions)', () => {
+    expect(fake().host().workerHosted).toBe(true);
+  });
+
   it('queryDaemonStatus returns the status-res value', async () => {
     const f = fake();
     const p = f.host().queryDaemonStatus();

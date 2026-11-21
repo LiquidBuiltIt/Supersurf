@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildStatusHeader } from '../src/backend/status';
+import { buildStatusHeader, LEGACY_NOTICE_TEXT } from '../src/backend/status';
 import type { BackendConfig } from '../src/backend/types';
 
 const config = { server: { name: 'supersurf', version: '9.9.9' } } as BackendConfig;
@@ -118,5 +118,25 @@ describe('buildStatusHeader — attached tab with an unknown index', () => {
       expect(header).toContain('📄 https://example.com/');
       expect(header).not.toMatch(/Tab (null|undefined)/);
     }
+  });
+});
+
+describe('buildStatusHeader — legacy notice placement', () => {
+  const NOTICE = LEGACY_NOTICE_TEXT;
+  const drift = 'config.json changed since daemon start';
+  it('passive: drift line, notice line, then the rest', () => {
+    const h = buildStatusHeader({ ...base, state: 'passive', configDriftWarning: true, legacyNotice: true });
+    expect(h.indexOf(drift)).toBeLessThan(h.indexOf(NOTICE));
+    expect(h.indexOf(NOTICE)).toBeLessThan(h.indexOf('🔴 v9.9.9'));
+    expect(h).toContain(`${NOTICE}\n\n🔴`);
+  });
+  it('active: drift line, notice line, then the rest', () => {
+    const h = buildStatusHeader({ ...base, state: 'connected', configDriftWarning: true, legacyNotice: true });
+    expect(h.indexOf(drift)).toBeLessThan(h.indexOf(NOTICE));
+    expect(h.indexOf(NOTICE)).toBeLessThan(h.indexOf('v9.9.9'));
+  });
+  it('no notice input: header unchanged', () => {
+    const h = buildStatusHeader({ ...base, state: 'passive' });
+    expect(h.startsWith('🔴')).toBe(true);
   });
 });

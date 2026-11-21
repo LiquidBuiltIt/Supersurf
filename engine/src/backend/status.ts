@@ -6,11 +6,28 @@
  * and stealth indicator. In debug mode, also shows the extension build timestamp.
  *
  * @module backend/status
- * @exports buildStatusHeader
+ * @exports buildStatusHeader, LEGACY_NOTICE_ENABLED, LEGACY_NOTICE_TEXT, setLegacyNoticeForTests, legacyNoticeEnabled
  */
 
 import type { BackendConfig, BackendState, TabInfo } from './types';
 import type { IExtensionTransport } from 'shared';
+
+/** Ships off: the flip PR changes only this `false`. */
+export const LEGACY_NOTICE_ENABLED = false;
+
+export const LEGACY_NOTICE_TEXT =
+  'SuperSurf legacy mode is removed in 5.0.0. To switch now, set `agents.relay` to `true` in `~/.supersurf/config.json`, then restart your MCP client.';
+
+let noticeOverride: boolean | undefined;
+
+/** Test-only override of the gate; `undefined` restores the constant. */
+export function setLegacyNoticeForTests(on: boolean | undefined): void {
+  noticeOverride = on;
+}
+
+export function legacyNoticeEnabled(): boolean {
+  return noticeOverride ?? LEGACY_NOTICE_ENABLED;
+}
 
 /** All the state needed to build the status header, passed in to keep the function pure. */
 interface StatusInput {
@@ -26,6 +43,8 @@ interface StatusInput {
   extensionConnected?: boolean;
   /** When true, prepends a one-time warning that `~/.supersurf/config.json` changed since daemon start. */
   configDriftWarning?: boolean;
+  /** When true, places the one-time legacy deprecation notice right after the drift line. */
+  legacyNotice?: boolean;
   /** Reason the last connect attempt failed; shown in the passive header so a wedged
    *  daemon / port conflict is reported instead of a bare "Disabled". */
   lastConnectError?: string | null;
@@ -46,11 +65,12 @@ interface StatusInput {
  * Returns a string ending with `\n---\n\n` for markdown separation.
  */
 export function buildStatusHeader(input: StatusInput): string {
-  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, extensionConnected, configDriftWarning, lastConnectError, playbookHint, playbookWarning, username } = input;
+  const { config, state, debugMode, connectedBrowserName, attachedTab, stealthMode, extensionServer, extensionConnected, configDriftWarning, legacyNotice, lastConnectError, playbookHint, playbookWarning, username } = input;
   const version = config.server.version;
   const driftLine = configDriftWarning
     ? '⚠️ ~/.supersurf/config.json changed since daemon start — config edits will not take effect until restart: `npx supersurf-daemon@latest restart`\n\n'
     : '';
+  const noticeLine = legacyNotice ? `${LEGACY_NOTICE_TEXT}\n\n` : '';
 
   if (state === 'passive') {
     const failLine = lastConnectError
@@ -61,7 +81,7 @@ export function buildStatusHeader(input: StatusInput): string {
     const passiveWarn = playbookWarning ? `\n${playbookWarning}` : '';
     const passiveHint = playbookHint ? `\n${playbookHint}` : '';
     const who = username ? ` | 👤 you are ${username}` : '';
-    return `${driftLine}${failLine}🔴 v${version}${who} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
+    return `${driftLine}${noticeLine}${failLine}🔴 v${version}${who} | Disabled${passiveWarn}${passiveHint}\n---\n\n`;
   }
 
   const parts: string[] = [];
@@ -116,5 +136,5 @@ export function buildStatusHeader(input: StatusInput): string {
 
   const warnLine = playbookWarning ? `\n${playbookWarning}` : '';
   const hintLine = playbookHint ? `\n${playbookHint}` : '';
-  return driftLine + parts.join(' | ') + warnLine + hintLine + '\n---\n\n';
+  return driftLine + noticeLine + parts.join(' | ') + warnLine + hintLine + '\n---\n\n';
 }

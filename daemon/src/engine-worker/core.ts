@@ -87,6 +87,7 @@ export function createEngineSide(
       return r;
     };
     return {
+      workerHosted: true,
       packageVersion: inputs.version,
       // The daemon is in-process behind the port: spawn and version-guard options do not apply.
       openLink: (opts: { clientId: string }) => router.open(opts.clientId, cid),
