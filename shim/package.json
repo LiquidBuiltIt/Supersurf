@@ -1,0 +1,36 @@
+{
+  "name": "supersurf-shim",
+  "version": "4.1.0",
+  "description": "The SuperSurf shim: prebuilt Go binaries (linux and darwin, amd64 and arm64) that relay an MCP client to the SuperSurf daemon. Installed automatically as a dependency of supersurf-daemon.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "browser-automation",
+    "ai-agent",
+    "shim",
+    "supersurf"
+  ],
+  "homepage": "https://liquidbuiltit.github.io/Supersurf",
+  "bugs": {
+    "url": "https://github.com/liquidbuiltit/Supersurf/issues"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "The Media Masons",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liquidbuiltit/Supersurf.git",
+    "directory": "shim"
+  },
+  "scripts": {
+    "prepublishOnly": "cp ../LICENSE . && npx tsx ../scripts/shim-build.ts --check"
+  }
+}
