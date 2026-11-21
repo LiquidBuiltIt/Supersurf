@@ -32,7 +32,7 @@ export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend
 import { isMultiAgent } from './backend/types';
 import type { BackendConfig, TabInfo, BackendState, ToolSchema, AgentSessionAPI } from './backend/types';
 
-import { buildStatusHeader } from './backend/status';
+import { buildStatusHeader, legacyNoticeEnabled } from './backend/status';
 import { loadBrowserBridge } from './backend/load-bridge';
 import { buildPlaybookDomainIndex, matchPlaybookNamesForUrl, formatPlaybookHintLine, formatInvalidPlaybookWarning, normalizeHost, type PlaybookDomainIndex } from './playbooks/hint';
 import { refreshRegistry, getInvalidRecords } from './playbooks/registry';
@@ -70,6 +70,8 @@ export class AgentSession implements AgentSessionAPI {
   /** Tracks whether the config-drift warning has already been surfaced this session
    *  (one-shot per session — sticky until daemon restart). */
   private _warnedConfigDrift: boolean = false;
+  /** Same one-shot pattern for the legacy deprecation notice. */
+  private _warnedLegacyNotice: boolean = false;
   /** Domain -> playbook-names map, rebuilt whenever `refreshRegistry()` reports
    *  a change. Not a lazy disk cache any more: the registry is the cache, and
    *  this is a cheap projection of it. */
@@ -81,7 +83,8 @@ export class AgentSession implements AgentSessionAPI {
    *  broken file is named once rather than on every tool result. */
   private _warnedInvalidPlaybooks: Set<string> = new Set();
 
-  constructor(config: BackendConfig, readonly host: EngineHost) {
+  /** `opts.legacyNotice` false: this session never shows the legacy notice (a playbook run's own session). */
+  constructor(config: BackendConfig, readonly host: EngineHost, private readonly opts: { legacyNotice?: boolean } = {}) {
     log('Constructor — starting in PASSIVE mode');
     this.config = config;
     this.debugMode = config.debug || false;
@@ -148,6 +151,10 @@ export class AgentSession implements AgentSessionAPI {
     const drifted = typeof transport?.isConfigDrifted === 'function' && transport.isConfigDrifted();
     const surfaceDrift = drifted && !this._warnedConfigDrift;
     if (surfaceDrift) this._warnedConfigDrift = true;
+    // Never on a shim session (worker-hosted) or a playbook run's own session.
+    const surfaceNotice =
+      legacyNoticeEnabled() && !this.host.workerHosted && this.opts.legacyNotice !== false && !this._warnedLegacyNotice;
+    if (surfaceNotice) this._warnedLegacyNotice = true;
 
     return buildStatusHeader({
       config: this.config,
@@ -159,6 +166,7 @@ export class AgentSession implements AgentSessionAPI {
       extensionServer: this.extensionServer,
       extensionConnected: this.extensionConnected,
       configDriftWarning: surfaceDrift,
+      legacyNotice: surfaceNotice,
       lastConnectError: this.lastConnectError,
       playbookHint: this.playbookHint(),
       playbookWarning: this.playbookWarning(),

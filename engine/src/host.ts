@@ -16,6 +16,8 @@ export interface EngineHost {
   queryDaemonStatus(): Promise<DaemonStatusReply | null>;
   /** A fresh BackendConfig for a playbook run's own session. */
   runConfig(): BackendConfig;
+  /** Set only by the daemon's engine worker: a worker-hosted session is a shim session and never shows the legacy notice. */
+  readonly workerHosted?: boolean;
   /** One env var for `secure_fill`; absent: the engine reads `process.env`. A worker host asks the shim that owns the session. */
   envGet?(name: string): Promise<string | undefined>;
   /** The credential names `secure_fill list` shows; absent: the names loaded from `.env`. */
