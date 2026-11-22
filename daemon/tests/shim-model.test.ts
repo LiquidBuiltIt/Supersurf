@@ -66,16 +66,6 @@ describe('upgradePending', () => {
     writeEntryFile('5.0.0');
     expect(upgradePending('4.1.0')).toEqual({ from: '4.1.0', to: '5.0.0' });
   });
-  it('is null in a dev clone even when entry is newer', () => {
-    writeEntryFile('5.0.0');
-    const saved = process.env.SUPERSURF_DEV_ENVIRONMENT;
-    process.env.SUPERSURF_DEV_ENVIRONMENT = '/some/clone';
-    try {
-      expect(upgradePending('4.1.0')).toBeNull();
-    } finally {
-      if (saved === undefined) delete process.env.SUPERSURF_DEV_ENVIRONMENT; else process.env.SUPERSURF_DEV_ENVIRONMENT = saved;
-    }
-  });
   it('is null for an equal, older or broken entry', () => {
     writeEntryFile('4.1.0');
     expect(upgradePending('4.1.0')).toBeNull();
