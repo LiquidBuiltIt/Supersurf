@@ -127,8 +127,8 @@ func devRun(t *testing.T, devEnv string, args ...string) (int, string, *ensureRi
 	return code, stderr.String(), r
 }
 
-// `ensure --install <root>` (the restart path) installs nothing in dev: the hand-off then
-// falls back to the running daemon's own main.js.
+// `ensure --install <root>` (the restart path) installs nothing in dev: a dev daemon's
+// hand-off always runs its own main.js.
 func TestRunEnsureInstallIgnoredInDev(t *testing.T) {
 	clone := fakeClone(t)
 	pkg := fakePackage(t, filepath.Join(shortDir(t), "pkg"), "9.9.9")

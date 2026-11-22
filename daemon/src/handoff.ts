@@ -80,8 +80,9 @@ export function cmpVersion(a: string, b: string): number {
   return x.pre < y.pre ? -1 : 1;
 }
 
-/** D3: `entry` names a version newer than this daemon. */
+/** D3: `entry` names a version newer than this daemon. Never in a dev clone: `entry` there is a leftover from an installed version. */
 export function upgradePending(ownVersion: string): { from: string; to: string } | null {
+  if (process.env.SUPERSURF_DEV_ENVIRONMENT) return null;
   const e = readEntry();
   return e && cmpVersion(e.version, ownVersion) > 0 ? { from: ownVersion, to: e.version } : null;
 }
@@ -252,7 +253,8 @@ export class Handoff {
       // N2: a double crash can leave a stale .next; listen() would fail on it.
       try { fs.unlinkSync(NEXT); } catch {}
 
-      entry = readEntry() ?? self;
+      // A dev clone always hands off to itself: the shim writes no `entry` there, so one on disk is a leftover.
+      entry = (process.env.SUPERSURF_DEV_ENVIRONMENT ? null : readEntry()) ?? self;
       fs.mkdirSync(handoffDir(), { recursive: true, mode: 0o700 });
       const fd = fs.openSync(logPath, 'w', 0o600);
       const args = [entry.main, '--takeover', String(process.pid), '--port', String(o.port), ...(o.debug ? ['--debug'] : [])];

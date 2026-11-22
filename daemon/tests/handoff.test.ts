@@ -231,6 +231,21 @@ describe('Handoff.run (old side, injected options)', () => {
     expect(spawnsOf().find((s) => s.outcome === 'handoff_committed').entryVersion).toBe('2.0.0');
   });
 
+  it('in a dev clone ignores a leftover entry and hands off to its own main.js', async () => {
+    const node = path.join(home, 'n'), main = path.join(home, 'm.js');
+    fs.writeFileSync(node, ''); fs.writeFileSync(main, '');
+    writeEntry({ node, main, version: '2.0.0' });
+    const saved = process.env.SUPERSURF_DEV_ENVIRONMENT;
+    process.env.SUPERSURF_DEV_ENVIRONMENT = '/some/clone';
+    try {
+      await new Handoff(opts()).run(() => {});
+    } finally {
+      if (saved === undefined) delete process.env.SUPERSURF_DEV_ENVIRONMENT; else process.env.SUPERSURF_DEV_ENVIRONMENT = saved;
+    }
+    expect(spawnArgs[0][0]).toBe(process.execPath);
+    expect(spawnArgs[0][1][0]).toBe('/self/main.js');
+  });
+
   it('unlinks a stale daemon.sock.next before it spawns (N2)', async () => {
     fs.writeFileSync(nextSockPath(), '');
     const h = new Handoff(opts({ spawn: fakeSpawn({ exit: 1 }) }));

@@ -609,8 +609,8 @@ func devClone(raw string) (root, problem string) {
 func devMain(root string) string { return filepath.Join(root, "daemon", "dist", "main.js") }
 
 // ensureDev is Ensure in a dev clone: no entry, no versions/, no install (--install is
-// ignored; the hand-off then falls back to the running daemon's own main.js). The lock
-// and the G1 budget stay.
+// ignored; a dev daemon's hand-off always runs its own main.js, whatever `entry` holds).
+// The lock and the G1 budget stay.
 func ensureDev(o EnsureOpts, dir string, recs []spawnRec, now time.Time) error {
 	node := o.NodePath
 	if node == "" {
