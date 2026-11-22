@@ -127,8 +127,41 @@ func devRun(t *testing.T, devEnv string, args ...string) (int, string, *ensureRi
 	return code, stderr.String(), r
 }
 
+// A leftover entry (from an installed version) is removed in dev, so the daemon's hand-off
+// (`readEntry() ?? self`) runs its own main.js and D3 sees no newer entry. versions/ stays.
+func TestEnsureDevRemovesLeftoverEntry(t *testing.T) {
+	r := newEnsureRig(t, "5.0.0")
+	clone := fakeClone(t)
+	r.opts.DevRoot = clone
+	dir := daemonDir(r.home)
+	mkdirs(t, dir)
+	main := filepath.Join(r.home, "old-main.js")
+	os.WriteFile(main, []byte("// old\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "entry"), []byte(`{"node":"`+r.opts.NodePath+`","main":"`+main+`","version":"9.9.9"}`), 0o600)
+	marker := filepath.Join(dir, "versions", "9.9.9", "marker")
+	mkdirs(t, filepath.Dir(marker))
+	os.WriteFile(marker, []byte("x"), 0o644)
+	var note bytes.Buffer
+	r.opts.Stderr = &note
+	if err := Ensure(r.opts); err != nil {
+		t.Fatal(err)
+	}
+	if fileExists(filepath.Join(dir, "entry")) {
+		t.Fatal("dev ensure left the entry in place")
+	}
+	if !fileExists(marker) {
+		t.Fatal("dev ensure touched versions/")
+	}
+	if !strings.Contains(note.String(), "removed a leftover entry (9.9.9)") {
+		t.Fatalf("note: %q", note.String())
+	}
+	if args, _ := os.ReadFile(filepath.Join(r.home, "fake-daemon", "args")); !strings.HasPrefix(string(args), filepath.Join(clone, "daemon", "dist", "main.js")+" ") {
+		t.Fatalf("daemon argv: %s", args)
+	}
+}
+
 // `ensure --install <root>` (the restart path) installs nothing in dev: the hand-off then
-// falls back to the running daemon's own main.js.
+// runs the dev daemon's own main.js, because dev ensure also removes any leftover entry.
 func TestRunEnsureInstallIgnoredInDev(t *testing.T) {
 	clone := fakeClone(t)
 	pkg := fakePackage(t, filepath.Join(shortDir(t), "pkg"), "9.9.9")

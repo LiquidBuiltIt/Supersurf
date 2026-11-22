@@ -22,10 +22,11 @@ type EnsureOpts struct {
 	Home         string
 	Port         int
 	Debug        bool
-	InstallDir   string // explicit --install: the package dir to install (the restart path)
-	BundledDir   string // the package dir this shim ships in; "" when unknown
-	NodePath     string // --node override
-	DevRoot      string // a validated dev clone (SUPERSURF_DEV_ENVIRONMENT); "" outside dev
+	InstallDir   string    // explicit --install: the package dir to install (the restart path)
+	BundledDir   string    // the package dir this shim ships in; "" when unknown
+	NodePath     string    // --node override
+	DevRoot      string    // a validated dev clone (SUPERSURF_DEV_ENVIRONMENT); "" outside dev
+	Stderr       io.Writer // notes for the user; os.Stderr when nil
 	Now          func() time.Time
 	LockTimeout  time.Duration
 	StartTimeout time.Duration
@@ -608,9 +609,10 @@ func devClone(raw string) (root, problem string) {
 
 func devMain(root string) string { return filepath.Join(root, "daemon", "dist", "main.js") }
 
-// ensureDev is Ensure in a dev clone: no entry, no versions/, no install (--install is
-// ignored; the hand-off then falls back to the running daemon's own main.js). The lock
-// and the G1 budget stay.
+// ensureDev is Ensure in a dev clone: it writes no entry and no versions/, and installs
+// nothing (--install is ignored). It removes a leftover entry (from an installed version), so
+// the daemon's hand-off (`readEntry() ?? self`) runs the clone's own main.js and D3 sees no
+// newer entry. versions/ stays. The lock and the G1 budget stay.
 func ensureDev(o EnsureOpts, dir string, recs []spawnRec, now time.Time) error {
 	node := o.NodePath
 	if node == "" {
@@ -622,6 +624,15 @@ func ensureDev(o EnsureOpts, dir string, recs []spawnRec, now time.Time) error {
 	node, err := filepath.Abs(node)
 	if err != nil {
 		return err
+	}
+	if raw, err := os.ReadFile(filepath.Join(dir, "entry")); err == nil && os.Remove(filepath.Join(dir, "entry")) == nil {
+		var left entry
+		json.Unmarshal(raw, &left)
+		w := o.Stderr
+		if w == nil {
+			w = os.Stderr
+		}
+		fmt.Fprintf(w, "supersurf-shim: dev clone: removed a leftover entry (%s) so the daemon restarts as the clone\n", left.Version)
 	}
 	if daemonUp(o.Home) {
 		return nil

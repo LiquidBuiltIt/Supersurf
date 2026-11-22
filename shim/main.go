@@ -141,7 +141,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	} else if devRoot != "" && a.installDir != "" {
 		fmt.Fprintln(stderr, "supersurf-shim: SUPERSURF_DEV_ENVIRONMENT is set: --install is ignored; the dev clone's daemon runs as it is.")
 	}
-	eo := EnsureOpts{Home: home, Port: a.port, Debug: a.debug, InstallDir: a.installDir, BundledDir: bundledDir(), NodePath: a.nodePath, DevRoot: devRoot}
+	eo := EnsureOpts{Home: home, Port: a.port, Debug: a.debug, InstallDir: a.installDir, BundledDir: bundledDir(), NodePath: a.nodePath, DevRoot: devRoot, Stderr: stderr}
 	if a.ensure {
 		if err := Ensure(eo); err != nil {
 			fmt.Fprintln(stderr, "supersurf-shim ensure:", err)
