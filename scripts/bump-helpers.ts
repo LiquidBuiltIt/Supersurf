@@ -14,7 +14,11 @@ export const VERSION_TARGETS = [
   'shared/package.json',
   'engine/package.json',
   'cli/package.json',
+  'shim/package.json',
 ];
+
+/** Workspace dependencies pinned to the release version (exact, never a range). */
+export const PINNED_DEPENDENCIES = ['supersurf-daemon', 'supersurf-shim'];
 
 export const EXTENSION_CHANGELOG_JSON = 'extension/dist/pages/changelog.json';
 
@@ -32,7 +36,7 @@ export function assertCleanMain(cwd: string, opts: { force?: boolean } = {}): vo
   }
 }
 
-/** Move the lock's root, workspace and daemon-pin versions to `next` (npm's own 2-space format). */
+/** Move the lock's root, workspace and pinned-dependency versions to `next` (npm's own 2-space format). */
 export function bumpLockfile(lockText: string, next: string): string {
   const lock = JSON.parse(lockText);
   lock.version = next;
@@ -41,7 +45,7 @@ export function bumpLockfile(lockText: string, next: string): string {
     const entry = lock.packages[dir];
     if (!entry) throw new Error(`package-lock.json has no entry for workspace "${dir}" — run npm install to refresh it.`);
     entry.version = next;
-    if (entry.dependencies?.['supersurf-daemon'] !== undefined) entry.dependencies['supersurf-daemon'] = next;
+    for (const dep of PINNED_DEPENDENCIES) if (entry.dependencies?.[dep] !== undefined) entry.dependencies[dep] = next;
   }
   return JSON.stringify(lock, null, 2) + '\n';
 }

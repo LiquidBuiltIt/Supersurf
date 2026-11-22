@@ -17,7 +17,8 @@
  *   3. npm test (build + unit + smokes; port 5555 must be free)
  *   4. Create git tag (idempotent — skipped if tag already on HEAD)
  *   5. git push && git push --tags (deletes local tag if push fails)
- *   6. npm publish daemon + server
+ *   6. Build the four shim binaries (before any push), then npm publish shim,
+ *      daemon, server in that order
  *   7. Compile the four supersurf binaries, create the GitHub release, upload
  *      them as assets (docs/install.sh downloads these)
  *   8. Build extension zip + upload + publish to CWS
@@ -30,6 +31,7 @@ import { readFileSync, existsSync, statSync, createReadStream } from 'fs';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
 import { runReleaseTests } from './release-gate';
+import { NPM_PACKAGES, npmPublishState, publishNpmPackages, prepareShimBinaries } from './publish-npm';
 
 // ── ANSI ─────────────────────────────────────────────────────
 
@@ -264,13 +266,17 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
   // A CLI lagging the rest of the release ships a binary that fetches the
   // previous server.
   const cliVersion = JSON.parse(readFileSync(resolve(root, 'cli/package.json'), 'utf8')).version;
+  // The shim package ships with the same version, and the daemon pins it exactly.
+  const shimVersion = JSON.parse(readFileSync(resolve(root, 'shim/package.json'), 'utf8')).version;
+  const shimPin = JSON.parse(readFileSync(resolve(root, 'daemon/package.json'), 'utf8')).dependencies?.['supersurf-shim'];
 
-  if (serverVersion !== version || extVersion !== version || cliVersion !== version) {
+  if (serverVersion !== version || extVersion !== version || cliVersion !== version || shimVersion !== version || shimPin !== version) {
     console.error(`\n${red}Version mismatch across packages:${reset}`);
     console.error(`  Root:      ${version}`);
     console.error(`  Server:    ${serverVersion}`);
     console.error(`  Extension: ${extVersion}`);
-    console.error(`  CLI:       ${cliVersion}\n`);
+    console.error(`  CLI:       ${cliVersion}`);
+    console.error(`  Shim:      ${shimVersion} (daemon pins ${shimPin})\n`);
     process.exit(1);
   }
   ok(`All packages at v${version}`);
@@ -286,28 +292,27 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
   // The stake is the npx pin: a binary compiled at an already-published version
   // shells out to that published package, which is the one this release exists
   // to replace.
-  try {
-    execSync(`npm view supersurf-mcp@${version} version`, { stdio: ['ignore', 'pipe', 'pipe'] });
-    console.error(`\n${red}supersurf-mcp@${version} is already published.${reset}`);
-    console.error(`  A binary compiled at this version pins its npx calls to the`);
-    console.error(`  package already on the registry, so it would launch the very`);
-    console.error(`  release you are replacing.`);
-    console.error(`  Run ${cyan}npm run version.bump <patch|minor|major> "message"${reset} first.\n`);
-    process.exit(1);
-  } catch (err: any) {
-    // Only a genuine 404 clears this gate. Any other non-zero exit — no
-    // network, registry down, auth error — must not be read as "not
-    // published", or the one check standing between a broken pin and a
-    // release fails open exactly when the registry is unreachable.
-    const stderr = String(err?.stderr ?? '') + String(err?.stdout ?? '');
-    if (/E404|No match found for version/.test(stderr)) {
-      ok(`v${version} is not on npm yet`);
-    } else {
-      console.error(`\n${red}Could not determine whether v${version} is published.${reset}`);
-      console.error(`  ${dim}${stderr.trim().split('\n').slice(-3).join('\n  ')}${reset}`);
+  // Every published package is checked: a shim or daemon already on npm at this version means
+  // a half-finished earlier release, and `npm publish` would fail on it mid-run.
+  for (const pkg of NPM_PACKAGES) {
+    let state: 'published' | 'unpublished';
+    try {
+      state = npmPublishState(pkg.name, version);
+    } catch (err) {
+      console.error(`\n${red}Could not determine whether ${pkg.name}@${version} is published.${reset}`);
+      console.error(`  ${dim}${(err as Error).message.split('\n').slice(-3).join('\n  ')}${reset}`);
       console.error(`  Refusing to release on an unverified version.\n`);
       process.exit(1);
     }
+    if (state === 'published') {
+      console.error(`\n${red}${pkg.name}@${version} is already published.${reset}`);
+      console.error(`  A binary compiled at this version pins its npx calls to the`);
+      console.error(`  package already on the registry, so it would launch the very`);
+      console.error(`  release you are replacing.`);
+      console.error(`  Run ${cyan}npm run version.bump <patch|minor|major> "message"${reset} first.\n`);
+      process.exit(1);
+    }
+    ok(`${pkg.name}@${version} is not on npm yet`);
   }
 
   // 6. GitHub token — the release assets are what `install.sh` downloads, so a
@@ -438,13 +443,12 @@ async function publishGitHubRelease(version: string) {
 
 function publishNpm() {
   const step: Step = 'npm:supersurf';
-  // Two published packages: daemon first (server depends on it), then server.
+  // Three published packages, in dependency order: shim, daemon, server.
   try {
-    for (const pkg of ['daemon', 'server']) {
-      info(`Publishing ${pkg} to npm...`);
-      execSync('npm publish', { cwd: resolve(root, pkg), stdio: 'inherit' });
-      ok(`${pkg} published to npm`);
-    }
+    publishNpmPackages(root, (cmd, cwd) => {
+      info(`Publishing ${cwd.slice(root.length + 1)} to npm...`);
+      execSync(cmd, { cwd, stdio: 'inherit' });
+    }, (name) => ok(`${name} published to npm`));
     results[step] = 'success';
   } catch (err) {
     recordFailure(step, err);
@@ -513,7 +517,7 @@ function printSummary(version: string) {
         break;
       case 'npm:supersurf':
         console.log(`    ${dim}Fix: resolve the issue and run:${reset}`);
-        console.log(`    ${cyan}cd server && npm publish${reset}\n`);
+        console.log(`    ${cyan}publish the packages not yet on npm, in order: shim, daemon, server (cd <dir> && npm publish)${reset}\n`);
         break;
       case 'cws':
         console.log(`    ${dim}Fix: resolve the issue and run:${reset}`);
@@ -544,6 +548,17 @@ async function main() {
   }
   ok('npm test passed');
 
+  // Before --dry exits and before any push: a missing Go toolchain or a bad binary must stop the
+  // release while nothing has left the machine.
+  info('Building the shim binaries (linux and darwin, amd64 and arm64)...');
+  try {
+    prepareShimBinaries();
+  } catch (err) {
+    fail((err as Error).message);
+    process.exit(1);
+  }
+  ok('Shim binaries built and checked');
+
   if (isDry) {
     console.log(`\n${green}All pre-flight checks passed.${reset} Run without --dry to publish.\n`);
     process.exit(0);
@@ -567,7 +582,7 @@ async function main() {
     pushToGitHub(version);
   }
 
-  // Step 2: npm — single package now
+  // Step 2: npm — shim, daemon, server
   publishNpm();
 
   // Step 3: GitHub release assets. After npm on purpose — see the function.

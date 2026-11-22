@@ -50,15 +50,19 @@ describe('release asset names are the same on all three sides', () => {
  */
 describe('the release path refuses an already-published version', () => {
   const publish = read('scripts/publish.ts');
+  const npm = read('scripts/publish-npm.ts');
 
-  it('preflight asks npm whether this version exists', () => {
-    expect(publish).toMatch(/npm view supersurf-mcp@\$\{version\}/);
+  it('preflight asks npm about every published package, the shim included', () => {
+    expect(npm).toMatch(/npm view \$\{name\}@\$\{version\}/);
+    expect(publish).toMatch(/for \(const pkg of NPM_PACKAGES\)[\s\S]*npmPublishState\(pkg\.name, version\)/);
+    expect(npm).toContain("name: 'supersurf-shim'");
+    expect(npm).toContain("name: 'supersurf-mcp'");
   });
 
   it('only a genuine 404 clears the gate — it must not fail open', () => {
     // A registry outage exits non-zero too. Reading any non-zero exit as
     // "not published" would disable the guard exactly when npm is unreachable.
-    expect(publish).toMatch(/E404\|No match found for version/);
+    expect(npm).toMatch(/E404\|No match found for version/);
   });
 
   it('cli/build.ts carries no such check', () => {
@@ -77,5 +81,10 @@ describe('publish runs the test suite before anything leaves the machine', () =>
     expect(gate).toBeLessThan(at('if (isDry)'));
     expect(gate).toBeLessThan(at('pushToGitHub('));
     expect(gate).toBeLessThan(at('publishNpm()'));
+  });
+
+  it('preflight refuses a shim or shim pin that lags the release version', () => {
+    const publish = read('scripts/publish.ts');
+    expect(publish).toMatch(/shimVersion !== version \|\| shimPin !== version/);
   });
 });

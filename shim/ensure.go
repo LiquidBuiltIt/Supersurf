@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,9 +22,11 @@ type EnsureOpts struct {
 	Home         string
 	Port         int
 	Debug        bool
-	InstallDir   string // explicit --install: the package dir to install (the restart path)
-	BundledDir   string // the package dir this shim ships in; "" when unknown
-	NodePath     string // --node override
+	InstallDir   string    // explicit --install: the package dir to install (the restart path)
+	BundledDir   string    // the package dir this shim ships in; "" when unknown
+	NodePath     string    // --node override
+	DevRoot      string    // a validated dev clone (SUPERSURF_DEV_ENVIRONMENT); "" outside dev
+	Stderr       io.Writer // notes for the user; os.Stderr when nil
 	Now          func() time.Time
 	LockTimeout  time.Duration
 	StartTimeout time.Duration
@@ -262,41 +266,194 @@ func pkgVersion(dir string) (version, main string) {
 	return p.Version, p.Main
 }
 
-func copyTree(src, dst string) error {
-	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+// copyPkg copies one package dir as plain files. It skips the package's own top-level
+// node_modules (the closure places those), anything that is not a regular file or dir,
+// and symlinks that are absolute or leave the package.
+func copyPkg(src, dst string) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		rel, _ := filepath.Rel(src, p)
 		t := filepath.Join(dst, rel)
 		switch {
-		case info.IsDir():
+		case d.IsDir():
+			if rel == "node_modules" {
+				return filepath.SkipDir
+			}
 			return os.MkdirAll(t, 0o755)
-		case info.Mode()&os.ModeSymlink != 0:
+		case d.Type()&fs.ModeSymlink != 0:
 			l, err := os.Readlink(p)
-			if err != nil {
-				return err
+			if err != nil || filepath.IsAbs(l) {
+				return nil
+			}
+			if r, _ := filepath.Rel(src, filepath.Join(filepath.Dir(p), l)); r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+				return nil
 			}
 			return os.Symlink(l, t)
+		case !d.Type().IsRegular():
+			return nil
 		}
-		in, err := os.Open(p)
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		defer in.Close()
-		out, err := os.OpenFile(t, os.O_CREATE|os.O_WRONLY|os.O_EXCL, info.Mode().Perm())
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(out, in); err != nil {
-			out.Close()
-			return err
-		}
-		return out.Close()
+		return copyFile(p, t, info)
 	})
 }
 
-// install copies the package into versions/<v>/ once and never rewrites it.
+func copyFile(p, t string, info fs.FileInfo) error {
+	in, err := os.Open(p)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(t, os.O_CREATE|os.O_WRONLY|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+type depPkg struct {
+	Name, Version        string
+	Dependencies         map[string]string
+	OptionalDependencies map[string]string
+	PeerDependencies     map[string]string
+	PeerDependenciesMeta map[string]struct{ Optional bool }
+}
+
+func readPkg(dir string) (*depPkg, bool) {
+	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return nil, false
+	}
+	var p depPkg
+	return &p, json.Unmarshal(raw, &p) == nil
+}
+
+// resolveSrc is Node's lookup: the first node_modules/<name> on the way up from the
+// dependent's real dir, as a real path ("" when none).
+func resolveSrc(from, name string) string {
+	for d := from; ; d = filepath.Dir(d) {
+		c := filepath.Join(d, "node_modules", filepath.FromSlash(name))
+		if _, ok := readPkg(c); ok {
+			if r, err := filepath.EvalSymlinks(c); err == nil {
+				return r
+			}
+		}
+		if filepath.Dir(d) == d {
+			return ""
+		}
+	}
+}
+
+// placeAt says where name@ver goes under root for a dependent placed at dest: nowhere
+// (already visible there, as Node would find it), at the top level, or nested under the
+// dependent when a nearer copy at another version would shadow the top one.
+func placeAt(root, dest, name, ver string) (at string, copy bool) {
+	rel := filepath.FromSlash(name)
+	for d := dest; ; d = filepath.Dir(d) {
+		if p, ok := readPkg(filepath.Join(d, "node_modules", rel)); ok {
+			if p.Version == ver {
+				return "", false
+			}
+			return filepath.Join(dest, "node_modules", rel), true
+		}
+		if d == root {
+			return filepath.Join(root, "node_modules", rel), true
+		}
+	}
+}
+
+// shimPkg is never part of the closure: nothing run from versions/<v>/ executes the shim.
+const shimPkg = "supersurf-shim"
+
+// copyClosure copies the daemon's runtime dependency closure into root/node_modules.
+// Breadth first, so a package's own dependencies are placed before its children are read.
+func copyClosure(srcReal, root string) error {
+	type node struct{ real, dest string }
+	queue := []node{{srcReal, root}}
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		p, ok := readPkg(n.real)
+		if !ok {
+			return fmt.Errorf("unreadable package.json in %s", n.real)
+		}
+		want := map[string]bool{} // name -> required
+		for k := range p.PeerDependencies {
+			if !p.PeerDependenciesMeta[k].Optional {
+				want[k] = false
+			}
+		}
+		for k := range p.OptionalDependencies {
+			want[k] = false
+		}
+		for k := range p.Dependencies {
+			want[k] = true
+		}
+		names := make([]string, 0, len(want))
+		for k := range want {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if name == shimPkg {
+				continue
+			}
+			real := resolveSrc(n.real, name)
+			if real == "" {
+				if want[name] {
+					return fmt.Errorf("required dependency %q of %s is not installed", name, p.Name)
+				}
+				continue
+			}
+			dp, _ := readPkg(real)
+			at, doCopy := placeAt(root, n.dest, name, dp.Version)
+			if !doCopy {
+				continue
+			}
+			if err := copyPkg(real, at); err != nil {
+				return err
+			}
+			queue = append(queue, node{real, at})
+		}
+	}
+	return nil
+}
+
+// copyDaemon copies the daemon package's own files: package.json, dist/, README, LICENSE.
+func copyDaemon(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, f := range []string{"package.json", "dist", "README.md", "LICENSE"} {
+		fi, err := os.Lstat(filepath.Join(src, f))
+		if err != nil {
+			if f == "package.json" || f == "dist" {
+				return fmt.Errorf("%s is missing from %s", f, src)
+			}
+			continue
+		}
+		if fi.IsDir() {
+			err = copyPkg(filepath.Join(src, f), filepath.Join(dst, f))
+		} else {
+			err = copyFile(filepath.Join(src, f), filepath.Join(dst, f), fi)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// install copies the package and its dependency closure into versions/<v>/ once and
+// never rewrites it.
 func install(dir, src, version, mainRel string) (string, error) {
 	target := filepath.Join(dir, "versions", version)
 	if _, err := os.Stat(target); err == nil {
@@ -305,9 +462,17 @@ func install(dir, src, version, mainRel string) (string, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "versions"), 0o755); err != nil {
 		return "", err
 	}
+	srcReal, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return "", err
+	}
 	tmp := fmt.Sprintf("%s.tmp-%d", target, os.Getpid())
 	os.RemoveAll(tmp)
-	if err := copyTree(src, tmp); err != nil {
+	if err := copyDaemon(srcReal, tmp); err != nil {
+		os.RemoveAll(tmp)
+		return "", err
+	}
+	if err := copyClosure(srcReal, tmp); err != nil {
 		os.RemoveAll(tmp)
 		return "", err
 	}
@@ -347,6 +512,9 @@ func Ensure(o EnsureOpts) error {
 
 	recs := readSpawns(dir)
 	now := o.Now()
+	if o.DevRoot != "" {
+		return ensureDev(o, dir, recs, now)
+	}
 	cur := readEntry(dir)
 	src, explicit := o.BundledDir, false
 	if o.InstallDir != "" {
@@ -413,6 +581,69 @@ func daemonUp(home string) bool {
 	return true
 }
 
+// devClone mirrors shared/dev-source.ts for the daemon entry: raw is
+// SUPERSURF_DEV_ENVIRONMENT, and the clone must be a SuperSurf repo root with a built
+// daemon. It returns the absolute root, or a problem when the variable is set but
+// unusable ("", "" when it is unset).
+func devClone(raw string) (root, problem string) {
+	if raw == "" {
+		return "", ""
+	}
+	root, err := filepath.Abs(raw)
+	if err != nil {
+		return "", err.Error()
+	}
+	pkg, err := os.ReadFile(filepath.Join(root, "package.json"))
+	var p struct{ Name string }
+	if err != nil || json.Unmarshal(pkg, &p) != nil {
+		return "", fmt.Sprintf("%s is not a SuperSurf repo root (no readable package.json)", root)
+	}
+	if p.Name != "supersurf" {
+		return "", fmt.Sprintf("%s is not a SuperSurf repo root (package.json name is %q)", root, p.Name)
+	}
+	if _, err := os.Stat(devMain(root)); err != nil {
+		return "", fmt.Sprintf("daemon/dist/main.js is missing. Run npm run build in %s", root)
+	}
+	return root, ""
+}
+
+func devMain(root string) string { return filepath.Join(root, "daemon", "dist", "main.js") }
+
+// ensureDev is Ensure in a dev clone: it writes no entry and no versions/, and installs
+// nothing (--install is ignored). It removes a leftover entry (from an installed version), so
+// the daemon's hand-off (`readEntry() ?? self`) runs the clone's own main.js and D3 sees no
+// newer entry. versions/ stays. The lock and the G1 budget stay.
+func ensureDev(o EnsureOpts, dir string, recs []spawnRec, now time.Time) error {
+	node := o.NodePath
+	if node == "" {
+		var err error
+		if node, err = exec.LookPath("node"); err != nil {
+			return fmt.Errorf("node is not on PATH; install Node 18 or newer, or pass --node")
+		}
+	}
+	node, err := filepath.Abs(node)
+	if err != nil {
+		return err
+	}
+	if raw, err := os.ReadFile(filepath.Join(dir, "entry")); err == nil && os.Remove(filepath.Join(dir, "entry")) == nil {
+		var left entry
+		json.Unmarshal(raw, &left)
+		w := o.Stderr
+		if w == nil {
+			w = os.Stderr
+		}
+		fmt.Fprintf(w, "supersurf-shim: dev clone: removed a leftover entry (%s) so the daemon restarts as the clone\n", left.Version)
+	}
+	if daemonUp(o.Home) {
+		return nil
+	}
+	if w := budgetWait(recs, now); w > 0 {
+		return fmt.Errorf("the last %d daemon starts failed; the next attempt is allowed in %ds (see %s)",
+			budgetFails, int(w.Seconds())+1, filepath.Join(supersurfDir(o.Home), "daemon.startup.log"))
+	}
+	return spawnDaemon(o, dir, &entry{Node: node, Main: devMain(o.DevRoot), Version: "dev"})
+}
+
 func spawnDaemon(o EnsureOpts, dir string, e *entry) error {
 	logPath := filepath.Join(supersurfDir(o.Home), "daemon.startup.log")
 	errFile, _ := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -422,6 +653,10 @@ func spawnDaemon(o EnsureOpts, dir string, e *entry) error {
 	}
 	cmd := exec.Command(e.Node, args...)
 	cmd.Env = scrubbedEnv()
+	if o.DevRoot != "" {
+		// The only SUPERSURF_* name the daemon gets: it is how the daemon learns it is in dev (no extension pull).
+		cmd.Env = append(cmd.Env, "SUPERSURF_DEV_ENVIRONMENT="+o.DevRoot)
+	}
 	cmd.Dir = o.Home
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdin, cmd.Stdout = nil, nil
