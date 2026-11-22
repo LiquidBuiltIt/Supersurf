@@ -14,12 +14,16 @@ import { configServiceFrom, enabledExperiments } from './shim-config';
 import type { ShimConfigInputs } from './shim-config';
 import type { MainToWorker, WorkerToMain } from './protocol';
 
+type ResumeEntry = { id: string; profileId: string | null; attachedTabId: number | null; experiments: Record<string, boolean> };
+
 /** The slice of the engine barrel the worker uses. */
 export interface EngineModule {
   AgentSessionManager: new (config: any, host: any) => {
     initialize(server: any, clientInfo: Record<string, unknown>): Promise<void>;
     listTools(): Promise<unknown[]>;
     callTool(name: string, args?: Record<string, unknown>): Promise<any>;
+    /** E9: rebuild the sessions a restart hand-off parked, before the first line is handled. */
+    resume(entries: ResumeEntry[]): Promise<void>;
     serverClosed(): Promise<void>;
   };
 }
@@ -99,7 +103,7 @@ export function createEngineSide(
     };
   };
 
-  const open = (cid: string, inputs: ShimConfigInputs, shimToolsHash?: string): void => {
+  const open = (cid: string, inputs: ShimConfigInputs, shimToolsHash?: string, resume?: ResumeEntry[]): void => {
     if (connections.has(cid)) return;
     const config = buildConfig(inputs);
     const manager = new engine.AgentSessionManager(config, makeHost(cid, inputs, config));
@@ -126,7 +130,10 @@ export function createEngineSide(
       if (changed && Array.isArray(result?.content)) result.content.push({ type: 'text', text: TOOLS_CHANGED_TEXT });
       return result;
     });
-    const ready = manager.initialize(server, {}).then(() => server.connect(transport));
+    // E9: parked sessions are claimed before the transport connects, so the shim's replay is answered after the rebuild.
+    const ready = manager.initialize(server, {})
+      .then(() => (resume?.length ? manager.resume(resume) : undefined))
+      .then(() => server.connect(transport));
     connections.set(cid, { transport, server, ready });
     managers.set(cid, manager);
     ready.catch(() => { void close(cid); });
@@ -178,7 +185,7 @@ export function createEngineSide(
     if (m.t === 'ping') { port.postMessage({ t: 'pong' }); return; }
     if (router.handle(m)) return;
     switch (m.t) {
-      case 'open': open(m.cid, m.config, m.toolsHash); break;
+      case 'open': open(m.cid, m.config, m.toolsHash, m.resume?.sessions); break;
       case 'line': {
         const conn = connections.get(m.cid);
         if (conn) conn.ready.then(() => conn.transport.feed(m.data), () => {});

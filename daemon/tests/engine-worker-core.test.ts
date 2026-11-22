@@ -90,6 +90,46 @@ describe('engine worker core (inline, engine/src injected)', () => {
     expect(init.result.serverInfo.version).toBe('9.9.9-test');
   });
 
+  it('open with resume calls manager.resume before the first queued line is handled (E9)', async () => {
+    const order: string[] = [];
+    class Resuming extends engine.AgentSessionManager {
+      async resume(entries: unknown[]) {
+        order.push('resume-start');
+        await new Promise((r) => setTimeout(r, 100));
+        order.push(`resume-done:${JSON.stringify(entries)}`);
+      }
+      async listTools() {
+        order.push('listTools');
+        return super.listTools();
+      }
+    }
+    const r = rig({ AgentSessionManager: Resuming });
+    const sessions = [{ id: 'agent-r', profileId: null, attachedTabId: 4, experiments: { fingerprinting: true } }];
+    r.mainEnd.postMessage({ t: 'open', cid: 'shim-r', config: r.config, resume: { sessions } });
+    await r.call('shim-r', 1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+    r.send('shim-r', { jsonrpc: '2.0', method: 'notifications/initialized' });
+    await r.call('shim-r', 2, 'tools/list');
+    expect(order).toEqual(['resume-start', `resume-done:${JSON.stringify(sessions)}`, 'listTools']);
+  });
+
+  it('open with resume rebuilds the session through the real manager with no connect call (E9)', async () => {
+    const r = rig();
+    r.mainEnd.postMessage({ t: 'open', cid: 'shim-q', config: r.config, resume: { sessions: [{ id: 'agent-q', profileId: null, attachedTabId: null, experiments: {} }] } });
+    await r.call('shim-q', 1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+    expect(r.registered).toContain('agent-q');
+  });
+
+  it('open without resume never calls manager.resume (E9)', async () => {
+    const resume = vi.fn(async (_e: unknown[]) => {});
+    class Plain extends engine.AgentSessionManager {
+      async resume(e: unknown[]) { return resume(e); }
+    }
+    const r = rig({ AgentSessionManager: Plain });
+    r.mainEnd.postMessage({ t: 'open', cid: 'shim-p', config: r.config });
+    await r.call('shim-p', 1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } });
+    expect(resume).not.toHaveBeenCalled();
+  });
+
   it('a parse error does not throw and the connection keeps working', async () => {
     const r = rig();
     r.mainEnd.postMessage({ t: 'open', cid: 'shim-b', config: r.config });
