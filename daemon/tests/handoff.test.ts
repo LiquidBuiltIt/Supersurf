@@ -304,6 +304,67 @@ describe('Handoff.run (old side, injected options)', () => {
     expect(order).not.toContain('setRestarting');
   });
 
+  describe('resume seams (E9)', () => {
+    it('prepareResume runs once, after userOwned() and before the pid rename, and cancelResume is not called on a commit', async () => {
+      const seen: any = { calls: 0 };
+      const h = new Handoff(opts({
+        userOwned: () => { order.push('userOwned'); return []; },
+        prepareResume: () => {
+          seen.calls++;
+          order.push('prepareResume');
+          seen.pid = fs.readFileSync(pidPath(), 'utf8');
+          seen.state = h.state;
+          return [77];
+        },
+        cancelResume: () => { order.push('cancelResume'); },
+      }));
+      expect(await h.run(() => {})).toBe('committed');
+      expect(seen).toEqual({ calls: 1, pid: String(process.pid), state: 'waiting' });
+      expect(order).toEqual(['userOwned', 'prepareResume', 'setRestarting', 'killChromium', 'stopShims', 'endSessions', 'exit0']);
+    });
+
+    it('a prepareResume that throws rolls back, calls cancelResume and leaves the pidfile alone', async () => {
+      const replies: any[] = [];
+      const h = new Handoff(opts({
+        prepareResume: () => { throw new Error('snapshot boom'); },
+        cancelResume: () => { order.push('cancelResume'); },
+      }));
+      expect(await h.run((m) => replies.push(m))).toBe('failed');
+      expect(replies[0].reason).toContain('snapshot boom');
+      expect(fs.readFileSync(pidPath(), 'utf8')).toBe(String(process.pid));
+      expect(order).toEqual(['cancelResume']);
+    });
+
+    it('every pre-rename rollback calls cancelResume (the successor exits)', async () => {
+      const h = new Handoff(opts({
+        spawn: fakeSpawn({ exit: 3 }),
+        cancelResume: () => { order.push('cancelResume'); },
+      }));
+      expect(await h.run(() => {})).toBe('failed');
+      expect(order).toEqual(['cancelResume']);
+    });
+
+    it('a cancelResume that throws does not hide the handoff_failed reply', async () => {
+      const replies: any[] = [];
+      const h = new Handoff(opts({
+        spawn: fakeSpawn({ exit: 3 }),
+        cancelResume: () => { throw new Error('cancel boom'); },
+      }));
+      expect(await h.run((m) => replies.push(m))).toBe('failed');
+      expect(replies[0]).toMatchObject({ type: 'handoff_failed' });
+    });
+
+    it('a throw after the pid rename does not cancel: the snapshot stays for the successor (N5)', async () => {
+      const h = new Handoff(opts({
+        prepareResume: () => [],
+        cancelResume: () => { order.push('cancelResume'); },
+        fault: (p) => { if (p === 'after-pid-rename') fs.unlinkSync(nextSockPath()); },
+      }));
+      await expect(h.run(() => {})).rejects.toThrow();
+      expect(order).toEqual(['exit1']);
+    });
+  });
+
   it('a failing handoff_committed record after the pid rename does not stop the commit', async () => {
     const replies: any[] = [];
     const h = new Handoff(opts({

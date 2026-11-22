@@ -13,6 +13,7 @@ import path from 'path';
 import type net from 'net';
 import { Worker } from 'worker_threads';
 import type { SessionHost } from './ipc';
+import type { SnapSession } from './resume';
 import type { DaemonExperimentRegistry } from './experiments/index';
 import { attachEnginePort, type EnginePort } from './engine-worker/main-side';
 import { shimConfigInputs, enabledExperiments } from './engine-worker/shim-config';
@@ -107,6 +108,10 @@ export class ShimServer {
   private conns = new Map<string, Conn>();
   /** Live sockets by handshake sessionId, for the duplicate check only. */
   private live = new Map<string, Conn>();
+  /** E9: daemon session id -> shim handshake id, for links opened `resumable: true` only. `main.ts` reads it to build the snapshot. */
+  private resumable = new Map<string, string>();
+  /** E9 successor: parked sessions still unclaimed, by shim handshake id. `accept` offers them to that shim's worker connection. */
+  private resumed = new Map<string, SnapSession[]>();
   private nextSeq = 1;
   private _served = false;
   private worker: ShimWorker | null = null;
@@ -182,7 +187,11 @@ export class ShimServer {
 
     // G4: the shim's last tool-list hash; anything but a string of 1-128 chars is dropped, never refused.
     const th = typeof hs.toolsHash === 'string' && hs.toolsHash.length >= 1 && hs.toolsHash.length <= 128 ? hs.toolsHash : undefined;
-    worker.postMessage({ t: 'open', cid, config: inputs, ...(th ? { toolsHash: th } : {}) });
+    const offer = this.resumed.get(sessionId);
+    const resume = offer?.length
+      ? { resume: { sessions: offer.map((e) => ({ id: e.id, profileId: e.profileId, attachedTabId: e.attachedTabId, experiments: e.experiments })) } }
+      : {};
+    worker.postMessage({ t: 'open', cid, config: inputs, ...resume, ...(th ? { toolsHash: th } : {}) });
     socket.write(JSON.stringify({ type: 'shim_ack', protocol: 1, version: this.opts.daemon.version }) + '\n');
     this._served = true;
     if (rest.length) feed(rest);
@@ -190,6 +199,20 @@ export class ShimServer {
 
   /** True once this daemon accepted a `shim_register` (sticky): the shim model is in use. */
   get served(): boolean { return this._served; }
+
+  /** E9 successor: the parked sessions each shim connection may claim. */
+  setResumed(entries: SnapSession[]): void {
+    this.resumed.clear();
+    for (const e of entries) this.resumed.set(e.shim, [...(this.resumed.get(e.shim) ?? []), e]);
+  }
+
+  /** E9: the grace ended; nothing is offered any more. */
+  clearResumed(): void { this.resumed.clear(); }
+
+  /** E9: the resumable daemon sessions and the shim connection each belongs to. */
+  resumableSessions(): Array<{ id: string; shim: string }> {
+    return [...this.resumable].map(([id, shim]) => ({ id, shim }));
+  }
 
   /** Live shim sockets. */
   get liveCount(): number { return this.live.size; }
@@ -234,10 +257,15 @@ export class ShimServer {
       },
       end: (cid) => { this.conns.get(cid)?.socket.end(); },
       env: (cid, op, name) => this.envRoundTrip(cid, op, name),
-      registered: (sessionId, cid) => {
+      registered: (sessionId, cid, resumable) => {
         const c = cid === undefined ? undefined : this.conns.get(cid);
-        if (c) this.opts.experiments.initSession(sessionId, c.experiments);
+        const offered = c ? this.resumed.get(c.sessionId) : undefined;
+        const claimed = offered?.findIndex((e) => e.id === sessionId) ?? -1;
+        if (c && claimed >= 0) offered!.splice(claimed, 1); // a claim: the restored experiments stay
+        else if (c) this.opts.experiments.initSession(sessionId, c.experiments);
+        if (c && resumable === true) this.resumable.set(sessionId, c.sessionId);
       },
+      closed: (sessionId) => { this.resumable.delete(sessionId); },
     });
     // A Worker emits exit/error, a MessagePort close: any of them means this worker is gone.
     // `counted`: an `error` is followed by its `exit`, which must not count again.
@@ -278,6 +306,7 @@ export class ShimServer {
     this.attached?.detach();
     this.attached = null;
     this.live.clear();
+    this.resumable.clear();
     for (const [cid, conn] of [...this.conns]) {
       this.conns.delete(cid);
       this.rejectPending(conn, 'The engine worker stopped');

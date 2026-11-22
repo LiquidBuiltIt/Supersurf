@@ -71,6 +71,38 @@ describe('PortLink', () => {
     expect((r.seen[1] as any).cid).toBeUndefined();
   });
 
+  it('open puts resumable on link-open only when it is true or false, and omits it when unset (E9)', async () => {
+    const r = rig();
+    await r.router.open('a', 'shim-1', { resumable: true });
+    await r.router.open('b', 'shim-1', { resumable: false });
+    await r.router.open('c', 'shim-1');
+    await r.router.open('d', 'shim-1', {});
+    expect((r.seen[0] as any).resumable).toBe(true);
+    expect((r.seen[1] as any).resumable).toBe(false);
+    expect('resumable' in (r.seen[2] as any)).toBe(false);
+    expect('resumable' in (r.seen[3] as any)).toBe(false);
+  });
+
+  it('open puts resume on link-open only when it is true, and the ack resumed fields reach the link (E9)', async () => {
+    const r = rig();
+    r.onOpen = (m) => void r.send({ t: 'msg', lid: m.lid, msg: { ...ACK, resumed: true, attachedTabId: 6, profileId: 'dev' } });
+    const link = await r.router.open('a', 'shim-1', { resume: true });
+    await r.router.open('b', 'shim-1', {});
+    expect((r.seen[0] as any).resume).toBe(true);
+    expect('resume' in (r.seen[1] as any)).toBe(false);
+    expect(link.resumed).toBe(true);
+    expect(link.attachedTabId).toBe(6);
+    expect(link.profileId).toBe('dev');
+  });
+
+  it('a plain ack is not resumed', async () => {
+    const r = rig();
+    const link = await r.router.open('a');
+    expect(link.resumed).toBe(false);
+    expect(link.attachedTabId).toBeNull();
+    expect(link.profileId).toBeNull();
+  });
+
   it('a bare ack leaves the defaults (pre-upgrade daemon)', async () => {
     const r = rig();
     r.onOpen = (m) => void r.send({ t: 'msg', lid: m.lid, msg: { type: 'session_ack' } });

@@ -31,6 +31,14 @@ export function isMultiAgent(config: BackendConfig): boolean {
   return config.configService?.get().agents.multi_agent ?? false;
 }
 
+/** One session the daemon parked across a restart hand-off (E9); the engine rebuilds it as `active`. */
+export interface ResumeEntry {
+  id: string;
+  profileId: string | null;
+  attachedTabId: number | null;
+  experiments: Record<string, boolean>;
+}
+
 /** Metadata for the currently attached browser tab. */
 export interface TabInfo {
   id?: number;
@@ -83,6 +91,8 @@ export interface AgentSessionAPI {
   lastConnectError: string | null;
   /** Why the last `connect` had to (re)spawn the daemon, from the link; null when it reused one. */
   daemonSpawnReason: string | null;
+  /** False only for a playbook run's own session: its link is not kept across a restart hand-off (E9). */
+  readonly resumable?: boolean;
   statusHeader(): string;
   getAttachedTab(): TabInfo | null;
   setAttachedTab(tab: TabInfo | null): void;

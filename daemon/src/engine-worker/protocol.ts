@@ -20,8 +20,8 @@ export interface LinkRequest {
 }
 
 export type MainToWorker =
-  /** `config` is plain-object inputs from the handshake; the worker builds the `ConfigService` and `BackendConfig`. `resume` is reserved. `toolsHash` (G4): the shim's last `tools_hash`, for the changed-tools fallback notice. */
-  | { t: 'open'; cid: string; config: ShimConfigInputs; resume?: unknown; toolsHash?: string }
+  /** `config` is plain-object inputs from the handshake; the worker builds the `ConfigService` and `BackendConfig`. `resume` (E9): the parked sessions this shim connection may claim. `toolsHash` (G4): the shim's last `tools_hash`, for the changed-tools fallback notice. */
+  | { t: 'open'; cid: string; config: ShimConfigInputs; resume?: { sessions: Array<{ id: string; profileId: string | null; attachedTabId: number | null; experiments: Record<string, boolean> }> }; toolsHash?: string }
   | { t: 'line'; cid: string; data: string }
   | { t: 'close'; cid: string }
   | { t: 'shutdown' }
@@ -41,7 +41,7 @@ export type WorkerToMain =
   /** One MCP server line, UTF-8, transferred (never a pooled Buffer slab). */
   | { t: 'line'; cid: string; buf: Uint8Array }
   | { t: 'end'; cid: string }
-  | { t: 'link-open'; lid: number; sessionId: string; cid?: string }
+  | { t: 'link-open'; lid: number; sessionId: string; cid?: string; resumable?: boolean; resume?: boolean }
   | { t: 'req'; lid: number; msg: LinkRequest }
   | { t: 'link-close'; lid: number }
   | { t: 'status'; rid: number }

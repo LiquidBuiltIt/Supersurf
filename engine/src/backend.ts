@@ -30,7 +30,7 @@ import type { EngineHost } from './host';
 // Re-export types so existing imports from './backend' still work
 export type { BackendConfig, TabInfo, BackendState, ToolSchema } from './backend/types';
 import { isMultiAgent } from './backend/types';
-import type { BackendConfig, TabInfo, BackendState, ToolSchema, AgentSessionAPI } from './backend/types';
+import type { BackendConfig, TabInfo, BackendState, ToolSchema, AgentSessionAPI, ResumeEntry } from './backend/types';
 
 import { buildStatusHeader, legacyNoticeEnabled } from './backend/status';
 import { loadBrowserBridge } from './backend/load-bridge';
@@ -39,7 +39,7 @@ import { refreshRegistry, getInvalidRecords } from './playbooks/registry';
 import { doList as doPlaybooksList, doInspect as doPlaybooksInspect, doValidate as doPlaybooksValidate } from './playbooks/report';
 import { getConnectionToolSchemas, getDebugToolSchema, getProfileToolSchemas } from './backend/schemas';
 import {
-  onConnect, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete,
+  onConnect, onResume, onDisconnect, onStatus, onReloadMCP, onProfileCreate, onProfileList, onProfileDelete,
 } from './backend/handlers';
 
 const log = createLog('[Conn]');
@@ -83,11 +83,24 @@ export class AgentSession implements AgentSessionAPI {
    *  broken file is named once rather than on every tool result. */
   private _warnedInvalidPlaybooks: Set<string> = new Set();
 
-  /** `opts.legacyNotice` false: this session never shows the legacy notice (a playbook run's own session). */
-  constructor(config: BackendConfig, readonly host: EngineHost, private readonly opts: { legacyNotice?: boolean } = {}) {
+  /** `opts.legacyNotice` false: this session never shows the legacy notice (a playbook run's own session). `opts.resumable` false: its daemon link is not kept across a restart hand-off. */
+  constructor(config: BackendConfig, readonly host: EngineHost, private readonly opts: { legacyNotice?: boolean; resumable?: boolean } = {}) {
     log('Constructor — starting in PASSIVE mode');
     this.config = config;
     this.debugMode = config.debug || false;
+  }
+
+  get resumable(): boolean {
+    return this.opts.resumable !== false;
+  }
+
+  /** E9: rebuild this session as `active` from a session the daemon parked across a restart hand-off. Never throws. */
+  async resume(entry: ResumeEntry): Promise<boolean> {
+    const metricsEnabled = this.config.configService?.get().logging.usage_metrics ?? false;
+    if (!this.metricsLogger && metricsEnabled) {
+      this.metricsLogger = new UsageMetricsLogger(entry.id, undefined, this.host.packageVersion);
+    }
+    return onResume(this, entry);
   }
 
   /** Store server reference and client metadata. Does not start the WebSocket — that happens in `enable`. */

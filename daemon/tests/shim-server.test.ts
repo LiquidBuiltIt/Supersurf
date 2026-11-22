@@ -360,3 +360,109 @@ describe('hand-off support (E4)', () => {
     expect(() => shimServer.notifyRestarting()).not.toThrow();
   });
 });
+
+describe('resumable sessions (E9, D3)', () => {
+  const open = (w: RecordingWorker, lid: number, sessionId: string, cid: string, resumable?: boolean) =>
+    w.emit('message', { t: 'link-open', lid, sessionId, cid, ...(resumable !== undefined && { resumable }) });
+
+  it('records only links opened with resumable === true, mapped to the shim handshake id', async () => {
+    await newShim({ sessionId: 'shim-a' }).register();
+    open(workers[0], 1, 'agent-yes', 'shim-a#1', true);
+    open(workers[0], 2, 'agent-no', 'shim-a#1', false);
+    open(workers[0], 3, 'agent-unset', 'shim-a#1');
+    open(workers[0], 4, 'agent-nocid', undefined as any, true);
+    expect(shimServer.resumableSessions()).toEqual([{ id: 'agent-yes', shim: 'shim-a' }]);
+  });
+
+  it('a refused register records nothing', async () => {
+    await newShim({ sessionId: 'shim-a' }).register();
+    (host as any).register = () => false;
+    open(workers[0], 1, 'agent-x', 'shim-a#1', true);
+    expect(shimServer.resumableSessions()).toEqual([]);
+  });
+
+  it('drops the entry when its link closes', async () => {
+    await newShim({ sessionId: 'shim-a' }).register();
+    open(workers[0], 1, 'agent-a', 'shim-a#1', true);
+    open(workers[0], 2, 'agent-b', 'shim-a#1', true);
+    workers[0].emit('message', { t: 'link-close', lid: 1 });
+    expect(shimServer.resumableSessions()).toEqual([{ id: 'agent-b', shim: 'shim-a' }]);
+  });
+
+  it('forgets everything when the worker goes', async () => {
+    await newShim({ sessionId: 'shim-a' }).register();
+    open(workers[0], 1, 'agent-a', 'shim-a#1', true);
+    workers[0].emit('exit', 0);
+    expect(shimServer.resumableSessions()).toEqual([]);
+  });
+
+  it('end to end: the worker host passes opts.resumable through the port link', async () => {
+    const { engine } = fakeEngine();
+    host.register = (_id: string, sink: any) => { sink.send({ type: 'session_ack' }); return true; };
+    shimServer.stop();
+    shimServer = new ShimServer({
+      host, experiments,
+      daemon: { configPath: path.join(dir, 'config.json'), port: 5599, version: '9.9.9-test' },
+      startWorker: () => inlineWorker(engine),
+    });
+    const shim = newShim({ sessionId: 'shim-e2e' });
+    await shim.register();
+    await shim.initialize();
+    await shim.call('connect', { client_id: 'agent-r', resumable: true });
+    await shim.call('connect', { client_id: 'agent-p', resumable: false });
+    await shim.call('connect', { client_id: 'agent-u' });
+    expect(shimServer.resumableSessions()).toEqual([{ id: 'agent-r', shim: 'shim-e2e' }]);
+  });
+});
+
+describe('resume offer (E9, D5)', () => {
+  const snap = (id: string, shim: string, over: object = {}) => ({
+    id, shim, ownedTabs: [1], createdTabs: [1], attachedTabId: 6, groupId: 2, profileId: 'dev', experiments: { page_diffing: true }, ...over,
+  });
+  const link = (w: RecordingWorker, lid: number, sessionId: string, cid: string) =>
+    w.emit('message', { t: 'link-open', lid, sessionId, cid, resume: true });
+
+  it('open carries resume.sessions for that shim id only, and nothing when it has none', async () => {
+    shimServer.setResumed([snap('a', 'shim-a'), snap('b', 'shim-b', { profileId: null, attachedTabId: null })]);
+    await newShim({ sessionId: 'shim-a' }).register();
+    await newShim({ sessionId: 'shim-c' }).register();
+    const opens = workers[0].of('open');
+    expect(opens[0].resume).toEqual({ sessions: [{ id: 'a', profileId: 'dev', attachedTabId: 6, experiments: { page_diffing: true } }] });
+    expect('resume' in opens[1]).toBe(false);
+  });
+
+  it('entries are not one-shot: a re-register after the shim dropped still gets them', async () => {
+    shimServer.setResumed([snap('a', 'shim-a')]);
+    const first = newShim({ sessionId: 'shim-a' });
+    await first.register();
+    first.close();
+    await until(() => workers[0].of('close').length === 1);
+    await newShim({ sessionId: 'shim-a' }).register();
+    expect(workers[0].of('open')[1].resume.sessions.map((x: any) => x.id)).toEqual(['a']);
+  });
+
+  it('a claimed entry leaves the offer and its session keeps its experiments (no default re-apply)', async () => {
+    const init = vi.spyOn(experiments, 'initSession');
+    shimServer.setResumed([snap('a', 'shim-a'), snap('b', 'shim-a')]);
+    const first = newShim({ sessionId: 'shim-a' });
+    await first.register();
+    link(workers[0], 1, 'a', 'shim-a#1');
+    expect(init).not.toHaveBeenCalledWith('a', expect.anything());
+    workers[0].emit('message', { t: 'link-open', lid: 2, sessionId: 'plain', cid: 'shim-a#1' });
+    expect(init).toHaveBeenCalledWith('plain', expect.anything());
+
+    first.close();
+    await until(() => workers[0].of('close').length === 1);
+    await newShim({ sessionId: 'shim-a' }).register();
+    const offered = workers[0].of('open').at(-1).resume.sessions.map((x: any) => x.id);
+    expect(offered).toEqual(['b']);
+  });
+
+  it('clearResumed (grace) stops the offer', async () => {
+    shimServer.setResumed([snap('a', 'shim-a')]);
+    shimServer.clearResumed();
+    await newShim({ sessionId: 'shim-a' }).register();
+    expect('resume' in workers[0].of('open')[0]).toBe(false);
+  });
+});
+

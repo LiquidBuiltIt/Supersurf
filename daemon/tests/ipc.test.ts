@@ -16,6 +16,7 @@ import { PortLinkRouter } from '../src/engine-worker/port-link';
 import type { MainToWorker, WorkerToMain } from '../src/engine-worker/protocol';
 import { isExtensionCached } from '../src/profiles/extension-source';
 import { ShimServer } from '../src/shim-server';
+import type { SnapSession } from '../src/resume';
 import { FakeShim, fakeEngine, inlineWorker, until, wait } from './helpers/shim-rig';
 
 // spawnProfile calls spawnChromium for real. The pull-error guard currently
@@ -1211,6 +1212,16 @@ describe('IPCServer', () => {
       expect(calls).toHaveLength(2);
     });
 
+    it('link-open passes resume and cid to host.register: a parked id is claimed over a port (E9)', async () => {
+      await ipc.start();
+      ipc.parkSessions([{ id: 'p1', shim: 'shim-x', ownedTabs: [3], createdTabs: [], attachedTabId: 3, groupId: null, profileId: null, experiments: {} }], 60_000);
+      const { router } = portRig();
+      await expect(router.open('p1', 'shim-x#1')).rejects.toThrow('already in use');
+      const link = await router.open('p1', 'shim-x#2', { resume: true });
+      expect(link.resumed).toBe(true);
+      expect(link.attachedTabId).toBe(3);
+    });
+
     it('the same id over a socket then a port: the port start() rejects', async () => {
       await ipc.start();
       const client = await connectToSocket(sockPath);
@@ -1905,6 +1916,312 @@ describe('IPCServer', () => {
       open();
       expect((await answer).result.success).toBe(true);
       c.end();
+    });
+  });
+
+  describe('resume: keep flag and restarting rejection (E9)', () => {
+    const fakeSink = () => ({ sent: [] as any[], ended: 0, send(m: object) { this.sent.push(m); }, end() { this.ended++; } });
+
+    it('a kept session ignores close(): no sessionDisconnect, no unbind, no browser kill, still registered', () => {
+      const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 999999, 'daemon');
+      const k = fakeSink();
+      ipc.register('k', k);
+      sessions.setProfileId('k', 'dev');
+      sessions.addCreatedTab('k', 5);
+      ipc.keepSession('k');
+
+      ipc.close('k', k);
+
+      expect(sessions.has('k')).toBe(true);
+      expect(sessions.getProfileId('k')).toBe('dev');
+      expect(bridge.sendCmd).not.toHaveBeenCalled();
+      expect(bridge.sendCmdToProfile).not.toHaveBeenCalled();
+      expect(kill).not.toHaveBeenCalled();
+      expect(profileRegistry.getRunningPid('dev')).toBe(999999);
+      kill.mockRestore();
+    });
+
+    it('a legacy session on the same profile still ends with closeTabIds, and the kept session keeps the browser alive', () => {
+      const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 999999, 'daemon');
+      const k = fakeSink();
+      const l = fakeSink();
+      ipc.register('k', k);
+      ipc.register('l', l);
+      sessions.setProfileId('k', 'dev');
+      sessions.setProfileId('l', 'dev');
+      sessions.addCreatedTab('l', 8);
+      ipc.keepSession('k');
+
+      ipc.close('l', l);
+
+      expect(bridge.sendCmdToProfile).toHaveBeenCalledWith('dev', 'sessionDisconnect', { sessionId: 'l', closeTabIds: [8] }, 5000);
+      expect(sessions.has('l')).toBe(false);
+      expect(sessions.has('k')).toBe(true);
+      expect(kill).not.toHaveBeenCalled();
+      kill.mockRestore();
+    });
+
+    it('clearKeep makes the session tear down as today', () => {
+      const k = fakeSink();
+      ipc.register('k', k);
+      sessions.addCreatedTab('k', 5);
+      ipc.keepSession('k');
+      ipc.clearKeep();
+
+      ipc.close('k', k);
+
+      expect(sessions.has('k')).toBe(false);
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'k', closeTabIds: [5] }, 5000);
+    });
+
+    it('after setRestarting a socket session request gets -32001 for scheduler, profiles.* and experiments.* methods', async () => {
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'session_register', sessionId: 'legacy' });
+      await readLine(c);
+      ipc.setRestarting();
+      for (const [id, method] of [[1, 'tabs.list'], [2, 'profiles.list'], [3, 'experiments.get']] as const) {
+        writeLine(c, { jsonrpc: '2.0', id, method, params: {} });
+        const r = await readLine(c);
+        expect(r).toMatchObject({ jsonrpc: '2.0', id, error: { code: -32001, message: 'Daemon restarting: reconnect and re-send' } });
+      }
+      expect(bridge.sendCmd).not.toHaveBeenCalled();
+      c.destroy();
+    });
+
+    it('after setRestarting a port-sink request gets -32001', async () => {
+      const { port1: mainEnd, port2: workerEnd } = new MessageChannel();
+      const router = new PortLinkRouter(workerEnd);
+      workerEnd.on('message', (m: MainToWorker) => router.handle(m));
+      attachEnginePort(mainEnd, ipc, {});
+      const link = await router.open('p1');
+      ipc.setRestarting();
+
+      await expect(link.sendCmd('tabs.list')).rejects.toThrow('Daemon restarting: reconnect and re-send');
+      mainEnd.close();
+      workerEnd.close();
+    });
+
+    it('after setRestarting a new register is refused with session_reject and the sink ends', () => {
+      ipc.setRestarting();
+      const fake = fakeSink();
+
+      expect(ipc.register('late', fake)).toBe(false);
+
+      expect(fake.sent).toEqual([{ type: 'session_reject', reason: 'Daemon restarting' }]);
+      expect(fake.ended).toBe(1);
+      expect(sessions.has('late')).toBe(false);
+    });
+  });
+
+  describe('resume: successor gate, claim, grace (E9)', () => {
+    const fakeSink = () => ({ sent: [] as any[], ended: 0, send(m: object) { this.sent.push(m); }, end() { this.ended++; } });
+    const parkedEntry = (over: Partial<SnapSession> = {}): SnapSession => ({
+      id: 'a', shim: 'shim-1', ownedTabs: [5, 6], createdTabs: [5], attachedTabId: 6, groupId: 9, profileId: 'dev', experiments: { page_diffing: true }, ...over,
+    });
+    const claim = { resume: true, cid: 'shim-1#3' };
+
+    it('holds session_register and shim_register until the gate settles, never daemon_status', async () => {
+      const accept = vi.fn();
+      ipc.setShimServer({ accept });
+      let open!: () => void;
+      ipc.setResumeGate(new Promise<void>((r) => { open = r; }));
+      await ipc.start();
+
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'session_register', sessionId: 'held' });
+      const s = await connectToSocket(sockPath);
+      writeLine(s, { type: 'shim_register', sessionId: 'shim-x', protocol: 1, mode: 'mcp' });
+      const st = await connectToSocket(sockPath);
+      writeLine(st, { type: 'daemon_status' });
+      expect((await readLine(st)).type).toBe('daemon_status');
+      await wait(60);
+      expect(sessions.has('held')).toBe(false);
+      expect(accept).not.toHaveBeenCalled();
+
+      open();
+      expect((await readLine(c)).type).toBe('session_ack');
+      await until(() => accept.mock.calls.length === 1);
+      expect(accept.mock.calls[0][1]).toMatchObject({ sessionId: 'shim-x' });
+      c.destroy(); s.destroy();
+    });
+
+    it('a gate that rejects still releases the held lines', async () => {
+      let fail!: () => void;
+      ipc.setResumeGate(new Promise<void>((_, rej) => { fail = () => rej(new Error('load failed')); }));
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'session_register', sessionId: 'held' });
+      fail();
+      expect((await readLine(c)).type).toBe('session_ack');
+      c.destroy();
+    });
+
+    it('a claim acks resumed: true with the tab and profile, and keeps the restored state', () => {
+      (bridge as any).matchmaker.getConnectionForProfile = vi.fn((p: string | null) => (p === 'dev' ? { profile: 'dev' } : null));
+      ipc.parkSessions([parkedEntry()], 60_000);
+      expect(sessions.get('a')?.ownedTabs.has(5)).toBe(true);
+      expect(sessions.getProfileId('a')).toBe('dev');
+      expect(experiments.isEnabled('a', 'page_diffing')).toBe(true);
+      const sink = fakeSink();
+
+      expect(ipc.register('a', sink, claim)).toBe(true);
+
+      expect(sink.sent).toHaveLength(1);
+      expect(sink.sent[0]).toMatchObject({
+        type: 'session_ack', resumed: true, attachedTabId: 6, profileId: 'dev', extensionConnected: true, version: '9.9.9-test', activeSessionCount: 1,
+      });
+      expect(sessions.get('a')?.sink).toBe(sink);
+      expect(sessions.get('a')?.createdTabs.has(5)).toBe(true);
+      expect(sessions.count).toBe(1);
+    });
+
+    it('a claim reports extensionConnected for the unmanaged slot when the session has no profile', () => {
+      (bridge as any).matchmaker.getConnectionForProfile = vi.fn((p: string | null) => (p === null ? { profile: null } : null));
+      ipc.parkSessions([parkedEntry({ profileId: null })], 60_000);
+      const sink = fakeSink();
+      ipc.register('a', sink, claim);
+      expect(sink.sent[0]).toMatchObject({ resumed: true, profileId: null, extensionConnected: true });
+    });
+
+    it('a parked id is refused without resume, from another shim id, and from a legacy socket', async () => {
+      ipc.parkSessions([parkedEntry()], 60_000);
+      for (const opts of [{ cid: 'shim-1#3' }, { resume: true, cid: 'shim-2#3' }, { resume: false, cid: 'shim-1#3' }, { resume: true }]) {
+        const sink = fakeSink();
+        expect(ipc.register('a', sink, opts)).toBe(false);
+        expect(sink.sent[0]).toMatchObject({ type: 'session_reject' });
+        expect(sink.sent[0].reason).toMatch(/already in use by a live agent/);
+        expect(sink.ended).toBe(1);
+      }
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'session_register', sessionId: 'a' });
+      expect((await readLine(c)).type).toBe('session_reject');
+      c.destroy();
+      expect(sessions.has('a')).toBe(true);
+    });
+
+    it('after a claim, a second claim of the same id is a live duplicate and is refused', () => {
+      ipc.parkSessions([parkedEntry()], 60_000);
+      expect(ipc.register('a', fakeSink(), claim)).toBe(true);
+      const dup = fakeSink();
+      expect(ipc.register('a', dup, claim)).toBe(false);
+      expect(dup.sent[0]).toMatchObject({ type: 'session_reject' });
+    });
+
+    it('a request from a resumed session waits for its profile extension, then routes', async () => {
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', process.pid, 'daemon');
+      let connect!: () => void;
+      (bridge as any).matchmaker.requestMatch = vi.fn(() => new Promise<any>((r) => { connect = () => r({ profile: 'dev' }); }));
+      const enqueue = vi.spyOn(scheduler, 'enqueue').mockResolvedValue({ ok: 1 });
+      ipc.parkSessions([parkedEntry()], 60_000);
+      const sink = fakeSink();
+      ipc.register('a', sink, claim);
+      sink.sent.length = 0;
+
+      const done = ipc.request('a', sink, { jsonrpc: '2.0', id: 1, method: 'tabs.list', params: {} });
+      await wait(40);
+      expect(enqueue).not.toHaveBeenCalled();
+      const [profile, timeout] = (bridge as any).matchmaker.requestMatch.mock.calls[0];
+      expect(profile).toBe('dev');
+      expect(timeout).toBeGreaterThan(50_000);
+
+      connect();
+      await done;
+      expect(enqueue).toHaveBeenCalledTimes(1);
+      expect(sink.sent[0]).toMatchObject({ jsonrpc: '2.0', id: 1, result: { ok: 1 } });
+    });
+
+    it('row 7 waits on the unmanaged slot for a session with no profile, and routes anyway when the wait times out', async () => {
+      (bridge as any).matchmaker.requestMatch = vi.fn((_p: string | null, t: number) => new Promise((_, rej) => setTimeout(() => rej(new Error('No unmanaged browser connection available.')), t)));
+      const enqueue = vi.spyOn(scheduler, 'enqueue').mockResolvedValue({ ok: 2 });
+      ipc.parkSessions([parkedEntry({ profileId: null })], 150);
+      const sink = fakeSink();
+      ipc.register('a', sink, claim);
+      sink.sent.length = 0;
+
+      const t0 = Date.now();
+      await ipc.request('a', sink, { jsonrpc: '2.0', id: 2, method: 'tabs.list', params: {} });
+
+      expect((bridge as any).matchmaker.requestMatch.mock.calls[0][0]).toBeNull();
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(100);
+      expect(enqueue).toHaveBeenCalledTimes(1);
+      expect(sink.sent[0]).toMatchObject({ id: 2, result: { ok: 2 } });
+    });
+
+    it('a request from a session that was never resumed does not wait', async () => {
+      const requestMatch = vi.fn();
+      (bridge as any).matchmaker.requestMatch = requestMatch;
+      vi.spyOn(scheduler, 'enqueue').mockResolvedValue({});
+      const sink = fakeSink();
+      ipc.register('plain', sink);
+      await ipc.request('plain', sink, { jsonrpc: '2.0', id: 3, method: 'tabs.list', params: {} });
+      expect(requestMatch).not.toHaveBeenCalled();
+    });
+
+    it('at grace every still-parked session ends: closeTabIds sent, the last daemon-owned browser killed; a claimed session stays', async () => {
+      const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      profileRegistry.create('dev');
+      profileRegistry.create('other');
+      profileRegistry.setRunningPid('dev', 4242, 'daemon');
+      profileRegistry.setRunningPid('other', 4343, 'daemon');
+      ipc.parkSessions([
+        parkedEntry({ id: 'a' }),
+        parkedEntry({ id: 'b', createdTabs: [8], profileId: 'dev' }),
+        parkedEntry({ id: 'c', createdTabs: [9], profileId: 'other' }),
+      ], 80);
+      const claimed = fakeSink();
+      ipc.register('c', claimed, claim);
+      expect(sessions.count).toBe(3);
+
+      await until(() => !sessions.has('a'));
+
+      expect(sessions.has('b')).toBe(false);
+      expect(sessions.has('c')).toBe(true);
+      expect(bridge.sendCmdToProfile).toHaveBeenCalledWith('dev', 'sessionDisconnect', { sessionId: 'a', closeTabIds: [5] }, 5000);
+      expect(bridge.sendCmdToProfile).toHaveBeenCalledWith('dev', 'sessionDisconnect', { sessionId: 'b', closeTabIds: [8] }, 5000);
+      expect(kill).toHaveBeenCalledWith(4242, 'SIGTERM');
+      expect(kill).not.toHaveBeenCalledWith(4343, 'SIGTERM');
+      expect(profileRegistry.getRunningPid('dev')).toBeNull();
+      kill.mockRestore();
+    });
+
+    it('endSessions tears down a parked session: closeTabIds sent, session gone, no grace timer left', async () => {
+      ipc.parkSessions([parkedEntry({ profileId: null })], 60_000);
+      await ipc.start();
+      await expect(ipc.endSessions()).resolves.toBeUndefined();
+      expect(sessions.has('a')).toBe(false);
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'a', closeTabIds: [5] }, 5000);
+      await expect(ipc.stop()).resolves.toBeUndefined();
+    });
+
+    it('stop tears down a parked session the same way', async () => {
+      ipc.parkSessions([parkedEntry({ profileId: null })], 60_000);
+      await ipc.start();
+      await expect(ipc.stop()).resolves.toBeUndefined();
+      expect(sessions.has('a')).toBe(false);
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'a', closeTabIds: [5] }, 5000);
+    });
+
+    it('tearing down a parked session leaves a browser a kept session still uses', async () => {
+      const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 4242, 'daemon');
+      ipc.parkSessions([parkedEntry({ id: 'p', createdTabs: [8], profileId: 'dev' })], 60_000);
+      const live = fakeSink();
+      ipc.register('k', live);
+      sessions.setProfileId('k', 'dev');
+      ipc.keepSession('k');
+      await ipc.endSessions();
+      expect(sessions.has('p')).toBe(false);
+      expect(sessions.has('k')).toBe(true);
+      expect(kill).not.toHaveBeenCalled();
+      kill.mockRestore();
     });
   });
 

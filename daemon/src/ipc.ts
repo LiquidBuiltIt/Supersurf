@@ -25,6 +25,7 @@ import { daemonCommand } from 'shared';
 import type { ExtensionBridge } from './extension-bridge';
 import type { SessionRegistry } from './session';
 import type { SessionSink } from './types';
+import type { SnapSession } from './resume';
 import type { RequestScheduler } from './scheduler';
 import type { DaemonExperimentRegistry } from './experiments/index';
 import { isExperimentMethod } from './experiments/types';
@@ -100,10 +101,16 @@ export interface ShimHook {
   accept(socket: net.Socket, handshake: any, rest: Buffer): void;
 }
 
+/** E9: how a register may claim a session the successor parked (`resume` and the connection's `cid`). */
+export interface RegisterOpts {
+  resume?: boolean;
+  cid?: string;
+}
+
 /** What a link needs from the daemon to run a session, whatever carries its bytes. */
 export interface SessionHost {
   /** Register a session. On a duplicate id, sends the reject, ends the sink and returns false. */
-  register(sessionId: string, sink: SessionSink): boolean;
+  register(sessionId: string, sink: SessionSink, opts?: RegisterOpts): boolean;
   /** Route one JSON-RPC request from a registered session. */
   request(sessionId: string, sink: SessionSink, msg: any): Promise<void>;
   /** End a session. Ignored when `sink` is no longer the one that holds the id. */
@@ -132,6 +139,13 @@ export class IPCServer implements SessionHost {
   private shim: ShimHook | null = null;
   private handoff: HandoffHook | null = null;
   private restarting = false;
+  /** E9 successor: pre-handshake `session_register` / `shim_register` wait while this is set. */
+  private resumeGate: Promise<unknown> | null = null;
+  /** E9 successor: restored sessions nobody has claimed yet, with the shim id allowed to claim each. */
+  private parked = new Map<string, { sink: SessionSink; shim: string }>();
+  /** E9: until when a request from a restored session waits for its extension (row 7). */
+  private resumeUntil = new Map<string, number>();
+  private graceTimer: NodeJS.Timeout | null = null;
 
   constructor(
     socketPath: string,
@@ -170,8 +184,63 @@ export class IPCServer implements SessionHost {
     this.restarting = true;
   }
 
+  /** E9 successor: hold `session_register` and `shim_register` until `p` settles (never `daemon_status`, `takeover_commit`, `daemon_restart`). */
+  setResumeGate(p: Promise<unknown>): void {
+    const open = (): void => { if (this.resumeGate === gate) this.resumeGate = null; };
+    const gate: Promise<unknown> = p.then(open, open);
+    this.resumeGate = gate;
+  }
+
+  /**
+   * E9 successor: restore the snapshot's sessions under a parked sink. A register with `resume`
+   * from the same shim connection claims one; at `graceMs` the rest end through the normal `close`.
+   */
+  parkSessions(entries: SnapSession[], graceMs: number, onGrace?: () => void): void {
+    const until = Date.now() + graceMs;
+    for (const e of entries) {
+      const sink: SessionSink = { send() {}, end() {} };
+      if (!this.sessions.add(e.id, sink)) continue;
+      const s = this.sessions.get(e.id)!;
+      for (const t of e.ownedTabs) s.ownedTabs.add(t);
+      for (const t of e.createdTabs) s.createdTabs.add(t);
+      s.attachedTabId = e.attachedTabId;
+      s.groupId = e.groupId;
+      s.profileId = e.profileId;
+      this.scheduler.addSession(e.id);
+      this.experiments.initSession(e.id, Object.keys(e.experiments).filter((k) => e.experiments[k]));
+      this.parked.set(e.id, { sink, shim: e.shim });
+      this.resumeUntil.set(e.id, until);
+    }
+    if (this.onSessionCountChange) this.onSessionCountChange(this.sessions.count);
+    this.graceTimer = setTimeout(() => {
+      this.endParked();
+      onGrace?.();
+    }, graceMs);
+    this.graceTimer.unref();
+  }
+
+  /** E9: end every still-parked session through the normal `close` and clear the grace and resume state. */
+  private endParked(): void {
+    if (this.graceTimer) { clearTimeout(this.graceTimer); this.graceTimer = null; }
+    for (const [id, p] of this.parked) this.close(id, p.sink);
+    this.parked.clear();
+    this.resumeUntil.clear();
+  }
+
+  /** E9: flag a session so `close()` leaves it, its tabs and its browser alone (the successor adopts it). */
+  keepSession(sessionId: string): void {
+    const s = this.sessions.get(sessionId);
+    if (s) s.keep = true;
+  }
+
+  /** E9: undo every `keepSession` (a rolled-back hand-off tears down as today). */
+  clearKeep(): void {
+    for (const s of this.sessions.values()) s.keep = false;
+  }
+
   /** End every legacy session socket; their normal close path runs. Never closes the listener. */
   async endSessions(): Promise<void> {
+    this.endParked(); // a parked sink's end() is a no-op; nobody claimed these
     for (const session of this.sessions.values()) session.sink.end();
   }
 
@@ -208,6 +277,7 @@ export class IPCServer implements SessionHost {
     let buffer = '';
     let sessionId: string | null = null;
     let handshakeComplete = false;
+    let held = false;
 
     const onData = (data: Buffer): void => {
       buffer += data.toString();
@@ -244,6 +314,16 @@ export class IPCServer implements SessionHost {
             if (msg?.type === 'daemon_status') {
               this.send(sink, this.buildStatusResponse());
               sink.end();
+              return;
+            }
+
+            // E9 successor: wait for the snapshot load, then run this line again.
+            if ((msg?.type === 'shim_register' || msg?.type === 'session_register') && this.resumeGate) {
+              buffer = line + '\n' + buffer;
+              if (!held) {
+                held = true;
+                this.resumeGate.then(() => { held = false; if (!socket.destroyed) onData(Buffer.alloc(0)); });
+              }
               return;
             }
 
@@ -297,7 +377,33 @@ export class IPCServer implements SessionHost {
   }
 
   /** Register a session under `sessionId`. Returns false (after sending the reject and ending the sink) when the id is taken. */
-  register(sessionId: string, sink: SessionSink): boolean {
+  register(sessionId: string, sink: SessionSink, opts?: RegisterOpts): boolean {
+    if (this.restarting) {
+      this.send(sink, { type: 'session_reject', reason: 'Daemon restarting' });
+      sink.end();
+      return false;
+    }
+    const parked = this.parked.get(sessionId);
+    const hash = opts?.cid?.lastIndexOf('#') ?? -1;
+    if (parked && opts?.resume === true && hash >= 0 && opts!.cid!.slice(0, hash) === parked.shim) {
+      this.parked.delete(sessionId);
+      const s = this.sessions.get(sessionId)!;
+      s.sink = sink;
+      this.send(sink, {
+        type: 'session_ack',
+        resumed: true,
+        browser: this.bridge.browser,
+        buildTimestamp: this.bridge.buildTime,
+        version: this.meta.version,
+        attachedTabId: s.attachedTabId,
+        profileId: s.profileId,
+        extensionConnected: this.bridge.matchmaker.getConnectionForProfile(s.profileId) !== null,
+        extensionVersionError: this.bridge.extensionVersionError ?? null,
+        activeSessionCount: this.sessions.count,
+      });
+      debugLog(`Session resumed: "${sessionId}"`);
+      return true;
+    }
     if (this.sessions.has(sessionId)) {
       this.send(sink, {
         type: 'session_reject',
@@ -342,7 +448,9 @@ export class IPCServer implements SessionHost {
 
   /** End a session: release its tabs, profile and state. A stale close from an old sink must not delete a newer session of the same id. */
   close(sessionId: string, sink: SessionSink): void {
-    if (this.sessions.get(sessionId)?.sink !== sink) return;
+    const live = this.sessions.get(sessionId);
+    if (live?.sink !== sink) return;
+    if (live.keep) return; // E9: kept for the successor; the process exits with it still registered
     debugLog(`Session disconnected: "${sessionId}"`);
 
     // Read before remove(): the extension closes these tabs on disconnect
@@ -405,6 +513,16 @@ export class IPCServer implements SessionHost {
       return;
     }
 
+    // After the hand-off commit the successor owns the work: tell the caller to reconnect and re-send.
+    if (this.restarting) {
+      this.send(sink, {
+        jsonrpc: '2.0',
+        id: msg.id,
+        error: { code: -32001, message: 'Daemon restarting: reconnect and re-send' },
+      });
+      return;
+    }
+
     // Profile IPC — handle directly, skip scheduler
     if (isProfileMethod(msg.method)) {
       try {
@@ -433,6 +551,21 @@ export class IPCServer implements SessionHost {
         });
       }
       return;
+    }
+
+    // E9 row 7: a resumed session's first request waits for its extension (bounded by the grace), then routes either way.
+    const until = this.resumeUntil.get(sessionId);
+    if (until !== undefined) {
+      const remaining = until - Date.now();
+      if (remaining > 0) {
+        const profileId = this.sessions.getProfileId(sessionId);
+        try {
+          await (profileId
+            ? this.awaitMatchWithDeathWatch(profileId, true, remaining)
+            : this.bridge.matchmaker.requestMatch(null, remaining));
+        } catch { /* route anyway: the scheduler reports the real error */ }
+      }
+      this.resumeUntil.delete(sessionId);
     }
 
     try {
@@ -765,6 +898,7 @@ export class IPCServer implements SessionHost {
 
   /** Gracefully shut down the IPC server. */
   async stop(): Promise<void> {
+    this.endParked();
     return new Promise((resolve) => {
       if (!this.server) {
         resolve();
