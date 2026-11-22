@@ -30,6 +30,14 @@ function recorder(dir: string): { bin: string; ran: string } {
   return { bin, ran };
 }
 
+/** A `--require` preload that hides the supersurf-shim package: in this repo it resolves to the workspace, whose built binaries `findShimBinary` would find. */
+function hideShimPackage(dir: string): string {
+  const hide = path.join(dir, 'hide-shim-package.js');
+  fs.writeFileSync(hide, `const M = require('module'); const o = M._resolveFilename;
+M._resolveFilename = function (r, ...a) { if (r === 'supersurf-shim/package.json') throw new Error('hidden'); return o.call(this, r, ...a); };\n`);
+  return `--require ${hide}`;
+}
+
 /** A fake daemon socket: answers `daemon_status` with `status` and `daemon_restart` with `restartReply`, and records every line type it got. */
 function fakeDaemon(sock: string, status: object, restartReply?: object, vanishAfterStatus = false): Promise<{ got: string[]; close: () => void }> {
   const got: string[] = [];
@@ -139,7 +147,7 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     rig = new DaemonRig();
     const oldPid = await rig.start([], { SUPERSURF_RELAY: '1' });
     expect((await rig.status()).shimModel).toBe(true);
-    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim') });
+    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim'), NODE_OPTIONS: hideShimPackage(rig.home) });
     expect(r.out).toContain('supersurf-shim not found; no shim session is live, so the daemon restarts by stop and start.');
     expect(r.code).toBe(0);
     expect(r.out).toContain('Daemon stopped');
@@ -154,7 +162,7 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     rig = new DaemonRig();
     const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321 });
     try {
-      const r = await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim') });
+      const r = await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim'), NODE_OPTIONS: hideShimPackage(rig.home) });
       expect(r.code).toBe(1);
       expect(r.out).toContain('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
       expect(fake.got).toEqual(['daemon_status']);
@@ -178,7 +186,8 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     // A banned target version: ensure must append ban_cleared.
     fs.writeFileSync(path.join(rig.daemonDir, 'spawns.jsonl'), JSON.stringify({ ts: Date.now(), pid: 0, entryVersion: PKG_VERSION, outcome: 'handoff_failed', reason: 'seeded' }) + '\n');
     const oldPid = await rig.start(['--spawned-by=shim']);
-    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: shimBin }, 60000, path.join(pkg, 'dist', 'main.js'));
+    // The rig sets SUPERSURF_DEV_ENVIRONMENT for the daemon; the shim would see it too and take the dev path (no entry, no versions/). This test is the installed path, so the CLI and its shim get it empty.
+    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: shimBin, SUPERSURF_DEV_ENVIRONMENT: '' }, 60000, path.join(pkg, 'dist', 'main.js'));
     expect(r.out, r.out).toContain(`Daemon restarted (pid ${oldPid} -> `);
     expect(r.out).toContain('Legacy sessions on that daemon have ended; shim sessions reconnect by themselves.');
     expect(r.code).toBe(0);
