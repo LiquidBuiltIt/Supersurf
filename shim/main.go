@@ -89,11 +89,29 @@ func bundledDir() string {
 	if err != nil {
 		return ""
 	}
-	d := filepath.Dir(filepath.Dir(exe))
-	if v, _ := pkgVersion(d); v != "" {
-		return d
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
 	}
-	return ""
+	return findBundled(filepath.Dir(exe))
+}
+
+// findBundled walks up from start (the shim's real directory) to the first
+// <dir>/node_modules/supersurf-daemon that pkgVersion accepts, as Node resolves
+// a package. It covers hoisted and nested installs and a dev clone, where
+// node_modules/supersurf-daemon is a symlink to daemon/. The result is the real
+// path: copyTree does not follow a symlink at its root.
+func findBundled(start string) string {
+	for d := start; ; d = filepath.Dir(d) {
+		c := filepath.Join(d, "node_modules", "supersurf-daemon")
+		if v, _ := pkgVersion(c); v != "" {
+			if real, err := filepath.EvalSymlinks(c); err == nil {
+				return real
+			}
+		}
+		if filepath.Dir(d) == d {
+			return ""
+		}
+	}
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
