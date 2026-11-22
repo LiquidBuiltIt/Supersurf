@@ -174,6 +174,13 @@ export interface HandoffOptions {
   /** After the commit: new pre-handshake lines get `restarting`, shim sockets are told. */
   setRestarting: () => void;
   stopShims: () => Promise<void>;
+  /**
+   * E9: inside the synchronous commit block, before the pid rename. Writes the resume snapshot, flags the
+   * resumable sessions kept, and returns the browser pids step 6 must not kill. A throw rolls the hand-off back.
+   */
+  prepareResume?: () => number[];
+  /** E9: undo `prepareResume` (delete the snapshot, clear the keep flags) on any rollback before the pid rename. */
+  cancelResume?: () => void;
   /** End the legacy session sockets WITHOUT closing the listener. */
   endSessions: () => Promise<void>;
   readyMs?: number;
@@ -233,6 +240,7 @@ export class Handoff {
       let startupLog = '';
       try { startupLog = fs.readFileSync(logPath, 'utf8').slice(-2000); } catch {}
       cc?.destroy();
+      try { o.cancelResume?.(); } catch (e: any) { o.log(`[Handoff] cancelResume failed: ${e?.message ?? e}`); }
       if (child?.pid && isProcessAlive(child.pid)) this.killPid(child.pid);
       try { fs.unlinkSync(NEXT); } catch {}
       try { fs.unlinkSync(PID + '.tmp'); } catch {}
@@ -292,6 +300,7 @@ export class Handoff {
       // The point of no return is the pid rename: a failure before it rolls back like any other.
       // Everything that can throw but the renames is computed before the first one (a throw later has no rollback).
       const commitLine = JSON.stringify({ type: 'takeover_commit', oldpid: process.pid, userOwned: o.userOwned() }) + '\n';
+      o.prepareResume?.(); // synchronous from here to setRestarting: no session can register in between
       fs.writeFileSync(PID + '.tmp', String(cpid), { mode: 0o600 });
       fs.renameSync(PID + '.tmp', PID);
       this.state = 'committing';
