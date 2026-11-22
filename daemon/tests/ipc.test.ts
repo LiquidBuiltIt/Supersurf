@@ -1212,6 +1212,16 @@ describe('IPCServer', () => {
       expect(calls).toHaveLength(2);
     });
 
+    it('link-open passes resume and cid to host.register: a parked id is claimed over a port (E9)', async () => {
+      await ipc.start();
+      ipc.parkSessions([{ id: 'p1', shim: 'shim-x', ownedTabs: [3], createdTabs: [], attachedTabId: 3, groupId: null, profileId: null, experiments: {} }], 60_000);
+      const { router } = portRig();
+      await expect(router.open('p1', 'shim-x#1')).rejects.toThrow('already in use');
+      const link = await router.open('p1', 'shim-x#2', { resume: true });
+      expect(link.resumed).toBe(true);
+      expect(link.attachedTabId).toBe(3);
+    });
+
     it('the same id over a socket then a port: the port start() rejects', async () => {
       await ipc.start();
       const client = await connectToSocket(sockPath);

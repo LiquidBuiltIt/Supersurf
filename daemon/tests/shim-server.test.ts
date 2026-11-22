@@ -414,3 +414,55 @@ describe('resumable sessions (E9, D3)', () => {
     expect(shimServer.resumableSessions()).toEqual([{ id: 'agent-r', shim: 'shim-e2e' }]);
   });
 });
+
+describe('resume offer (E9, D5)', () => {
+  const snap = (id: string, shim: string, over: object = {}) => ({
+    id, shim, ownedTabs: [1], createdTabs: [1], attachedTabId: 6, groupId: 2, profileId: 'dev', experiments: { page_diffing: true }, ...over,
+  });
+  const link = (w: RecordingWorker, lid: number, sessionId: string, cid: string) =>
+    w.emit('message', { t: 'link-open', lid, sessionId, cid, resume: true });
+
+  it('open carries resume.sessions for that shim id only, and nothing when it has none', async () => {
+    shimServer.setResumed([snap('a', 'shim-a'), snap('b', 'shim-b', { profileId: null, attachedTabId: null })]);
+    await newShim({ sessionId: 'shim-a' }).register();
+    await newShim({ sessionId: 'shim-c' }).register();
+    const opens = workers[0].of('open');
+    expect(opens[0].resume).toEqual({ sessions: [{ id: 'a', profileId: 'dev', attachedTabId: 6, experiments: { page_diffing: true } }] });
+    expect('resume' in opens[1]).toBe(false);
+  });
+
+  it('entries are not one-shot: a re-register after the shim dropped still gets them', async () => {
+    shimServer.setResumed([snap('a', 'shim-a')]);
+    const first = newShim({ sessionId: 'shim-a' });
+    await first.register();
+    first.close();
+    await until(() => workers[0].of('close').length === 1);
+    await newShim({ sessionId: 'shim-a' }).register();
+    expect(workers[0].of('open')[1].resume.sessions.map((x: any) => x.id)).toEqual(['a']);
+  });
+
+  it('a claimed entry leaves the offer and its session keeps its experiments (no default re-apply)', async () => {
+    const init = vi.spyOn(experiments, 'initSession');
+    shimServer.setResumed([snap('a', 'shim-a'), snap('b', 'shim-a')]);
+    const first = newShim({ sessionId: 'shim-a' });
+    await first.register();
+    link(workers[0], 1, 'a', 'shim-a#1');
+    expect(init).not.toHaveBeenCalledWith('a', expect.anything());
+    workers[0].emit('message', { t: 'link-open', lid: 2, sessionId: 'plain', cid: 'shim-a#1' });
+    expect(init).toHaveBeenCalledWith('plain', expect.anything());
+
+    first.close();
+    await until(() => workers[0].of('close').length === 1);
+    await newShim({ sessionId: 'shim-a' }).register();
+    const offered = workers[0].of('open').at(-1).resume.sessions.map((x: any) => x.id);
+    expect(offered).toEqual(['b']);
+  });
+
+  it('clearResumed (grace) stops the offer', async () => {
+    shimServer.setResumed([snap('a', 'shim-a')]);
+    shimServer.clearResumed();
+    await newShim({ sessionId: 'shim-a' }).register();
+    expect('resume' in workers[0].of('open')[0]).toBe(false);
+  });
+});
+

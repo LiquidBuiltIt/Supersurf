@@ -77,7 +77,7 @@ export function attachEnginePort(port: EnginePort, host: SessionHost, hooks: Eng
           host.close(link.sessionId, sink);
           hooks.closed?.(link.sessionId);
         });
-        if (host.register(m.sessionId, sink)) {
+        if (host.register(m.sessionId, sink, { resume: m.resume, cid: m.cid })) {
           links.set(m.lid, { sessionId: m.sessionId, sink });
           hooks.registered?.(m.sessionId, m.cid, m.resumable);
         }

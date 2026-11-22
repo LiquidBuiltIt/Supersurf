@@ -40,6 +40,9 @@ export class PortLink implements DaemonLink {
   private _extensionConnected = false;
   private _extensionVersionError: string | null = null;
   private _activeSessionCount: number | null = null;
+  private _resumed = false;
+  private _attachedTabId: number | null = null;
+  private _profileId: string | null = null;
 
   spawnReason?: 'not_running' | 'version_mismatch';
   onReconnect: (() => void) | null = null;
@@ -50,6 +53,7 @@ export class PortLink implements DaemonLink {
     readonly sessionId: string,
     private readonly cid: string | undefined,
     private readonly resumable: boolean | undefined,
+    private readonly resume: boolean | undefined,
     private readonly port: PortLike,
     private readonly onGone: (lid: number) => void,
   ) {}
@@ -61,6 +65,10 @@ export class PortLink implements DaemonLink {
   get extensionConnected(): boolean { return this._extensionConnected; }
   get extensionVersionError(): string | null { return this._extensionVersionError; }
   get activeSessionCount(): number | null { return this._activeSessionCount; }
+  /** E9: the ack said this link claimed a session the successor parked. */
+  get resumed(): boolean { return this._resumed; }
+  get attachedTabId(): number | null { return this._attachedTabId; }
+  get profileId(): string | null { return this._profileId; }
   isConfigDrifted(): boolean { return this._configDrift; }
   getPeerSessions(): string[] { return [...this._peers]; }
 
@@ -83,7 +91,7 @@ export class PortLink implements DaemonLink {
         resolve: () => { clearTimeout(timer); resolve(); },
         reject: (e) => { clearTimeout(timer); reject(e); },
       };
-      this.port.postMessage({ t: 'link-open', lid: this.lid, sessionId: this.sessionId, ...(this.cid !== undefined && { cid: this.cid }), ...(this.resumable !== undefined && { resumable: this.resumable }) });
+      this.port.postMessage({ t: 'link-open', lid: this.lid, sessionId: this.sessionId, ...(this.cid !== undefined && { cid: this.cid }), ...(this.resumable !== undefined && { resumable: this.resumable }), ...(this.resume === true && { resume: true }) });
     });
   }
 
@@ -124,6 +132,9 @@ export class PortLink implements DaemonLink {
       this._extensionConnected = msg.extensionConnected === true;
       this._extensionVersionError = typeof msg.extensionVersionError === 'string' ? msg.extensionVersionError : null;
       this._activeSessionCount = typeof msg.activeSessionCount === 'number' ? msg.activeSessionCount : null;
+      this._resumed = msg.resumed === true;
+      this._attachedTabId = typeof msg.attachedTabId === 'number' ? msg.attachedTabId : null;
+      this._profileId = typeof msg.profileId === 'string' ? msg.profileId : null;
       this.settleStart?.resolve();
       this.settleStart = null;
       return;
@@ -180,9 +191,9 @@ export class PortLinkRouter {
   constructor(private readonly port: PortLike) {}
 
   /** Open a link for the daemon session `sessionId` (opened for shim connection `cid`) and wait for its ack. */
-  async open(sessionId: string, cid?: string, opts: { resumable?: boolean } = {}): Promise<PortLink> {
+  async open(sessionId: string, cid?: string, opts: { resumable?: boolean; resume?: boolean } = {}): Promise<PortLink> {
     const lid = this.nextLid++;
-    const link = new PortLink(lid, sessionId, cid, opts.resumable, this.port, (l) => this.links.delete(l));
+    const link = new PortLink(lid, sessionId, cid, opts.resumable, opts.resume, this.port, (l) => this.links.delete(l));
     this.links.set(lid, link);
     await link.start();
     return link;
