@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -263,41 +265,194 @@ func pkgVersion(dir string) (version, main string) {
 	return p.Version, p.Main
 }
 
-func copyTree(src, dst string) error {
-	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+// copyPkg copies one package dir as plain files. It skips the package's own top-level
+// node_modules (the closure places those), anything that is not a regular file or dir,
+// and symlinks that are absolute or leave the package.
+func copyPkg(src, dst string) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		rel, _ := filepath.Rel(src, p)
 		t := filepath.Join(dst, rel)
 		switch {
-		case info.IsDir():
+		case d.IsDir():
+			if rel == "node_modules" {
+				return filepath.SkipDir
+			}
 			return os.MkdirAll(t, 0o755)
-		case info.Mode()&os.ModeSymlink != 0:
+		case d.Type()&fs.ModeSymlink != 0:
 			l, err := os.Readlink(p)
-			if err != nil {
-				return err
+			if err != nil || filepath.IsAbs(l) {
+				return nil
+			}
+			if r, _ := filepath.Rel(src, filepath.Join(filepath.Dir(p), l)); r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+				return nil
 			}
 			return os.Symlink(l, t)
+		case !d.Type().IsRegular():
+			return nil
 		}
-		in, err := os.Open(p)
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		defer in.Close()
-		out, err := os.OpenFile(t, os.O_CREATE|os.O_WRONLY|os.O_EXCL, info.Mode().Perm())
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(out, in); err != nil {
-			out.Close()
-			return err
-		}
-		return out.Close()
+		return copyFile(p, t, info)
 	})
 }
 
-// install copies the package into versions/<v>/ once and never rewrites it.
+func copyFile(p, t string, info fs.FileInfo) error {
+	in, err := os.Open(p)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(t, os.O_CREATE|os.O_WRONLY|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+type depPkg struct {
+	Name, Version        string
+	Dependencies         map[string]string
+	OptionalDependencies map[string]string
+	PeerDependencies     map[string]string
+	PeerDependenciesMeta map[string]struct{ Optional bool }
+}
+
+func readPkg(dir string) (*depPkg, bool) {
+	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return nil, false
+	}
+	var p depPkg
+	return &p, json.Unmarshal(raw, &p) == nil
+}
+
+// resolveSrc is Node's lookup: the first node_modules/<name> on the way up from the
+// dependent's real dir, as a real path ("" when none).
+func resolveSrc(from, name string) string {
+	for d := from; ; d = filepath.Dir(d) {
+		c := filepath.Join(d, "node_modules", filepath.FromSlash(name))
+		if _, ok := readPkg(c); ok {
+			if r, err := filepath.EvalSymlinks(c); err == nil {
+				return r
+			}
+		}
+		if filepath.Dir(d) == d {
+			return ""
+		}
+	}
+}
+
+// placeAt says where name@ver goes under root for a dependent placed at dest: nowhere
+// (already visible there, as Node would find it), at the top level, or nested under the
+// dependent when a nearer copy at another version would shadow the top one.
+func placeAt(root, dest, name, ver string) (at string, copy bool) {
+	rel := filepath.FromSlash(name)
+	for d := dest; ; d = filepath.Dir(d) {
+		if p, ok := readPkg(filepath.Join(d, "node_modules", rel)); ok {
+			if p.Version == ver {
+				return "", false
+			}
+			return filepath.Join(dest, "node_modules", rel), true
+		}
+		if d == root {
+			return filepath.Join(root, "node_modules", rel), true
+		}
+	}
+}
+
+// shimPkg is never part of the closure: nothing run from versions/<v>/ executes the shim.
+const shimPkg = "supersurf-shim"
+
+// copyClosure copies the daemon's runtime dependency closure into root/node_modules.
+// Breadth first, so a package's own dependencies are placed before its children are read.
+func copyClosure(srcReal, root string) error {
+	type node struct{ real, dest string }
+	queue := []node{{srcReal, root}}
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		p, ok := readPkg(n.real)
+		if !ok {
+			return fmt.Errorf("unreadable package.json in %s", n.real)
+		}
+		want := map[string]bool{} // name -> required
+		for k := range p.PeerDependencies {
+			if !p.PeerDependenciesMeta[k].Optional {
+				want[k] = false
+			}
+		}
+		for k := range p.OptionalDependencies {
+			want[k] = false
+		}
+		for k := range p.Dependencies {
+			want[k] = true
+		}
+		names := make([]string, 0, len(want))
+		for k := range want {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if name == shimPkg {
+				continue
+			}
+			real := resolveSrc(n.real, name)
+			if real == "" {
+				if want[name] {
+					return fmt.Errorf("required dependency %q of %s is not installed", name, p.Name)
+				}
+				continue
+			}
+			dp, _ := readPkg(real)
+			at, doCopy := placeAt(root, n.dest, name, dp.Version)
+			if !doCopy {
+				continue
+			}
+			if err := copyPkg(real, at); err != nil {
+				return err
+			}
+			queue = append(queue, node{real, at})
+		}
+	}
+	return nil
+}
+
+// copyDaemon copies the daemon package's own files: package.json, dist/, README, LICENSE.
+func copyDaemon(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, f := range []string{"package.json", "dist", "README.md", "LICENSE"} {
+		fi, err := os.Lstat(filepath.Join(src, f))
+		if err != nil {
+			if f == "package.json" || f == "dist" {
+				return fmt.Errorf("%s is missing from %s", f, src)
+			}
+			continue
+		}
+		if fi.IsDir() {
+			err = copyPkg(filepath.Join(src, f), filepath.Join(dst, f))
+		} else {
+			err = copyFile(filepath.Join(src, f), filepath.Join(dst, f), fi)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// install copies the package and its dependency closure into versions/<v>/ once and
+// never rewrites it.
 func install(dir, src, version, mainRel string) (string, error) {
 	target := filepath.Join(dir, "versions", version)
 	if _, err := os.Stat(target); err == nil {
@@ -306,9 +461,17 @@ func install(dir, src, version, mainRel string) (string, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "versions"), 0o755); err != nil {
 		return "", err
 	}
+	srcReal, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return "", err
+	}
 	tmp := fmt.Sprintf("%s.tmp-%d", target, os.Getpid())
 	os.RemoveAll(tmp)
-	if err := copyTree(src, tmp); err != nil {
+	if err := copyDaemon(srcReal, tmp); err != nil {
+		os.RemoveAll(tmp)
+		return "", err
+	}
+	if err := copyClosure(srcReal, tmp); err != nil {
 		os.RemoveAll(tmp)
 		return "", err
 	}
