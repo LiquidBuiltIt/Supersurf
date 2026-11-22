@@ -81,7 +81,7 @@ export interface RunOutcome {
 }
 
 export function defaultBackend(host: EngineHost): RunnerBackend {
-  return new AgentSession(host.runConfig(), host, { legacyNotice: false });
+  return new AgentSession(host.runConfig(), host, { legacyNotice: false, resumable: false });
 }
 
 /**

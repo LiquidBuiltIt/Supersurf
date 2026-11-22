@@ -16,7 +16,12 @@ export type DaemonLink = IExtensionTransport &
   Pick<
     DaemonClient,
     'version' | 'extensionConnected' | 'extensionVersionError' | 'activeSessionCount' | 'isConfigDrifted' | 'getPeerSessions' | 'spawnReason'
-  >;
+  > & {
+    /** E9: the ack said this link claimed a session the successor daemon parked. Only a port link sets it. */
+    resumed?: boolean;
+    attachedTabId?: number | null;
+    profileId?: string | null;
+  };
 
 export interface OpenLinkOptions {
   clientId: string;
@@ -29,6 +34,8 @@ export interface OpenLinkOptions {
   guardVersion: boolean;
   /** E9: true only for an agent's own session; the daemon may then keep it across a restart hand-off. */
   resumable?: boolean;
+  /** E9: claim a session the successor daemon parked under this id. Only `AgentSessionManager.resume` sets it. */
+  resume?: boolean;
 }
 
 /** The reply to a `daemon_status` round trip. */

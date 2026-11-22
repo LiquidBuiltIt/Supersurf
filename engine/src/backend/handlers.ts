@@ -13,7 +13,7 @@
  * @module backend/handlers
  */
 
-import { isMultiAgent, type AgentSessionAPI } from './types';
+import { isMultiAgent, type AgentSessionAPI, type ResumeEntry } from './types';
 import { isVersionMismatch, type DaemonLink, type IExtensionTransport } from 'shared';
 import { createLog, getRegistry } from 'shared';
 import { experimentRegistry, applyInitialState } from '../experimental/index';
@@ -181,6 +181,7 @@ export async function onConnect(
         experiments: mgr.config.enabledExperiments || [],
         serverVersion: mgr.config.server.version,
         guardVersion: true,
+        resumable: mgr.resumable !== false,
       });
     } catch (e) {
       if (!isVersionMismatch(e)) throw e;
@@ -225,34 +226,7 @@ export async function onConnect(
       };
     }
 
-    mgr.extensionServer = client;
-
-    // Handle extension reconnections — re-query the attached tab so its URL is
-    // restored immediately, rather than waiting for the next navigation event.
-    // Note: `client` here is always a DaemonClient, and DaemonClient never
-    // invokes `onReconnect` (only the deleted bridge.ts ExtensionServer did,
-    // on a raw WS reconnect) — so this hook does not currently fire in the
-    // live daemon transport. `extensionConnected` intentionally stays
-    // whatever it was last set to (seeded false/true at connect, then
-    // event-driven by bridge call outcomes) until wired to a real daemon
-    // reconnect signal.
-    mgr.extensionServer.onReconnect = () => {
-      log('Extension reconnected, rehydrating tab state...');
-      void rehydrateAttachedTab(mgr, mgr.extensionServer!);
-    };
-
-    // Monitor tab info updates
-    mgr.extensionServer.onTabInfoUpdate = (tabInfo: any) => {
-      log('Tab info update:', tabInfo);
-      applyTabInfoUpdate(mgr, tabInfo);
-    };
-
-    // Open every per-session store, keyed by this session's id (see bindSessionState)
-    bindSessionState(mgr.clientId!, client);
-
-    const BB = await loadBrowserBridge();
-    mgr.bridge = new BB(mgr.config, mgr.extensionServer);
-    await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr, mgr.metricsLogger);
+    await attachLink(mgr, client);
 
     mgr.state = 'active';
     mgr.connectedBrowserName = client.browser;
@@ -326,17 +300,7 @@ export async function onConnect(
     };
   } catch (error: any) {
     log('Failed to connect:', error);
-    mgr.bridge = null;
-    if (mgr.extensionServer) {
-      await mgr.extensionServer.stop().catch(() => {});
-      mgr.extensionServer = null;
-    }
-    // Nothing else releases what the attempt bound before it threw: onDisconnect
-    // returns early when passive.
-    if (mgr.clientId) releaseSessionState(mgr.clientId);
-    mgr.state = 'passive';
-    mgr.profile = null;
-    mgr.extensionConnected = false;
+    await dropFailedLink(mgr);
     // Remember why, so a follow-up `status` call surfaces the real cause
     // (e.g. wedged-port EADDRINUSE) instead of a bare cached "Disabled".
     mgr.lastConnectError = error.message;
@@ -353,6 +317,115 @@ export async function onConnect(
       content: [{ type: 'text', text: `### Connection Failed\n\n${error.message}` }],
       isError: true,
     };
+  }
+}
+
+/**
+ * Wire a freshly opened daemon link into the session: hooks, per-session stores and the
+ * BrowserBridge. Shared by `onConnect` and `onResume`; the callers set the state afterwards.
+ */
+async function attachLink(mgr: AgentSessionAPI, client: DaemonLink): Promise<void> {
+  mgr.extensionServer = client;
+
+  // Handle extension reconnections — re-query the attached tab so its URL is
+  // restored immediately, rather than waiting for the next navigation event.
+  // Note: `client` here is always a DaemonClient, and DaemonClient never
+  // invokes `onReconnect` (only the deleted bridge.ts ExtensionServer did,
+  // on a raw WS reconnect) — so this hook does not currently fire in the
+  // live daemon transport. `extensionConnected` intentionally stays
+  // whatever it was last set to (seeded false/true at connect, then
+  // event-driven by bridge call outcomes) until wired to a real daemon
+  // reconnect signal.
+  mgr.extensionServer.onReconnect = () => {
+    log('Extension reconnected, rehydrating tab state...');
+    void rehydrateAttachedTab(mgr, mgr.extensionServer!);
+  };
+
+  // Monitor tab info updates
+  mgr.extensionServer.onTabInfoUpdate = (tabInfo: any) => {
+    log('Tab info update:', tabInfo);
+    applyTabInfoUpdate(mgr, tabInfo);
+  };
+
+  // Open every per-session store, keyed by this session's id (see bindSessionState)
+  bindSessionState(mgr.clientId!, client);
+
+  const BB = await loadBrowserBridge();
+  mgr.bridge = new BB(mgr.config, mgr.extensionServer);
+  await mgr.bridge.initialize(mgr.server, mgr.clientInfo, mgr, mgr.metricsLogger);
+}
+
+/** Undo a failed attempt: nothing else releases what it bound before it threw (`onDisconnect` returns early when passive). */
+async function dropFailedLink(mgr: AgentSessionAPI): Promise<void> {
+  mgr.bridge = null;
+  if (mgr.extensionServer) {
+    await mgr.extensionServer.stop().catch(() => {});
+    mgr.extensionServer = null;
+  }
+  if (mgr.clientId) releaseSessionState(mgr.clientId);
+  mgr.state = 'passive';
+  mgr.profile = null;
+  mgr.extensionConnected = false;
+}
+
+/**
+ * E9: rebuild a session the daemon parked across a restart hand-off, as `active`, with no
+ * `connect` call from the agent. Claims the parked id with a `resume` link, then runs the
+ * same wiring as `onConnect` (`attachLink`) but takes the state from the daemon's ack and
+ * the snapshot entry, not from config. Skips `profiles.connect` (the daemon kept the
+ * binding) and the client notifications. Never throws: a failure leaves the session passive.
+ * `clientInfo` is whatever the manager holds at that point (`{}`: the shim's `initialize`
+ * replay comes after the resume). Returns whether the session came back.
+ */
+export async function onResume(mgr: AgentSessionAPI, entry: ResumeEntry): Promise<boolean> {
+  const id = entry.id.trim();
+  if (!id || (isMultiAgent(mgr.config) && !USERNAME_RE.test(id))) {
+    log('Resume refused, bad session id:', entry.id);
+    return false;
+  }
+  mgr.clientId = id;
+  let client: DaemonLink | null = null;
+  try {
+    client = await mgr.host.openLink({
+      clientId: id,
+      port: mgr.config.port || 5555,
+      debug: mgr.debugMode,
+      experiments: [],
+      serverVersion: mgr.config.server.version,
+      guardVersion: true,
+      resumable: true,
+      resume: true,
+    });
+    if (client.resumed !== true) {
+      log('Resume: the daemon did not hand back', id);
+      await client.stop().catch(() => {});
+      mgr.clientId = null;
+      return false;
+    }
+    await attachLink(mgr, client);
+    mgr.state = 'active';
+    mgr.connectedBrowserName = client.browser;
+    mgr.extensionConnected = client.extensionConnected;
+    mgr.profile = client.profileId ?? entry.profileId;
+    // The daemon restored these per-session flags; mirror them in the local cache.
+    for (const [name, on] of Object.entries(entry.experiments)) {
+      if (!experimentRegistry.isAvailable(name)) continue;
+      if (on) experimentRegistry.enable(id, name); else experimentRegistry.disable(id, name);
+    }
+    if (experimentRegistry.isEnabled('mouse_humanization', id)) initHumanization(id);
+    const tabId = client.attachedTabId ?? entry.attachedTabId;
+    if (tabId !== null && tabId !== undefined) {
+      mgr.attachedTab = { id: tabId };
+      void rehydrateAttachedTab(mgr, client);
+    }
+    log('Resumed session', id);
+    return true;
+  } catch (error: any) {
+    log('Failed to resume:', error);
+    if (client && !mgr.extensionServer) await client.stop().catch(() => {});
+    await dropFailedLink(mgr);
+    mgr.clientId = null;
+    return false;
   }
 }
 

@@ -12,12 +12,14 @@
  *
  * @module agent-session-manager
  */
+import { createLog } from 'shared';
 import { AgentSession } from './backend';
 import { USERNAME_RE } from './backend/handlers';
 import { isMultiAgent } from './backend/types';
 import type { EngineHost } from './host';
-import type { BackendConfig, ToolSchema } from './backend/types';
+import type { BackendConfig, ResumeEntry, ToolSchema } from './backend/types';
 
+const log = createLog('[Conn]');
 const EXEMPT = new Set(['status', 'profile_create', 'profile_list', 'profile_delete', 'reload_mcp', 'experimental_features']);
 const MARKER = '👤 you are ';
 
@@ -52,6 +54,31 @@ export class AgentSessionManager {
     this._server = server;
     this._clientInfo = clientInfo;
     await this._lobby.initialize(server, clientInfo);
+  }
+
+  /**
+   * E9: after a restart hand-off, rebuild the sessions the daemon parked, as `active`, with no `connect`.
+   * Default mode keeps one session, so it takes the first entry (the rest stay parked until the daemon's grace ends).
+   * Multi-agent mode stores one session per name and arms its idle expiry. Never throws.
+   */
+  async resume(entries: ResumeEntry[]): Promise<void> {
+    try {
+      if (!this._multi) {
+        if (entries.length > 1) log(`Resume: default mode keeps one session; ignoring ${entries.length - 1} more`);
+        if (entries[0]) await this._lobby.resume(entries[0]);
+        return;
+      }
+      for (const entry of entries) {
+        const session = new AgentSession(this._config, this._host);
+        await session.initialize(this._server, this._clientInfo);
+        if (await session.resume(entry)) {
+          this._sessions.set(entry.id, session);
+          this._touch(entry.id);
+        }
+      }
+    } catch (err) {
+      log('Resume failed:', err);
+    }
   }
 
   get(username: string): AgentSession | undefined {
