@@ -107,6 +107,8 @@ export class ShimServer {
   private conns = new Map<string, Conn>();
   /** Live sockets by handshake sessionId, for the duplicate check only. */
   private live = new Map<string, Conn>();
+  /** E9: daemon session id -> shim handshake id, for links opened `resumable: true` only. `main.ts` reads it to build the snapshot. */
+  private resumable = new Map<string, string>();
   private nextSeq = 1;
   private _served = false;
   private worker: ShimWorker | null = null;
@@ -191,6 +193,11 @@ export class ShimServer {
   /** True once this daemon accepted a `shim_register` (sticky): the shim model is in use. */
   get served(): boolean { return this._served; }
 
+  /** E9: the resumable daemon sessions and the shim connection each belongs to. */
+  resumableSessions(): Array<{ id: string; shim: string }> {
+    return [...this.resumable].map(([id, shim]) => ({ id, shim }));
+  }
+
   /** Live shim sockets. */
   get liveCount(): number { return this.live.size; }
 
@@ -234,10 +241,12 @@ export class ShimServer {
       },
       end: (cid) => { this.conns.get(cid)?.socket.end(); },
       env: (cid, op, name) => this.envRoundTrip(cid, op, name),
-      registered: (sessionId, cid) => {
+      registered: (sessionId, cid, resumable) => {
         const c = cid === undefined ? undefined : this.conns.get(cid);
         if (c) this.opts.experiments.initSession(sessionId, c.experiments);
+        if (c && resumable === true) this.resumable.set(sessionId, c.sessionId);
       },
+      closed: (sessionId) => { this.resumable.delete(sessionId); },
     });
     // A Worker emits exit/error, a MessagePort close: any of them means this worker is gone.
     // `counted`: an `error` is followed by its `exit`, which must not count again.
@@ -278,6 +287,7 @@ export class ShimServer {
     this.attached?.detach();
     this.attached = null;
     this.live.clear();
+    this.resumable.clear();
     for (const [cid, conn] of [...this.conns]) {
       this.conns.delete(cid);
       this.rejectPending(conn, 'The engine worker stopped');

@@ -90,7 +90,7 @@ export function createEngineSide(
       workerHosted: true,
       packageVersion: inputs.version,
       // The daemon is in-process behind the port: spawn and version-guard options do not apply.
-      openLink: (opts: { clientId: string }) => router.open(opts.clientId, cid),
+      openLink: (opts: { clientId: string; resumable?: boolean }) => router.open(opts.clientId, cid, { resumable: opts.resumable }),
       queryDaemonStatus: async () => (await ask((rid) => ({ t: 'status', rid })))?.status ?? null,
       // A fresh service per call: a playbook run must not share state with the agent's config.
       runConfig: () => buildConfig(inputs),

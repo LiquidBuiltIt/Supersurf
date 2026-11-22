@@ -27,7 +27,9 @@ export interface EnginePortHooks {
   line?(cid: string, buf: Uint8Array): void;
   end?(cid: string): void;
   /** Right after a successful `host.register` of `sessionId`, opened for connection `cid` (if the worker said). Not called on a refused register. */
-  registered?(sessionId: string, cid: string | undefined): void;
+  registered?(sessionId: string, cid: string | undefined, resumable?: boolean): void;
+  /** A registered link ended (sink end, `link-close` or detach), after `host.close`. */
+  closed?(sessionId: string): void;
   /** Answer an env lookup for `cid`: `value` for `get`, `keys` for `keys`. No hook: the worker gets an error. */
   env?(cid: string, op: 'get' | 'keys', name?: string): Promise<{ value?: string; keys?: string[] }>;
 }
@@ -73,10 +75,11 @@ export function attachEnginePort(port: EnginePort, host: SessionHost, hooks: Eng
           if (link?.sink !== sink) return;
           links.delete(m.lid);
           host.close(link.sessionId, sink);
+          hooks.closed?.(link.sessionId);
         });
         if (host.register(m.sessionId, sink)) {
           links.set(m.lid, { sessionId: m.sessionId, sink });
-          hooks.registered?.(m.sessionId, m.cid);
+          hooks.registered?.(m.sessionId, m.cid, m.resumable);
         }
         break;
       }
@@ -90,6 +93,7 @@ export function attachEnginePort(port: EnginePort, host: SessionHost, hooks: Eng
         if (!link) break;
         links.delete(m.lid);
         host.close(link.sessionId, link.sink);
+        hooks.closed?.(link.sessionId);
         break;
       }
       case 'status': port.postMessage({ t: 'status-res', rid: m.rid, status: host.buildStatusResponse() }); break;
@@ -103,6 +107,7 @@ export function attachEnginePort(port: EnginePort, host: SessionHost, hooks: Eng
     for (const [lid, link] of [...links]) {
       links.delete(lid);
       host.close(link.sessionId, link.sink);
+      hooks.closed?.(link.sessionId);
     }
   };
 

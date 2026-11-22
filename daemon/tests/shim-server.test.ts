@@ -360,3 +360,57 @@ describe('hand-off support (E4)', () => {
     expect(() => shimServer.notifyRestarting()).not.toThrow();
   });
 });
+
+describe('resumable sessions (E9, D3)', () => {
+  const open = (w: RecordingWorker, lid: number, sessionId: string, cid: string, resumable?: boolean) =>
+    w.emit('message', { t: 'link-open', lid, sessionId, cid, ...(resumable !== undefined && { resumable }) });
+
+  it('records only links opened with resumable === true, mapped to the shim handshake id', async () => {
+    await newShim({ sessionId: 'shim-a' }).register();
+    open(workers[0], 1, 'agent-yes', 'shim-a#1', true);
+    open(workers[0], 2, 'agent-no', 'shim-a#1', false);
+    open(workers[0], 3, 'agent-unset', 'shim-a#1');
+    open(workers[0], 4, 'agent-nocid', undefined as any, true);
+    expect(shimServer.resumableSessions()).toEqual([{ id: 'agent-yes', shim: 'shim-a' }]);
+  });
+
+  it('a refused register records nothing', async () => {
+    await newShim({ sessionId: 'shim-a' }).register();
+    (host as any).register = () => false;
+    open(workers[0], 1, 'agent-x', 'shim-a#1', true);
+    expect(shimServer.resumableSessions()).toEqual([]);
+  });
+
+  it('drops the entry when its link closes', async () => {
+    await newShim({ sessionId: 'shim-a' }).register();
+    open(workers[0], 1, 'agent-a', 'shim-a#1', true);
+    open(workers[0], 2, 'agent-b', 'shim-a#1', true);
+    workers[0].emit('message', { t: 'link-close', lid: 1 });
+    expect(shimServer.resumableSessions()).toEqual([{ id: 'agent-b', shim: 'shim-a' }]);
+  });
+
+  it('forgets everything when the worker goes', async () => {
+    await newShim({ sessionId: 'shim-a' }).register();
+    open(workers[0], 1, 'agent-a', 'shim-a#1', true);
+    workers[0].emit('exit', 0);
+    expect(shimServer.resumableSessions()).toEqual([]);
+  });
+
+  it('end to end: the worker host passes opts.resumable through the port link', async () => {
+    const { engine } = fakeEngine();
+    host.register = (_id: string, sink: any) => { sink.send({ type: 'session_ack' }); return true; };
+    shimServer.stop();
+    shimServer = new ShimServer({
+      host, experiments,
+      daemon: { configPath: path.join(dir, 'config.json'), port: 5599, version: '9.9.9-test' },
+      startWorker: () => inlineWorker(engine),
+    });
+    const shim = newShim({ sessionId: 'shim-e2e' });
+    await shim.register();
+    await shim.initialize();
+    await shim.call('connect', { client_id: 'agent-r', resumable: true });
+    await shim.call('connect', { client_id: 'agent-p', resumable: false });
+    await shim.call('connect', { client_id: 'agent-u' });
+    expect(shimServer.resumableSessions()).toEqual([{ id: 'agent-r', shim: 'shim-e2e' }]);
+  });
+});

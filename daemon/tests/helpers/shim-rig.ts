@@ -33,7 +33,7 @@ class FakeManager {
       switch (name) {
         case 'connect':
         case 'playbook': { // a playbook run opens its own daemon session on the same connection
-          this.links.push(await this.host.openLink({ clientId: args.client_id }));
+          this.links.push(await this.host.openLink({ clientId: args.client_id, resumable: args.resumable }));
           return 'connected';
         }
         case 'experiments': return JSON.stringify((await this.links.at(-1).sendCmd('experiments.get')).experiments);

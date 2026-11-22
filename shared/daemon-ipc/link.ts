@@ -27,6 +27,8 @@ export interface OpenLinkOptions {
   serverVersion: string;
   /** false: skip the version guard (profile management opens a short-lived link). */
   guardVersion: boolean;
+  /** E9: true only for an agent's own session; the daemon may then keep it across a restart hand-off. */
+  resumable?: boolean;
 }
 
 /** The reply to a `daemon_status` round trip. */
