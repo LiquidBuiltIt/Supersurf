@@ -7,17 +7,34 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { createRequire } from 'module';
 import { spawn, spawnSync } from 'child_process';
 import { ConfigService, loadJsonConfig, loadEnvConfig } from './config/index';
 import type { PartialConfig } from './config/index';
 
-/** `SUPERSURF_SHIM_BIN` (absolute, this process's env) first, then `<root>/bin/supersurf-shim`; the file must be executable. */
+const GOARCH: Record<string, string> = { x64: 'amd64', arm64: 'arm64' };
+
+/** `bin/<goos>-<goarch>/supersurf-shim` of the `supersurf-shim` package that Node resolves from `root`; null on any other platform/arch or when the package is absent. */
+function packagedShim(root: string): string | null {
+  const arch = GOARCH[process.arch];
+  if (!arch || (process.platform !== 'linux' && process.platform !== 'darwin')) return null;
+  try {
+    const pkg = createRequire(path.join(root, 'noop.js')).resolve('supersurf-shim/package.json');
+    return path.join(path.dirname(pkg), 'bin', `${process.platform}-${arch}`, 'supersurf-shim');
+  } catch { return null; }
+}
+
+/**
+ * First executable file of: `SUPERSURF_SHIM_BIN` (absolute, this process's env); the `supersurf-shim`
+ * package resolved from `root` (the supersurf-daemon package dir) as Node resolves it; `<root>/bin/supersurf-shim`
+ * (a dev clone's `npm run build.shim` output).
+ */
 export function findShimBinary(root?: string): string | null {
   const env = process.env.SUPERSURF_SHIM_BIN;
   const candidates = [
     ...(env && path.isAbsolute(env) ? [env] : []),
-    ...(root ? [path.join(root, 'bin', 'supersurf-shim')] : []),
-  ];
+    ...(root ? [packagedShim(root) ?? '', path.join(root, 'bin', 'supersurf-shim')] : []),
+  ].filter(Boolean);
   return candidates.find((c) => {
     try { fs.accessSync(c, fs.constants.X_OK); return fs.statSync(c).isFile(); } catch { return false; }
   }) ?? null;
