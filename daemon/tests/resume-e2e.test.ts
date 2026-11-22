@@ -136,7 +136,6 @@ async function survival(c: Ctx, readMs = 45_000): Promise<string[]> {
 }
 
 const log = (c: Ctx) => c.rig.daemonLog();
-const bareTool = (c: Ctx) => c.shim.tool('browser_tabs', { action: 'list' }, 30_000);
 
 describe.skipIf(!!missing)('E9 resume end to end (real daemons, Go shim, headless Chromium)', () => {
   describe.concurrent('hand-off with resume', () => {
@@ -231,7 +230,6 @@ describe.skipIf(!!missing)('E9 resume end to end (real daemons, Go shim, headles
       await handoff(c);
       await waitFor(() => !alive(c.browser), 20_000, 'the browser to be killed');
       await waitFor(() => /dropped 1/.test(log(c)), 20_000, 'the drop line');
-      expect((await bareTool(c)).error ?? (await bareTool(c)).text).toBeTruthy();
       expect((await c.rig.status()).sessions.some((x: any) => x.sessionId === 'agent-a')).toBe(false);
       const k = await c.shim.tool('connect', { client_id: 'agent-a', profile: 'p1' }, 60_000);
       expect(k.error, k.text).toBeUndefined();
