@@ -170,6 +170,17 @@ export class IPCServer implements SessionHost {
     this.restarting = true;
   }
 
+  /** E9: flag a session so `close()` leaves it, its tabs and its browser alone (the successor adopts it). */
+  keepSession(sessionId: string): void {
+    const s = this.sessions.get(sessionId);
+    if (s) s.keep = true;
+  }
+
+  /** E9: undo every `keepSession` (a rolled-back hand-off tears down as today). */
+  clearKeep(): void {
+    for (const s of this.sessions.values()) s.keep = false;
+  }
+
   /** End every legacy session socket; their normal close path runs. Never closes the listener. */
   async endSessions(): Promise<void> {
     for (const session of this.sessions.values()) session.sink.end();
@@ -298,6 +309,11 @@ export class IPCServer implements SessionHost {
 
   /** Register a session under `sessionId`. Returns false (after sending the reject and ending the sink) when the id is taken. */
   register(sessionId: string, sink: SessionSink): boolean {
+    if (this.restarting) {
+      this.send(sink, { type: 'session_reject', reason: 'Daemon restarting' });
+      sink.end();
+      return false;
+    }
     if (this.sessions.has(sessionId)) {
       this.send(sink, {
         type: 'session_reject',
@@ -342,7 +358,9 @@ export class IPCServer implements SessionHost {
 
   /** End a session: release its tabs, profile and state. A stale close from an old sink must not delete a newer session of the same id. */
   close(sessionId: string, sink: SessionSink): void {
-    if (this.sessions.get(sessionId)?.sink !== sink) return;
+    const live = this.sessions.get(sessionId);
+    if (live?.sink !== sink) return;
+    if (live.keep) return; // E9: kept for the successor; the process exits with it still registered
     debugLog(`Session disconnected: "${sessionId}"`);
 
     // Read before remove(): the extension closes these tabs on disconnect
@@ -401,6 +419,16 @@ export class IPCServer implements SessionHost {
         jsonrpc: '2.0',
         id: msg?.id ?? null,
         error: { code: -32600, message: 'Invalid JSON-RPC 2.0 request' },
+      });
+      return;
+    }
+
+    // After the hand-off commit the successor owns the work: tell the caller to reconnect and re-send.
+    if (this.restarting) {
+      this.send(sink, {
+        jsonrpc: '2.0',
+        id: msg.id,
+        error: { code: -32001, message: 'Daemon restarting: reconnect and re-send' },
       });
       return;
     }

@@ -20,6 +20,8 @@ export interface DaemonSession {
   attachedTabId: number | null;
   groupId: number | null;
   profileId: string | null;
+  /** E9: set at a hand-off commit for a resumable shim session; `close()` then does nothing. */
+  keep?: boolean;
 }
 
 /** A request waiting in the round-robin scheduler queue. */

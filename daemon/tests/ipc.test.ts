@@ -1908,6 +1908,105 @@ describe('IPCServer', () => {
     });
   });
 
+  describe('resume: keep flag and restarting rejection (E9)', () => {
+    const fakeSink = () => ({ sent: [] as any[], ended: 0, send(m: object) { this.sent.push(m); }, end() { this.ended++; } });
+
+    it('a kept session ignores close(): no sessionDisconnect, no unbind, no browser kill, still registered', () => {
+      const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 999999, 'daemon');
+      const k = fakeSink();
+      ipc.register('k', k);
+      sessions.setProfileId('k', 'dev');
+      sessions.addCreatedTab('k', 5);
+      ipc.keepSession('k');
+
+      ipc.close('k', k);
+
+      expect(sessions.has('k')).toBe(true);
+      expect(sessions.getProfileId('k')).toBe('dev');
+      expect(bridge.sendCmd).not.toHaveBeenCalled();
+      expect(bridge.sendCmdToProfile).not.toHaveBeenCalled();
+      expect(kill).not.toHaveBeenCalled();
+      expect(profileRegistry.getRunningPid('dev')).toBe(999999);
+      kill.mockRestore();
+    });
+
+    it('a legacy session on the same profile still ends with closeTabIds, and the kept session keeps the browser alive', () => {
+      const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 999999, 'daemon');
+      const k = fakeSink();
+      const l = fakeSink();
+      ipc.register('k', k);
+      ipc.register('l', l);
+      sessions.setProfileId('k', 'dev');
+      sessions.setProfileId('l', 'dev');
+      sessions.addCreatedTab('l', 8);
+      ipc.keepSession('k');
+
+      ipc.close('l', l);
+
+      expect(bridge.sendCmdToProfile).toHaveBeenCalledWith('dev', 'sessionDisconnect', { sessionId: 'l', closeTabIds: [8] }, 5000);
+      expect(sessions.has('l')).toBe(false);
+      expect(sessions.has('k')).toBe(true);
+      expect(kill).not.toHaveBeenCalled();
+      kill.mockRestore();
+    });
+
+    it('clearKeep makes the session tear down as today', () => {
+      const k = fakeSink();
+      ipc.register('k', k);
+      sessions.addCreatedTab('k', 5);
+      ipc.keepSession('k');
+      ipc.clearKeep();
+
+      ipc.close('k', k);
+
+      expect(sessions.has('k')).toBe(false);
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'k', closeTabIds: [5] }, 5000);
+    });
+
+    it('after setRestarting a socket session request gets -32001 for scheduler, profiles.* and experiments.* methods', async () => {
+      await ipc.start();
+      const c = await connectToSocket(sockPath);
+      writeLine(c, { type: 'session_register', sessionId: 'legacy' });
+      await readLine(c);
+      ipc.setRestarting();
+      for (const [id, method] of [[1, 'tabs.list'], [2, 'profiles.list'], [3, 'experiments.get']] as const) {
+        writeLine(c, { jsonrpc: '2.0', id, method, params: {} });
+        const r = await readLine(c);
+        expect(r).toMatchObject({ jsonrpc: '2.0', id, error: { code: -32001, message: 'Daemon restarting: reconnect and re-send' } });
+      }
+      expect(bridge.sendCmd).not.toHaveBeenCalled();
+      c.destroy();
+    });
+
+    it('after setRestarting a port-sink request gets -32001', async () => {
+      const { port1: mainEnd, port2: workerEnd } = new MessageChannel();
+      const router = new PortLinkRouter(workerEnd);
+      workerEnd.on('message', (m: MainToWorker) => router.handle(m));
+      attachEnginePort(mainEnd, ipc, {});
+      const link = await router.open('p1');
+      ipc.setRestarting();
+
+      await expect(link.sendCmd('tabs.list')).rejects.toThrow('Daemon restarting: reconnect and re-send');
+      mainEnd.close();
+      workerEnd.close();
+    });
+
+    it('after setRestarting a new register is refused with session_reject and the sink ends', () => {
+      ipc.setRestarting();
+      const fake = fakeSink();
+
+      expect(ipc.register('late', fake)).toBe(false);
+
+      expect(fake.sent).toEqual([{ type: 'session_reject', reason: 'Daemon restarting' }]);
+      expect(fake.ended).toBe(1);
+      expect(sessions.has('late')).toBe(false);
+    });
+  });
+
   describe('extension pull failure', () => {
     function makeIpcServer(metaOverrides: Partial<IPCServerMeta> = {}): IPCServer {
       return new IPCServer(sockPath, bridge, sessions, scheduler, experiments, profileRegistry, {
