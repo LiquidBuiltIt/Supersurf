@@ -84,3 +84,60 @@ export function browserMatches(pid: number, profile: string): boolean {
     return argv.includes(`--user-data-dir=${path.join(supersurfDir(), 'profiles', profile, 'chrome-data')}`);
   } catch { return false; }
 }
+
+export interface ResumeDeps {
+  /** Resumable shim sessions (`ShimServer.resumableSessions`). */
+  resumable: () => Array<{ id: string; shim: string }>;
+  session: (id: string) => { ownedTabs: Set<number>; createdTabs: Set<number>; attachedTabId: number | null; groupId: number | null; profileId: string | null } | undefined;
+  experiments: (id: string) => Record<string, boolean>;
+  /** The running pid of a daemon-owned browser for this profile, else null. */
+  ownedBrowserPid: (profile: string) => number | null;
+  keep: (id: string) => void;
+  clearKeep: () => void;
+  oldpid: number;
+  now: () => number;
+  procOk: () => boolean;
+  /** Test seam (dev env only): `off` writes nothing; `corrupt` and `stale` write a bad snapshot. */
+  mode?: 'off' | 'corrupt' | 'stale';
+  log: (m: string) => void;
+}
+
+/** `Handoff.prepareResume` / `cancelResume` (D2), plus the browser pids step 6 must not kill. */
+export function makeResume(d: ResumeDeps): { prepare: () => number[]; cancel: () => void; keepPids: () => ReadonlySet<number> } {
+  let pids = new Set<number>();
+  const prepare = (): number[] => {
+    if (d.mode === 'off' || !d.procOk()) return [];
+    const sessions: SnapSession[] = [];
+    for (const r of d.resumable()) {
+      const s = d.session(r.id);
+      if (!s) continue;
+      sessions.push({
+        id: r.id, shim: r.shim, ownedTabs: [...s.ownedTabs], createdTabs: [...s.createdTabs],
+        attachedTabId: s.attachedTabId, groupId: s.groupId, profileId: s.profileId, experiments: d.experiments(r.id),
+      });
+    }
+    if (sessions.length === 0) return [];
+    const browsers: SnapBrowser[] = [];
+    for (const profile of new Set(sessions.map((s) => s.profileId).filter((p): p is string => p !== null))) {
+      const pid = d.ownedBrowserPid(profile);
+      if (pid !== null) browsers.push({ profile, pid });
+    }
+    const ts = d.mode === 'stale' ? d.now() - 120_000 : d.now();
+    if (d.mode === 'corrupt') {
+      fs.mkdirSync(path.dirname(snapshotPath()), { recursive: true });
+      fs.writeFileSync(snapshotPath(), 'not json', { mode: 0o600 });
+    } else {
+      writeSnapshot({ v: 1, oldpid: d.oldpid, ts, sessions, browsers });
+    }
+    for (const s of sessions) d.keep(s.id);
+    pids = new Set(browsers.map((b) => b.pid));
+    d.log(`[Daemon] Resume snapshot: ${sessions.length} session(s), ${browsers.length} browser(s)`);
+    return [...pids];
+  };
+  const cancel = (): void => {
+    pids = new Set();
+    deleteSnapshot();
+    d.clearKeep();
+  };
+  return { prepare, cancel, keepPids: () => pids };
+}

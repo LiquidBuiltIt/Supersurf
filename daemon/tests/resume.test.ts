@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
-import { snapshotPath, writeSnapshot, loadSnapshot, deleteSnapshot, browserMatches, procAvailable, type Snapshot } from '../src/resume';
+import { snapshotPath, writeSnapshot, loadSnapshot, deleteSnapshot, browserMatches, procAvailable, makeResume, type Snapshot } from '../src/resume';
 
 let home: string;
 let prevHome: string | undefined;
@@ -116,5 +116,60 @@ describe('browserMatches', () => {
     child.kill('SIGKILL');
     await new Promise((r) => child!.once('exit', r));
     expect(browserMatches(pid, 'dev')).toBe(false);
+  });
+});
+
+describe('makeResume (D2)', () => {
+  const sess = (profileId: string | null) => ({ ownedTabs: new Set([1, 2]), createdTabs: new Set([2]), attachedTabId: 1, groupId: 7, profileId });
+  function deps(over: Partial<import('../src/resume').ResumeDeps> = {}) {
+    const kept: string[] = [];
+    let cleared = 0;
+    const d: import('../src/resume').ResumeDeps = {
+      resumable: () => [{ id: 'a', shim: 'shim-1' }, { id: 'gone', shim: 'shim-1' }, { id: 'c', shim: 'shim-2' }],
+      session: (id) => (id === 'a' ? sess('p1') : id === 'c' ? sess('p1') : undefined),
+      experiments: () => ({ fingerprinting: true }),
+      ownedBrowserPid: (p) => (p === 'p1' ? 4242 : null),
+      keep: (id) => kept.push(id),
+      clearKeep: () => { cleared++; },
+      oldpid: 99, now: () => 1_000_000, procOk: () => true, log: () => {}, ...over,
+    };
+    return { d, kept, cleared: () => cleared };
+  }
+
+  it('writes a valid snapshot, keeps each live session, returns the browser pid once', () => {
+    const { d, kept } = deps();
+    const r = makeResume(d);
+    expect(r.prepare()).toEqual([4242]);
+    expect(kept).toEqual(['a', 'c']);
+    const l = loadSnapshot(99, 1_000_000);
+    expect(l.ok && l.snap.sessions.map((s) => s.id)).toEqual(['a', 'c']);
+    expect(l.ok && l.snap.browsers).toEqual([{ profile: 'p1', pid: 4242 }]);
+    expect(r.keepPids().has(4242)).toBe(true);
+  });
+
+  it('no resumable session, no /proc, or mode off: nothing written, nothing kept', () => {
+    for (const over of [{ resumable: () => [] }, { procOk: () => false }, { mode: 'off' as const }]) {
+      const { d, kept } = deps(over);
+      expect(makeResume(d).prepare()).toEqual([]);
+      expect(kept).toEqual([]);
+      expect(fs.existsSync(snapshotPath())).toBe(false);
+    }
+  });
+
+  it('seams: corrupt and stale snapshots are refused by the loader', () => {
+    makeResume(deps({ mode: 'corrupt' }).d).prepare();
+    expect(loadSnapshot(99, 1_000_000)).toEqual({ ok: false, reason: 'corrupt' });
+    makeResume(deps({ mode: 'stale' }).d).prepare();
+    expect(loadSnapshot(99, 1_000_000)).toEqual({ ok: false, reason: 'stale' });
+  });
+
+  it('cancel deletes the snapshot, clears keeps and the skip pids', () => {
+    const { d, cleared } = deps();
+    const r = makeResume(d);
+    r.prepare();
+    r.cancel();
+    expect(fs.existsSync(snapshotPath())).toBe(false);
+    expect(cleared()).toBe(1);
+    expect(r.keepPids().size).toBe(0);
   });
 });

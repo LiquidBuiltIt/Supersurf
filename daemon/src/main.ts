@@ -40,6 +40,7 @@ import { RequestScheduler } from './scheduler';
 import { IPCServer, type IPCServerMeta } from './ipc';
 import { Handoff, nextSockPath, appendSpawn, waitForCommit, waitOldExit, bindWithBackoff, shimModelInUse, upgradePending, type UserOwned } from './handoff';
 import { ShimServer } from './shim-server';
+import { makeResume, procAvailable, deleteSnapshot } from './resume';
 import { configHash } from './config-drift';
 import { acquirePidFile, releaseFiles, clearStaleSocket, sockIdentity, type SockIdentity } from './pidfile';
 import { DaemonExperimentRegistry } from './experiments/index';
@@ -225,6 +226,7 @@ async function main(): Promise<void> {
       killOrphanPids(orphans);
     }
     truncatePidLog();
+    deleteSnapshot();
     return entries
       .filter((e) => e.action === 'spawn' && e.owner === 'user' && isProcessAlive(e.pid) && !entries.some((k) => k.action === 'kill' && k.pid === e.pid))
       .map((e) => ({ profile: e.profile, pid: e.pid }));
@@ -301,12 +303,33 @@ async function main(): Promise<void> {
   // Graceful shutdown
   let shuttingDown = false;
 
+  // E9: the old daemon's snapshot of resumable shim sessions (`resume.ts`); seams are dev-env only.
+  const resumeMode = process.env.SUPERSURF_DEV_ENVIRONMENT
+    ? process.env.SUPERSURF_TEST_RESUME === 'off' ? 'off'
+      : process.env.SUPERSURF_TEST_HANDOFF_FAULT === 'resume-corrupt' ? 'corrupt'
+      : process.env.SUPERSURF_TEST_HANDOFF_FAULT === 'resume-stale' ? 'stale' : undefined
+    : undefined;
+  const resume = makeResume({
+    resumable: () => shim.resumableSessions(),
+    session: (id) => sessions.get(id),
+    experiments: (id) => experiments.getAll(id),
+    ownedBrowserPid: (name) => (profileRegistry.isUserOwned(name) ? null : profileRegistry.getRunningPid(name)),
+    keep: (id) => ipc.keepSession(id),
+    clearKeep: () => ipc.clearKeep(),
+    oldpid: process.pid, now: () => Date.now(), procOk: procAvailable, mode: resumeMode,
+    log: (m) => logger.log(m),
+  });
+
   /** SIGTERM every managed Chromium except user-owned ones (launched via `supersurf profiles open`: the human closes those). Returns the pids signalled. */
   function killOwnedChromium(): number[] {
     const killed: number[] = [];
     for (const p of profileRegistry.list()) {
       const pid = profileRegistry.getRunningPid(p.name);
       if (pid !== null) {
+        if (resume.keepPids().has(pid)) {
+          logger.log(`[Daemon] Leaving Chromium for profile "${p.name}" (pid ${pid}) running for the resumed sessions`);
+          continue;
+        }
         if (profileRegistry.isUserOwned(p.name)) {
           logger.log(`[Daemon] Leaving user-owned Chromium for profile "${p.name}" (pid ${pid}) running`);
           continue;
@@ -375,6 +398,8 @@ async function main(): Promise<void> {
     setRestarting: () => { ipc.setRestarting(); shim.notifyRestarting(); },
     stopShims: () => shim.stop(),
     endSessions: () => ipc.endSessions(),
+    prepareResume: resume.prepare,
+    cancelResume: resume.cancel,
     fault: testHandoffFault(),
   });
   const handoffNow = handoff;
