@@ -2191,12 +2191,37 @@ describe('IPCServer', () => {
       kill.mockRestore();
     });
 
-    it('endSessions and stop with a parked session do not throw and leave it registered', async () => {
-      ipc.parkSessions([parkedEntry()], 60_000);
+    it('endSessions tears down a parked session: closeTabIds sent, session gone, no grace timer left', async () => {
+      ipc.parkSessions([parkedEntry({ profileId: null })], 60_000);
       await ipc.start();
       await expect(ipc.endSessions()).resolves.toBeUndefined();
-      expect(sessions.has('a')).toBe(true);
+      expect(sessions.has('a')).toBe(false);
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'a', closeTabIds: [5] }, 5000);
       await expect(ipc.stop()).resolves.toBeUndefined();
+    });
+
+    it('stop tears down a parked session the same way', async () => {
+      ipc.parkSessions([parkedEntry({ profileId: null })], 60_000);
+      await ipc.start();
+      await expect(ipc.stop()).resolves.toBeUndefined();
+      expect(sessions.has('a')).toBe(false);
+      expect(bridge.sendCmd).toHaveBeenCalledWith('sessionDisconnect', { sessionId: 'a', closeTabIds: [5] }, 5000);
+    });
+
+    it('tearing down a parked session leaves a browser a kept session still uses', async () => {
+      const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      profileRegistry.create('dev');
+      profileRegistry.setRunningPid('dev', 4242, 'daemon');
+      ipc.parkSessions([parkedEntry({ id: 'p', createdTabs: [8], profileId: 'dev' })], 60_000);
+      const live = fakeSink();
+      ipc.register('k', live);
+      sessions.setProfileId('k', 'dev');
+      ipc.keepSession('k');
+      await ipc.endSessions();
+      expect(sessions.has('p')).toBe(false);
+      expect(sessions.has('k')).toBe(true);
+      expect(kill).not.toHaveBeenCalled();
+      kill.mockRestore();
     });
   });
 

@@ -213,13 +213,18 @@ export class IPCServer implements SessionHost {
     }
     if (this.onSessionCountChange) this.onSessionCountChange(this.sessions.count);
     this.graceTimer = setTimeout(() => {
-      this.graceTimer = null;
-      for (const [id, p] of this.parked) this.close(id, p.sink);
-      this.parked.clear();
-      this.resumeUntil.clear();
+      this.endParked();
       onGrace?.();
     }, graceMs);
     this.graceTimer.unref();
+  }
+
+  /** E9: end every still-parked session through the normal `close` and clear the grace and resume state. */
+  private endParked(): void {
+    if (this.graceTimer) { clearTimeout(this.graceTimer); this.graceTimer = null; }
+    for (const [id, p] of this.parked) this.close(id, p.sink);
+    this.parked.clear();
+    this.resumeUntil.clear();
   }
 
   /** E9: flag a session so `close()` leaves it, its tabs and its browser alone (the successor adopts it). */
@@ -235,6 +240,7 @@ export class IPCServer implements SessionHost {
 
   /** End every legacy session socket; their normal close path runs. Never closes the listener. */
   async endSessions(): Promise<void> {
+    this.endParked(); // a parked sink's end() is a no-op; nobody claimed these
     for (const session of this.sessions.values()) session.sink.end();
   }
 
@@ -892,7 +898,7 @@ export class IPCServer implements SessionHost {
 
   /** Gracefully shut down the IPC server. */
   async stop(): Promise<void> {
-    if (this.graceTimer) { clearTimeout(this.graceTimer); this.graceTimer = null; }
+    this.endParked();
     return new Promise((resolve) => {
       if (!this.server) {
         resolve();
