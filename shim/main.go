@@ -135,7 +135,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			a.port = p
 		}
 	}
-	eo := EnsureOpts{Home: home, Port: a.port, Debug: a.debug, InstallDir: a.installDir, BundledDir: bundledDir(), NodePath: a.nodePath}
+	devRoot, problem := devClone(os.Getenv("SUPERSURF_DEV_ENVIRONMENT"))
+	if problem != "" {
+		fmt.Fprintf(stderr, "supersurf-shim: SUPERSURF_DEV_ENVIRONMENT: %s. Using the packaged daemon instead.\n", problem)
+	} else if devRoot != "" && a.installDir != "" {
+		fmt.Fprintln(stderr, "supersurf-shim: SUPERSURF_DEV_ENVIRONMENT is set: --install is ignored; the dev clone's daemon runs as it is.")
+	}
+	eo := EnsureOpts{Home: home, Port: a.port, Debug: a.debug, InstallDir: a.installDir, BundledDir: bundledDir(), NodePath: a.nodePath, DevRoot: devRoot}
 	if a.ensure {
 		if err := Ensure(eo); err != nil {
 			fmt.Fprintln(stderr, "supersurf-shim ensure:", err)

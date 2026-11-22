@@ -23,6 +23,7 @@ type EnsureOpts struct {
 	InstallDir   string // explicit --install: the package dir to install (the restart path)
 	BundledDir   string // the package dir this shim ships in; "" when unknown
 	NodePath     string // --node override
+	DevRoot      string // a validated dev clone (SUPERSURF_DEV_ENVIRONMENT); "" outside dev
 	Now          func() time.Time
 	LockTimeout  time.Duration
 	StartTimeout time.Duration
@@ -347,6 +348,9 @@ func Ensure(o EnsureOpts) error {
 
 	recs := readSpawns(dir)
 	now := o.Now()
+	if o.DevRoot != "" {
+		return ensureDev(o, dir, recs, now)
+	}
 	cur := readEntry(dir)
 	src, explicit := o.BundledDir, false
 	if o.InstallDir != "" {
@@ -413,6 +417,59 @@ func daemonUp(home string) bool {
 	return true
 }
 
+// devClone mirrors shared/dev-source.ts for the daemon entry: raw is
+// SUPERSURF_DEV_ENVIRONMENT, and the clone must be a SuperSurf repo root with a built
+// daemon. It returns the absolute root, or a problem when the variable is set but
+// unusable ("", "" when it is unset).
+func devClone(raw string) (root, problem string) {
+	if raw == "" {
+		return "", ""
+	}
+	root, err := filepath.Abs(raw)
+	if err != nil {
+		return "", err.Error()
+	}
+	pkg, err := os.ReadFile(filepath.Join(root, "package.json"))
+	var p struct{ Name string }
+	if err != nil || json.Unmarshal(pkg, &p) != nil {
+		return "", fmt.Sprintf("%s is not a SuperSurf repo root (no readable package.json)", root)
+	}
+	if p.Name != "supersurf" {
+		return "", fmt.Sprintf("%s is not a SuperSurf repo root (package.json name is %q)", root, p.Name)
+	}
+	if _, err := os.Stat(devMain(root)); err != nil {
+		return "", fmt.Sprintf("daemon/dist/main.js is missing. Run npm run build in %s", root)
+	}
+	return root, ""
+}
+
+func devMain(root string) string { return filepath.Join(root, "daemon", "dist", "main.js") }
+
+// ensureDev is Ensure in a dev clone: no entry, no versions/, no install (--install is
+// ignored; the hand-off then falls back to the running daemon's own main.js). The lock
+// and the G1 budget stay.
+func ensureDev(o EnsureOpts, dir string, recs []spawnRec, now time.Time) error {
+	node := o.NodePath
+	if node == "" {
+		var err error
+		if node, err = exec.LookPath("node"); err != nil {
+			return fmt.Errorf("node is not on PATH; install Node 18 or newer, or pass --node")
+		}
+	}
+	node, err := filepath.Abs(node)
+	if err != nil {
+		return err
+	}
+	if daemonUp(o.Home) {
+		return nil
+	}
+	if w := budgetWait(recs, now); w > 0 {
+		return fmt.Errorf("the last %d daemon starts failed; the next attempt is allowed in %ds (see %s)",
+			budgetFails, int(w.Seconds())+1, filepath.Join(supersurfDir(o.Home), "daemon.startup.log"))
+	}
+	return spawnDaemon(o, dir, &entry{Node: node, Main: devMain(o.DevRoot), Version: "dev"})
+}
+
 func spawnDaemon(o EnsureOpts, dir string, e *entry) error {
 	logPath := filepath.Join(supersurfDir(o.Home), "daemon.startup.log")
 	errFile, _ := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -422,6 +479,10 @@ func spawnDaemon(o EnsureOpts, dir string, e *entry) error {
 	}
 	cmd := exec.Command(e.Node, args...)
 	cmd.Env = scrubbedEnv()
+	if o.DevRoot != "" {
+		// The only SUPERSURF_* name the daemon gets: it is how the daemon learns it is in dev (no extension pull).
+		cmd.Env = append(cmd.Env, "SUPERSURF_DEV_ENVIRONMENT="+o.DevRoot)
+	}
 	cmd.Dir = o.Home
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdin, cmd.Stdout = nil, nil
