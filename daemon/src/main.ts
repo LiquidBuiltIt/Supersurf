@@ -40,7 +40,8 @@ import { RequestScheduler } from './scheduler';
 import { IPCServer, type IPCServerMeta } from './ipc';
 import { Handoff, nextSockPath, appendSpawn, waitForCommit, waitOldExit, bindWithBackoff, shimModelInUse, upgradePending, type UserOwned } from './handoff';
 import { ShimServer } from './shim-server';
-import { makeResume, procAvailable, deleteSnapshot } from './resume';
+import { makeResume, procAvailable, deleteSnapshot, loadSnapshot, browserMatches } from './resume';
+import { runResume } from './resume-successor';
 import { configHash } from './config-drift';
 import { acquirePidFile, releaseFiles, clearStaleSocket, sockIdentity, type SockIdentity } from './pidfile';
 import { DaemonExperimentRegistry } from './experiments/index';
@@ -218,9 +219,9 @@ async function main(): Promise<void> {
   // Kill orphan Chromium processes from previous crash. A hand-off successor does
   // this only at the commit, and only on the poll path (item 6): the old daemon owns
   // those browsers until then.
-  const coldStartSweep = (): UserOwned[] => {
+  const coldStartSweep = (exclude: ReadonlySet<number> = new Set()): UserOwned[] => {
     const entries = replayPidLog();
-    const orphans = findOrphanPids(entries);
+    const orphans = findOrphanPids(entries).filter((p) => !exclude.has(p));
     if (orphans.length > 0) {
       logger.log(`[Daemon] Cleaning up ${orphans.length} orphan Chromium process(es)`);
       killOrphanPids(orphans);
@@ -302,6 +303,7 @@ async function main(): Promise<void> {
 
   // Graceful shutdown
   let shuttingDown = false;
+  let stopResumeWatch: () => void = () => {};
 
   // E9: the old daemon's snapshot of resumable shim sessions (`resume.ts`); seams are dev-env only.
   const resumeMode = process.env.SUPERSURF_DEV_ENVIRONMENT
@@ -367,6 +369,7 @@ async function main(): Promise<void> {
 
     logger.log(`[Daemon] Shutting down (reason=${reason})...`);
     resetIdleTimer();
+    stopResumeWatch();
 
     // First: the engine worker closes its links while the extension is still up.
     try {
@@ -468,6 +471,9 @@ async function main(): Promise<void> {
   if (takeover) {
     // Hand-off successor: listen on `.next` only, say `takeover:"ready"` and wait for the old daemon's commit.
     const NEXT = nextSockPath();
+    // E9: hold `session_register` / `shim_register` until the snapshot is loaded; status and the hand-off lines pass.
+    let openResumeGate: () => void = () => {};
+    ipc.setResumeGate(new Promise<void>((r) => { openResumeGate = r; }));
     try {
       await ipc.start();
       boundSock = sockIdentity(NEXT);
@@ -485,16 +491,46 @@ async function main(): Promise<void> {
       process.exit(0);
     }
 
+    const devSeams = !!process.env.SUPERSURF_DEV_ENVIRONMENT;
+    const fault = devSeams ? process.env.SUPERSURF_TEST_HANDOFF_FAULT : undefined;
+    if (fault === 'crash-after-commit') process.exit(1); // test seam (D7): dies owning the files, before the load
+
     takeoverPhase = 'committed';
     boundSock = sockIdentity(SOCK_FILE); // the rename changed the ctime; releaseFiles matches inode and ctime
-    let adopted = res.userOwned;
-    if (res.viaPoll) {
-      adopted = coldStartSweep();
-      appendSpawn({ pid: process.pid, entryVersion: version, outcome: 'handoff_committed' });
-    }
-    for (const u of adopted) {
-      profileRegistry.setRunningPid(u.profile, u.pid, 'user');
-      logger.log(`[Daemon] Adopted user-owned Chromium for profile "${u.profile}" (pid ${u.pid})`);
+    if (res.viaPoll) appendSpawn({ pid: process.pid, entryVersion: version, outcome: 'handoff_committed' });
+    const graceMs = Number((devSeams && process.env.SUPERSURF_TEST_RESUME_GRACE_MS) || 60_000);
+    try {
+      stopResumeWatch = runResume({
+        oldpid: takeover,
+        now: () => Date.now(),
+        load: () => loadSnapshot(takeover, Date.now()),
+        alive: isProcessAlive,
+        matches: browserMatches,
+        kill: (pid) => { try { process.kill(pid, 'SIGTERM'); } catch {} },
+        pidLog: replayPidLog,
+        appendPidLog,
+        registry: profileRegistry,
+        every: (fn, ms) => { const t = setInterval(fn, ms); t.unref(); return { stop: () => clearInterval(t) }; },
+        log: (m) => logger.log(m),
+        onSnapshot: fault === 'resume-kill-browser'
+          ? (snap) => { for (const b of snap.browsers) { try { process.kill(b.pid, 'SIGKILL'); } catch {} } }
+          : undefined,
+      }, {
+        viaPoll: res.viaPoll,
+        userOwned: res.userOwned,
+        sweep: coldStartSweep,
+        adoptUser: (list) => {
+          for (const u of list) {
+            profileRegistry.setRunningPid(u.profile, u.pid, 'user');
+            logger.log(`[Daemon] Adopted user-owned Chromium for profile "${u.profile}" (pid ${u.pid})`);
+          }
+        },
+        park: (list) => { shim.setResumed(list); ipc.parkSessions(list, graceMs, () => shim.clearResumed()); },
+      });
+    } catch (err: any) {
+      logger.log(`[Daemon] Resume load failed: ${err?.message ?? err}`);
+    } finally {
+      openResumeGate();
     }
 
     await waitOldExit(takeover, (m) => logger.log(`[Daemon] ${m}`));
@@ -503,7 +539,7 @@ async function main(): Promise<void> {
     await startExtensionPull();
     openSpawnGate();
     successorWhole = true;
-    startIdleTimer();
+    if (sessions.count === 0) startIdleTimer(); // parked sessions count: the count callback re-arms at 0
     logger.log('[Daemon] Hand-off complete, daemon ready');
     return;
   }
