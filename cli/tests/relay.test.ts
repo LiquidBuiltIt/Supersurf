@@ -102,9 +102,10 @@ describe('relayMcp', () => {
 
   it('on, binary from SUPERSURF_DEV_ENVIRONMENT when nothing else names one', async () => {
     const root = path.join(home, 'clone');
-    fs.mkdirSync(path.join(root, 'daemon', 'bin'), { recursive: true });
+    const target = `${process.platform}-${({ x64: 'amd64', arm64: 'arm64' } as Record<string, string>)[process.arch]}`;
+    fs.mkdirSync(path.join(root, 'server', 'bin', target), { recursive: true });
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'supersurf' }));
-    const bin = path.join(root, 'daemon', 'bin', 'supersurf-shim');
+    const bin = path.join(root, 'server', 'bin', target, 'supersurf-shim');
     fs.copyFileSync(recBin, bin);
     fs.chmodSync(bin, 0o755);
     process.env.SUPERSURF_DEV_ENVIRONMENT = root;

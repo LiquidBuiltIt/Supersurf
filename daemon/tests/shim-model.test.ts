@@ -22,7 +22,7 @@ describe('shimModelInUse', () => {
   });
 });
 
-describe('cmpVersion (same semantics as shim/ensure.go)', () => {
+describe('cmpVersion (same semantics as server/shim/ensure.go)', () => {
   const table: [string, string, number][] = [
     ['4.1.0', '4.1.0', 0],
     ['4.1.0', '4.1.1', -1],

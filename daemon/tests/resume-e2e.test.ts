@@ -40,7 +40,7 @@ beforeAll(async () => {
   if (missing) return;
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'r9-'));
   shimBin = path.join(tmp, 'supersurf-shim');
-  const b = spawnSync(GO!, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO, 'shim'), encoding: 'utf8' });
+  const b = spawnSync(GO!, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO, 'server', 'shim'), encoding: 'utf8' });
   if (b.status !== 0) throw new Error(`go build failed: ${b.stderr}`);
   // Every load of a page gets a new random marker, so an equal marker read later proves the same page, not a reload.
   fixture = http.createServer((req, res) => {

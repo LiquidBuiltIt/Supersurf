@@ -70,7 +70,7 @@ describe.skipIf(!!missing)('relay end to end (supersurf-mcp --relay -> Go shim -
   beforeAll(async () => {
     rig = makeRig();
     shimBin = path.join(rig.home, 'supersurf-shim');
-    const b = spawnSync(GO!, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO, 'shim'), encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } });
+    const b = spawnSync(GO!, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO, 'server', 'shim'), encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } });
     if (b.status !== 0) throw new Error(`go build failed: ${b.stderr}`);
 
     port = await freePort();

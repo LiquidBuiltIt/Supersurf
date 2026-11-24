@@ -25,24 +25,50 @@ function script(name: string, body = 'exit 0', mode = 0o755): string {
 }
 
 describe('findShimBinary', () => {
+  const goarch = ({ x64: 'amd64', arm64: 'arm64' } as Record<string, string>)[process.arch];
+  const supported = (process.platform === 'linux' || process.platform === 'darwin') && !!goarch;
+  const target = `${process.platform}-${goarch}`;
+
+  // <root>/bin/<goos>-<goarch>/supersurf-shim: the supersurf-mcp package layout.
+  function rootBin(root: string, mode = 0o755): string {
+    fs.mkdirSync(path.join(root, 'bin', target), { recursive: true });
+    const b = path.join(root, 'bin', target, 'supersurf-shim');
+    fs.writeFileSync(b, '', { mode });
+    fs.chmodSync(b, mode);
+    return b;
+  }
+  function withPlatform<T>(platform: string, arch: string, fn: () => T): T {
+    const p = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    const a = Object.getOwnPropertyDescriptor(process, 'arch')!;
+    Object.defineProperty(process, 'platform', { value: platform });
+    Object.defineProperty(process, 'arch', { value: arch });
+    try { return fn(); } finally { Object.defineProperty(process, 'platform', p); Object.defineProperty(process, 'arch', a); }
+  }
+
   it('returns null with no env and no root', () => {
     expect(findShimBinary()).toBeNull();
   });
 
-  it('prefers an absolute SUPERSURF_SHIM_BIN over <root>/bin/supersurf-shim', () => {
+  it.skipIf(!supported)('finds <root>/bin/<goos>-<goarch>/supersurf-shim', () => {
+    const bin = rootBin(dir);
+    expect(findShimBinary(dir)).toBe(bin);
+  });
+
+  it.skipIf(!supported)('prefers an absolute SUPERSURF_SHIM_BIN over the root binary', () => {
     const env = script('env-shim');
-    fs.mkdirSync(path.join(dir, 'pkg', 'bin'), { recursive: true });
-    fs.copyFileSync(env, path.join(dir, 'pkg', 'bin', 'supersurf-shim'));
-    fs.chmodSync(path.join(dir, 'pkg', 'bin', 'supersurf-shim'), 0o755);
+    rootBin(path.join(dir, 'pkg'));
     process.env.SUPERSURF_SHIM_BIN = env;
     expect(findShimBinary(path.join(dir, 'pkg'))).toBe(env);
   });
 
-  it('falls back to <root>/bin/supersurf-shim', () => {
+  it.skipIf(!supported)('ignores the old <root>/bin/supersurf-shim path and a supersurf-shim package', () => {
     fs.mkdirSync(path.join(dir, 'bin'));
-    const bin = path.join(dir, 'bin', 'supersurf-shim');
-    fs.writeFileSync(bin, '', { mode: 0o755 });
-    expect(findShimBinary(dir)).toBe(bin);
+    fs.writeFileSync(path.join(dir, 'bin', 'supersurf-shim'), '', { mode: 0o755 });
+    const pkg = path.join(dir, 'node_modules', 'supersurf-shim');
+    fs.mkdirSync(path.join(pkg, 'bin', target), { recursive: true });
+    fs.writeFileSync(path.join(pkg, 'package.json'), '{"name":"supersurf-shim","version":"1.0.0"}');
+    fs.writeFileSync(path.join(pkg, 'bin', target, 'supersurf-shim'), '', { mode: 0o755 });
+    expect(findShimBinary(dir)).toBeNull();
   });
 
   it('ignores a relative SUPERSURF_SHIM_BIN', () => {
@@ -62,83 +88,16 @@ describe('findShimBinary', () => {
     expect(findShimBinary()).toBeNull();
   });
 
-  it('falls through a non-executable env file to an executable <root> file', () => {
+  it.skipIf(!supported)('falls through a non-executable env file to an executable root file', () => {
     process.env.SUPERSURF_SHIM_BIN = script('noexec', 'exit 0', 0o644);
-    fs.mkdirSync(path.join(dir, 'bin'));
-    const bin = path.join(dir, 'bin', 'supersurf-shim');
-    fs.writeFileSync(bin, '', { mode: 0o755 });
+    const bin = rootBin(dir);
     expect(findShimBinary(dir)).toBe(bin);
   });
-});
 
-describe('findShimBinary: the supersurf-shim package', () => {
-  const goarch = ({ x64: 'amd64', arm64: 'arm64' } as Record<string, string>)[process.arch];
-  const supported = (process.platform === 'linux' || process.platform === 'darwin') && !!goarch;
-  const target = `${process.platform}-${goarch}`;
-
-  // <dir>/node_modules/supersurf-shim with a binary for this host; the daemon root is <dir>/node_modules/supersurf-daemon.
-  function installShim(withBinary = true): { root: string; bin: string } {
-    const pkg = path.join(dir, 'node_modules', 'supersurf-shim');
-    fs.mkdirSync(path.join(pkg, 'bin', target), { recursive: true });
-    fs.writeFileSync(path.join(pkg, 'package.json'), '{"name":"supersurf-shim","version":"1.0.0"}');
-    const bin = path.join(pkg, 'bin', target, 'supersurf-shim');
-    if (withBinary) fs.writeFileSync(bin, '', { mode: 0o755 });
-    const root = path.join(dir, 'node_modules', 'supersurf-daemon');
-    fs.mkdirSync(root, { recursive: true });
-    return { root, bin };
-  }
-  function rootBin(root: string): string {
-    fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
-    const b = path.join(root, 'bin', 'supersurf-shim');
-    fs.writeFileSync(b, '', { mode: 0o755 });
-    return b;
-  }
-  function withPlatform<T>(platform: string, arch: string, fn: () => T): T {
-    const p = Object.getOwnPropertyDescriptor(process, 'platform')!;
-    const a = Object.getOwnPropertyDescriptor(process, 'arch')!;
-    Object.defineProperty(process, 'platform', { value: platform });
-    Object.defineProperty(process, 'arch', { value: arch });
-    try { return fn(); } finally { Object.defineProperty(process, 'platform', p); Object.defineProperty(process, 'arch', a); }
-  }
-
-  it.skipIf(!supported)('finds bin/<goos>-<goarch>/supersurf-shim in a hoisted package', () => {
-    const { root, bin } = installShim();
-    expect(findShimBinary(root)).toBe(fs.realpathSync(bin));
-  });
-
-  it.skipIf(!supported)('finds a package nested in the daemon root', () => {
-    const { root } = installShim();
-    const nested = path.join(root, 'node_modules');
-    fs.mkdirSync(nested, { recursive: true });
-    fs.renameSync(path.join(dir, 'node_modules', 'supersurf-shim'), path.join(nested, 'supersurf-shim'));
-    expect(findShimBinary(root)).toBe(fs.realpathSync(path.join(nested, 'supersurf-shim', 'bin', target, 'supersurf-shim')));
-  });
-
-  it.skipIf(!supported)('SUPERSURF_SHIM_BIN still wins over the package', () => {
-    const { root } = installShim();
-    const env = script('env-shim');
-    process.env.SUPERSURF_SHIM_BIN = env;
-    expect(findShimBinary(root)).toBe(env);
-  });
-
-  it.skipIf(!supported)('the package wins over <root>/bin/supersurf-shim', () => {
-    const { root, bin } = installShim();
-    rootBin(root);
-    expect(findShimBinary(root)).toBe(fs.realpathSync(bin));
-  });
-
-  it.skipIf(!supported)('a package with no binary for this host falls through to <root>/bin/supersurf-shim', () => {
-    const { root } = installShim(false);
-    const fallback = rootBin(root);
-    expect(findShimBinary(root)).toBe(fallback);
-  });
-
-  it('an unsupported platform or arch skips the package', () => {
-    const { root } = installShim();
-    const fallback = rootBin(root);
-    expect(withPlatform('win32', 'x64', () => findShimBinary(root))).toBe(fallback);
-    expect(withPlatform('linux', 'ia32', () => findShimBinary(root))).toBe(fallback);
-    expect(withPlatform('linux', 'ia32', () => { fs.rmSync(fallback); return findShimBinary(root); })).toBeNull();
+  it.skipIf(!supported)('an unsupported platform or arch has no root candidate', () => {
+    rootBin(dir);
+    expect(withPlatform('win32', 'x64', () => findShimBinary(dir))).toBeNull();
+    expect(withPlatform('linux', 'ia32', () => findShimBinary(dir))).toBeNull();
   });
 });
 

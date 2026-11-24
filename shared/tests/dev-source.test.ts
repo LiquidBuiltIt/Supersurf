@@ -93,18 +93,20 @@ describe('devSource', () => {
 describe('devSource shim', () => {
   afterEach(() => { delete process.env.SUPERSURF_DEV_ENVIRONMENT; vi.restoreAllMocks(); });
 
-  it('routes shim to daemon/bin/supersurf-shim in a clone that has it', () => {
+  const rel = `server/bin/${process.platform}-${({ x64: 'amd64', arm64: 'arm64' } as Record<string, string>)[process.arch]}/supersurf-shim`;
+
+  it('routes shim to server/bin/<goos>-<goarch>/supersurf-shim in a clone that has it', () => {
     const root = fakeRepo();
-    fs.mkdirSync(path.join(root, 'daemon/bin'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'daemon/bin/supersurf-shim'), '');
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), '');
     process.env.SUPERSURF_DEV_ENVIRONMENT = root;
-    expect(devSource('shim')).toBe(path.join(root, 'daemon/bin/supersurf-shim'));
+    expect(devSource('shim')).toBe(path.join(root, rel));
   });
 
   it('falls back with a build hint when the binary is missing', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.env.SUPERSURF_DEV_ENVIRONMENT = fakeRepo();
     expect(devSource('shim')).toBeNull();
-    expect(err.mock.calls[0][0]).toContain('daemon/bin/supersurf-shim is missing');
+    expect(err.mock.calls[0][0]).toContain(`${rel} is missing`);
   });
 });

@@ -23,9 +23,7 @@ export async function relayDecision(options: any, args: string[], exec: typeof e
     return null;
   }
 
-  let root: string | undefined;
-  try { root = path.dirname(require.resolve('supersurf-daemon/package.json')); } catch { /* no daemon package: env only */ }
-  const bin = findShimBinary(root);
+  const bin = findShimBinary(path.resolve(__dirname, '..')); // this package: dist/relay.js or src/relay.ts -> the supersurf-mcp root, whose bin/ holds the release binaries
   if (!bin) {
     console.error('[supersurf] agents.relay is on but supersurf-shim was not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); running the Node server.');
     return null;

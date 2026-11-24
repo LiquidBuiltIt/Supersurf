@@ -30,14 +30,6 @@ function recorder(dir: string): { bin: string; ran: string } {
   return { bin, ran };
 }
 
-/** A `--require` preload that hides the supersurf-shim package: in this repo it resolves to the workspace, whose built binaries `findShimBinary` would find. */
-function hideShimPackage(dir: string): string {
-  const hide = path.join(dir, 'hide-shim-package.js');
-  fs.writeFileSync(hide, `const M = require('module'); const o = M._resolveFilename;
-M._resolveFilename = function (r, ...a) { if (r === 'supersurf-shim/package.json') throw new Error('hidden'); return o.call(this, r, ...a); };\n`);
-  return `--require ${hide}`;
-}
-
 /** A fake daemon socket: answers `daemon_status` with `status` and `daemon_restart` with `restartReply`, and records every line type it got. */
 function fakeDaemon(sock: string, status: object, restartReply?: object, vanishAfterStatus = false): Promise<{ got: string[]; close: () => void }> {
   const got: string[] = [];
@@ -147,7 +139,7 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     rig = new DaemonRig();
     const oldPid = await rig.start([], { SUPERSURF_RELAY: '1' });
     expect((await rig.status()).shimModel).toBe(true);
-    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim'), NODE_OPTIONS: hideShimPackage(rig.home) });
+    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim') });
     expect(r.out).toContain('supersurf-shim not found; no shim session is live, so the daemon restarts by stop and start.');
     expect(r.code).toBe(0);
     expect(r.out).toContain('Daemon stopped');
@@ -162,7 +154,7 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     rig = new DaemonRig();
     const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321 });
     try {
-      const r = await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim'), NODE_OPTIONS: hideShimPackage(rig.home) });
+      const r = await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: path.join(rig.home, 'no-such-shim') });
       expect(r.code).toBe(1);
       expect(r.out).toContain('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
       expect(fake.got).toEqual(['daemon_status']);
@@ -174,7 +166,7 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     const bd = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-'));
     extra.push(bd);
     const shimBin = path.join(bd, 'supersurf-shim');
-    const b = spawnSync(GO!, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO, 'shim'), encoding: 'utf8' });
+    const b = spawnSync(GO!, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO, 'server', 'shim'), encoding: 'utf8' });
     if (b.status !== 0) throw new Error(`go build failed: ${b.stderr}`);
     // `ensure --install` copies the whole package tree, and the dev tree holds sockets that parallel
     // tests create under daemon/.tmp-test (copy fails). Run the CLI from a clean package copy, as installed.

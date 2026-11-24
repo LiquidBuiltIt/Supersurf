@@ -11,6 +11,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { shimTarget } from './relay';
 
 export type DevComponent = 'server' | 'daemon' | 'extension' | 'shim';
 
@@ -18,7 +19,7 @@ const ENTRY: Record<DevComponent, string> = {
   server: 'server/dist/cli.js',
   daemon: 'daemon/dist/main.js',
   extension: 'extension',
-  shim: 'daemon/bin/supersurf-shim',
+  shim: `server/bin/${shimTarget() ?? `${process.platform}-${process.arch}`}/supersurf-shim`,
 };
 
 function sameFile(a: string, b: string | undefined): boolean {
