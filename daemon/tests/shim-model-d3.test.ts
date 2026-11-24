@@ -112,4 +112,19 @@ describe.skipIf(missing)('D3 upgrade pending (real daemon)', () => {
     await waitFor(async () => (await rig.status()).shimSessions === 0, 3000, 'the shim socket to close');
     expect((await rig.status()).shimModel).toBe(true);
   }, 20000);
+
+  it('daemon_status reports the bin of the last accepted shim_register as shimBin, and only once one arrived', async () => {
+    rig = new DaemonRig();
+    await rig.start();
+    expect((await rig.status()).shimBin).toBeUndefined();
+    const sock = net.createConnection(rig.sock);
+    let buf = '';
+    sock.on('data', (d) => { buf += d; });
+    sock.on('error', () => {});
+    sock.write(JSON.stringify({ type: 'shim_register', protocol: 1, mode: 'mcp', sessionId: 'shim-0123456789abcdef', version: '0', cwd: '/', flags: {}, env: {}, caps: [], bin: '/opt/supersurf/bin/linux-amd64/supersurf-shim' }) + '\n');
+    await waitFor(() => buf.includes('shim_ack'), 10000, 'shim_ack');
+    sock.destroy();
+    await waitFor(async () => (await rig.status()).shimSessions === 0, 3000, 'the shim socket to close');
+    expect((await rig.status()).shimBin).toBe('/opt/supersurf/bin/linux-amd64/supersurf-shim');
+  }, 20000);
 });
