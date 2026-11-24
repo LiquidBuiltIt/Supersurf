@@ -2,16 +2,18 @@
 /**
  * Self-containment smoke test for the published packages.
  *
- * Packs `supersurf-shim`, `supersurf-daemon` and `supersurf-mcp`, installs the
- * three tarballs together into a throwaway temp dir (no workspace symlinks),
+ * Packs `supersurf-daemon` and `supersurf-mcp` (the shim binaries ship inside
+ * `supersurf-mcp`), installs the two tarballs together into a throwaway temp dir (no workspace symlinks),
  * require()s the entrypoints and loads the engine through `engine-loader.js`.
  * If any module is missing from a tarball or its deps, the require throws and
  * this script exits non-zero.
  *
- * Then, from the installed packages only: the host shim binary is 0755 and
- * prints its version, the tarball holds no Go source, `findShimBinary` finds
- * it from the daemon root, and with `agents.relay` on in a throwaway HOME the
- * installed `supersurf-mcp` bin becomes the shim, whose `ensure` installs
+ * Then, from the installed packages only: the host shim binary under
+ * `supersurf-mcp/bin/<goos>-<goarch>/` is 0755 and prints its version, the
+ * server tarball has all four binaries at exactly 0755 and no Go source (no
+ * `shim/` path), `findShimBinary` finds the host binary from the installed
+ * `supersurf-mcp` root, and with `agents.relay` on in a throwaway HOME the
+ * installed `supersurf-mcp` bin becomes that shim from its own `bin/`, whose `ensure` installs
  * `versions/<v>/` and starts the daemon from there; that daemon answers
  * `initialize` and `tools/list` through the shim. Never port 5555, never the
  * real ~/.supersurf, no SUPERSURF_DEV_ENVIRONMENT / SUPERSURF_SHIM_BIN.
@@ -62,23 +64,21 @@ try {
   console.log('→ Building the four shim binaries...');
   run('npm run build.shim.all', root);
 
-  console.log('→ Packing supersurf-shim, supersurf-daemon and supersurf-mcp...');
-  run('npm pack --pack-destination ' + work, join(root, 'shim'));
+  console.log('→ Packing supersurf-daemon and supersurf-mcp...');
   run('npm pack --pack-destination ' + work, join(root, 'daemon'));
   run('npm pack --pack-destination ' + work, serverDir);
   const tarballs = readdirSync(work).filter((f) => f.endsWith('.tgz'));
-  const shimTgz = tarballs.find((f) => f.startsWith('supersurf-shim-'));
   const daemonTgz = tarballs.find((f) => f.startsWith('supersurf-daemon-'));
   const serverTgz = tarballs.find((f) => f.startsWith('supersurf-mcp-'));
-  if (!shimTgz || !daemonTgz || !serverTgz) throw new Error(`npm pack produced ${tarballs.join(', ')}`);
-  console.log(`  tarballs: ${[shimTgz, daemonTgz, serverTgz].map((t) => `${t} ${kb(join(work, t))}`).join(', ')}`);
+  if (!daemonTgz || !serverTgz) throw new Error(`npm pack produced ${tarballs.join(', ')}`);
+  console.log(`  tarballs: ${[daemonTgz, serverTgz].map((t) => `${t} ${kb(join(work, t))}`).join(', ')}`);
 
-  console.log('→ Installing all three into a clean dir...');
+  console.log('→ Installing both into a clean dir...');
   run('npm init -y', work);
   // npm rejects an override that differs from a direct dependency's spec (EOVERRIDE), so
   // declare the tarballs as direct deps and have the overrides reference those specs. The
-  // daemon pins supersurf-shim and the server pins supersurf-daemon at the exact (unpublished) version.
-  run(`npm pkg set dependencies.supersurf-shim=file:${shimTgz} dependencies.supersurf-daemon=file:${daemonTgz} dependencies.supersurf-mcp=file:${serverTgz} 'overrides.supersurf-shim=$supersurf-shim' 'overrides.supersurf-daemon=$supersurf-daemon'`, work);
+  // the server pins supersurf-daemon at the exact (unpublished) version.
+  run(`npm pkg set dependencies.supersurf-daemon=file:${daemonTgz} dependencies.supersurf-mcp=file:${serverTgz} 'overrides.supersurf-daemon=$supersurf-daemon'`, work);
   run('npm install', work);
 
   const pkgRoot = join(work, 'node_modules', 'supersurf-mcp', 'dist');
@@ -121,41 +121,46 @@ try {
     throw new Error('supersurf-mcp tarball still ships dist/bin/ — the CLI leaked back in');
   }
 
-  // ---- the shim package ----
+  // ---- the shim binaries inside supersurf-mcp ----
   const nm = join(work, 'node_modules');
-  const shimVersion = JSON.parse(readFileSync(join(nm, 'supersurf-shim', 'package.json'), 'utf8')).version;
+  const mcpRoot = join(nm, 'supersurf-mcp');
+  const shimVersion = installed.version;
   const arch = ({ x64: 'amd64', arm64: 'arm64' } as Record<string, string>)[process.arch];
   assert(arch && (process.platform === 'linux' || process.platform === 'darwin'), `unsupported host ${process.platform}-${process.arch}`);
-  const hostBin = join(nm, 'supersurf-shim', 'bin', `${process.platform}-${arch}`, 'supersurf-shim');
-  console.log('→ Checking the installed supersurf-shim package...');
+  const hostBin = join(mcpRoot, 'bin', `${process.platform}-${arch}`, 'supersurf-shim');
+  console.log('→ Checking the shim binaries in the installed supersurf-mcp...');
   // npm keeps the tarball's mode minus the umask, so an install under umask 002 is 0775: require at least 0755 here and exactly 0755 in the tarball.
   assert((statSync(hostBin).mode & 0o755) === 0o755, `${hostBin} is not at least mode 0755`);
   ok('installed host binary is executable (mode >= 0755)');
   const ver = spawnSync(hostBin, ['--version'], { encoding: 'utf8' });
   assert(ver.status === 0 && ver.stdout.includes(shimVersion), `--version printed ${JSON.stringify(ver.stdout)} (stderr ${ver.stderr}), want ${shimVersion}`);
   ok(`--version prints ${shimVersion}`);
-  const listing = run(`tar tzf ${join(work, shimTgz)}`, work).split('\n').filter(Boolean);
-  const badModes = run(`tar tvzf ${join(work, shimTgz)}`, work).split('\n').filter((l) => /\/supersurf-shim$/.test(l) && !l.startsWith('-rwxr-xr-x'));
-  assert(badModes.length === 0, `shim tarball binaries not exactly 0755:\n${badModes.join('\n')}`);
-  ok('all four binaries in the tarball are exactly mode 0755');
+  const listing = run(`tar tzf ${join(work, serverTgz)}`, work).split('\n').filter(Boolean);
+  const tvz = run(`tar tvzf ${join(work, serverTgz)}`, work).split('\n').filter((l) => /\/supersurf-shim$/.test(l));
+  assert(tvz.length === 4, `server tarball holds ${tvz.length} supersurf-shim binaries, want 4 (linux/darwin x amd64/arm64)`);
+  const badModes = tvz.filter((l) => !l.startsWith('-rwxr-xr-x'));
+  assert(badModes.length === 0, `server tarball binaries not exactly 0755:\n${badModes.join('\n')}`);
+  ok('all four binaries in the server tarball are exactly mode 0755');
   const goFiles = listing.filter((f) => /\.go$|(^|\/)go\.(mod|sum)$/.test(f));
-  assert(goFiles.length === 0, `shim tarball holds Go source: ${goFiles.join(', ')}`);
-  ok(`tarball holds no Go source (${listing.length} files)`);
+  assert(goFiles.length === 0, `server tarball holds Go source: ${goFiles.join(', ')}`);
+  const shimPaths = listing.filter((f) => /^package\/shim(\/|$)/.test(f));
+  assert(shimPaths.length === 0, `server tarball holds a shim/ path: ${shimPaths.join(', ')}`);
+  ok(`tarball holds no Go source and no shim/ path (${listing.length} files)`);
 
-  // ---- findShimBinary from the installed server's daemon root ----
-  console.log('→ findShimBinary from the installed daemon root...');
-  const daemonPkgJson = createRequire(join(nm, 'supersurf-mcp', 'package.json')).resolve('supersurf-daemon/package.json');
+  // ---- findShimBinary from the installed supersurf-mcp root ----
+  console.log('→ findShimBinary from the installed supersurf-mcp root...');
+  const daemonPkgJson = createRequire(join(mcpRoot, 'package.json')).resolve('supersurf-daemon/package.json');
   const daemonRoot = resolve(daemonPkgJson, '..');
   const daemonVersion = JSON.parse(readFileSync(daemonPkgJson, 'utf8')).version;
-  // The installed supersurf-daemon bundles its own copy of shared (dist/shared); that is the code the server runs.
+  // The installed supersurf-daemon bundles its own copy of shared (dist/shared); the server bundles another (dist/shared in supersurf-mcp).
   const cleanEnv: NodeJS.ProcessEnv = { ...process.env, HOME: smokeHome };
   for (const k of Object.keys(cleanEnv)) if (k.startsWith('SUPERSURF_')) delete cleanEnv[k];
   const found = execSync(
-    `node -e "console.log(require('${join(daemonRoot, 'dist', 'shared', 'relay.js')}').findShimBinary('${daemonRoot}'))"`,
+    `node -e "console.log(require('${join(daemonRoot, 'dist', 'shared', 'relay.js')}').findShimBinary('${mcpRoot}'))"`,
     { env: cleanEnv, encoding: 'utf8' },
   ).trim();
   assert(realpathSync(found) === realpathSync(hostBin), `findShimBinary returned ${found}, want ${hostBin}`);
-  ok('findShimBinary (installed daemon/dist/shared/relay.js) returns the host binary');
+  ok('findShimBinary(<installed supersurf-mcp root>) returns the host binary');
 
   // ---- the installed bin becomes the shim; ensure installs versions/<v>/ and starts the daemon ----
   console.log('→ agents.relay on: installed supersurf-mcp -> shim -> daemon from versions/<v>/ (throwaway HOME)...');
@@ -188,7 +193,7 @@ try {
   if (process.platform === 'linux') {
     for (let i = 0; i < 200 && basename(exe()) !== 'supersurf-shim'; i++) await sleep(25);
     assert(exe() === realpathSync(hostBin), `/proc/${mcp.pid}/exe is ${exe()}, want ${hostBin}`);
-    ok(`pid ${mcp.pid} became the installed shim (same pid)`);
+    ok(`pid ${mcp.pid} became the installed shim from supersurf-mcp/bin (same pid)`);
   }
 
   // The shim answers locally until its daemon is up; the first start installs versions/<v>/ (copies sharp etc.).
@@ -205,7 +210,7 @@ try {
   send({ jsonrpc: '2.0', method: 'notifications/initialized' });
   send({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
   const tools: any[] = (await reply(1, 15000)).result.tools;
-  assert(tools.length > 0, 'tools/list is empty');
+  assert(tools.length === 30, `tools/list returned ${tools.length} tools, want 30`);
   ok(`tools/list returned ${tools.length} tools`);
 
   const versionDir = join(ssDir, 'daemon', 'versions', daemonVersion);
@@ -228,7 +233,7 @@ try {
   assert(!alive(daemonPid) && !alive(mcp.pid!), 'a started process is still alive');
   server = undefined;
 
-  console.log('\n✓ Smoke test passed — the packed shim, daemon and server install together and run.');
+  console.log('\n✓ Smoke test passed — the packed daemon and server (with its shim binaries) install together and run.');
 } finally {
   if (server?.pid && alive(server.pid)) server.kill('SIGKILL');
   rmSync(work, { recursive: true, force: true });
