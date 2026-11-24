@@ -112,6 +112,103 @@ describe.skipIf(missing)('restart CLI against a fake status socket (S3)', () => 
       expect(ran).not.toContain('5001');
     } finally { fake.close(); }
   }, 30000);
+
+  describe('shim binary reported by the daemon (shimBin)', () => {
+    const NO_ENV = { SUPERSURF_SHIM_BIN: '' };
+    const NOT_FOUND = 'supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.';
+
+    /** Live shim sessions and no usable binary: message, exit 1, only the status query reached the daemon. */
+    async function expectNoBinaryRefusal(reported: (home: string) => string | undefined): Promise<void> {
+      rig = new DaemonRig();
+      const shimBin = reported(rig.home);
+      const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321, ...(shimBin ? { shimBin } : {}) });
+      try {
+        const r = await rig.cli(['restart', '--port', '5001'], NO_ENV);
+        expect(r.code).toBe(1);
+        expect(r.out).toContain(NOT_FOUND);
+        expect(fake.got).toEqual(['daemon_status']);
+      } finally { fake.close(); }
+    }
+
+    it('SUPERSURF_SHIM_BIN wins over a reported path: only the env binary runs', async () => {
+      rig = new DaemonRig();
+      const a = path.join(rig.home, 'reported'); fs.mkdirSync(a);
+      const b = path.join(rig.home, 'env'); fs.mkdirSync(b);
+      const reported = recorder(a);
+      const fromEnv = recorder(b);
+      const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321, shimBin: reported.bin }, { type: 'handoff_in_progress' });
+      try {
+        await rig.cli(['restart', '--port', '5001'], { SUPERSURF_SHIM_BIN: fromEnv.bin });
+        expect(fs.readFileSync(fromEnv.ran, 'utf8')).toContain('ensure --install');
+        expect(fs.existsSync(reported.ran)).toBe(false);
+      } finally { fake.close(); }
+    }, 30000);
+
+    it('a reported path is used when the env is unset: ensure runs with it, then daemon_restart', async () => {
+      rig = new DaemonRig();
+      const rec = recorder(rig.home);
+      const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321, shimBin: rec.bin }, { type: 'handoff_in_progress' });
+      try {
+        await rig.cli(['restart', '--port', '5001'], NO_ENV);
+        const ran = fs.readFileSync(rec.ran, 'utf8');
+        expect(ran).toContain('--version');
+        expect(ran).toContain('ensure --install');
+        expect(ran).toContain('--port 4321');
+        expect(fake.got).toEqual(['daemon_status', 'daemon_restart']);
+      } finally { fake.close(); }
+    }, 30000);
+
+    it('a reported path missing on disk, live shim sessions: no-binary refusal', async () => {
+      await expectNoBinaryRefusal((home) => path.join(home, 'no-such-dir', 'supersurf-shim'));
+    }, 30000);
+
+    it('a reported path missing on disk, no live shim session: stop and start', async () => {
+      rig = new DaemonRig();
+      rig.port = await (await import('./helpers/real-daemon')).freePort();
+      const victim = spawn('sleep', ['300'], { stdio: 'ignore' });
+      rig.extraPids.add(victim.pid!);
+      fs.writeFileSync(rig.pidFile, String(victim.pid));
+      const fake = await fakeDaemon(rig.sock, { pid: victim.pid, protocol: 1, shimModel: true, shimSessions: 0, shimBin: path.join(rig.home, 'gone') }, undefined, true);
+      try {
+        const r = await rig.cli(['restart', '--port', String(rig.port)], NO_ENV);
+        expect(r.out).toContain('supersurf-shim not found; no shim session is live, so the daemon restarts by stop and start.');
+        expect(r.out).toContain(`Daemon stopped (pid ${victim.pid})`);
+        expect(fake.got).not.toContain('daemon_restart');
+        await waitFor(() => { try { const p = parseInt(fs.readFileSync(rig.pidFile, 'utf8'), 10); if (p !== victim.pid) rig.extraPids.add(p); return p !== victim.pid; } catch { return false; } }, 10000, 'the new daemon.pid');
+      } finally { fake.close(); }
+    }, 60000);
+
+    it('a reported path that is not executable: no-binary refusal', async () => {
+      await expectNoBinaryRefusal((home) => {
+        const plain = path.join(home, 'plain-file');
+        fs.writeFileSync(plain, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+        return plain;
+      });
+    }, 30000);
+
+    it('a reported path whose --version fails: no-binary refusal, ensure never runs', async () => {
+      rig = new DaemonRig();
+      const bad = path.join(rig.home, 'bad.sh');
+      const ran = path.join(rig.home, 'bad.ran');
+      fs.writeFileSync(bad, `#!/bin/sh\necho "$@" >> '${ran}'\nexit 1\n`, { mode: 0o755 });
+      const fake = await fakeDaemon(rig.sock, { ...SHIM, port: 4321, shimBin: bad });
+      try {
+        const r = await rig.cli(['restart', '--port', '5001'], NO_ENV);
+        expect(r.code).toBe(1);
+        expect(r.out).toContain(NOT_FOUND);
+        expect(fs.readFileSync(ran, 'utf8').trim()).toBe('--version');
+        expect(fake.got).toEqual(['daemon_status']);
+      } finally { fake.close(); }
+    }, 30000);
+
+    it('no reported path and no env: no-binary refusal', async () => {
+      await expectNoBinaryRefusal(() => undefined);
+    }, 30000);
+
+    it('a relative reported path is refused', async () => {
+      await expectNoBinaryRefusal(() => 'supersurf-shim');
+    }, 30000);
+  });
 });
 
 describe.skipIf(missing)('restart CLI (real daemon)', () => {
