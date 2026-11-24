@@ -181,7 +181,7 @@ for (const rel of targets) {
   const file = join(root, rel);
   const pkg = JSON.parse(readFileSync(file, 'utf8'));
   pkg.version = next;
-  // supersurf-mcp ships with exactly the daemon, and the daemon with exactly the shim, cut in the same release.
+  // supersurf-mcp ships with exactly the daemon, cut in the same release.
   for (const dep of PINNED_DEPENDENCIES) if (pkg.dependencies?.[dep] !== undefined) pkg.dependencies[dep] = next;
   writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
   console.log(`  ${rel}: ${current} -> ${next}`);

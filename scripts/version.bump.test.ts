@@ -167,8 +167,8 @@ describe('server daemon pin', () => {
   it('pins supersurf-daemon to exactly the daemon workspace version', () => {
     expect(read('server/package.json').dependencies['supersurf-daemon']).toBe(read('daemon/package.json').version);
   });
-  it('pins supersurf-shim in the daemon to exactly the shim workspace version', () => {
-    expect(read('daemon/package.json').dependencies['supersurf-shim']).toBe(read('shim/package.json').version);
+  it('pins no shim package: the shim binaries ship inside supersurf-mcp', () => {
+    expect(read('daemon/package.json').dependencies['supersurf-shim']).toBeUndefined();
   });
 });
 
@@ -215,21 +215,21 @@ describe('assertCleanMain', () => {
 });
 
 describe('bumpLockfile', () => {
-  const ws = ['server', 'extension', 'daemon', 'shared', 'engine', 'cli', 'shim'];
+  const ws = ['server', 'extension', 'daemon', 'shared', 'engine', 'cli'];
   const lockAt = (v: string) => ({
     name: 'supersurf', version: v, lockfileVersion: 3, requires: true,
     packages: {
       '': { name: 'supersurf', version: v, workspaces: ws },
       ...Object.fromEntries(ws.map((w) => [w, { version: v }])),
       server: { version: v, dependencies: { 'supersurf-daemon': v, ws: '^8.0.0' } },
-      daemon: { version: v, dependencies: { 'supersurf-shim': v, ws: '^8.0.0' } },
+      daemon: { version: v, dependencies: { ws: '^8.0.0' } },
       'node_modules/supersurf-daemon': { resolved: 'daemon', link: true },
       'node_modules/ws': { version: '8.18.0' },
     },
   });
   const text = (o: object) => JSON.stringify(o, null, 2) + '\n';
 
-  it('moves the root, every workspace and both pins to the new version, and nothing else', () => {
+  it('moves the root, every workspace and the pin to the new version, and nothing else', () => {
     expect(bumpLockfile(text(lockAt('4.1.0')), '4.2.0')).toBe(text(lockAt('4.2.0')));
   });
 
@@ -240,12 +240,6 @@ describe('bumpLockfile', () => {
   it('pins an empty-string daemon dependency too, since the key is present', () => {
     const lock = lockAt('4.1.0');
     (lock.packages.server.dependencies as Record<string, string>)['supersurf-daemon'] = '';
-    expect(bumpLockfile(text(lock), '4.2.0')).toBe(text(lockAt('4.2.0')));
-  });
-
-  it('moves the daemon pin on the shim even when it is the only pin in that workspace', () => {
-    const lock = lockAt('4.1.0');
-    (lock.packages.daemon.dependencies as Record<string, string>)['supersurf-shim'] = '4.0.0';
     expect(bumpLockfile(text(lock), '4.2.0')).toBe(text(lockAt('4.2.0')));
   });
 
@@ -269,7 +263,6 @@ describe('stagedPaths', () => {
       'shared/package.json',
       'engine/package.json',
       'cli/package.json',
-      'shim/package.json',
       'package-lock.json',
       'CHANGELOG.md',
       'extension/dist/pages/changelog.json',
@@ -318,9 +311,9 @@ describe('version.bump.ts source', () => {
     expect(src).not.toMatch(/if \(pkg\.dependencies\?\.\['supersurf-daemon'\]\)/);
   });
 
-  it('refreshes every pin in VERSION_TARGETS, shim included', () => {
+  it('refreshes every pin in VERSION_TARGETS, and there is no shim package to bump', () => {
     const src = readFileSync(join(__dirname, 'version.bump.ts'), 'utf8');
     expect(src).toContain('PINNED_DEPENDENCIES');
-    expect(VERSION_TARGETS).toContain('shim/package.json');
+    expect(VERSION_TARGETS).not.toContain('shim/package.json');
   });
 });

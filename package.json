@@ -10,8 +10,7 @@
     "server",
     "extension",
     "daemon",
-    "cli",
-    "shim"
+    "cli"
   ],
   "scripts": {
     "build.server": "cd server && npm run build",
@@ -20,7 +19,7 @@
     "build.engine": "cd engine && npm run build",
     "build.daemon": "cd daemon && npm run build",
     "build.cli": "npm run build.shared && cd cli && npm run build",
-    "build.shim": "cd shim && go build -o ../daemon/bin/supersurf-shim .",
+    "build.shim": "cd server/shim && go build -o ../bin/$(go env GOOS)-$(go env GOARCH)/supersurf-shim .",
     "build.shim.all": "npx tsx scripts/shim-build.ts",
     "build.blog": "npm --prefix blog run build",
     "build": "npm run build.shared && npm run build.engine && npm run build.daemon && npm run build.server && npm run build.extension",

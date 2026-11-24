@@ -18,7 +18,7 @@ describe('package-lock.json', () => {
     const lock = read('package-lock.json');
     expect(Object.keys(lock.packages).filter((k) => /\/node_modules\/supersurf-/.test(k))).toEqual([]);
     expect(lock.packages['node_modules/supersurf-daemon']).toMatchObject({ link: true, resolved: 'daemon' });
-    expect(lock.packages['node_modules/supersurf-shim']).toMatchObject({ link: true, resolved: 'shim' });
+    expect(lock.packages['node_modules/supersurf-shim']).toBeUndefined();
   });
 
   it('carries the workspace versions and the daemon pin', () => {
@@ -31,8 +31,7 @@ describe('package-lock.json', () => {
     }
     expect(lock.packages.server.dependencies['supersurf-daemon'])
       .toBe(read('server/package.json').dependencies['supersurf-daemon']);
-    expect(lock.packages.daemon.dependencies['supersurf-shim'])
-      .toBe(read('daemon/package.json').dependencies['supersurf-shim']);
+    expect(lock.packages.daemon.dependencies?.['supersurf-shim']).toBeUndefined();
   });
 
   it('hoists tsx to the root so every workspace script can run it', () => {

@@ -17,8 +17,8 @@
  *   3. npm test (build + unit + smokes; port 5555 must be free)
  *   4. Create git tag (idempotent — skipped if tag already on HEAD)
  *   5. git push && git push --tags (deletes local tag if push fails)
- *   6. Build the four shim binaries (before any push), then npm publish shim,
- *      daemon, server in that order
+ *   6. Build the four shim binaries into server/bin (before any push), then
+ *      npm publish daemon, server in that order
  *   7. Compile the four supersurf binaries, create the GitHub release, upload
  *      them as assets (docs/install.sh downloads these)
  *   8. Build extension zip + upload + publish to CWS
@@ -266,17 +266,12 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
   // A CLI lagging the rest of the release ships a binary that fetches the
   // previous server.
   const cliVersion = JSON.parse(readFileSync(resolve(root, 'cli/package.json'), 'utf8')).version;
-  // The shim package ships with the same version, and the daemon pins it exactly.
-  const shimVersion = JSON.parse(readFileSync(resolve(root, 'shim/package.json'), 'utf8')).version;
-  const shimPin = JSON.parse(readFileSync(resolve(root, 'daemon/package.json'), 'utf8')).dependencies?.['supersurf-shim'];
-
-  if (serverVersion !== version || extVersion !== version || cliVersion !== version || shimVersion !== version || shimPin !== version) {
+  if (serverVersion !== version || extVersion !== version || cliVersion !== version) {
     console.error(`\n${red}Version mismatch across packages:${reset}`);
     console.error(`  Root:      ${version}`);
     console.error(`  Server:    ${serverVersion}`);
     console.error(`  Extension: ${extVersion}`);
-    console.error(`  CLI:       ${cliVersion}`);
-    console.error(`  Shim:      ${shimVersion} (daemon pins ${shimPin})\n`);
+    console.error(`  CLI:       ${cliVersion}\n`);
     process.exit(1);
   }
   ok(`All packages at v${version}`);
@@ -292,7 +287,7 @@ async function preflight(): Promise<{ version: string; cwsToken: string; clientI
   // The stake is the npx pin: a binary compiled at an already-published version
   // shells out to that published package, which is the one this release exists
   // to replace.
-  // Every published package is checked: a shim or daemon already on npm at this version means
+  // Every published package is checked: a daemon or server already on npm at this version means
   // a half-finished earlier release, and `npm publish` would fail on it mid-run.
   for (const pkg of NPM_PACKAGES) {
     let state: 'published' | 'unpublished';
@@ -443,7 +438,7 @@ async function publishGitHubRelease(version: string) {
 
 function publishNpm() {
   const step: Step = 'npm:supersurf';
-  // Three published packages, in dependency order: shim, daemon, server.
+  // Two published packages, in dependency order: daemon, server. The shim binaries ship inside the server.
   try {
     publishNpmPackages(root, (cmd, cwd) => {
       info(`Publishing ${cwd.slice(root.length + 1)} to npm...`);
@@ -517,7 +512,7 @@ function printSummary(version: string) {
         break;
       case 'npm:supersurf':
         console.log(`    ${dim}Fix: resolve the issue and run:${reset}`);
-        console.log(`    ${cyan}publish the packages not yet on npm, in order: shim, daemon, server (cd <dir> && npm publish)${reset}\n`);
+        console.log(`    ${cyan}publish the packages not yet on npm, in order: daemon, server (cd <dir> && npm publish)${reset}\n`);
         break;
       case 'cws':
         console.log(`    ${dim}Fix: resolve the issue and run:${reset}`);
@@ -550,7 +545,7 @@ async function main() {
 
   // Before --dry exits and before any push: a missing Go toolchain or a bad binary must stop the
   // release while nothing has left the machine.
-  info('Building the shim binaries (linux and darwin, amd64 and arm64)...');
+  info('Building the shim binaries into server/bin (linux and darwin, amd64 and arm64)...');
   try {
     prepareShimBinaries();
   } catch (err) {
@@ -582,7 +577,7 @@ async function main() {
     pushToGitHub(version);
   }
 
-  // Step 2: npm — shim, daemon, server
+  // Step 2: npm — daemon, server
   publishNpm();
 
   // Step 3: GitHub release assets. After npm on purpose — see the function.

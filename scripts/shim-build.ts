@@ -1,6 +1,6 @@
 /**
  * `npm run build.shim.all`: build the four release binaries of the Go shim into
- * `shim/bin/<goos>-<goarch>/supersurf-shim` (the `supersurf-shim` npm package).
+ * `server/bin/<goos>-<goarch>/supersurf-shim` (shipped inside the `supersurf-mcp` npm package).
  * `--check` only verifies what is already there (used by `prepublishOnly` and publish).
  * `npm run build` never runs this; the dev-only `build.shim` stays host-only.
  */
@@ -26,34 +26,35 @@ export type GoRun = (go: string, args: string[], opts: { cwd: string; env: Recor
 const defaultRun: GoRun = (go, args, opts) => spawnSync(go, args, { ...opts, stdio: 'inherit' }).status ?? 1;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const defaultShimDir = path.resolve(here, '..', 'shim');
-const binPath = (shimDir: string, t: { goos: string; goarch: string }) => path.join(shimDir, 'bin', `${t.goos}-${t.goarch}`, 'supersurf-shim');
+const defaultServerDir = path.resolve(here, '..', 'server');
+// Go source in <server>/shim; binaries in <server>/bin, so they ship in the supersurf-mcp package.
+const binPath = (serverDir: string, t: { goos: string; goarch: string }) => path.join(serverDir, 'bin', `${t.goos}-${t.goarch}`, 'supersurf-shim');
 
 /** Build all four targets; returns the output paths. Throws naming the target that failed. */
-export function buildShimAll(o: { go: string; version: string; shimDir?: string; run?: GoRun }): string[] {
-  const shimDir = o.shimDir ?? defaultShimDir;
+export function buildShimAll(o: { go: string; version: string; serverDir?: string; run?: GoRun }): string[] {
+  const serverDir = o.serverDir ?? defaultServerDir;
   const run = o.run ?? defaultRun;
   // Start clean so a binary for a target we no longer build cannot ship.
-  rmSync(path.join(shimDir, 'bin'), { recursive: true, force: true });
+  rmSync(path.join(serverDir, 'bin'), { recursive: true, force: true });
   return SHIM_TARGETS.map((t) => {
-    const out = binPath(shimDir, t);
+    const out = binPath(serverDir, t);
     mkdirSync(path.dirname(out), { recursive: true });
     const args = ['build', '-trimpath', '-ldflags', `-s -w -X main.version=${o.version}`, '-o', out, '.'];
     const env = { ...process.env, CGO_ENABLED: '0', GOOS: t.goos, GOARCH: t.goarch, GOTOOLCHAIN: 'local' };
-    if (run(o.go, args, { cwd: shimDir, env }) !== 0) throw new Error(`go build failed for ${t.goos}-${t.goarch}`);
+    if (run(o.go, args, { cwd: path.join(serverDir, 'shim'), env }) !== 0) throw new Error(`go build failed for ${t.goos}-${t.goarch}`);
     chmodSync(out, 0o755);
     return out;
   });
 }
 
 /** Every target present, mode 0755, and between MIN and MAX bytes. Throws listing every problem. */
-export function checkShimBinaries(shimDir: string = defaultShimDir): void {
+export function checkShimBinaries(serverDir: string = defaultServerDir): void {
   const problems: string[] = [];
   for (const t of SHIM_TARGETS) {
     const name = `${t.goos}-${t.goarch}`;
     let st;
     try {
-      st = statSync(binPath(shimDir, t));
+      st = statSync(binPath(serverDir, t));
     } catch {
       problems.push(`${name}: missing`);
       continue;
@@ -65,8 +66,9 @@ export function checkShimBinaries(shimDir: string = defaultShimDir): void {
   if (problems.length) throw new Error(`shim binaries not ready:\n  ${problems.join('\n  ')}`);
 }
 
-export const shimVersion = (shimDir: string = defaultShimDir): string =>
-  JSON.parse(readFileSync(path.join(shimDir, 'package.json'), 'utf8')).version;
+/** The shim version is the supersurf-mcp version. */
+export const shimVersion = (serverDir: string = defaultServerDir): string =>
+  JSON.parse(readFileSync(path.join(serverDir, 'package.json'), 'utf8')).version;
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
