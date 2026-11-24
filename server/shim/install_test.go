@@ -257,19 +257,6 @@ func TestInstallMissingRequiredDependencyFails(t *testing.T) {
 	}
 }
 
-func TestInstallSkipsShimPackage(t *testing.T) {
-	r := newInstallRig(t, map[string]any{"dependencies": deps("supersurf-shim", "a")})
-	r.dep(t, "supersurf-shim", "supersurf-shim", "5.0.0", nil)
-	r.dep(t, "a", "a", "1.0.0", nil)
-	tgt := mustInstall(t, r)
-	if _, err := os.Lstat(filepath.Join(tgt, "node_modules", "supersurf-shim")); err == nil {
-		t.Error("supersurf-shim must not be copied")
-	}
-	if versionAt(t, filepath.Join(tgt, "node_modules", "a")) == "" {
-		t.Error("other deps are still copied")
-	}
-}
-
 func TestInstallLeavesExistingVersionAlone(t *testing.T) {
 	r := newInstallRig(t, map[string]any{"dependencies": deps("a")})
 	r.dep(t, "a", "a", "1.0.0", nil)

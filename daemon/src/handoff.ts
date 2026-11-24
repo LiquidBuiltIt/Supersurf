@@ -70,7 +70,7 @@ function splitVersion(v: string): { n: [number, number, number]; pre: string } {
   return { n, pre };
 }
 
-/** Port of `cmpVersion` in shim/ensure.go: numeric x.y.z, a pre-release suffix sorts below its release. */
+/** Port of `cmpVersion` in server/shim/ensure.go: numeric x.y.z, a pre-release suffix sorts below its release. */
 export function cmpVersion(a: string, b: string): number {
   const x = splitVersion(a), y = splitVersion(b);
   for (let i = 0; i < 3; i++) if (x.n[i] !== y.n[i]) return x.n[i] < y.n[i] ? -1 : 1;

@@ -19,6 +19,7 @@ import {
   readDaemonPid,
   isProcessAlive,
   findShimBinary,
+  probeShim,
 } from 'shared';
 
 export const SUPERSURF_DIR = supersurfDir();
@@ -322,6 +323,17 @@ function requestHandoff(timeoutMs: number): Promise<any> {
   });
 }
 
+/** The shim path a daemon reported, if it is an existing executable file that runs `--version`; else null. */
+function reportedShim(bin: unknown): string | null {
+  if (typeof bin !== 'string' || !path.isAbsolute(bin)) return null;
+  try {
+    fs.accessSync(bin, fs.constants.X_OK);
+    if (!fs.statSync(bin).isFile()) return null;
+    probeShim(bin);
+    return bin;
+  } catch { return null; }
+}
+
 /**
  * `restart`. Returns `'start'` when the caller must stop the daemon (if any) and start a fresh one
  * the old way, or the process exit code when the gated hand-off path handled it.
@@ -334,7 +346,8 @@ export async function restartDaemon(port: number): Promise<'start' | 0 | 1> {
   if (!gated) return 'start';
 
   const root = daemonPackageRoot();
-  const shimBin = findShimBinary(root);
+  // SUPERSURF_SHIM_BIN, else the path the last shim reported in `shim_register` (the daemon package carries no shim).
+  const shimBin = findShimBinary() ?? reportedShim(status.shimBin);
   if (!shimBin && (status.shimSessions ?? 0) === 0) {
     console.log('supersurf-shim not found; no shim session is live, so the daemon restarts by stop and start.');
     return 'start';

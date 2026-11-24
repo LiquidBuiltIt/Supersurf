@@ -23,27 +23,28 @@ func mkdirs(t *testing.T, p string) string {
 	return p
 }
 
-// Hoisted install: the shim package and the daemon are siblings in <p>/node_modules.
+// Hoisted install: the daemon sits beside supersurf-mcp in <p>/node_modules; the shim is in supersurf-mcp/bin/<plat>/.
 func TestFindBundledHoisted(t *testing.T) {
 	p := realPath(t, shortDir(t))
 	daemon := fakePackage(t, filepath.Join(p, "node_modules", "supersurf-daemon"), "5.0.0")
-	exeDir := mkdirs(t, filepath.Join(p, "node_modules", "supersurf-shim", "bin", "linux-amd64"))
+	exeDir := mkdirs(t, filepath.Join(p, "node_modules", "supersurf-mcp", "bin", "linux-amd64"))
 	if got := findBundled(exeDir); got != daemon {
 		t.Fatalf("findBundled = %q, want %q", got, daemon)
 	}
 }
 
-// Nested install: the shim sits inside the daemon's own node_modules, which sits inside the server's.
+// Nested install: the daemon sits inside supersurf-mcp's own node_modules.
 func TestFindBundledNested(t *testing.T) {
 	p := realPath(t, shortDir(t))
-	daemon := fakePackage(t, filepath.Join(p, "node_modules", "supersurf-mcp", "node_modules", "supersurf-daemon"), "5.0.0")
-	exeDir := mkdirs(t, filepath.Join(daemon, "node_modules", "supersurf-shim", "bin", "linux-arm64"))
+	mcp := filepath.Join(p, "node_modules", "supersurf-mcp")
+	daemon := fakePackage(t, filepath.Join(mcp, "node_modules", "supersurf-daemon"), "5.0.0")
+	exeDir := mkdirs(t, filepath.Join(mcp, "bin", "linux-arm64"))
 	if got := findBundled(exeDir); got != daemon {
 		t.Fatalf("findBundled = %q, want %q", got, daemon)
 	}
 }
 
-// Dev layout: daemon/bin/supersurf-shim, with node_modules/supersurf-daemon a symlink to daemon/ at the clone root.
+// Dev layout: server/bin/<plat>/supersurf-shim, with node_modules/supersurf-daemon a symlink to daemon/ at the clone root.
 func TestFindBundledDevLayoutSymlink(t *testing.T) {
 	clone := realPath(t, shortDir(t))
 	daemon := fakePackage(t, filepath.Join(clone, "daemon"), "5.0.0")
@@ -51,7 +52,7 @@ func TestFindBundledDevLayoutSymlink(t *testing.T) {
 	if err := os.Symlink(filepath.Join("..", "daemon"), filepath.Join(clone, "node_modules", "supersurf-daemon")); err != nil {
 		t.Fatal(err)
 	}
-	exeDir := mkdirs(t, filepath.Join(daemon, "bin"))
+	exeDir := mkdirs(t, filepath.Join(clone, "server", "bin", "linux-amd64"))
 	if got := findBundled(exeDir); got != daemon {
 		t.Fatalf("findBundled = %q, want the real daemon dir %q (copyTree does not follow a root symlink)", got, daemon)
 	}

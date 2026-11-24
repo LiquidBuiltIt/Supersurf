@@ -114,6 +114,7 @@ export class ShimServer {
   private resumed = new Map<string, SnapSession[]>();
   private nextSeq = 1;
   private _served = false;
+  private _lastBin: string | null = null;
   private worker: ShimWorker | null = null;
   private attached: { detach(): void } | null = null;
   private nextEnvId = 1;
@@ -194,11 +195,16 @@ export class ShimServer {
     worker.postMessage({ t: 'open', cid, config: inputs, ...resume, ...(th ? { toolsHash: th } : {}) });
     socket.write(JSON.stringify({ type: 'shim_ack', protocol: 1, version: this.opts.daemon.version }) + '\n');
     this._served = true;
+    // The shim's own path for `restart`: an absolute string of at most 4096 chars, else ignored (a stored value stays).
+    if (typeof hs.bin === 'string' && hs.bin.length <= 4096 && path.isAbsolute(hs.bin)) this._lastBin = hs.bin;
     if (rest.length) feed(rest);
   }
 
   /** True once this daemon accepted a `shim_register` (sticky): the shim model is in use. */
   get served(): boolean { return this._served; }
+
+  /** The `bin` of the last accepted `shim_register`, or null. `daemon_status` reports it as `shimBin`. */
+  get lastShimBin(): string | null { return this._lastBin; }
 
   /** E9 successor: the parked sessions each shim connection may claim. */
   setResumed(entries: SnapSession[]): void {

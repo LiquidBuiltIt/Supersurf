@@ -8,9 +8,8 @@ import { execSync } from 'child_process';
 import { buildShimAll, checkShimBinaries, shimVersion, type GoRun } from './shim-build';
 import { findGo } from './find-go';
 
-/** Publish order is dependency order: the daemon pins the shim, the server pins the daemon. */
+/** Publish order is dependency order: the server pins the daemon. The shim binaries ship inside the server package. */
 export const NPM_PACKAGES = [
-  { dir: 'shim', name: 'supersurf-shim' },
   { dir: 'daemon', name: 'supersurf-daemon' },
   { dir: 'server', name: 'supersurf-mcp' },
 ];
@@ -47,10 +46,10 @@ export function npmPublishState(
 }
 
 /** Build and check the four shim binaries. Always runs: there is no legacy-only skip. */
-export function prepareShimBinaries(o: { go?: string | null; version?: string; shimDir?: string; run?: GoRun } = {}): string[] {
+export function prepareShimBinaries(o: { go?: string | null; version?: string; serverDir?: string; run?: GoRun } = {}): string[] {
   const go = 'go' in o ? o.go : findGo();
   if (!go) throw new Error('no go toolchain found (set GO, or install Go): the release always builds the shim binaries');
-  const outs = buildShimAll({ go, version: o.version ?? shimVersion(o.shimDir), shimDir: o.shimDir, run: o.run });
-  checkShimBinaries(o.shimDir);
+  const outs = buildShimAll({ go, version: o.version ?? shimVersion(o.serverDir), serverDir: o.serverDir, run: o.run });
+  checkShimBinaries(o.serverDir);
   return outs;
 }

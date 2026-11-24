@@ -1,4 +1,4 @@
-/** `npm run test.shim`: `go vet` then `go test` in shim/. Skips (exit 0) when Go is not installed. */
+/** `npm run test.shim`: `go vet` then `go test` in server/shim/. Skips (exit 0) when Go is not installed. */
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -9,7 +9,7 @@ export function runTestShim(go: string | null): number {
     console.log('test.shim skipped: no go toolchain');
     return 0;
   }
-  const cwd = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'shim');
+  const cwd = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'server', 'shim');
   for (const args of [['vet', './...'], ['test', './...']]) {
     const r = spawnSync(go, args, { cwd, stdio: 'inherit', env: { ...process.env, GOTOOLCHAIN: 'local' } });
     if (r.status !== 0) return r.status ?? 1;

@@ -370,9 +370,6 @@ func placeAt(root, dest, name, ver string) (at string, copy bool) {
 	}
 }
 
-// shimPkg is never part of the closure: nothing run from versions/<v>/ executes the shim.
-const shimPkg = "supersurf-shim"
-
 // copyClosure copies the daemon's runtime dependency closure into root/node_modules.
 // Breadth first, so a package's own dependencies are placed before its children are read.
 func copyClosure(srcReal, root string) error {
@@ -403,9 +400,6 @@ func copyClosure(srcReal, root string) error {
 		}
 		sort.Strings(names)
 		for _, name := range names {
-			if name == shimPkg {
-				continue
-			}
 			real := resolveSrc(n.real, name)
 			if real == "" {
 				if want[name] {

@@ -172,7 +172,7 @@ async function main(): Promise<void> {
 
   // Shim binary.
   const shimBin = path.join(home, 'supersurf-shim');
-  const b = spawnSync(go, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO_ROOT, 'shim'), encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } });
+  const b = spawnSync(go, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO_ROOT, 'server', 'shim'), encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } });
   check(b.status === 0, `go build failed: ${b.stderr}`);
 
   // Fixture install dirs: clean copies of package.json + dist, a symlinked node_modules.

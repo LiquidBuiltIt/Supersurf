@@ -420,6 +420,7 @@ async function main(): Promise<void> {
       ...(bindError ? { bindError } : {}),
       shimSessions: shim.liveCount,
       shimModel: shimModel(),
+      ...(shim.lastShimBin ? { shimBin: shim.lastShimBin } : {}),
       ...(pendingUpgrade() ? { upgradePending: pendingUpgrade() } : {}),
     }),
     takeoverCommit: takeover ? (msg) => commitSignal(msg) : undefined,

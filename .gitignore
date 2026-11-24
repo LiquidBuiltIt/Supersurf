@@ -16,7 +16,7 @@ docs/superpowers/
 
 # Go shim build output (npm run build.shim, npm run build.shim.all)
 daemon/bin/
-shim/bin/
+server/bin/
 
 # Dependencies
 node_modules/

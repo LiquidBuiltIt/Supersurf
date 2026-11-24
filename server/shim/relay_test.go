@@ -322,6 +322,25 @@ func TestHandshakeFields(t *testing.T) {
 	}
 }
 
+// The handshake carries the shim's own real executable path, so `supersurf-daemon restart` can run it.
+func TestHandshakeBin(t *testing.T) {
+	sock := sockIn(t)
+	d := startFakeDaemon(t, sock)
+	newRig(t, Config{Sock: sock, Version: "1.2.3", SessionID: "shim-bin"})
+	r := d.WaitReg(2 * time.Second)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r["bin"] != want || !filepath.IsAbs(want) {
+		t.Fatalf("handshake bin = %v, want %q", r["bin"], want)
+	}
+}
+
 func TestHandshakeEnvAllowlist(t *testing.T) {
 	t.Setenv("SUPERSURF_EXPERIMENTS", "a")
 	t.Setenv("SUPERSURF_CONFIG_FILE", "/x")

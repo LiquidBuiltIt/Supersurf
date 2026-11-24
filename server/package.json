@@ -10,6 +10,7 @@
   },
   "files": [
     "dist",
+    "bin",
     "README.md",
     "LICENSE"
   ],
@@ -53,7 +54,7 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc && npx tsx ../scripts/shared.bundle.ts server && chmod +x dist/cli.js",
-    "prepublishOnly": "cp ../LICENSE . && npm run clean && npm --prefix .. run build.shared && npm --prefix .. run build.engine && npm run build",
+    "prepublishOnly": "cp ../LICENSE . && npm run clean && npm --prefix .. run build.shared && npm --prefix .. run build.engine && npm run build && npx tsx ../scripts/shim-build.ts --check",
     "dev": "npx tsx src/cli.ts --debug",
     "test": "npm run typecheck.tests && vitest run",
     "typecheck.tests": "tsc -p tsconfig.test.json",

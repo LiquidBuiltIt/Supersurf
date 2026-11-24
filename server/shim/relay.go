@@ -7,6 +7,8 @@ import (
 	"io"
 	"math"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -324,6 +326,12 @@ func (r *Relay) dialRegister() (net.Conn, *lineReader, error) {
 		"type": "shim_register", "protocol": protocolVersion, "mode": "mcp",
 		"sessionId": r.cfg.SessionID, "version": r.cfg.Version, "cwd": r.cfg.Cwd,
 		"flags": r.cfg.Flags, "env": r.cfg.Env, "caps": []string{"env.get", "env.keys"},
+	}
+	// The shim's own real path, so `supersurf-daemon restart` can run it; omitted when it cannot be resolved.
+	if exe, err := os.Executable(); err == nil {
+		if real, err := filepath.EvalSymlinks(exe); err == nil {
+			hello["bin"] = real
+		}
 	}
 	r.mu.Lock()
 	if r.toolsHash != "" {

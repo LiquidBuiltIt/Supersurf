@@ -14,11 +14,10 @@ export const VERSION_TARGETS = [
   'shared/package.json',
   'engine/package.json',
   'cli/package.json',
-  'shim/package.json',
 ];
 
 /** Workspace dependencies pinned to the release version (exact, never a range). */
-export const PINNED_DEPENDENCIES = ['supersurf-daemon', 'supersurf-shim'];
+export const PINNED_DEPENDENCIES = ['supersurf-daemon'];
 
 export const EXTENSION_CHANGELOG_JSON = 'extension/dist/pages/changelog.json';
 

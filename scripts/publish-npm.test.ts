@@ -6,9 +6,8 @@ import { NPM_PACKAGES, npmPublishState, publishNpmPackages, prepareShimBinaries 
 import type { GoRun } from './shim-build';
 
 describe('NPM_PACKAGES', () => {
-  it('publishes the shim before the daemon before the server', () => {
+  it('publishes the daemon before the server, and no shim package', () => {
     expect(NPM_PACKAGES.map((p) => [p.dir, p.name])).toEqual([
-      ['shim', 'supersurf-shim'],
       ['daemon', 'supersurf-daemon'],
       ['server', 'supersurf-mcp'],
     ]);
@@ -20,7 +19,6 @@ describe('publishNpmPackages', () => {
     const calls: [string, string][] = [];
     publishNpmPackages('/r', (cmd, cwd) => calls.push([cmd, cwd]));
     expect(calls).toEqual([
-      ['npm publish', resolve('/r', 'shim')],
       ['npm publish', resolve('/r', 'daemon')],
       ['npm publish', resolve('/r', 'server')],
     ]);
@@ -31,10 +29,10 @@ describe('publishNpmPackages', () => {
     expect(() =>
       publishNpmPackages('/r', (_cmd, cwd) => {
         calls.push(cwd);
-        if (cwd.endsWith('shim')) throw new Error('403');
+        if (cwd.endsWith('daemon')) throw new Error('403');
       }),
     ).toThrow('403');
-    expect(calls).toEqual([resolve('/r', 'shim')]);
+    expect(calls).toEqual([resolve('/r', 'daemon')]);
   });
 });
 
@@ -44,8 +42,8 @@ describe('npmPublishState', () => {
   };
   it('is published when npm view finds the version', () => {
     const cmds: string[] = [];
-    expect(npmPublishState('supersurf-shim', '4.2.0', (c) => void cmds.push(c))).toBe('published');
-    expect(cmds).toEqual(['npm view supersurf-shim@4.2.0 version']);
+    expect(npmPublishState('supersurf-daemon', '4.2.0', (c) => void cmds.push(c))).toBe('published');
+    expect(cmds).toEqual(['npm view supersurf-daemon@4.2.0 version']);
   });
   it('is unpublished on a genuine 404, for a version or for a package never published', () => {
     expect(npmPublishState('p', '1.0.0', failWith('npm error code E404'))).toBe('unpublished');
@@ -65,17 +63,17 @@ describe('prepareShimBinaries', () => {
     return 0;
   };
 
-  it('always builds the four binaries, with the shim package version, then checks them', () => {
+  it('always builds the four binaries, with the supersurf-mcp version, then checks them', () => {
     const dir = tmp();
     const seen: string[] = [];
-    const out = prepareShimBinaries({ go: 'go', version: '7.7.7', shimDir: dir, run: (g, a, o) => (seen.push(a[a.indexOf('-ldflags') + 1]), writeOk(g, a, o)) });
+    const out = prepareShimBinaries({ go: 'go', version: '7.7.7', serverDir: dir, run: (g, a, o) => (seen.push(a[a.indexOf('-ldflags') + 1]), writeOk(g, a, o)) });
     expect(out).toHaveLength(4);
     expect(new Set(seen)).toEqual(new Set(['-s -w -X main.version=7.7.7']));
     rmSync(dir, { recursive: true, force: true });
   });
 
   it('fails when there is no Go toolchain: there is no legacy-only skip', () => {
-    expect(() => prepareShimBinaries({ go: null, version: '1.0.0', shimDir: tmp() })).toThrow(/go toolchain/);
+    expect(() => prepareShimBinaries({ go: null, version: '1.0.0', serverDir: tmp() })).toThrow(/go toolchain/);
   });
 
   it('fails when a build leaves a binary the check rejects', () => {
@@ -86,7 +84,7 @@ describe('prepareShimBinaries', () => {
       writeFileSync(out, '');
       return 0;
     };
-    expect(() => prepareShimBinaries({ go: 'go', version: '1.0.0', shimDir: dir, run: empty })).toThrow(/not ready/);
+    expect(() => prepareShimBinaries({ go: 'go', version: '1.0.0', serverDir: dir, run: empty })).toThrow(/not ready/);
     rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -109,9 +107,8 @@ describe('publish.ts wiring', () => {
     expect(src).not.toContain("['daemon', 'server']");
   });
 
-  it('pre-flight covers the shim version, the daemon pin on it and the registry check for every package', () => {
-    expect(src).toContain("'shim/package.json'");
-    expect(src).toMatch(/supersurf-shim/);
+  it('pre-flight checks the registry for every package and no shim package or pin', () => {
+    expect(src).not.toMatch(/shim\/package\.json|supersurf-shim/);
     expect(src).toContain('npmPublishState(');
     expect(src).toContain('NPM_PACKAGES');
   });

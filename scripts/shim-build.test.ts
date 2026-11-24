@@ -35,13 +35,13 @@ describe('buildShimAll', () => {
   it('builds linux and darwin on amd64 and arm64 with a static, stripped, versioned binary', () => {
     calls.length = 0;
     const dir = tmp();
-    const outs = buildShimAll({ go: '/x/go', version: '9.9.9', shimDir: dir, run: fakeGo });
+    const outs = buildShimAll({ go: '/x/go', version: '9.9.9', serverDir: dir, run: fakeGo });
     expect(SHIM_TARGETS.map((t) => `${t.goos}-${t.goarch}`)).toEqual(['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64']);
     expect(outs).toEqual(SHIM_TARGETS.map((t) => join(dir, 'bin', `${t.goos}-${t.goarch}`, 'supersurf-shim')));
     expect(calls).toHaveLength(4);
     calls.forEach((c, i) => {
       expect(c.go).toBe('/x/go');
-      expect(c.cwd).toBe(dir);
+      expect(c.cwd).toBe(join(dir, 'shim'));
       expect(c.args).toEqual(['build', '-trimpath', '-ldflags', '-s -w -X main.version=9.9.9', '-o', outs[i], '.']);
       expect(c.env).toMatchObject({ CGO_ENABLED: '0', GOOS: SHIM_TARGETS[i].goos, GOARCH: SHIM_TARGETS[i].goarch, GOTOOLCHAIN: 'local' });
     });
@@ -52,14 +52,14 @@ describe('buildShimAll', () => {
     const dir = tmp();
     let n = 0;
     const run: GoRun = (go, args, opts) => (++n === 2 ? 1 : fakeGo(go, args, opts));
-    expect(() => buildShimAll({ go: 'go', version: '1.0.0', shimDir: dir, run })).toThrow(/linux-arm64/);
+    expect(() => buildShimAll({ go: 'go', version: '1.0.0', serverDir: dir, run })).toThrow(/linux-arm64/);
     expect(n).toBe(2);
   });
 
   it('removes stale binaries first, so a target that is no longer built cannot ship', () => {
     const dir = tmp();
     bin(dir, 'freebsd-amd64', 2048);
-    buildShimAll({ go: 'go', version: '1.0.0', shimDir: dir, run: fakeGo });
+    buildShimAll({ go: 'go', version: '1.0.0', serverDir: dir, run: fakeGo });
     expect(existsSync(join(dir, 'bin', 'freebsd-amd64'))).toBe(false);
   });
 });

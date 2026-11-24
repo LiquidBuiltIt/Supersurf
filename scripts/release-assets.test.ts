@@ -52,10 +52,11 @@ describe('the release path refuses an already-published version', () => {
   const publish = read('scripts/publish.ts');
   const npm = read('scripts/publish-npm.ts');
 
-  it('preflight asks npm about every published package, the shim included', () => {
+  it('preflight asks npm about every published package (daemon and server)', () => {
     expect(npm).toMatch(/npm view \$\{name\}@\$\{version\}/);
     expect(publish).toMatch(/for \(const pkg of NPM_PACKAGES\)[\s\S]*npmPublishState\(pkg\.name, version\)/);
-    expect(npm).toContain("name: 'supersurf-shim'");
+    expect(npm).toContain("name: 'supersurf-daemon'");
+    expect(npm).not.toContain('supersurf-shim');
     expect(npm).toContain("name: 'supersurf-mcp'");
   });
 
@@ -83,8 +84,7 @@ describe('publish runs the test suite before anything leaves the machine', () =>
     expect(gate).toBeLessThan(at('publishNpm()'));
   });
 
-  it('preflight refuses a shim or shim pin that lags the release version', () => {
-    const publish = read('scripts/publish.ts');
-    expect(publish).toMatch(/shimVersion !== version \|\| shimPin !== version/);
+  it('preflight checks no shim package or pin: the shim ships inside supersurf-mcp', () => {
+    expect(read('scripts/publish.ts')).not.toMatch(/shimVersion|shimPin|supersurf-shim/);
   });
 });
