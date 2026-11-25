@@ -80,8 +80,8 @@ export function loadEnvConfig(env: Record<string, string | undefined>): LoadResu
     out.agents = { ...(out.agents || {}), multi_agent: true };
   }
 
-  if (isTruthy(env.SUPERSURF_RELAY)) {
-    out.agents = { ...(out.agents || {}), relay: true };
+  if (isTruthy(env.SUPERSURF_DISABLE_LEGACY_SERVER)) {
+    out.server = { legacy: false };
   }
 
   if (env.SUPERSURF_DEBUG !== undefined) {

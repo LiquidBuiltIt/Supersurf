@@ -6,7 +6,7 @@ import { validPort, findShimBinary, shimArgs, execReplace, readRelaySwitch, prob
 
 let dir: string;
 const saved: Record<string, string | undefined> = {};
-const KEYS = ['SUPERSURF_SHIM_BIN', 'SUPERSURF_CONFIG_FILE', 'SUPERSURF_RELAY', 'SUPERSURF_PORT'];
+const KEYS = ['SUPERSURF_SERVER_BIN', 'SUPERSURF_CONFIG_FILE', 'SUPERSURF_DISABLE_LEGACY_SERVER', 'SUPERSURF_PORT'];
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-'));
@@ -29,10 +29,10 @@ describe('findShimBinary', () => {
   const supported = (process.platform === 'linux' || process.platform === 'darwin') && !!goarch;
   const target = `${process.platform}-${goarch}`;
 
-  // <root>/bin/<goos>-<goarch>/supersurf-shim: the supersurf-mcp package layout.
+  // <root>/bin/<goos>-<goarch>/supersurf-server: the supersurf-mcp package layout.
   function rootBin(root: string, mode = 0o755): string {
     fs.mkdirSync(path.join(root, 'bin', target), { recursive: true });
-    const b = path.join(root, 'bin', target, 'supersurf-shim');
+    const b = path.join(root, 'bin', target, 'supersurf-server');
     fs.writeFileSync(b, '', { mode });
     fs.chmodSync(b, mode);
     return b;
@@ -49,47 +49,47 @@ describe('findShimBinary', () => {
     expect(findShimBinary()).toBeNull();
   });
 
-  it.skipIf(!supported)('finds <root>/bin/<goos>-<goarch>/supersurf-shim', () => {
+  it.skipIf(!supported)('finds <root>/bin/<goos>-<goarch>/supersurf-server', () => {
     const bin = rootBin(dir);
     expect(findShimBinary(dir)).toBe(bin);
   });
 
-  it.skipIf(!supported)('prefers an absolute SUPERSURF_SHIM_BIN over the root binary', () => {
+  it.skipIf(!supported)('prefers an absolute SUPERSURF_SERVER_BIN over the root binary', () => {
     const env = script('env-shim');
     rootBin(path.join(dir, 'pkg'));
-    process.env.SUPERSURF_SHIM_BIN = env;
+    process.env.SUPERSURF_SERVER_BIN = env;
     expect(findShimBinary(path.join(dir, 'pkg'))).toBe(env);
   });
 
-  it.skipIf(!supported)('ignores the old <root>/bin/supersurf-shim path and a supersurf-shim package', () => {
+  it.skipIf(!supported)('ignores the old <root>/bin/supersurf-server path and a supersurf-server package', () => {
     fs.mkdirSync(path.join(dir, 'bin'));
-    fs.writeFileSync(path.join(dir, 'bin', 'supersurf-shim'), '', { mode: 0o755 });
-    const pkg = path.join(dir, 'node_modules', 'supersurf-shim');
+    fs.writeFileSync(path.join(dir, 'bin', 'supersurf-server'), '', { mode: 0o755 });
+    const pkg = path.join(dir, 'node_modules', 'supersurf-server');
     fs.mkdirSync(path.join(pkg, 'bin', target), { recursive: true });
-    fs.writeFileSync(path.join(pkg, 'package.json'), '{"name":"supersurf-shim","version":"1.0.0"}');
-    fs.writeFileSync(path.join(pkg, 'bin', target, 'supersurf-shim'), '', { mode: 0o755 });
+    fs.writeFileSync(path.join(pkg, 'package.json'), '{"name":"supersurf-server","version":"1.0.0"}');
+    fs.writeFileSync(path.join(pkg, 'bin', target, 'supersurf-server'), '', { mode: 0o755 });
     expect(findShimBinary(dir)).toBeNull();
   });
 
-  it('ignores a relative SUPERSURF_SHIM_BIN', () => {
+  it('ignores a relative SUPERSURF_SERVER_BIN', () => {
     script('rel');
-    process.env.SUPERSURF_SHIM_BIN = 'rel';
+    process.env.SUPERSURF_SERVER_BIN = 'rel';
     expect(findShimBinary()).toBeNull();
   });
 
   it('skips a file that is not executable', () => {
-    process.env.SUPERSURF_SHIM_BIN = script('noexec', 'exit 0', 0o644);
+    process.env.SUPERSURF_SERVER_BIN = script('noexec', 'exit 0', 0o644);
     expect(findShimBinary()).toBeNull();
   });
 
   it('skips a directory', () => {
     fs.mkdirSync(path.join(dir, 'd'));
-    process.env.SUPERSURF_SHIM_BIN = path.join(dir, 'd');
+    process.env.SUPERSURF_SERVER_BIN = path.join(dir, 'd');
     expect(findShimBinary()).toBeNull();
   });
 
   it.skipIf(!supported)('falls through a non-executable env file to an executable root file', () => {
-    process.env.SUPERSURF_SHIM_BIN = script('noexec', 'exit 0', 0o644);
+    process.env.SUPERSURF_SERVER_BIN = script('noexec', 'exit 0', 0o644);
     const bin = rootBin(dir);
     expect(findShimBinary(dir)).toBe(bin);
   });
@@ -110,7 +110,7 @@ describe('shimArgs', () => {
     ['--debug <mode> skips the mode token', ['--debug', 'no_truncate', '--multi-agent'], ['--port', '5555', '--debug', '--multi-agent']],
     ['--debug followed by a flag keeps the flag', ['--debug', '--multi-agent'], ['--port', '5555', '--debug', '--multi-agent']],
     ['security flags pass through in the order given', ['--disable-playbook-eval', '--disable-secure-eval'], ['--port', '5555', '--disable-playbook-eval', '--disable-secure-eval']],
-    ['drops --relay, --child, --log-file <p> and positionals', ['--relay', '--child', '--log-file', '/x/y.log', 'stray'], ['--port', '5555']],
+    ['drops --disable-legacy-server, --child, --log-file <p> and positionals', ['--disable-legacy-server', '--child', '--log-file', '/x/y.log', 'stray'], ['--port', '5555']],
   ];
   for (const [name, argv, want] of cases) {
     it(name, () => expect(shimArgs(argv, 5555)).toEqual(want));
@@ -192,26 +192,26 @@ describe('readRelaySwitch', () => {
     expect(readRelaySwitch([])).toEqual({ relay: false, port: 5555 });
   });
 
-  it('reads --relay and --port N from argv', () => {
+  it('reads --disable-legacy-server and --port N from argv', () => {
     process.env.SUPERSURF_CONFIG_FILE = path.join(dir, 'none.json');
-    expect(readRelaySwitch(['--relay', '--port', '6001'])).toEqual({ relay: true, port: 6001 });
+    expect(readRelaySwitch(['--disable-legacy-server', '--port', '6001'])).toEqual({ relay: true, port: 6001 });
     expect(readRelaySwitch(['--port=6002'])).toEqual({ relay: false, port: 6002 });
   });
 
   it('does not take a following flag as the --port value', () => {
     process.env.SUPERSURF_CONFIG_FILE = path.join(dir, 'none.json');
-    expect(readRelaySwitch(['--port', '--relay'])).toEqual({ relay: true, port: 5555 });
+    expect(readRelaySwitch(['--port', '--disable-legacy-server'])).toEqual({ relay: true, port: 5555 });
   });
 
-  it('reads SUPERSURF_RELAY from the env', () => {
+  it('reads SUPERSURF_DISABLE_LEGACY_SERVER from the env', () => {
     process.env.SUPERSURF_CONFIG_FILE = path.join(dir, 'none.json');
-    process.env.SUPERSURF_RELAY = '1';
+    process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
     expect(readRelaySwitch([]).relay).toBe(true);
   });
 
-  it('reads agents.relay and daemon.port from SUPERSURF_CONFIG_FILE', () => {
+  it('reads server.legacy and daemon.port from SUPERSURF_CONFIG_FILE', () => {
     const f = path.join(dir, 'c.json');
-    fs.writeFileSync(f, JSON.stringify({ agents: { relay: true }, daemon: { port: 6100 } }));
+    fs.writeFileSync(f, JSON.stringify({ server: { legacy: false }, daemon: { port: 6100 } }));
     process.env.SUPERSURF_CONFIG_FILE = f;
     expect(readRelaySwitch([])).toEqual({ relay: true, port: 6100 });
   });

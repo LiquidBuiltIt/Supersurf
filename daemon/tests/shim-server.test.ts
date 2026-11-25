@@ -84,24 +84,24 @@ describe('served (the D3 / restart shim-model signal)', () => {
 describe('shim binary path (restart)', () => {
   it('lastShimBin is null before any shim, keeps a valid bin, and the last accepted one wins', async () => {
     expect(shimServer.lastShimBin).toBeNull();
-    await newShim({ sessionId: 'shim-a', handshake: { bin: '/opt/a/supersurf-shim' } }).register();
-    expect(shimServer.lastShimBin).toBe('/opt/a/supersurf-shim');
-    await newShim({ sessionId: 'shim-b', handshake: { bin: '/opt/b/supersurf-shim' } }).register();
-    expect(shimServer.lastShimBin).toBe('/opt/b/supersurf-shim');
+    await newShim({ sessionId: 'shim-a', handshake: { bin: '/opt/a/supersurf-server' } }).register();
+    expect(shimServer.lastShimBin).toBe('/opt/a/supersurf-server');
+    await newShim({ sessionId: 'shim-b', handshake: { bin: '/opt/b/supersurf-server' } }).register();
+    expect(shimServer.lastShimBin).toBe('/opt/b/supersurf-server');
   });
 
   it.each([
     ['absent', undefined],
     ['empty', ''],
-    ['relative', 'bin/supersurf-shim'],
+    ['relative', 'bin/supersurf-server'],
     ['over 4096 chars', '/' + 'a'.repeat(4096)],
     ['a number', 7],
     ['an object', { x: 1 }],
   ])('a bin that is %s is ignored, the shim is accepted and a stored value stays', async (_n, v) => {
-    await newShim({ sessionId: 'shim-a', handshake: { bin: '/opt/a/supersurf-shim' } }).register();
+    await newShim({ sessionId: 'shim-a', handshake: { bin: '/opt/a/supersurf-server' } }).register();
     const reply = await newShim({ sessionId: 'shim-b', handshake: v === undefined ? {} : { bin: v } }).register();
     expect(reply.type).toBe('shim_ack');
-    expect(shimServer.lastShimBin).toBe('/opt/a/supersurf-shim');
+    expect(shimServer.lastShimBin).toBe('/opt/a/supersurf-server');
   });
 
   it('a bin of exactly 4096 chars is kept', async () => {
@@ -111,7 +111,7 @@ describe('shim binary path (restart)', () => {
   });
 
   it('a rejected handshake does not set it', async () => {
-    await newShim({ handshake: { protocol: 9, bin: '/opt/x/supersurf-shim' } }).register();
+    await newShim({ handshake: { protocol: 9, bin: '/opt/x/supersurf-server' } }).register();
     expect(shimServer.lastShimBin).toBeNull();
   });
 });

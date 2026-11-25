@@ -13,7 +13,7 @@ describe('shimModelInUse', () => {
   });
   it('is true when a shim_register was accepted', () => expect(shimModelInUse({ ...base, servedShim: true })).toBe(true));
   it('is true when the shim started the daemon', () => expect(shimModelInUse({ ...base, startReason: 'shim' })).toBe(true));
-  it('is true when agents.relay is on', () => expect(shimModelInUse({ ...base, relay: true })).toBe(true));
+  it('is true when server.legacy is false', () => expect(shimModelInUse({ ...base, relay: true })).toBe(true));
   it('is true for a hand-off successor (--takeover): it exists only because the old daemon was in the shim model', () => {
     expect(shimModelInUse({ ...base, takeover: true })).toBe(true);
   });

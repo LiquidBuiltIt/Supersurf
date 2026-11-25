@@ -1,5 +1,5 @@
 /**
- * E5 end to end: the BUILT `supersurf-mcp` bin with `--relay` execs the real Go shim (built into a
+ * E5 end to end: the BUILT `supersurf-mcp` bin with `--disable-legacy-server` execs the real Go shim (built into a
  * throwaway dir), which talks to the real BUILT daemon on a free port; the engine runs in the
  * daemon. Throwaway HOME, SUPERSURF_DEV_ENVIRONMENT set so the daemon pulls no extension, never port
  * 5555. Skipped when the Go toolchain or `daemon/dist` is missing. Kills only what it started.
@@ -50,7 +50,7 @@ function daemonStatus(sock: string): Promise<any> {
   });
 }
 
-describe.skipIf(!!missing)('relay end to end (supersurf-mcp --relay -> Go shim -> built daemon)', () => {
+describe.skipIf(!!missing)('relay end to end (supersurf-mcp --disable-legacy-server -> Go shim -> built daemon)', () => {
   let rig: Rig, port: number, sock: string, shimBin: string;
   let daemon: ChildProcess | undefined, server: ChildProcess | undefined;
   let daemonOut = '', serverErr = '', serverBuf = '';
@@ -69,7 +69,7 @@ describe.skipIf(!!missing)('relay end to end (supersurf-mcp --relay -> Go shim -
 
   beforeAll(async () => {
     rig = makeRig();
-    shimBin = path.join(rig.home, 'supersurf-shim');
+    shimBin = path.join(rig.home, 'supersurf-server');
     const b = spawnSync(GO!, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO, 'server', 'shim'), encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } });
     if (b.status !== 0) throw new Error(`go build failed: ${b.stderr}`);
 
@@ -87,9 +87,9 @@ describe.skipIf(!!missing)('relay end to end (supersurf-mcp --relay -> Go shim -
       await sleep(50);
     }
 
-    server = spawn(process.execPath, [MCP_BIN, '--relay'], {
+    server = spawn(process.execPath, [MCP_BIN, '--disable-legacy-server'], {
       cwd: rig.home,
-      env: rig.env({ SUPERSURF_SHIM_BIN: shimBin, SUPERSURF_PORT: String(port) }),
+      env: rig.env({ SUPERSURF_SERVER_BIN: shimBin, SUPERSURF_PORT: String(port) }),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     server.stdin!.on('error', () => {});
@@ -122,8 +122,8 @@ describe.skipIf(!!missing)('relay end to end (supersurf-mcp --relay -> Go shim -
     if (process.platform === 'linux') {
       // execve happens a moment after spawn: wait for the pid's image to change.
       const exe = () => { try { return path.basename(fs.readlinkSync(`/proc/${server!.pid}/exe`)); } catch { return ''; } };
-      for (let i = 0; i < 200 && exe() !== 'supersurf-shim'; i++) await sleep(25);
-      expect(exe()).toBe('supersurf-shim');
+      for (let i = 0; i < 200 && exe() !== 'supersurf-server'; i++) await sleep(25);
+      expect(exe()).toBe('supersurf-server');
     }
 
     // The shim answers locally until its daemon link is up; retry initialize until the engine answers.

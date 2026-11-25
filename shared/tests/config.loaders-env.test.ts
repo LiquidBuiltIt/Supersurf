@@ -108,11 +108,11 @@ describe('loadEnvConfig', () => {
     expect(loadEnvConfig({ SUPERSURF_MULTI_AGENT: '0' }).config.agents?.multi_agent).toBeUndefined();
   });
 
-  it('SUPERSURF_RELAY=1 turns agents.relay on; absent or falsy leaves it untouched; keeps multi_agent', () => {
-    expect(loadEnvConfig({ SUPERSURF_RELAY: '1' }).config.agents?.relay).toBe(true);
-    expect(loadEnvConfig({ SUPERSURF_RELAY: 'on' }).config.agents?.relay).toBe(true);
-    expect(loadEnvConfig({}).config.agents?.relay).toBeUndefined();
-    expect(loadEnvConfig({ SUPERSURF_RELAY: '0' }).config.agents?.relay).toBeUndefined();
-    expect(loadEnvConfig({ SUPERSURF_RELAY: '1', SUPERSURF_MULTI_AGENT: '1' }).config.agents).toEqual({ multi_agent: true, relay: true });
+  it('SUPERSURF_DISABLE_LEGACY_SERVER=1 sets server.legacy to false; absent or falsy leaves it untouched; keeps multi_agent', () => {
+    expect(loadEnvConfig({ SUPERSURF_DISABLE_LEGACY_SERVER: '1' }).config.server?.legacy).toBe(false);
+    expect(loadEnvConfig({ SUPERSURF_DISABLE_LEGACY_SERVER: 'on' }).config.server?.legacy).toBe(false);
+    expect(loadEnvConfig({}).config.server?.legacy).toBeUndefined();
+    expect(loadEnvConfig({ SUPERSURF_DISABLE_LEGACY_SERVER: '0' }).config.server?.legacy).toBeUndefined();
+    expect(loadEnvConfig({ SUPERSURF_DISABLE_LEGACY_SERVER: '1', SUPERSURF_MULTI_AGENT: '1' }).config).toEqual({ agents: { multi_agent: true }, server: { legacy: false } });
   });
 });

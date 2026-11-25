@@ -73,13 +73,13 @@ export async function ensureDaemon(port: number = 5555): Promise<void> {
 }
 
 /**
- * `agents.relay` on and a shim found: `supersurf-shim ensure --port <port>` starts the daemon.
+ * `server.legacy` is `false` and a shim found: `supersurf-server ensure --port <port>` starts the daemon.
  * False (after one stderr line when the shim was tried) means: start it the usual way.
  */
 function shimEnsure(port: number): boolean {
   if (!readRelaySwitch([]).relay) return false;
   if (!validPort(port)) {
-    console.error(`[supersurf] agents.relay is on but port ${port} is not in 1-65535; starting the daemon the usual way.`);
+    console.error(`[supersurf] server.legacy is false but port ${port} is not in 1-65535; starting the daemon the usual way.`);
     return false;
   }
   const bin = findShimBinary() ?? devSource('shim');
@@ -89,7 +89,7 @@ function shimEnsure(port: number): boolean {
     const r = spawnSync(bin, ['ensure', '--port', String(port)], { stdio: 'inherit' });
     if (!r.error && r.status === 0) return true;
   } catch { /* fall through to the warning */ }
-  console.error('[supersurf] supersurf-shim ensure failed; starting the daemon the usual way.');
+  console.error('[supersurf] supersurf-server ensure failed; starting the daemon the usual way.');
   return false;
 }
 

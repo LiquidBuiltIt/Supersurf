@@ -1,5 +1,5 @@
-// supersurf-shim: a stdio to Unix-socket relay between an MCP client and the
-// SuperSurf daemon, and `supersurf-shim ensure`, which finds or starts the daemon.
+// supersurf-server: a stdio to Unix-socket relay between an MCP client and the
+// SuperSurf daemon, and `supersurf-server ensure`, which finds or starts the daemon.
 package main
 
 import (
@@ -117,7 +117,7 @@ func findBundled(start string) string {
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	a, err := parseArgs(args)
 	if err != nil {
-		fmt.Fprintln(stderr, "supersurf-shim:", err)
+		fmt.Fprintln(stderr, "supersurf-server:", err)
 		return 2
 	}
 	if a.showVersion {
@@ -126,7 +126,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintln(stderr, "supersurf-shim: no home directory:", err)
+		fmt.Fprintln(stderr, "supersurf-server: no home directory:", err)
 		return 1
 	}
 	if a.port == 0 {
@@ -137,14 +137,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	devRoot, problem := devClone(os.Getenv("SUPERSURF_DEV_ENVIRONMENT"))
 	if problem != "" {
-		fmt.Fprintf(stderr, "supersurf-shim: SUPERSURF_DEV_ENVIRONMENT: %s. Using the packaged daemon instead.\n", problem)
+		fmt.Fprintf(stderr, "supersurf-server: SUPERSURF_DEV_ENVIRONMENT: %s. Using the packaged daemon instead.\n", problem)
 	} else if devRoot != "" && a.installDir != "" {
-		fmt.Fprintln(stderr, "supersurf-shim: SUPERSURF_DEV_ENVIRONMENT is set: --install is ignored; the dev clone's daemon runs as it is.")
+		fmt.Fprintln(stderr, "supersurf-server: SUPERSURF_DEV_ENVIRONMENT is set: --install is ignored; the dev clone's daemon runs as it is.")
 	}
 	eo := EnsureOpts{Home: home, Port: a.port, Debug: a.debug, InstallDir: a.installDir, BundledDir: bundledDir(), NodePath: a.nodePath, DevRoot: devRoot, Stderr: stderr}
 	if a.ensure {
 		if err := Ensure(eo); err != nil {
-			fmt.Fprintln(stderr, "supersurf-shim ensure:", err)
+			fmt.Fprintln(stderr, "supersurf-server ensure:", err)
 			return 1
 		}
 		return 0
@@ -169,7 +169,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		Ensure: func() error { return Ensure(eo) },
 	}
 	if a.debug {
-		cfg.Log = func(f string, v ...any) { fmt.Fprintf(stderr, "supersurf-shim: "+f+"\n", v...) }
+		cfg.Log = func(f string, v ...any) { fmt.Fprintf(stderr, "supersurf-server: "+f+"\n", v...) }
 	}
 	NewRelay(cfg, stdout).Run(stdin)
 	return 0

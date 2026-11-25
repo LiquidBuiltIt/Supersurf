@@ -43,9 +43,9 @@ describe('cliToPartial', () => {
     expect(cliToPartial({})).toEqual({});
   });
 
-  it('maps --relay to agents.relay true and keeps --multi-agent beside it', () => {
-    expect(cliToPartial({ relay: true })).toEqual({ agents: { relay: true } });
-    expect(cliToPartial({ multiAgent: true, relay: true })).toEqual({ agents: { multi_agent: true, relay: true } });
+  it('maps --disable-legacy-server to server.legacy false and keeps --multi-agent beside it', () => {
+    expect(cliToPartial({ disableLegacyServer: true })).toEqual({ server: { legacy: false } });
+    expect(cliToPartial({ multiAgent: true, disableLegacyServer: true })).toEqual({ agents: { multi_agent: true }, server: { legacy: false } });
   });
 
   it('keeps both eval flags when both are passed', () => {

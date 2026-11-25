@@ -16,7 +16,7 @@ afterEach(() => {
 
 const bin = (dir: string, t: string, bytes: number, mode = 0o755) => {
   mkdirSync(join(dir, 'bin', t), { recursive: true });
-  const f = join(dir, 'bin', t, 'supersurf-shim');
+  const f = join(dir, 'bin', t, 'supersurf-server');
   writeFileSync(f, Buffer.alloc(bytes, 1));
   chmodSync(f, mode);
 };
@@ -37,7 +37,7 @@ describe('buildShimAll', () => {
     const dir = tmp();
     const outs = buildShimAll({ go: '/x/go', version: '9.9.9', serverDir: dir, run: fakeGo });
     expect(SHIM_TARGETS.map((t) => `${t.goos}-${t.goarch}`)).toEqual(['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64']);
-    expect(outs).toEqual(SHIM_TARGETS.map((t) => join(dir, 'bin', `${t.goos}-${t.goarch}`, 'supersurf-shim')));
+    expect(outs).toEqual(SHIM_TARGETS.map((t) => join(dir, 'bin', `${t.goos}-${t.goarch}`, 'supersurf-server')));
     expect(calls).toHaveLength(4);
     calls.forEach((c, i) => {
       expect(c.go).toBe('/x/go');

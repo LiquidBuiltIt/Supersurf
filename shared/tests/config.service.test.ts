@@ -179,16 +179,16 @@ describe('ConfigService', () => {
     expect(warns[0]).toContain('agents.multi_agent');
   });
 
-  it('agents.relay merges CLI over env over file over default, and rejects non-booleans', () => {
+  it('server.legacy merges CLI over env over file over default, and rejects non-booleans', () => {
     const warns: string[] = [];
     const build = (inp: any) => new ConfigService({ cli: {}, env: {}, file: {}, ...inp, onWarn: (m: string) => warns.push(m) });
-    expect(build({}).get().agents.relay).toBe(false);
-    expect(build({ file: { agents: { relay: true } } }).get().agents.relay).toBe(true);
-    expect(build({ file: { agents: { relay: false } }, env: { agents: { relay: true } } }).get().agents.relay).toBe(true);
-    expect(build({ env: { agents: { relay: false } }, cli: { agents: { relay: true } } }).get().agents.relay).toBe(true);
+    expect(build({}).get().server.legacy).toBe(true);
+    expect(build({ file: { server: { legacy: false } } }).get().server.legacy).toBe(false);
+    expect(build({ file: { server: { legacy: false } }, env: { server: { legacy: true } } }).get().server.legacy).toBe(true);
+    expect(build({ env: { server: { legacy: true } }, cli: { server: { legacy: false } } }).get().server.legacy).toBe(false);
     expect(warns).toEqual([]);
-    expect(build({ file: { agents: { relay: 'yes' as any } } }).get().agents.relay).toBe(false);
+    expect(build({ file: { server: { legacy: 'no' as any } } }).get().server.legacy).toBe(true);
     expect(warns).toHaveLength(1);
-    expect(warns[0]).toContain('agents.relay');
+    expect(warns[0]).toContain('server.legacy');
   });
 });

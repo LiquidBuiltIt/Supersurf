@@ -20,13 +20,13 @@ describe('legacy deprecation notice', () => {
     expect(LEGACY_NOTICE_ENABLED).toBe(false);
   });
 
-  it('text names agents.relay', () => {
-    expect(LEGACY_NOTICE_TEXT).toContain('agents.relay');
+  it('text names server.legacy', () => {
+    expect(LEGACY_NOTICE_TEXT).toContain('server.legacy');
   });
 
   it('text is the settled wording', () => {
     expect(LEGACY_NOTICE_TEXT).toBe(
-      'SuperSurf legacy mode is removed in 5.0.0. To switch now, set `agents.relay` to `true` in `~/.supersurf/config.json`, then restart your MCP client.',
+      'The legacy SuperSurf server is removed in 5.0.0. To switch to the new server now, set `server.legacy` to `false` in `~/.supersurf/config.json`, then restart your MCP client.',
     );
   });
 

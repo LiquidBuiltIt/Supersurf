@@ -346,19 +346,19 @@ export async function restartDaemon(port: number): Promise<'start' | 0 | 1> {
   if (!gated) return 'start';
 
   const root = daemonPackageRoot();
-  // SUPERSURF_SHIM_BIN, else the path the last shim reported in `shim_register` (the daemon package carries no shim).
+  // SUPERSURF_SERVER_BIN, else the path the last shim reported in `shim_register` (the daemon package carries no shim).
   const shimBin = findShimBinary() ?? reportedShim(status.shimBin);
   if (!shimBin && (status.shimSessions ?? 0) === 0) {
-    console.log('supersurf-shim not found; no shim session is live, so the daemon restarts by stop and start.');
+    console.log('supersurf-server not found; no shim session is live, so the daemon restarts by stop and start.');
     return 'start';
   }
   if (!shimBin) {
-    console.error('supersurf-shim not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
+    console.error('supersurf-server not found (set SUPERSURF_SERVER_BIN, or install a SuperSurf build that ships it); the daemon was not restarted.');
     return 1;
   }
   const ens = spawnSync(shimBin, ['ensure', '--install', root, '--port', String(status.port ?? port)], { encoding: 'utf8', timeout: 60_000 });
   if (ens.status !== 0) {
-    console.error(`supersurf-shim ensure failed${ens.error ? `: ${ens.error.message}` : ''}; the daemon was not restarted.`);
+    console.error(`supersurf-server ensure failed${ens.error ? `: ${ens.error.message}` : ''}; the daemon was not restarted.`);
     if (ens.stderr) console.error(ens.stderr.trim());
     return 1;
   }

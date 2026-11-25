@@ -44,7 +44,7 @@ func TestFindBundledNested(t *testing.T) {
 	}
 }
 
-// Dev layout: server/bin/<plat>/supersurf-shim, with node_modules/supersurf-daemon a symlink to daemon/ at the clone root.
+// Dev layout: server/bin/<plat>/supersurf-server, with node_modules/supersurf-daemon a symlink to daemon/ at the clone root.
 func TestFindBundledDevLayoutSymlink(t *testing.T) {
 	clone := realPath(t, shortDir(t))
 	daemon := fakePackage(t, filepath.Join(clone, "daemon"), "5.0.0")

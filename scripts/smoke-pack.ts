@@ -12,11 +12,11 @@
  * `supersurf-mcp/bin/<goos>-<goarch>/` is 0755 and prints its version, the
  * server tarball has all four binaries at exactly 0755 and no Go source (no
  * `shim/` path), `findShimBinary` finds the host binary from the installed
- * `supersurf-mcp` root, and with `agents.relay` on in a throwaway HOME the
+ * `supersurf-mcp` root, and with `server.legacy` false in a throwaway HOME the
  * installed `supersurf-mcp` bin becomes that shim from its own `bin/`, whose `ensure` installs
  * `versions/<v>/` and starts the daemon from there; that daemon answers
  * `initialize` and `tools/list` through the shim. Never port 5555, never the
- * real ~/.supersurf, no SUPERSURF_DEV_ENVIRONMENT / SUPERSURF_SHIM_BIN.
+ * real ~/.supersurf, no SUPERSURF_DEV_ENVIRONMENT / SUPERSURF_SERVER_BIN.
  *
  * VITEST=1 stops the daemon auto-start, and a throwaway HOME keeps the probes
  * off the real ~/.supersurf/ (booting cli.js would truncate its server.log).
@@ -127,7 +127,7 @@ try {
   const shimVersion = installed.version;
   const arch = ({ x64: 'amd64', arm64: 'arm64' } as Record<string, string>)[process.arch];
   assert(arch && (process.platform === 'linux' || process.platform === 'darwin'), `unsupported host ${process.platform}-${process.arch}`);
-  const hostBin = join(mcpRoot, 'bin', `${process.platform}-${arch}`, 'supersurf-shim');
+  const hostBin = join(mcpRoot, 'bin', `${process.platform}-${arch}`, 'supersurf-server');
   console.log('→ Checking the shim binaries in the installed supersurf-mcp...');
   // npm keeps the tarball's mode minus the umask, so an install under umask 002 is 0775: require at least 0755 here and exactly 0755 in the tarball.
   assert((statSync(hostBin).mode & 0o755) === 0o755, `${hostBin} is not at least mode 0755`);
@@ -136,8 +136,8 @@ try {
   assert(ver.status === 0 && ver.stdout.includes(shimVersion), `--version printed ${JSON.stringify(ver.stdout)} (stderr ${ver.stderr}), want ${shimVersion}`);
   ok(`--version prints ${shimVersion}`);
   const listing = run(`tar tzf ${join(work, serverTgz)}`, work).split('\n').filter(Boolean);
-  const tvz = run(`tar tvzf ${join(work, serverTgz)}`, work).split('\n').filter((l) => /\/supersurf-shim$/.test(l));
-  assert(tvz.length === 4, `server tarball holds ${tvz.length} supersurf-shim binaries, want 4 (linux/darwin x amd64/arm64)`);
+  const tvz = run(`tar tvzf ${join(work, serverTgz)}`, work).split('\n').filter((l) => /\/supersurf-server$/.test(l));
+  assert(tvz.length === 4, `server tarball holds ${tvz.length} supersurf-server binaries, want 4 (linux/darwin x amd64/arm64)`);
   const badModes = tvz.filter((l) => !l.startsWith('-rwxr-xr-x'));
   assert(badModes.length === 0, `server tarball binaries not exactly 0755:\n${badModes.join('\n')}`);
   ok('all four binaries in the server tarball are exactly mode 0755');
@@ -163,10 +163,10 @@ try {
   ok('findShimBinary(<installed supersurf-mcp root>) returns the host binary');
 
   // ---- the installed bin becomes the shim; ensure installs versions/<v>/ and starts the daemon ----
-  console.log('→ agents.relay on: installed supersurf-mcp -> shim -> daemon from versions/<v>/ (throwaway HOME)...');
+  console.log('→ server.legacy false: installed supersurf-mcp -> shim -> daemon from versions/<v>/ (throwaway HOME)...');
   const ssDir = join(smokeHome, '.supersurf');
   mkdirSync(ssDir, { recursive: true });
-  writeFileSync(join(ssDir, 'config.json'), JSON.stringify({ agents: { relay: true } }));
+  writeFileSync(join(ssDir, 'config.json'), JSON.stringify({ server: { legacy: false } }));
   const port = await freePort();
   assert(port !== 5555, 'free port is 5555');
   server = spawn(join(nm, '.bin', 'supersurf-mcp'), ['--port', String(port)], { cwd: smokeHome, env: cleanEnv, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -191,7 +191,7 @@ try {
 
   const exe = () => { try { return realpathSync(readlinkSync(`/proc/${mcp.pid}/exe`)); } catch { return ''; } };
   if (process.platform === 'linux') {
-    for (let i = 0; i < 200 && basename(exe()) !== 'supersurf-shim'; i++) await sleep(25);
+    for (let i = 0; i < 200 && basename(exe()) !== 'supersurf-server'; i++) await sleep(25);
     assert(exe() === realpathSync(hostBin), `/proc/${mcp.pid}/exe is ${exe()}, want ${hostBin}`);
     ok(`pid ${mcp.pid} became the installed shim from supersurf-mcp/bin (same pid)`);
   }

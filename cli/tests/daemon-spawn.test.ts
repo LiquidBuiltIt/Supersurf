@@ -56,7 +56,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 // CALL time, so setting process.env.HOME (what os.homedir() reads on
 // Linux/macOS) in beforeEach redirects every path to tmpHome and a miss can
 // never touch the developer's real ~/.supersurf.
-const RELAY_KEYS = ['SUPERSURF_RELAY', 'SUPERSURF_SHIM_BIN', 'SUPERSURF_CONFIG_FILE', 'SUPERSURF_DEV_ENVIRONMENT'];
+const RELAY_KEYS = ['SUPERSURF_DISABLE_LEGACY_SERVER', 'SUPERSURF_SERVER_BIN', 'SUPERSURF_CONFIG_FILE', 'SUPERSURF_DEV_ENVIRONMENT'];
 
 describe('ensureDaemon', () => {
   let tmpHome: string;
@@ -195,14 +195,14 @@ describe('ensureDaemon', () => {
     }
   });
 
-  describe('agents.relay', () => {
+  describe('server.legacy', () => {
     const legacy = () => spawned.filter((c) => c.cmd === 'npx' || c.cmd === 'node');
     const ensures = () => spawned.filter((c) => c.cmd === shimBin && c.args[0] === 'ensure');
     let warn: ReturnType<typeof vi.spyOn>;
     beforeEach(() => {
       shimBin = path.join(tmpHome, 'fake-shim');
       fs.writeFileSync(shimBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-      process.env.SUPERSURF_SHIM_BIN = shimBin;
+      process.env.SUPERSURF_SERVER_BIN = shimBin;
       warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
     afterEach(() => warn.mockRestore());
@@ -216,7 +216,7 @@ describe('ensureDaemon', () => {
     });
 
     it('on + binary: runs `ensure --port <n>` and spawns no legacy daemon when it succeeds', async () => {
-      process.env.SUPERSURF_RELAY = '1';
+      process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
       const { ensureDaemon } = await import('../src/daemon-spawn');
       await expect(ensureDaemon(5599)).resolves.toBeUndefined();
       expect(ensures().map((c) => c.args)).toEqual([['ensure', '--port', '5599']]);
@@ -225,17 +225,17 @@ describe('ensureDaemon', () => {
     });
 
     it('on + ensure fails: one warning line, then the legacy spawn', async () => {
-      process.env.SUPERSURF_RELAY = '1';
+      process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
       shimResult.status = 1;
       const { ensureDaemon } = await import('../src/daemon-spawn');
       await expect(ensureDaemon(5555)).resolves.toBeUndefined();
       expect(ensures()).toHaveLength(1);
-      expect(warn.mock.calls).toEqual([['[supersurf] supersurf-shim ensure failed; starting the daemon the usual way.']]);
+      expect(warn.mock.calls).toEqual([['[supersurf] supersurf-server ensure failed; starting the daemon the usual way.']]);
       expect(legacy()).toHaveLength(1);
     });
 
     it('on + the shim cannot be spawned: warning, then the legacy spawn', async () => {
-      process.env.SUPERSURF_RELAY = '1';
+      process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
       shimResult.error = new Error('spawn EACCES');
       const { ensureDaemon } = await import('../src/daemon-spawn');
       await expect(ensureDaemon(5555)).resolves.toBeUndefined();
@@ -244,17 +244,17 @@ describe('ensureDaemon', () => {
     });
 
     it('on + port outside 1..65535: the shim is not run, one warning, then the legacy spawn', async () => {
-      process.env.SUPERSURF_RELAY = '1';
+      process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
       const { ensureDaemon } = await import('../src/daemon-spawn');
       await ensureDaemon(70000);
       expect(ensures()).toHaveLength(0);
-      expect(warn.mock.calls).toEqual([['[supersurf] agents.relay is on but port 70000 is not in 1-65535; starting the daemon the usual way.']]);
+      expect(warn.mock.calls).toEqual([['[supersurf] server.legacy is false but port 70000 is not in 1-65535; starting the daemon the usual way.']]);
       expect(legacy()).toHaveLength(1);
     });
 
     it('on, no binary: the legacy path exactly, no warning', async () => {
-      process.env.SUPERSURF_RELAY = '1';
-      process.env.SUPERSURF_SHIM_BIN = path.join(tmpHome, 'no-such-shim');
+      process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
+      process.env.SUPERSURF_SERVER_BIN = path.join(tmpHome, 'no-such-shim');
       const { ensureDaemon } = await import('../src/daemon-spawn');
       await ensureDaemon(5555);
       expect(ensures()).toHaveLength(0);
@@ -263,7 +263,7 @@ describe('ensureDaemon', () => {
     });
 
     it('on, daemon already running: the shim is not run', async () => {
-      process.env.SUPERSURF_RELAY = '1';
+      process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
       fs.mkdirSync(path.join(tmpHome, '.supersurf'), { recursive: true });
       fs.writeFileSync(path.join(tmpHome, '.supersurf', 'daemon.pid'), String(process.pid));
       fs.writeFileSync(sockPath, '');

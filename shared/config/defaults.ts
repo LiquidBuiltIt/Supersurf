@@ -20,7 +20,8 @@ export const HARDCODED_DEFAULTS: Config = {
     port: 5555,
     idle_timeout_ms: 10 * 60 * 1000,
   },
-  agents: { idle_timeout_ms: 600_000, multi_agent: false, relay: false },
+  agents: { idle_timeout_ms: 600_000, multi_agent: false },
+  server: { legacy: true },
   logging: {
     debug: false,
     usage_metrics: false,
@@ -46,6 +47,7 @@ export const SCAFFOLD_DEFAULTS: Config = {
   },
   daemon: { ...HARDCODED_DEFAULTS.daemon },
   agents: { ...HARDCODED_DEFAULTS.agents },
+  server: { ...HARDCODED_DEFAULTS.server },
   logging: { ...HARDCODED_DEFAULTS.logging, usage_metrics: true },
   profiles: {
     chrome_path: HARDCODED_DEFAULTS.profiles.chrome_path,

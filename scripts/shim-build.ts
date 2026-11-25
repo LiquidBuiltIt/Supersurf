@@ -1,6 +1,6 @@
 /**
  * `npm run build.shim.all`: build the four release binaries of the Go shim into
- * `server/bin/<goos>-<goarch>/supersurf-shim` (shipped inside the `supersurf-mcp` npm package).
+ * `server/bin/<goos>-<goarch>/supersurf-server` (shipped inside the `supersurf-mcp` npm package).
  * `--check` only verifies what is already there (used by `prepublishOnly` and publish).
  * `npm run build` never runs this; the dev-only `build.shim` stays host-only.
  */
@@ -28,7 +28,7 @@ const defaultRun: GoRun = (go, args, opts) => spawnSync(go, args, { ...opts, std
 const here = path.dirname(fileURLToPath(import.meta.url));
 const defaultServerDir = path.resolve(here, '..', 'server');
 // Go source in <server>/shim; binaries in <server>/bin, so they ship in the supersurf-mcp package.
-const binPath = (serverDir: string, t: { goos: string; goarch: string }) => path.join(serverDir, 'bin', `${t.goos}-${t.goarch}`, 'supersurf-shim');
+const binPath = (serverDir: string, t: { goos: string; goarch: string }) => path.join(serverDir, 'bin', `${t.goos}-${t.goarch}`, 'supersurf-server');
 
 /** Build all four targets; returns the output paths. Throws naming the target that failed. */
 export function buildShimAll(o: { go: string; version: string; serverDir?: string; run?: GoRun }): string[] {
