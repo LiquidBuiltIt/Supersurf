@@ -80,6 +80,13 @@ describe('configHash', () => {
       write({ server: { legacy: false }, agents: { multi_agent: true } });
       expect(hash()).not.toBe(a);
     });
+
+    it('changes on a sibling leaf inside server', () => {
+      write({ server: { legacy: false, other: 1 } });
+      const a = hash();
+      write({ server: { legacy: false, other: 2 } });
+      expect(hash()).not.toBe(a);
+    });
   });
 });
 

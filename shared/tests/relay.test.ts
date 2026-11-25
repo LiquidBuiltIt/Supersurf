@@ -61,7 +61,7 @@ describe('findShimBinary', () => {
     expect(findShimBinary(path.join(dir, 'pkg'))).toBe(env);
   });
 
-  it.skipIf(!supported)('ignores the old <root>/bin/supersurf-server path and a supersurf-server package', () => {
+  it.skipIf(!supported)('ignores a bare <root>/bin/supersurf-server path (no <goos>-<goarch> dir) and a supersurf-server package', () => {
     fs.mkdirSync(path.join(dir, 'bin'));
     fs.writeFileSync(path.join(dir, 'bin', 'supersurf-server'), '', { mode: 0o755 });
     const pkg = path.join(dir, 'node_modules', 'supersurf-server');

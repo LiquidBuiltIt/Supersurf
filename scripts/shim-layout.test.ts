@@ -13,15 +13,17 @@ describe('shim layout: the Go shim lives in server/ and ships inside supersurf-m
     expect(existsSync(join(root, 'server/shim/go.mod'))).toBe(true);
   });
 
-  it('no package named supersurf-server: not a workspace, dependency or lockfile entry', () => {
+  it('no package named supersurf-server or supersurf-shim: not a workspace, dependency or lockfile entry', () => {
     expect(read('package.json').workspaces).not.toContain('shim');
     for (const p of ['package.json', 'shared', 'engine', 'daemon', 'server', 'cli', 'extension'].map((d) => (d.endsWith('.json') ? d : `${d}/package.json`))) {
       const pkg = read(p);
-      expect(pkg.name).not.toBe('supersurf-server');
-      for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) expect(pkg[k]?.['supersurf-server']).toBeUndefined();
+      for (const n of ['supersurf-server', 'supersurf-shim']) {
+        expect(pkg.name).not.toBe(n);
+        for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) expect(pkg[k]?.[n]).toBeUndefined();
+      }
     }
     expect(existsSync(join(root, 'server/shim/package.json'))).toBe(false);
-    expect(text('package-lock.json')).not.toMatch(/supersurf-server"/);
+    expect(text('package-lock.json')).not.toMatch(/supersurf-(server|shim)"/);
   });
 
   it('server/package.json ships bin (not shim) and checks the binaries before publish', () => {
