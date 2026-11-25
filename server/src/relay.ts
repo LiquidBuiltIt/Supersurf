@@ -1,7 +1,7 @@
 /**
- * The `agents.relay` decision for the `supersurf-mcp` bin: hand this process's stdio to
- * `supersurf-shim` (execve where Node has it), or return and let today's Node server run.
- * Off prints nothing. Nothing is read from stdin before the decision.
+ * The `server.legacy` decision for the `supersurf-mcp` bin: hand this process's stdio to
+ * `supersurf-server` (execve where Node has it), or return and let today's Node server run.
+ * With `server.legacy` true (the default) it prints nothing. Nothing is read from stdin before the decision.
  *
  * @module relay
  */
@@ -16,23 +16,23 @@ import { buildConfigService } from './backend-config';
  */
 export async function relayDecision(options: any, args: string[], exec: typeof execReplace = execReplace): Promise<number | null> {
   const cfg = buildConfigService(options).get(); // no onWarn: `main` still prints its warnings once
-  if (!cfg.agents.relay) return null;
+  if (cfg.server.legacy) return null;
 
   if (!validPort(cfg.daemon.port)) {
-    console.error(`[supersurf] agents.relay is on but port ${cfg.daemon.port} is not in 1-65535; running the Node server.`);
+    console.error(`[supersurf] server.legacy is false but port ${cfg.daemon.port} is not in 1-65535; running the Node server.`);
     return null;
   }
 
   const bin = findShimBinary(path.resolve(__dirname, '..')); // this package: dist/relay.js or src/relay.ts -> the supersurf-mcp root, whose bin/ holds the release binaries
   if (!bin) {
-    console.error('[supersurf] agents.relay is on but supersurf-shim was not found (set SUPERSURF_SHIM_BIN, or install a SuperSurf build that ships it); running the Node server.');
+    console.error('[supersurf] server.legacy is false but supersurf-server was not found (set SUPERSURF_SERVER_BIN, or install a SuperSurf build that ships it); running the Node server.');
     return null;
   }
   try {
     probeShim(bin); // a failed process.execve aborts the process, so prove the binary runs first
     return await exec(bin, shimArgs(args, cfg.daemon.port));
   } catch (err) {
-    console.error(`[supersurf] could not hand over to supersurf-shim: ${err instanceof Error ? err.message : String(err)}; running the Node server.`);
+    console.error(`[supersurf] could not hand over to supersurf-server: ${err instanceof Error ? err.message : String(err)}; running the Node server.`);
     return null;
   }
 }

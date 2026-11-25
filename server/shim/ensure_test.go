@@ -311,7 +311,7 @@ func TestParseArgs(t *testing.T) {
 // version names a directory under versions/.
 func TestEnsureRefusesForeignOrUnsafePackage(t *testing.T) {
 	for _, pkg := range []string{
-		`{"name":"supersurf-shim-linux-x64","version":"5.0.0"}`,
+		`{"name":"supersurf-server-linux-x64","version":"5.0.0"}`,
 		`{"name":"supersurf-daemon","version":"../../escape"}`,
 	} {
 		r := newEnsureRig(t, "5.0.0")

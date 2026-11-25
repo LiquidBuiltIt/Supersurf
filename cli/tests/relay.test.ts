@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 
 /**
- * `supersurf mcp` and the `agents.relay` switch. `execReplace` is mocked: the real one would
+ * `supersurf mcp` and the `server.legacy` switch. `execReplace` is mocked: the real one would
  * `process.execve` over the test runner. `node:child_process` is mocked as in dispatcher.test.ts, so
  * the fall-through shell-out is observable without running npx.
  */
@@ -32,7 +32,7 @@ import { dispatch } from '../src/dispatcher';
 import { relayMcp } from '../src/relay';
 import { VERSION } from '../src/version';
 
-const KEYS = ['SUPERSURF_SHIM_BIN', 'SUPERSURF_CONFIG_FILE', 'SUPERSURF_RELAY', 'SUPERSURF_PORT', 'SUPERSURF_DEV_ENVIRONMENT'];
+const KEYS = ['SUPERSURF_SERVER_BIN', 'SUPERSURF_CONFIG_FILE', 'SUPERSURF_DISABLE_LEGACY_SERVER', 'SUPERSURF_PORT', 'SUPERSURF_DEV_ENVIRONMENT'];
 const saved: Record<string, string | undefined> = {};
 let home: string;
 let recBin: string;
@@ -64,38 +64,38 @@ afterEach(() => {
 
 describe('relayMcp', () => {
   it('off: null, nothing executed, no output', async () => {
-    process.env.SUPERSURF_SHIM_BIN = recBin;
+    process.env.SUPERSURF_SERVER_BIN = recBin;
     expect(await relayMcp(['--port', '6001'])).toBeNull();
     expect(execReplaceMock).not.toHaveBeenCalled();
     expect(err).not.toHaveBeenCalled();
   });
 
   it('on with --script-mode: null, nothing executed', async () => {
-    process.env.SUPERSURF_SHIM_BIN = recBin;
-    process.env.SUPERSURF_RELAY = '1';
+    process.env.SUPERSURF_SERVER_BIN = recBin;
+    process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
     expect(await relayMcp(['--script-mode'])).toBeNull();
     expect(execReplaceMock).not.toHaveBeenCalled();
   });
 
   it('on with a binary: execs it with the shim args and the resolved port, returns its code', async () => {
-    process.env.SUPERSURF_SHIM_BIN = recBin;
+    process.env.SUPERSURF_SERVER_BIN = recBin;
     execReplaceMock.mockResolvedValue(7);
-    expect(await relayMcp(['--relay', '--port=6002', '--multi-agent', '--log-file', 'x'])).toBe(7);
+    expect(await relayMcp(['--disable-legacy-server', '--port=6002', '--multi-agent', '--log-file', 'x'])).toBe(7);
     expect(execReplaceMock).toHaveBeenCalledWith(recBin, ['--port', '6002', '--multi-agent']);
     expect(err).not.toHaveBeenCalled();
   });
 
   it('on, no binary: null and no warning (the server warns once)', async () => {
-    process.env.SUPERSURF_RELAY = '1';
-    process.env.SUPERSURF_SHIM_BIN = path.join(home, 'absent');
+    process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
+    process.env.SUPERSURF_SERVER_BIN = path.join(home, 'absent');
     expect(await relayMcp([])).toBeNull();
     expect(execReplaceMock).not.toHaveBeenCalled();
     expect(err).not.toHaveBeenCalled();
   });
 
   it('on, port outside 1..65535: null, nothing executed, no warning (the server warns once)', async () => {
-    process.env.SUPERSURF_SHIM_BIN = recBin;
-    expect(await relayMcp(['--relay', '--port', '70000'])).toBeNull();
+    process.env.SUPERSURF_SERVER_BIN = recBin;
+    expect(await relayMcp(['--disable-legacy-server', '--port', '70000'])).toBeNull();
     expect(execReplaceMock).not.toHaveBeenCalled();
     expect(err).not.toHaveBeenCalled();
   });
@@ -105,28 +105,28 @@ describe('relayMcp', () => {
     const target = `${process.platform}-${({ x64: 'amd64', arm64: 'arm64' } as Record<string, string>)[process.arch]}`;
     fs.mkdirSync(path.join(root, 'server', 'bin', target), { recursive: true });
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'supersurf' }));
-    const bin = path.join(root, 'server', 'bin', target, 'supersurf-shim');
+    const bin = path.join(root, 'server', 'bin', target, 'supersurf-server');
     fs.copyFileSync(recBin, bin);
     fs.chmodSync(bin, 0o755);
     process.env.SUPERSURF_DEV_ENVIRONMENT = root;
     execReplaceMock.mockResolvedValue(0);
-    expect(await relayMcp(['--relay'])).toBe(0);
+    expect(await relayMcp(['--disable-legacy-server'])).toBe(0);
     expect(execReplaceMock.mock.calls[0][0]).toBe(bin);
   });
 
   it('on: a rejected exec warns once and returns null', async () => {
-    process.env.SUPERSURF_SHIM_BIN = recBin;
-    process.env.SUPERSURF_RELAY = '1';
+    process.env.SUPERSURF_SERVER_BIN = recBin;
+    process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
     execReplaceMock.mockRejectedValue(new Error('boom'));
     expect(await relayMcp([])).toBeNull();
-    expect(err.mock.calls).toEqual([['[supersurf] could not hand over to supersurf-shim: boom; running the Node server.']]);
+    expect(err.mock.calls).toEqual([['[supersurf] could not hand over to supersurf-server: boom; running the Node server.']]);
   });
 
   it('on: a binary that fails its --version probe never reaches exec', async () => {
     const bad = path.join(home, 'bad');
     fs.writeFileSync(bad, '#!/bin/sh\nexit 3\n', { mode: 0o755 });
-    process.env.SUPERSURF_SHIM_BIN = bad;
-    process.env.SUPERSURF_RELAY = '1';
+    process.env.SUPERSURF_SERVER_BIN = bad;
+    process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
     expect(await relayMcp([])).toBeNull();
     expect(execReplaceMock).not.toHaveBeenCalled();
     expect(err).toHaveBeenCalledTimes(1);
@@ -135,7 +135,7 @@ describe('relayMcp', () => {
 
 describe('dispatch mcp with the relay switch', () => {
   it('off: shells out to the pinned npx package; the recording shim never runs', async () => {
-    process.env.SUPERSURF_SHIM_BIN = recBin;
+    process.env.SUPERSURF_SERVER_BIN = recBin;
     await dispatch(['node', 'supersurf', 'mcp', '--port', '6001']);
     expect(spawned[0].cmd).toBe('npx');
     expect(spawned[0].args).toEqual(['--yes', `supersurf-mcp@${VERSION}`, '--port', '6001']);
@@ -144,8 +144,8 @@ describe('dispatch mcp with the relay switch', () => {
   });
 
   it('on with a binary: exec path with shimArgs, exits with its code, no shell-out', async () => {
-    process.env.SUPERSURF_SHIM_BIN = recBin;
-    process.env.SUPERSURF_RELAY = '1';
+    process.env.SUPERSURF_SERVER_BIN = recBin;
+    process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
     execReplaceMock.mockResolvedValue(5);
     await dispatch(['node', 'supersurf', 'mcp', '--debug', 'no_truncate', '--port', '6003', '--disable-secure-eval']);
     expect(execReplaceMock).toHaveBeenCalledWith(recBin, ['--port', '6003', '--debug', '--disable-secure-eval']);
@@ -154,24 +154,24 @@ describe('dispatch mcp with the relay switch', () => {
   });
 
   it('on, no binary: shell-out as before, no warning', async () => {
-    process.env.SUPERSURF_RELAY = '1';
-    process.env.SUPERSURF_SHIM_BIN = path.join(home, 'absent');
+    process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
+    process.env.SUPERSURF_SERVER_BIN = path.join(home, 'absent');
     await dispatch(['node', 'supersurf', 'mcp']);
     expect(spawned[0].args).toEqual(['--yes', `supersurf-mcp@${VERSION}`]);
     expect(err).not.toHaveBeenCalled();
   });
 
   it('on with --script-mode: shell-out, the shim is not used', async () => {
-    process.env.SUPERSURF_SHIM_BIN = recBin;
-    process.env.SUPERSURF_RELAY = '1';
+    process.env.SUPERSURF_SERVER_BIN = recBin;
+    process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
     await dispatch(['node', 'supersurf', 'mcp', '--script-mode']);
     expect(spawned[0].args).toEqual(['--yes', `supersurf-mcp@${VERSION}`, '--script-mode']);
     expect(execReplaceMock).not.toHaveBeenCalled();
   });
 
   it('on, exec rejects: one warning, then the shell-out', async () => {
-    process.env.SUPERSURF_SHIM_BIN = recBin;
-    process.env.SUPERSURF_RELAY = '1';
+    process.env.SUPERSURF_SERVER_BIN = recBin;
+    process.env.SUPERSURF_DISABLE_LEGACY_SERVER = '1';
     execReplaceMock.mockRejectedValue(new Error('boom'));
     await dispatch(['node', 'supersurf', 'mcp']);
     expect(err).toHaveBeenCalledTimes(1);

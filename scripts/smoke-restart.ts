@@ -2,7 +2,7 @@
  * Smoke test — daemon restart hand-off, end to end with the real Go shim.
  *
  * WHY A REAL-PROCESS TEST. The unit and daemon tests drive the hand-off with
- * fixtures. This one runs the whole chain: the real `supersurf-shim` relaying an
+ * fixtures. This one runs the whole chain: the real `supersurf-server` relaying an
  * MCP client's NDJSON, the BUILT daemon, the real `restart` CLI
  * (`shim ensure --install` + `daemon_restart`), and a successor daemon taking the
  * socket over. It asserts what a client sees: the same tool list after a
@@ -171,7 +171,7 @@ async function main(): Promise<void> {
   const status = async () => { const s = await request(sock, { type: 'daemon_status' }); pids.add(s.pid); return s; };
 
   // Shim binary.
-  const shimBin = path.join(home, 'supersurf-shim');
+  const shimBin = path.join(home, 'supersurf-server');
   const b = spawnSync(go, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO_ROOT, 'server', 'shim'), encoding: 'utf8', env: { ...process.env, GOTOOLCHAIN: 'local' } });
   check(b.status === 0, `go build failed: ${b.stderr}`);
 
@@ -222,7 +222,7 @@ async function main(): Promise<void> {
   const restart = async (cliDir: string): Promise<{ oldPid: number; newPid: number }> => {
     const oldPid = (await status()).pid;
     const r = spawnSync(process.execPath, [mainOf(cliDir), 'restart', '--port', String(port)], {
-      env: { PATH: process.env.PATH, HOME: home, SUPERSURF_SHIM_BIN: shimBin }, encoding: 'utf8', timeout: 60_000,
+      env: { PATH: process.env.PATH, HOME: home, SUPERSURF_SERVER_BIN: shimBin }, encoding: 'utf8', timeout: 60_000,
     });
     const text = `${r.stdout}${r.stderr}`;
     check(r.status === 0 && text.includes(`Daemon restarted (pid ${oldPid} -> `), `restart did not commit (exit ${r.status}): ${text.slice(-600)}`);

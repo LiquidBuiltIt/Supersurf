@@ -168,7 +168,7 @@ describe('server daemon pin', () => {
     expect(read('server/package.json').dependencies['supersurf-daemon']).toBe(read('daemon/package.json').version);
   });
   it('pins no shim package: the shim binaries ship inside supersurf-mcp', () => {
-    expect(read('daemon/package.json').dependencies['supersurf-shim']).toBeUndefined();
+    expect(read('daemon/package.json').dependencies['supersurf-server']).toBeUndefined();
   });
 });
 

@@ -56,7 +56,7 @@ describe.skipIf(!!missing)('shim end to end (Go shim, built daemon)', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2b-e2e-'));
     home = path.join(dir, 'home');
     fs.mkdirSync(home);
-    shimBin = path.join(dir, 'supersurf-shim');
+    shimBin = path.join(dir, 'supersurf-server');
     const b = spawnSync(GO!, ['build', '-o', shimBin, '.'], { cwd: path.join(REPO, 'server', 'shim'), encoding: 'utf8' });
     if (b.status !== 0) throw new Error(`go build failed: ${b.stderr}`);
 

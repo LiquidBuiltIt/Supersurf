@@ -54,8 +54,8 @@ describe('config defaults', () => {
     expect(SCAFFOLD_DEFAULTS.agents.multi_agent).toBe(false);
   });
 
-  it('agents.relay defaults to off and is scaffolded off', () => {
-    expect(HARDCODED_DEFAULTS.agents.relay).toBe(false);
-    expect(SCAFFOLD_DEFAULTS.agents.relay).toBe(false);
+  it('server.legacy defaults to true and is scaffolded true', () => {
+    expect(HARDCODED_DEFAULTS.server.legacy).toBe(true);
+    expect(SCAFFOLD_DEFAULTS.server.legacy).toBe(true);
   });
 });

@@ -27,27 +27,27 @@ describe('configHash', () => {
     expect(hash()).toBe(crypto.createHash('sha256').update(raw).digest('hex'));
   });
 
-  describe('agents.relay is left out', () => {
+  describe('server.legacy is left out', () => {
     const base = { daemon: { port: 5555 }, agents: { multi_agent: false } };
 
-    it('ignores relay true and false', () => {
-      write({ ...base, agents: { ...base.agents, relay: false } });
+    it('ignores legacy true and false', () => {
+      write({ ...base, server: { legacy: true } });
       const a = hash();
-      write({ ...base, agents: { ...base.agents, relay: true } });
+      write({ ...base, server: { legacy: false } });
       expect(hash()).toBe(a);
     });
 
-    it('ignores relay added and removed', () => {
+    it('ignores legacy added and removed', () => {
       write(base);
       const a = hash();
-      write({ ...base, agents: { ...base.agents, relay: true } });
+      write({ ...base, server: { legacy: false } });
       expect(hash()).toBe(a);
     });
 
-    it('ignores adding an agents object that holds only relay', () => {
+    it('ignores adding a server object that holds only legacy', () => {
       write({ daemon: { port: 5555 } });
       const a = hash();
-      write({ daemon: { port: 5555 }, agents: { relay: true } });
+      write({ daemon: { port: 5555 }, server: { legacy: false } });
       expect(hash()).toBe(a);
     });
 
@@ -61,23 +61,30 @@ describe('configHash', () => {
 
   describe('every other leaf still counts', () => {
     it('changes on another agents leaf', () => {
-      write({ agents: { multi_agent: false, relay: true } });
+      write({ agents: { multi_agent: false }, server: { legacy: false } });
       const a = hash();
-      write({ agents: { multi_agent: true, relay: true } });
+      write({ agents: { multi_agent: true }, server: { legacy: false } });
       expect(hash()).not.toBe(a);
     });
 
     it('changes on a leaf outside agents', () => {
-      write({ daemon: { port: 5555 }, agents: { relay: true } });
+      write({ daemon: { port: 5555 }, server: { legacy: false } });
       const a = hash();
-      write({ daemon: { port: 5556 }, agents: { relay: true } });
+      write({ daemon: { port: 5556 }, server: { legacy: false } });
       expect(hash()).not.toBe(a);
     });
 
-    it('changes when a non-relay agents leaf appears next to relay', () => {
-      write({ agents: { relay: true } });
+    it('changes when another leaf appears next to server.legacy', () => {
+      write({ server: { legacy: false } });
       const a = hash();
-      write({ agents: { relay: true, multi_agent: true } });
+      write({ server: { legacy: false }, agents: { multi_agent: true } });
+      expect(hash()).not.toBe(a);
+    });
+
+    it('changes on a sibling leaf inside server', () => {
+      write({ server: { legacy: false, other: 1 } });
+      const a = hash();
+      write({ server: { legacy: false, other: 2 } });
       expect(hash()).not.toBe(a);
     });
   });

@@ -1,5 +1,5 @@
 /**
- * Helpers for handing a process's stdio to `supersurf-shim` (the `agents.relay` switch).
+ * Helpers for handing a process's stdio to `supersurf-server` (the `server.legacy` switch).
  * One copy, used by the server bin, the CLI binary and the daemon. Node built-ins only.
  *
  * @module relay
@@ -20,15 +20,15 @@ export function shimTarget(): string | null {
 }
 
 /**
- * First executable file of: `SUPERSURF_SHIM_BIN` (absolute, this process's env); `<root>/bin/<goos>-<goarch>/supersurf-shim`
+ * First executable file of: `SUPERSURF_SERVER_BIN` (absolute, this process's env); `<root>/bin/<goos>-<goarch>/supersurf-server`
  * where `root` is the supersurf-mcp package dir (the release binaries ship inside it).
  */
 export function findShimBinary(root?: string): string | null {
-  const env = process.env.SUPERSURF_SHIM_BIN;
+  const env = process.env.SUPERSURF_SERVER_BIN;
   const target = shimTarget();
   const candidates = [
     ...(env && path.isAbsolute(env) ? [env] : []),
-    ...(root && target ? [path.join(root, 'bin', target, 'supersurf-shim')] : []),
+    ...(root && target ? [path.join(root, 'bin', target, 'supersurf-server')] : []),
   ];
   return candidates.find((c) => {
     try { fs.accessSync(c, fs.constants.X_OK); return fs.statSync(c).isFile(); } catch { return false; }
@@ -98,7 +98,7 @@ export function execReplace(file: string, args: string[], deps: ExecDeps = {}): 
 }
 
 /**
- * The relay switch and port for a process with no Commander (the CLI binary): `--relay` and
+ * The relay switch and port for a process with no Commander (the CLI binary): `--disable-legacy-server` and
  * `--port N|=N` from `argv`, `SUPERSURF_CONFIG_FILE || ~/.supersurf/config.json`, the env.
  * Silent: no scaffold, no warnings.
  */
@@ -106,12 +106,12 @@ export function readRelaySwitch(argv: string[]): { relay: boolean; port: number 
   const cli: PartialConfig = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--relay') cli.agents = { ...(cli.agents || {}), relay: true };
+    if (a === '--disable-legacy-server') cli.server = { legacy: false };
     else if (a === '--port' && argv[i + 1] !== undefined && !argv[i + 1].startsWith('-')) cli.daemon = { port: parseInt(argv[++i], 10) };
     else if (a.startsWith('--port=')) cli.daemon = { port: parseInt(a.slice(7), 10) };
   }
   const file = loadJsonConfig(process.env.SUPERSURF_CONFIG_FILE || path.join(os.homedir(), '.supersurf', 'config.json')).config;
   const env = loadEnvConfig(process.env).config;
   const c = new ConfigService({ cli, env, file }).get();
-  return { relay: c.agents.relay, port: c.daemon.port };
+  return { relay: !c.server.legacy, port: c.daemon.port };
 }

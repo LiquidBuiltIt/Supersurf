@@ -480,7 +480,7 @@ func install(dir, src, version, mainRel string) (string, error) {
 // ---- Ensure ----
 
 // Ensure leaves a running daemon or returns the reason it cannot. It is the
-// whole of `supersurf-shim ensure` and the shim's own start path.
+// whole of `supersurf-server ensure` and the shim's own start path.
 func Ensure(o EnsureOpts) error {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -626,7 +626,7 @@ func ensureDev(o EnsureOpts, dir string, recs []spawnRec, now time.Time) error {
 		if w == nil {
 			w = os.Stderr
 		}
-		fmt.Fprintf(w, "supersurf-shim: dev clone: removed a leftover entry (%s) so the daemon restarts as the clone\n", left.Version)
+		fmt.Fprintf(w, "supersurf-server: dev clone: removed a leftover entry (%s) so the daemon restarts as the clone\n", left.Version)
 	}
 	if daemonUp(o.Home) {
 		return nil

@@ -31,8 +31,10 @@ export interface Config {
     idle_timeout_ms: number;
     /** Opt-in username-based multi-agent mode. Off (default) = one session per server process, named by `client_id`. */
     multi_agent: boolean;
-    /** Opt-in Go relay: `supersurf-mcp` hands its stdio to `supersurf-shim` and the daemon hosts the engine. */
-    relay: boolean;
+  };
+  server: {
+    /** `true` (default): the legacy Node MCP server. `false`: `supersurf-mcp` hands its stdio to `supersurf-server` and the daemon hosts the engine. */
+    legacy: boolean;
   };
   logging: {
     debug: DebugMode;
@@ -66,6 +68,7 @@ export type PartialConfig = {
   };
   daemon?: Partial<Config['daemon']>;
   agents?: Partial<Config['agents']>;
+  server?: Partial<Config['server']>;
   logging?: Partial<Config['logging']>;
   profiles?: {
     chrome_path?: string | null;

@@ -14,7 +14,7 @@ describe('relayDecision shim lookup root', () => {
   it('looks in its own package (supersurf-mcp), where the release binaries ship', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     process.env.SUPERSURF_CONFIG_FILE = rig.config;
-    await relayDecision({ relay: true, port: 6001 }, []);
+    await relayDecision({ disableLegacyServer: true, port: 6001 }, []);
     const root = vi.mocked(findShimBinary).mock.calls[0][0]!;
     expect(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).name).toBe('supersurf-mcp');
   });

@@ -10,7 +10,7 @@ import fs from 'fs';
 import net from 'net';
 
 const missing = !fs.existsSync(MAIN);
-const RELAY = { SUPERSURF_RELAY: '1' };
+const RELAY = { SUPERSURF_DISABLE_LEGACY_SERVER: '1' };
 
 let rig: DaemonRig;
 afterEach(() => rig?.cleanup());
@@ -40,7 +40,7 @@ describe.skipIf(missing)('D3 upgrade pending (real daemon)', () => {
     expect(rig.daemonLog()).toContain('reason=upgrade_pending');
   }, 20000);
 
-  it('a newer entry alone (relay off, no shim served, not shim-started) is a legacy daemon: no shim model, no upgrade_pending exit', async () => {
+  it('a newer entry alone (`server.legacy` true, no shim served, not shim-started) is a legacy daemon: no shim model, no upgrade_pending exit', async () => {
     rig = new DaemonRig();
     rig.writeEntry('99.0.0');
     const pid = await rig.start();
@@ -52,7 +52,7 @@ describe.skipIf(missing)('D3 upgrade pending (real daemon)', () => {
     expect(rig.daemonLog()).not.toContain('upgrade_pending');
   }, 20000);
 
-  it('agents.relay on, no entry file: shimModel is true', async () => {
+  it('server.legacy false, no entry file: shimModel is true', async () => {
     rig = new DaemonRig();
     await rig.start([], RELAY);
     expect((await rig.status()).shimModel).toBe(true);
@@ -121,10 +121,10 @@ describe.skipIf(missing)('D3 upgrade pending (real daemon)', () => {
     let buf = '';
     sock.on('data', (d) => { buf += d; });
     sock.on('error', () => {});
-    sock.write(JSON.stringify({ type: 'shim_register', protocol: 1, mode: 'mcp', sessionId: 'shim-0123456789abcdef', version: '0', cwd: '/', flags: {}, env: {}, caps: [], bin: '/opt/supersurf/bin/linux-amd64/supersurf-shim' }) + '\n');
+    sock.write(JSON.stringify({ type: 'shim_register', protocol: 1, mode: 'mcp', sessionId: 'shim-0123456789abcdef', version: '0', cwd: '/', flags: {}, env: {}, caps: [], bin: '/opt/supersurf/bin/linux-amd64/supersurf-server' }) + '\n');
     await waitFor(() => buf.includes('shim_ack'), 10000, 'shim_ack');
     sock.destroy();
     await waitFor(async () => (await rig.status()).shimSessions === 0, 3000, 'the shim socket to close');
-    expect((await rig.status()).shimBin).toBe('/opt/supersurf/bin/linux-amd64/supersurf-shim');
+    expect((await rig.status()).shimBin).toBe('/opt/supersurf/bin/linux-amd64/supersurf-server');
   }, 20000);
 });

@@ -34,7 +34,7 @@ export function cliToPartial(options: any): PartialConfig {
   if (options.disableSecureEval) out.security = { ...(out.security || {}), secure_eval: false };
   if (options.disablePlaybookEval) out.security = { ...(out.security || {}), playbook_eval: false };
   if (options.multiAgent) out.agents = { ...(out.agents || {}), multi_agent: true };
-  if (options.relay) out.agents = { ...(out.agents || {}), relay: true };
+  if (options.disableLegacyServer) out.server = { legacy: false };
   return out;
 }
 

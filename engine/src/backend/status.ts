@@ -16,7 +16,7 @@ import type { IExtensionTransport } from 'shared';
 export const LEGACY_NOTICE_ENABLED = false;
 
 export const LEGACY_NOTICE_TEXT =
-  'SuperSurf legacy mode is removed in 5.0.0. To switch now, set `agents.relay` to `true` in `~/.supersurf/config.json`, then restart your MCP client.';
+  'The legacy SuperSurf server is removed in 5.0.0. To switch to the new server now, set `server.legacy` to `false` in `~/.supersurf/config.json`, then restart your MCP client.';
 
 let noticeOverride: boolean | undefined;
 

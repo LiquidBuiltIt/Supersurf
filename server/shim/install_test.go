@@ -93,7 +93,7 @@ func TestInstallCopiesOnlyPackageFiles(t *testing.T) {
 	os.MkdirAll(filepath.Join(r.src, ".tmp-test"), 0o755)
 	os.WriteFile(filepath.Join(r.src, ".tmp-test", "d.sock"), []byte("x"), 0o644)
 	os.MkdirAll(filepath.Join(r.src, "bin"), 0o755)
-	os.WriteFile(filepath.Join(r.src, "bin", "supersurf-shim"), []byte("elf"), 0o755)
+	os.WriteFile(filepath.Join(r.src, "bin", "supersurf-server"), []byte("elf"), 0o755)
 	os.MkdirAll(filepath.Join(r.src, "src"), 0o755)
 	os.MkdirAll(filepath.Join(r.src, "tests"), 0o755)
 	os.MkdirAll(filepath.Join(r.src, "node_modules", "own"), 0o755)

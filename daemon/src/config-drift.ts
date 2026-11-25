@@ -6,7 +6,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 
 /**
  * Hash of the config file the daemon compares against its startup hash. '' when unreadable.
- * `agents.relay` is left out: the switch takes effect on an MCP client restart, not a daemon
+ * `server.legacy` is left out: the switch takes effect on an MCP client restart, not a daemon
  * restart (the daemon's own startup read only feeds `shimModelInUse`, which a served shim also
  * opens). An unparsable file hashes as raw bytes. Parsed files hash canonical JSON, so
  * whitespace-only edits no longer flag drift.
@@ -24,9 +24,9 @@ export function configHash(p: string): string {
   } catch {
     return sha(bytes);
   }
-  if (isObj(parsed) && isObj(parsed.agents)) {
-    delete parsed.agents.relay;
-    if (Object.keys(parsed.agents).length === 0) delete parsed.agents;
+  if (isObj(parsed) && isObj(parsed.server)) {
+    delete parsed.server.legacy;
+    if (Object.keys(parsed.server).length === 0) delete parsed.server;
   }
   return sha(JSON.stringify(parsed));
 }

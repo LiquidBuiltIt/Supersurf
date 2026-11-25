@@ -19,7 +19,7 @@ const ENTRY: Record<DevComponent, string> = {
   server: 'server/dist/cli.js',
   daemon: 'daemon/dist/main.js',
   extension: 'extension',
-  shim: `server/bin/${shimTarget() ?? `${process.platform}-${process.arch}`}/supersurf-shim`,
+  shim: `server/bin/${shimTarget() ?? `${process.platform}-${process.arch}`}/supersurf-server`,
 };
 
 function sameFile(a: string, b: string | undefined): boolean {

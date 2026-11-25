@@ -51,7 +51,7 @@ export function writeEntry(e: Entry): void {
 }
 
 /**
- * The shim model is in use when `agents.relay` is on, this daemon accepted a `shim_register` since it
+ * The shim model is in use when `server.legacy` is `false`, this daemon accepted a `shim_register` since it
  * started, or was started `--spawned-by=shim`, or is a hand-off successor (`--takeover`: it exists only because the old
  * daemon was in the shim model). Gates the D3 exit and the `restart` hand-off; all four
  * false is a legacy daemon and behaves as before. An `entry` file alone does not count: it outlives the switch.

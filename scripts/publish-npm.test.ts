@@ -108,7 +108,7 @@ describe('publish.ts wiring', () => {
   });
 
   it('pre-flight checks the registry for every package and no shim package or pin', () => {
-    expect(src).not.toMatch(/shim\/package\.json|supersurf-shim/);
+    expect(src).not.toMatch(/shim\/package\.json|supersurf-(server|shim)/);
     expect(src).toContain('npmPublishState(');
     expect(src).toContain('NPM_PACKAGES');
   });

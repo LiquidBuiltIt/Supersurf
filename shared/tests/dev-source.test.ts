@@ -93,9 +93,9 @@ describe('devSource', () => {
 describe('devSource shim', () => {
   afterEach(() => { delete process.env.SUPERSURF_DEV_ENVIRONMENT; vi.restoreAllMocks(); });
 
-  const rel = `server/bin/${process.platform}-${({ x64: 'amd64', arm64: 'arm64' } as Record<string, string>)[process.arch]}/supersurf-shim`;
+  const rel = `server/bin/${process.platform}-${({ x64: 'amd64', arm64: 'arm64' } as Record<string, string>)[process.arch]}/supersurf-server`;
 
-  it('routes shim to server/bin/<goos>-<goarch>/supersurf-shim in a clone that has it', () => {
+  it('routes shim to server/bin/<goos>-<goarch>/supersurf-server in a clone that has it', () => {
     const root = fakeRepo();
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.writeFileSync(path.join(root, rel), '');

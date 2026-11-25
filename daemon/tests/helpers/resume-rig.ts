@@ -102,7 +102,7 @@ export class ResumeRig extends DaemonRig {
 
   /** The real `restart` CLI, as smoke.restart runs it. */
   restart(timeoutMs = 60_000) {
-    return this.cli(['restart', '--port', String(this.port)], { SUPERSURF_SHIM_BIN: this.shimBin }, timeoutMs);
+    return this.cli(['restart', '--port', String(this.port)], { SUPERSURF_SERVER_BIN: this.shimBin }, timeoutMs);
   }
 
   mcp(): McpShim {
