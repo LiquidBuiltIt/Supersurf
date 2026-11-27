@@ -522,6 +522,41 @@ describe('WebSocketConnection', () => {
       expect(MockWebSocket).toHaveBeenCalled();
     });
 
+    it('ignores a late close from a replaced socket', async () => {
+      const sockets: any[] = [];
+      class FakeWS {
+        static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3;
+        readyState = 0;
+        onopen: any = null; onmessage: any = null; onerror: any = null; onclose: any = null;
+        close = vi.fn();
+        send = vi.fn();
+        constructor() { sockets.push(this); }
+      }
+      (globalThis as any).WebSocket = FakeWS;
+      mockChrome.storage.local.get.mockResolvedValue({ extensionEnabled: true, mcpPort: '5555' });
+
+      await ws.connect();
+      const [s1] = sockets;
+      s1.readyState = 1;
+      s1.onopen();
+
+      // Registration page flow: disconnect then connect
+      ws.disconnect();
+      await ws.connect();
+      const s2 = sockets[1];
+      s2.readyState = 1;
+      s2.onopen();
+      expect(ws.isConnected).toBe(true);
+
+      // The old socket's close event arrives late
+      s1.readyState = 3;
+      s1.onclose({ code: 1005, reason: '' });
+
+      expect(ws.isConnected).toBe(true);
+      ws.send({ jsonrpc: '2.0', id: 1, result: 'ok' });
+      expect(s2.send).toHaveBeenCalledWith(JSON.stringify({ jsonrpc: '2.0', id: 1, result: 'ok' }));
+    });
+
     it('updates icon to connecting state', async () => {
       mockChrome.storage.local.get
         .mockResolvedValueOnce({ extensionEnabled: true })
