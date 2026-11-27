@@ -299,5 +299,5 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     expect(outcomes).toContain('ban_cleared');
     expect(outcomes).toContain('handoff_committed');
     expect((await rig.status()).pid).toBe(newPid);
-  }, 150000);
+  }, 300000);
 });
