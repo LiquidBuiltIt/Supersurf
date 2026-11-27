@@ -60,6 +60,7 @@ export class DaemonRig {
   children: ChildProcess[] = [];
   exits = new Map<number, number | null>();
   extraPids = new Set<number>();
+  cliPids = new Set<number>();
 
   constructor() {
     fs.mkdirSync(this.daemonDir, { recursive: true });
@@ -108,16 +109,21 @@ export class DaemonRig {
   /** Run `main.js <args>` as the CLI, in this HOME; resolves with its output and exit code. */
   cli(args: string[], extraEnv: Record<string, string> = {}, timeoutMs = 60000, main = MAIN): Promise<{ code: number | null; out: string }> {
     return new Promise((resolve) => {
-      const c = spawn(process.execPath, [main, ...args], { env: this.env(extraEnv), stdio: ['ignore', 'pipe', 'pipe'] });
+      // Own process group: a kill must also reach the `ensure --install` shim the CLI runs, or it keeps copying into a HOME that cleanup is removing.
+      const c = spawn(process.execPath, [main, ...args], { env: this.env(extraEnv), stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+      this.cliPids.add(c.pid!);
       let out = '';
       c.stdout!.on('data', (d) => { out += d; });
       c.stderr!.on('data', (d) => { out += d; });
-      const t = setTimeout(() => c.kill('SIGKILL'), timeoutMs);
+      const t = setTimeout(() => this.killCli(c.pid!), timeoutMs);
       c.on('exit', (code) => { clearTimeout(t); resolve({ code, out }); });
     });
   }
 
+  private killCli(pid: number): void { try { process.kill(-pid, 'SIGKILL'); } catch {} }
+
   cleanup(): void {
+    for (const p of this.cliPids) this.killCli(p);
     const pids = new Set<number>(this.extraPids);
     for (const c of this.children) if (c.pid) pids.add(c.pid);
     for (const r of this.spawns()) if (r.pid) pids.add(r.pid);

@@ -272,11 +272,18 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     fs.copyFileSync(path.join(DAEMON_PKG, 'package.json'), path.join(pkg, 'package.json'));
     fs.cpSync(path.join(DAEMON_PKG, 'dist'), path.join(pkg, 'dist'), { recursive: true });
     fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(pkg, 'node_modules'));
+    const oldPid = await rig.start(['--spawned-by=shim']);
+    // `restart` runs `ensure --install` with a fixed 60 s limit (cli-commands.ts). The copy (66 MB, 4400 files) takes about 0.3 s on a calm machine
+    // but was seen past 60 s under heavy disk IO. Do the copy first with a long limit; `versions/<v>/` stays, so the CLI's own `ensure` is then fast.
+    // The entry and ban state are reset after it, so the CLI's `ensure` still has to write the entry and clear the ban.
+    const warm = spawnSync(shimBin, ['ensure', '--install', pkg, '--port', String(rig.port)], { env: rig.env({ SUPERSURF_DEV_ENVIRONMENT: '' }), encoding: 'utf8', timeout: 150000 });
+    if (warm.status !== 0) throw new Error(`warm-up ensure failed: ${warm.stderr}${warm.error ?? ''}`);
+    fs.rmSync(path.join(rig.daemonDir, 'entry'));
     // A banned target version: ensure must append ban_cleared.
     fs.writeFileSync(path.join(rig.daemonDir, 'spawns.jsonl'), JSON.stringify({ ts: Date.now(), pid: 0, entryVersion: PKG_VERSION, outcome: 'handoff_failed', reason: 'seeded' }) + '\n');
-    const oldPid = await rig.start(['--spawned-by=shim']);
     // The rig sets SUPERSURF_DEV_ENVIRONMENT for the daemon; the shim would see it too and take the dev path (no entry, no versions/). This test is the installed path, so the CLI and its shim get it empty.
-    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SERVER_BIN: shimBin, SUPERSURF_DEV_ENVIRONMENT: '' }, 60000, path.join(pkg, 'dist', 'main.js'));
+    // The install is already in place, so this is the hand-off alone; 120 s is headroom for a loaded machine.
+    const r = await rig.cli(['restart', '--port', String(rig.port)], { SUPERSURF_SERVER_BIN: shimBin, SUPERSURF_DEV_ENVIRONMENT: '' }, 120000, path.join(pkg, 'dist', 'main.js'));
     expect(r.out, r.out).toContain(`Daemon restarted (pid ${oldPid} -> `);
     expect(r.out).toContain('Legacy sessions on that daemon have ended; shim sessions reconnect by themselves.');
     expect(r.code).toBe(0);
@@ -292,5 +299,5 @@ describe.skipIf(missing)('restart CLI (real daemon)', () => {
     expect(outcomes).toContain('ban_cleared');
     expect(outcomes).toContain('handoff_committed');
     expect((await rig.status()).pid).toBe(newPid);
-  }, 90000);
+  }, 300000);
 });
