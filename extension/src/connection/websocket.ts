@@ -199,11 +199,14 @@ export class WebSocketConnection {
         this.socket = null;
       }
 
-      this.socket = new WebSocket(url);
-      this.socket.onopen = () => this._handleOpen();
-      this.socket.onmessage = (event) => this._onMessage(event);
-      this.socket.onerror = (error) => this._handleError(error);
-      this.socket.onclose = (event) => this._handleClose(event);
+      // Handlers of a replaced socket must not touch the shared state (a late close
+      // of the old socket would mark the new connection as down).
+      const s = new WebSocket(url);
+      this.socket = s;
+      s.onopen = () => { if (this.socket === s) this._handleOpen(); };
+      s.onmessage = (event) => { if (this.socket === s) this._onMessage(event); };
+      s.onerror = (error) => { if (this.socket === s) this._handleError(error); };
+      s.onclose = (event) => { if (this.socket === s) this._handleClose(event); };
     } catch (error: any) {
       this.logger.logAlways('[WebSocket] Connection error:', error);
       if (this.iconManager) {
